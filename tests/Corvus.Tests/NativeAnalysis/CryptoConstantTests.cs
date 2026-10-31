@@ -28,7 +28,7 @@ public sealed class CryptoConstantTests : IDisposable
     private static byte[] Be(params uint[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
     private static byte[] Pad(int n) => new byte[n];
 
-    private const string Aes = "AES (S-box, inverse S-box or T-table)";
+    private const string Aes = "AES (S-box, inverse S-box, T-table or round constants)";
     private const string Pa = "Blowfish P-array";
     private const ulong ImageBase = 0x180000000;
 
@@ -81,13 +81,56 @@ public sealed class CryptoConstantTests : IDisposable
         AssertAt(Pa, 0x210, text);
     }
 
-    // F-CRYPTO-1: the current rules match little-endian words only.
-    [Fact(Skip = "F-CRYPTO-1")]
+    [Fact]
     public async Task The_AES_big_endian_T_table_is_named_at_its_offset()
     {
         await using var server = await InProcessServer.StartAsync();
         var text = await SurveyBytes(server, [.. Pad(0x200), .. Be(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D), .. Pad(0x80)]);
         AssertAt(Aes, 0x200, text);
+    }
+
+    [Fact]
+    public async Task The_AES_inverse_T_table_is_named_in_both_word_orders()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96), .. Pad(0x100), .. Be(0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96), .. Pad(0x40)]);
+        AssertAt(Aes, 0x100, text);
+        AssertAt(Aes, 0x210, text);
+    }
+
+    private static readonly uint[] Rcon = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36];
+
+    [Fact]
+    public async Task The_AES_round_constants_are_named_as_bytes()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Rcon.Select(r => (byte)r), .. Pad(0x40)]);
+        AssertAt(Aes, 0x100, text);
+    }
+
+    [Fact]
+    public async Task The_AES_round_constants_are_named_as_little_endian_words()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(Rcon), .. Pad(0x40)]);
+        AssertAt(Aes, 0x100, text);
+    }
+
+    [Fact]
+    public async Task The_AES_round_constants_are_named_as_big_endian_words()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Be(Rcon), .. Pad(0x40)]);
+        AssertAt(Aes, 0x100, text);
+    }
+
+    [Fact]
+    public async Task A_round_constant_run_with_one_value_changed_is_not_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] near = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1C, 0x36];
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. near, .. Pad(0x40)]);
+        Assert.DoesNotContain(Aes, text);
     }
 
     // F-CRYPTO-1: the current rules match little-endian words only.

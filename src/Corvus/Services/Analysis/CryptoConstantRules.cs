@@ -15,15 +15,23 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private sealed record Constant(string Algorithm, bool CodeOnly, byte[][] Patterns);
 
     private static byte[] Le(params uint[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
+    private static byte[] Be(params uint[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
     private static byte[] Le64(params ulong[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
 
     private static readonly Dictionary<string, Constant> Constants = new(StringComparer.Ordinal)
     {
-        ["aes"] = new("AES (S-box, inverse S-box or T-table)", false,
+        ["aes"] = new("AES (S-box, inverse S-box, T-table or round constants)", false,
         [
             [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76],
             [0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB],
             Le(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D),
+            Be(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D),
+            Le(0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96),
+            Be(0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96),
+            // Key expansion round constants, shared by the 128-, 192- and 256-bit schedules.
+            [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36],
+            Le(0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36),
+            Be(0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36),
         ]),
         ["sha256"] = new("SHA-256 (initial values or round constants)", false, [Le(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A), Le(0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5)]),
         ["sha512"] = new("SHA-512 (initial values or round constants)", false, [Le64(0x6A09E667F3BCC908, 0xBB67AE8584CAA73B), Le64(0x428A2F98D728AE22, 0x7137449123EF65CD)]),
