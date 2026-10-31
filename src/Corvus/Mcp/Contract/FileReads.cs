@@ -155,8 +155,8 @@ public sealed partial record ToolContract
         // builds
         ["compare_assemblies"] = R.Server,
         ["find_counterpart"] = R.Server,
-        ["compare_folders"] = R.Server,
-        ["compare_native_images"] = R.Server | R.EngineWorker,
+        ["compare_folders"] = R.FileWorker | R.Server,
+        ["compare_native_images"] = R.FileWorker | R.Server | R.EngineWorker,
         ["diff_function"] = R.Server | R.EngineWorker,
         ["map_address_between_builds"] = R.Server,
         ["make_code_pattern"] = R.Server | R.EngineWorker,

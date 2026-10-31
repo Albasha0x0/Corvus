@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ModelContextProtocol.Protocol;
 using Corvus.Core;
 using Corvus.Native.Providers;
@@ -210,6 +211,32 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
         await ReadsAsync(session, zip);
     }
 
+    [Fact]
+    public async Task A_compare_folders_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "compare_folders", new() { ["oldPath"] = Fixture("compare.bin", Corvus.Tools.FileOps.FixtureMarker + "exit"), ["newPath"] = zip }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("compare.bin", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task A_compare_native_images_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, library, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "compare_native_images", new() { ["oldImage"] = Fixture("image.bin", Corvus.Tools.FileOps.FixtureMarker + "exit"), ["newImage"] = library }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("image.bin", failed);
+        await ReadsAsync(session, zip);
+    }
+
     [Theory]
     [InlineData("get_android_manifest")]
     [InlineData("list_android_resources")]
@@ -330,6 +357,10 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
         {
             var (zip, package, library, bytes) = Inputs();
             var dump = SyntheticCrash.Write(_dir);
+            var oldImage = Path.Combine(_dir.Path, "old.dll");
+            var newImage = Path.Combine(_dir.Path, "new.dll");
+            File.WriteAllBytes(oldImage, NativeBuildUpdateTests.Image(false, 0));
+            File.WriteAllBytes(newImage, NativeBuildUpdateTests.Image(true, NativeBuildUpdateTests.Shift));
             var apk = AndroidSamples.Save(_dir, "sample.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
             var calls = new List<(string Tool, Func<string, Dictionary<string, object?>> Args)>
             {
@@ -373,6 +404,15 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
                 ("search_dex", _ => new() { ["path"] = apk, ["kind"] = "string", ["query"] = "api" }),
                 ("find_dex_references", _ => new() { ["path"] = apk, ["target"] = AndroidSamples.NameField }),
                 ("export_project", mode => new() { ["assembly"] = apk, ["outputDirectory"] = Path.Combine(_dir.Path, mode + "-project") }),
+                ("compare_folders", _ => new() { ["oldPath"] = zip, ["newPath"] = package }),
+                ("compare_folders", _ => new() { ["oldPath"] = zip, ["newPath"] = zip, ["change"] = "all", ["limit"] = 2 }),
+                ("compare_folders", _ => new() { ["oldPath"] = library, ["newPath"] = bytes, ["noDiffs"] = true }),
+                ("compare_folders", _ => new() { ["oldPath"] = Path.Combine(_dir.Path, "absent"), ["newPath"] = zip }),
+                ("compare_folders", _ => new() { ["oldPath"] = zip, ["newPath"] = package, ["change"] = "no_such_change" }),
+                ("compare_native_images", _ => new() { ["oldImage"] = oldImage, ["newImage"] = newImage }),
+                ("compare_native_images", _ => new() { ["oldImage"] = oldImage, ["newImage"] = newImage, ["view"] = "changed", ["limit"] = 2 }),
+                ("compare_native_images", _ => new() { ["oldImage"] = oldImage, ["newImage"] = newImage, ["view"] = "unmatched", ["offset"] = 1 }),
+                ("compare_native_images", _ => new() { ["oldImage"] = oldImage, ["newImage"] = newImage, ["view"] = "no_such_view" }),
                 ("dump_heap", _ => new() { ["dump"] = dump }),
                 ("dump_object", _ => new() { ["dump"] = dump, ["address"] = "0x1000" }),
                 ("summarize_file", _ => new() { ["path"] = zip }),
@@ -394,13 +434,15 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
                 var mode = inProcess ? "in-process" : "worker";
                 await using var session = await Session(inProcess);
                 var exit = Fixture("exit.txt", Corvus.Tools.FileOps.FixtureMarker + "exit");
+                // Only the server loads the compared images into its workspace, so its load notices are left out.
                 // Both modes make these calls, so both register the same dump ids; only the worker reads the fixture as a crash.
                 var crashes = new[] { await Call(session, "summarize_file", new() { ["path"] = exit }), await Call(session, "open_minidump", new() { ["path"] = exit }) };
                 if (!inProcess)
                     foreach (var crash in crashes) Assert.Contains("provider_unavailable", Whole(crash));
                 var results = new List<string>();
                 foreach (var (tool, args) in calls)
-                    results.Add(Whole(await Call(session, tool, args(mode))).Replace(Path.Combine(_dir.Path, mode), "<out>").Replace(JsonEncodedText.Encode(Path.Combine(_dir.Path, mode)).ToString(), "<out>"));
+                    results.Add(Regex.Replace(Whole(await Call(session, tool, args(mode))), @"(\n---)?(\n\[workspace\] loaded [^\n]*)+|,""notices"":\[[^\]]*\]", "").Replace(Path.Combine(_dir.Path, mode), "<out>")
+                        .Replace(JsonEncodedText.Encode(Path.Combine(_dir.Path, mode)).ToString(), "<out>"));
                 // The package unpack loaded an assembly: dump reads now name frames from it, so they stay in this process.
                 Assert.DoesNotContain("provider_unavailable", Whole(await Call(session, "open_minidump", new() { ["path"] = exit })));
                 return results;

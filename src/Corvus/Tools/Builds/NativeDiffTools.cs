@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -17,7 +18,7 @@ namespace Corvus.Tools;
 /// <summary>Two builds of one native image: function matching, carrying names and addresses forward, and rebuild-stable code patterns.</summary>
 [McpServerToolType]
 public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null,
-    Services.Analysis.InspectionService? inspection = null)
+    Services.Analysis.InspectionService? inspection = null, ServerOptions? serverOptions = null, Native.Providers.Worker.WorkerPool? workers = null)
 {
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
@@ -44,6 +45,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         public double? BestScore { get; init; }
         public IReadOnlyList<MatchCandidate>? Candidates { get; init; }
     }
+
+    /// <summary>A comparison ready to render: the record, the head text and one page of rows of <paramref name="Total"/>.</summary>
+    public sealed record NativeView(NativeComparison Record, string Head, IReadOnlyList<FunctionRow> Rows, int Total, string Noun, bool Interface);
 
     public sealed record MatchCandidate(string Address, string Name, double Score);
 
@@ -183,17 +187,47 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
         if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous" or "interface"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched, ambiguous or interface");
+        offset = Math.Max(0, offset);
+        NativeView result;
+        if (IsolatedFiles(oldImage, newImage))
+        {
+            var args = new FileWork.CompareNativeArgs(oldImage!, newImage!, v, tier, codeOnly, minScore, offset, limit);
+            result = await FileIsolation.RunAsync(serverOptions, workers, FileWork.CompareNative, args, oldImage!,
+                () => ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken).GetAwaiter().GetResult(),
+                cancellationToken);
+        }
+        else result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        return ToolOutput.List(result.Rows, offset, limit, result.Total,
+            r => result.Interface ? $"{r.OldName}  {r.Reason}" + (r.Old != null ? $"  was {r.Old}" : "") + (r.New != null ? $"  now {r.New}" : "") : RowText(r),
+            page => result.Record with { Items = page }, result.Noun, result.Head);
+    });
+
+    /// <summary>True when both sides are files no image of this server holds, so a files worker can load them; ids and loaded paths stay in the server.</summary>
+    internal bool IsolatedFiles(string? oldImage, string? newImage) =>
+        serverOptions != null && Targets.IsolatedFiles(workspace, oldImage, newImage);
+
+    /// <summary>The comparison of two files through the services of a worker, which has no images loaded.</summary>
+    internal static Task<NativeView> ViewOfFiles(IServiceProvider services, FileWork.CompareNativeArgs a, CancellationToken ct)
+    {
+        var tools = new NativeDiffTools(services.GetRequiredService<AssemblyWorkspace>(), services.GetRequiredService<NativeCodeService>(),
+            inspection: services.GetRequiredService<Services.Analysis.InspectionService>());
+        return tools.ViewOf(a.OldImage, a.NewImage, a.View, a.Tier, a.CodeOnly, a.MinScore, a.Offset, a.Limit, default, ct);
+    }
+
+    /// <summary>The matched builds as one page of view <paramref name="v"/>; <paramref name="progress"/> may have no sink.</summary>
+    internal async Task<NativeView> ViewOf(string? oldImage, string? newImage, string v, int tier, bool codeOnly, double minScore, int offset, int limit,
+        ProgressSpan progress, CancellationToken cancellationToken)
+    {
         var (oldNative, newNative) = await Task.Run(() => (Targets.Native(workspace, oldImage), Targets.Native(workspace, newImage)), cancellationToken);
         if (oldNative.Image is WasmImage oldWasm && newNative.Image is WasmImage newWasm)
             return await Task.Run(() => CompareWasm(oldNative.Id, oldWasm, newNative.Id, newWasm, v, offset, limit, cancellationToken), cancellationToken);
         if (v == "interface") throw new ToolError(ErrorCode.InvalidArgument, "view=interface compares two WebAssembly modules.", "use pairs, changed, unmatched or ambiguous");
         if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.");
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
-        var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, progress, cancellationToken);
         var match = pair.Match;
         var o = match.Old.Index;
         var n = match.New.Index;
-        offset = Math.Max(0, offset);
 
         IReadOnlyList<FunctionRow> rows;
         if (v is "pairs" or "changed")
@@ -230,9 +264,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             head.Append(capabilityText);
         }
         head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
-        return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, RowText, page => record with { Items = page },
-            v is "pairs" or "changed" ? "pair" : "function", head.ToString());
-    });
+        return new NativeView(record, head.ToString(), [.. rows.Skip(offset).Take(Math.Max(0, limit))], rows.Count, v is "pairs" or "changed" ? "pair" : "function", false);
+    }
 
     /// <summary>compare_native_images engine=: the image's file bytes against that engine's memory, ranges by engine address.</summary>
     private async Task<string> CompareEngineMemory(string? image, string? newImage, string engine, int offset, int limit, CancellationToken ct)
@@ -282,7 +315,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         ToolOutput.List(changes.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, changes.Count, EvidenceInput.RowText, record, "change", EvidenceInput.Text(summary));
 
     /// <summary>compare_native_images on two WebAssembly builds: functions paired by name, then by identical body; view=interface compares imports and exports.</summary>
-    private static string CompareWasm(string oldId, WasmImage a, string newId, WasmImage b, string view, int offset, int limit, CancellationToken ct)
+    private static NativeView CompareWasm(string oldId, WasmImage a, string newId, WasmImage b, string view, int offset, int limit, CancellationToken ct)
     {
         var c = Core.WebAssembly.WasmInterface.Compare(a.Module, a.FunctionNames, a.NameSources, b.Module, b.FunctionNames, b.NameSources, ct);
         string Va(WasmImage w, uint f) => $"0x{(w.Module.BodyOf(f) is { } body ? body.Start : w.Module.ImportAt(Core.WebAssembly.WasmExternal.Func, f)?.Offset ?? 0):X}";
@@ -316,9 +349,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             $"{c.Pairs.Count - identical} changed, {signatures} with a new signature); {c.OnlyOld.Count} old and {c.OnlyNew.Count} new unmatched.\n");
         foreach (var note in notes) head.Append("Note: ").Append(note).Append('\n');
         head.Append($"View {view}:\n");
-        return ToolOutput.List(rows.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, rows.Count,
-            r => view == "interface" ? $"{r.OldName}  {r.Reason}" + (r.Old != null ? $"  was {r.Old}" : "") + (r.New != null ? $"  now {r.New}" : "") : RowText(r),
-            page => record with { Items = page }, view == "interface" ? "change" : view is "pairs" or "changed" ? "pair" : "function", head.ToString());
+        return new NativeView(record, head.ToString(), [.. rows.Skip(offset).Take(Math.Max(0, limit))], rows.Count, view == "interface" ? "change" : view is "pairs" or "changed" ? "pair" : "function", view == "interface");
     }
 
     private static string RowText(FunctionRow r)

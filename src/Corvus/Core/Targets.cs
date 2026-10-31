@@ -68,10 +68,18 @@ public static class Targets
         if (notice != null) workspace.Notify(notice);
     }
 
+    /// <summary>True when both values are existing files no loaded image holds; a files worker can read them without the workspace.</summary>
+    public static bool IsolatedFiles(AssemblyWorkspace workspace, string? first, string? second) =>
+        first != null && second != null && LooksLikePath(first.Trim()) && LooksLikePath(second.Trim())
+        && new[] { first, second }.All(v => FullPath(v.Trim()) is { } full && File.Exists(full) && workspace.Read(() => Find(workspace, v.Trim(), TargetKind.Any)) == null);
+
     /// <summary>The pre-call step: every target parameter of the call is prepared (loaded or not_found) before the tool takes the lock.</summary>
     public static void PreResolve(AssemblyWorkspace workspace, string? tool, IReadOnlyDictionary<string, JsonElement>? arguments)
     {
         if (arguments == null || (tool != null && NoPreResolve.Contains(tool))) return;
+        // Two files for a worker to compare are not loaded here.
+        if (tool == "compare_native_images" && !arguments.ContainsKey("engine") && StringArgument(arguments, "oldImage") is { } oldImage
+            && StringArgument(arguments, "newImage") is { } newImage && IsolatedFiles(workspace, oldImage, newImage)) return;
         foreach (var name in Parameters)
         {
             if (!arguments.TryGetValue(name, out var value)) continue;
@@ -85,6 +93,9 @@ public static class Targets
                     if (item.ValueKind == JsonValueKind.String) Prepare(workspace, item.GetString());
         }
     }
+
+    private static string? StringArgument(IReadOnlyDictionary<string, JsonElement> arguments, string name) =>
+        arguments.TryGetValue(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     /// <summary>True when the text names a file system location rather than an id or name.</summary>
     public static bool LooksLikePath(string text) =>
