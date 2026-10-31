@@ -49,6 +49,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>Why <see cref="Tlsh"/> is null; null when it is present.</summary>
         public string? TlshAbsent { get; init; }
+
+        /// <summary>The file's Zone.Identifier stream (Windows); null when it has none.</summary>
+        public ZoneIdentifier? Zone { get; init; }
     }
 
     public sealed record IdentityFacts(string Name, string? Version, string Mvid, string? TargetFramework, string Kind, string Architecture,
@@ -896,6 +899,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var facts = Facts(input, ct);
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
+        if (facts.Zone is { } zone) fileHighlights.Add($"Zone.Identifier: {zone}.");
         if (PlayerLayout.FileHint(full, input.Streamed ? input.Head : input.Bytes) is { } layout) fileHighlights.Add(layout);
         var viewNotes = new List<string>();
         var views = Views(input, viewNotes, ct);
@@ -1095,7 +1099,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         if (PeImage.TryParse(input.Head) == null) certificate = new CertificateInfo(false);
         else
             using (var stream = input.OpenRead()) certificate = Certificates.Read(stream, input.Head);
-        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate) { Tlsh = tlsh, TlshAbsent = tlshAbsent };
+        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate) { Tlsh = tlsh, TlshAbsent = tlshAbsent, Zone = ZoneIdentifier.Of(input.Path) };
     }
 
     private static FileFacts Facts(string path, byte[] bytes)
@@ -1108,6 +1112,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             Imphash = pe ? Imphash(bytes) : null,
             Tlsh = tlsh,
             TlshAbsent = tlshAbsent,
+            Zone = ZoneIdentifier.Of(path),
         };
     }
 
