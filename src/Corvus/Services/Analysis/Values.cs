@@ -47,13 +47,6 @@ public static partial class Values
     private static partial Regex Registry();
     private static readonly Regex RelativeRegistry = R(@"^(?:SOFTWARE|Software|SYSTEM\\CurrentControlSet|System\\CurrentControlSet)\\[^\r\n""]+$");
 
-    /// <summary>XML / schema namespace hosts, excluded from URLs and domains.</summary>
-    private static readonly HashSet<string> NamespaceHosts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "schemas.microsoft.com", "www.w3.org", "w3.org", "schemas.xmlsoap.org", "schemas.openxmlformats.org", "purl.org",
-        "ns.adobe.com", "json-schema.org", "docs.oasis-open.org", "www.xml.org", "xml.org", "tempuri.org", "schema.org",
-    };
-
     /// <summary>TLDs accepted for bare domains; TLDs that double as file extensions are omitted.</summary>
     private static readonly HashSet<string> Tlds = new(StringComparer.Ordinal)
     {
@@ -223,7 +216,7 @@ public static partial class Values
         foreach (var url in Matches(Url, text))
         {
             var clean = url.TrimEnd('.', ',', ';', ')', ']', '\'');
-            if (!Uri.TryCreate(clean, UriKind.Absolute, out var uri) || NamespaceHosts.Contains(uri.Host)) continue;
+            if (!Uri.TryCreate(clean, UriKind.Absolute, out var uri) || BenignHosts.Contains(uri.Host)) continue;
             b.Add("url", clean, where, passedTo);
             hosts.Add(uri.Host);
         }
@@ -308,7 +301,7 @@ public static partial class Values
 
     private static bool IsDomain(string host, bool requireKnownTld)
     {
-        if (host.Length is < 4 or > 253 || NamespaceHosts.Contains(host)) return false;
+        if (host.Length is < 4 or > 253 || BenignHosts.Contains(host)) return false;
         var m = Hostname.Match(host);
         if (!m.Success) return false;
         if (host.Split('.').All(p => p.All(char.IsAsciiDigit) || p.Length == 0)) return false;

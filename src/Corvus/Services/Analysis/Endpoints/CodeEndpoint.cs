@@ -21,13 +21,7 @@ public static partial class EndpointTemplates
     public static bool IsAbsoluteUrl(string s) => AbsoluteUrl().IsMatch(s);
 
     /// <summary>An absolute URL that is not an XML namespace or parser feature name (w3.org, schemas.android.com, ...).</summary>
-    public static bool IsLinkUrl(string s) => IsAbsoluteUrl(s) && (Key(s).Host is not { } host || !NamespaceHosts.Contains(host));
-
-    private static readonly HashSet<string> NamespaceHosts = new(StringComparer.Ordinal)
-    {
-        "www.w3.org", "w3.org", "schemas.android.com", "xml.org", "xmlpull.org", "ns.adobe.com", "schemas.microsoft.com", "schemas.openxmlformats.org",
-        "purl.org", "schemas.xmlsoap.org", "java.sun.com", "xml.apache.org", "apache.org", "www.apple.com", "json-schema.org",
-    };
+    public static bool IsLinkUrl(string s) => IsAbsoluteUrl(s) && (Key(s).Host is not { } host || !BenignHosts.Contains(host));
 
     /// <summary>Joins a base URL and a path as System.Uri resolves them: an absolute path keeps only the origin, a relative one follows the last '/'.</summary>
     public static string Join(string baseUrl, string path)

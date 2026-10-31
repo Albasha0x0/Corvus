@@ -159,6 +159,23 @@ public sealed class IndicatorTests : IDisposable
     }
 
     [Fact]
+    public void Revocation_and_timestamp_hosts_of_the_certificate_infrastructure_are_not_indicators()
+    {
+        var hits = IndicatorList.FromCertificates("certificate",
+            [Certificate("CN=api.example.com", "CN=Example Issuing CA", false, false, "OCSP http://ocsp.digicert.com", "CRL http://crl3.digicert.com/ca.crl",
+                "caIssuers http://cacerts.digicert.com/ca.crt", "OCSP http://oneocsp.microsoft.com/ocsp", "timestamp http://timestamp.digicert.com", "caIssuers http://ca.example.com/ca.cer")], default);
+        Assert.Equal(["ca.example.com", "http://ca.example.com/ca.cer"], hits.Where(h => h.Type is "url" or "domain").Select(h => h.Value).OrderBy(v => v, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void The_endpoint_and_value_readers_share_one_table_of_benign_hosts()
+    {
+        Assert.False(Corvus.Services.Analysis.Endpoints.EndpointTemplates.IsLinkUrl("http://crl4.digicert.com/a.crl"));
+        Assert.False(Corvus.Services.Analysis.Endpoints.EndpointTemplates.IsLinkUrl("http://tempuri.org/"));
+        Assert.Empty(IndicatorList.FromText("text", [("http://tempuri.org/ http://apache.org/", "field")], default));
+    }
+
+    [Fact]
     public void A_self_issued_authority_gives_no_signer_and_no_issuer()
     {
         Assert.Empty(IndicatorList.FromCertificates("certificate", [Certificate("CN=Example Root", "CN=Example Root", true, true)], default));
