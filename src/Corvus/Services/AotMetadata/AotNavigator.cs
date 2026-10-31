@@ -255,6 +255,23 @@ public sealed class AotNavigator(AssemblyWorkspace workspace, AotMetadataService
         fileName.StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
         || AotBuildFiles.BinaryNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Whether a dummy method carries a native address.</summary>
+    public bool HasAddress(MethodDef method) =>
+        workspace.FindByModule(method.Module) is { } asm
+        && aot.GetIndex(asm).Any(m => m.Method == method && m.Rva != null);
+
+    /// <summary>
+    /// The native binary and start RVA behind a dummy method; null when the
+    /// method has no address or its binary is not among the loaded images.
+    /// </summary>
+    public (LoadedNative Binary, uint Rva)? CodeOf(MethodDef method)
+    {
+        if (workspace.FindByModule(method.Module) is not { } asm) return null;
+        var entry = aot.GetIndex(asm).FirstOrDefault(m => m.Method == method);
+        if (entry?.Rva is not { } rva || ImageOf(asm)?.Dump?.Files is not { } files) return null;
+        return workspace.Natives.FirstOrDefault(files.Describes) is { } binary ? (binary, (uint)rva) : null;
+    }
+
     /// <summary>The image holding <paramref name="asm"/>; null when it is not a dummy assembly.</summary>
     public Image? ImageOf(LoadedAssembly asm) => ImagesFor([asm]).FirstOrDefault();
 

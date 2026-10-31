@@ -153,6 +153,41 @@ public sealed partial class NativeLinkService
                 rows.Add($"[{view.Id}] {NativeAddress.Va(view.Image, c.From)}  {c.Kind,-10} {(c.Caller is { } g ? Format.Within(g.Name, g.Start, c.From) : "(no function)")}  calls the thunk {f.Name}");
             rows.AddRange(ImportCallSites(view, f.Start, ct));
         }
+        rows.AddRange(PlaceholderCallSites(method));
+        return rows;
+    }
+
+    /// <summary>
+    /// The loaded binary and RVA behind a dummy method's [Address]; null when
+    /// the method has none or its binary is not loaded.
+    /// </summary>
+    public (LoadedNative Image, uint Rva)? PlaceholderCode(MethodDef method) => navigator?.CodeOf(method);
+
+    /// <summary>
+    /// Why a dummy method's native callers or callees are unknown; null when
+    /// its function was read or the method has no address.
+    /// </summary>
+    public string? PlaceholderGap(MethodDef method)
+    {
+        const string Tail = "for native callers and callees";
+        var notLoaded = $"its native binary is not loaded: load_assembly it {Tail}";
+        if (navigator == null) return null;
+        if (PlaceholderCode(method) is not { } at)
+            return navigator.HasAddress(method) ? notLoaded : null;
+        return code.Ready(at.Image) == null
+            ? $"the code index of {at.Image.Id} is still building: repeat {Tail}"
+            : null;
+    }
+
+    // Native call sites of the function behind a dummy method.
+    private List<string> PlaceholderCallSites(MethodDef method)
+    {
+        var rows = new List<string>();
+        if (PlaceholderCode(method) is not { } at || code.Ready(at.Image) is not { } index || index.FunctionByStart(at.Rva) is not { } fn)
+            return rows;
+        foreach (var c in index.Callers(fn))
+            rows.Add($"[{at.Image.Id}] {NativeAddress.Va(at.Image.Image, c.From)}  {c.Kind,-10} " +
+                     $"{(c.Caller is { } f ? Format.Within(f.Name, f.Start, c.From) : "(no function)")}  calls {fn.Name}");
         return rows;
     }
 

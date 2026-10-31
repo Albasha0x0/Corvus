@@ -41,7 +41,14 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             for (int i = offset; i < Math.Min(total, End(offset, limit)); i++)
                 page.Add(i < r.Total ? Entry(r.Items[i], null) : NativeSite(nativeSites[i - r.Total]));
             var header = $"References to {target.Kind} {target.Label} [{target.Assembly.Id}]: ";
-            if (total == 0)
+            var gap = target.Member is MethodDef gm ? link?.PlaceholderGap(gm) : null;
+            if (total > 0 && gap != null)
+                header += $"(native callers unknown: {gap})\n";
+            if (total == 0 && gap != null)
+                header += $"none found; {gap}.\n";
+            else if (total == 0 && target.Member is MethodDef pm && link?.PlaceholderCode(pm) != null)
+                header += "none found in loaded assemblies or in the native code.\n";
+            else if (total == 0)
                 header += workspace.Assemblies.Count == 1
                     ? "none found. Only loaded assemblies are searched: load the assemblies that might use it.\n"
                     : "none found in loaded assemblies.\n";
@@ -162,6 +169,15 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                 link.NativeCallees(md, 2, 1, 5_000, cancellationToken, nodes);
                 return NativePage(label, $"{label} is a {own.Kind} with no IL body; it runs:\n", nodes, offset, limit);
             }
+            if (link?.PlaceholderCode(md) is { } placeholder && link.Index(placeholder.Image)?.FunctionByStart(placeholder.Rva) is { } fn)
+            {
+                var nodes = new List<NativeTreeNode>();
+                link.AppendTree(new StringBuilder(), placeholder.Image, fn, false, 1, 5_000, 1, withRoot: false, cancellationToken, rows: nodes, home: placeholder.Image);
+                return NativePage(label, $"{label} is a generated placeholder; its native code {fn.Name} runs:\n", nodes, offset, limit);
+            }
+            if (link?.PlaceholderCode(md) is { } missing)
+                return $"{label} is a generated placeholder; no function starts at "
+                    + $"{NativeAddress.Va(missing.Image.Image, missing.Rva)} in {missing.Image.Id}.\n";
             var list = references.FindCallees(md);
             var entries = distinct
                 ? list.GroupBy(c => (c.Kind, c.Target)).OrderBy(g => g.Key.Kind).ThenBy(g => g.Key.Target)
@@ -179,7 +195,8 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                     Native = NativeTarget(c),
                 }).ToList();
             return ToolOutput.List(entries.Skip(offset).Take(limit).ToList(), offset, limit, entries.Count, CalleeRow,
-                rows => new CalleeList(label, rows, offset, entries.Count), "callee", $"{label} uses:\n");
+                rows => new CalleeList(label, rows, offset, entries.Count), "callee",
+                $"{label} uses:\n" + (link?.PlaceholderGap(md) is { } calleeGap ? $"  (native callees unknown: {calleeGap})\n" : ""));
         }, cancellationToken);
 
         string? NativeTarget(ReferenceService.Callee c) =>

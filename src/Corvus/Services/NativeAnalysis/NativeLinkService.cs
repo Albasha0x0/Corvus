@@ -9,8 +9,11 @@ using Corvus.Native.Pe;
 namespace Corvus.Services;
 
 // Bindings are memoized per set of loaded images; thunk hops are followed at query time once the provider is indexed.
-/// <summary>Cross-image navigation: binds imports and P/Invokes to the exports they reach and walks call trees across images.</summary>
-public sealed partial class NativeLinkService(AssemblyWorkspace workspace, NativeCodeService code)
+/// <summary>
+/// Cross-image navigation: binds imports and P/Invokes to the exports they
+/// reach, dummy methods to their native functions, and walks call trees.
+/// </summary>
+public sealed partial class NativeLinkService(AssemblyWorkspace workspace, NativeCodeService code, AotNavigator? navigator = null)
 {
     public const string Bound = "bound", NotLoaded = "not_loaded", Unresolved = "unresolved";
 
