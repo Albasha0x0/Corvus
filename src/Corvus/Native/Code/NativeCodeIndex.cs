@@ -92,6 +92,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         _functions = functions;
         _byStart = functions.ToDictionary(f => f.Start);
         FindJumpThunks();
+        NameVirtualInvokers();
         // Known names here are the discovered ones; sources later override them per address only.
         _discoveredByName = functions.Where(f => f.KnownName != null).GroupBy(f => f.KnownName!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Select(f => f.Start).ToArray(), StringComparer.Ordinal);
@@ -566,6 +567,20 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 if (_byStart[target].KnownName is { } name)
                     foreach (uint t in thunks)
                         if (_byStart[t].KnownName == null) { _byStart[t].KnownName = "j_" + name; changed = true; }
+        }
+    }
+
+    /// <summary>Names unnamed small x86 / x64 slot-indexed vtable tail-call helpers.</summary>
+    private void NameVirtualInvokers()
+    {
+        if (Image.Arch is not (NativeArch.X86 or NativeArch.X64)) return;
+        var b = new byte[0x40];
+        foreach (var f in _functions)
+        {
+            if (f.KnownName != null || f.ThunkImport != null || f.BlockCount != 1 || f.InstructionCount > 12 || f.Size > b.Length) continue;
+            if (Image.Read(f.Start, b.AsSpan(0, (int)f.Size)) < f.Size) continue;
+            if (VirtualInvokerShape.Matches(b.AsSpan(0, (int)f.Size), Image.Is64Bit, Image.ImageBase + f.Start))
+                f.KnownName = VirtualInvokerShape.NamePrefix + f.Start.ToString("X");
         }
     }
 
