@@ -20,6 +20,67 @@ public class NativeAddressTests
             : null, entry: First);
     }
 
+    private static CodeTestImage ImportImage() => CodeTestImage.Synthetic(NativeArch.X64, new byte[0x40], imports:
+        [new("KERNEL32.dll", "Sleep", null, 0, 0x2000, false), new("KERNEL32.dll", "ExitProcess", null, 0, 0x2008, false),
+         new("USER32.dll", "ExitProcess", null, 0, 0x2010, false)], entry: First);
+
+    [Fact]
+    public void A_unique_bare_import_resolves_to_its_slot()
+    {
+        Assert.Equal(0x2000u, NativeAddress.Parse(ImportImage(), "Sleep"));
+    }
+
+    [Fact]
+    public void A_bare_import_resolves_on_a_MachO_image_without_the_underscore()
+    {
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, new byte[0x40], imports: [new("libSystem.B.dylib", "_Sleep", null, 0, 0x2000, false)], format: ImageFormat.MachO);
+        Assert.Equal(0x2000u, NativeAddress.Parse(image, "Sleep"));
+    }
+
+    [Fact]
+    public void The_entry_pseudo_name_wins_over_an_import_named_entry()
+    {
+        var image = CodeTestImage.Synthetic(NativeArch.X64, new byte[0x40], imports: [new("KERNEL32.dll", "entry", null, 0, 0x2000, false)], entry: First);
+        Assert.Equal(First, NativeAddress.Parse(image, "entry"));
+    }
+
+    [Fact]
+    public void An_image_without_an_entry_point_reports_entry_as_not_found()
+    {
+        var e = Assert.Throws<ToolError>(() => NativeAddress.Parse(CodeTestImage.Synthetic(NativeArch.X64, new byte[0x40]), "entry"));
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+        Assert.Contains("has no entry point", e.Message);
+    }
+
+    [Fact]
+    public void Native_tool_addresses_accept_entry_and_a_bare_import()
+    {
+        var index = NativeCodeIndex.Build(ImportImage());
+        Assert.Equal(First, NativeCodeTools.Address(index, "entry"));
+        Assert.Equal(0x2000u, NativeCodeTools.Address(index, "Sleep"));
+    }
+
+    [Fact]
+    public void An_ambiguous_bare_import_names_each_module()
+    {
+        var e = Assert.Throws<ToolError>(() => NativeAddress.Parse(ImportImage(), "ExitProcess"));
+        Assert.Equal(ErrorCode.Ambiguous, e.Code);
+        Assert.Contains("KERNEL32.dll", e.Message);
+        Assert.Contains("USER32.dll", e.Message);
+    }
+
+    [Fact]
+    public void An_unknown_bare_import_is_not_found()
+    {
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => NativeAddress.Parse(ImportImage(), "Missing")).Code);
+    }
+
+    [Fact]
+    public void The_entry_pseudo_name_resolves_the_entry_point()
+    {
+        Assert.Equal(First, NativeAddress.Parse(ImportImage(), "entry"));
+    }
+
     [Fact]
     public void MachO_symbols_resolve_by_their_C_name_without_the_leading_underscore()
     {

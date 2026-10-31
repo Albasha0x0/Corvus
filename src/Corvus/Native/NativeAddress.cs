@@ -7,7 +7,7 @@ namespace Corvus.Native;
 /// <summary>An address a name resolves to, with the name's source (user, pdb, export, import, ...).</summary>
 public readonly record struct AddressCandidate(uint Rva, string Source);
 
-/// <summary>Parses native tool addresses (number, rva:/va:/off:, export, module!import, name, engine default name) into RVAs; a number inside the image's VA range is a VA, and a name on several addresses is an ambiguous error.</summary>
+/// <summary>Parses native tool addresses (number, rva:/va:/off:, export, module!import, bare import name, entry, name, engine default name) into RVAs; a number inside the image's VA range is a VA, and a name on several addresses is an ambiguous error.</summary>
 public static class NativeAddress
 {
     public static uint Parse(INativeImage image, string text, Func<string, IReadOnlyList<AddressCandidate>>? names = null)
@@ -50,6 +50,14 @@ public static class NativeAddress
             if (candidates.Count == 0)
                 throw new ToolError(ErrorCode.NotFound, $"{Path.GetFileName(image.Path)} does not import {t}.", "list_imports shows what it imports");
         }
+        // The entry pseudo-name comes after real names, before imports.
+        if (candidates.Count == 0 && bang < 0 && t.Equals("entry", StringComparison.OrdinalIgnoreCase))
+            return image.EntryPointRva != 0 ? image.EntryPointRva
+                : throw new ToolError(ErrorCode.NotFound, $"{Path.GetFileName(image.Path)} has no entry point.", "pass an address or a function name from list_functions");
+        // A bare import name is a last resort after real names.
+        if (candidates.Count == 0 && bang < 0)
+            foreach (var i in image.Imports)
+                if (i.Name == t && !candidates.Exists(k => k.Rva == i.SlotRva)) candidates.Add(new(i.SlotRva, $"import {i.Module}"));
         candidates = WithoutJumpThunks(image, candidates);
         if (candidates.Count == 1) return candidates[0].Rva;
         if (candidates.Count > 1) throw Ambiguous(image, t, candidates);
