@@ -110,7 +110,7 @@ public static class Toolsets
             "compare_assemblies", "compare_native_images", "find_counterpart", "compare_folders", "map_address_between_builds", "diff_function", "make_code_pattern", "search_code_pattern",
             "get_android_manifest", "list_android_resources", "list_dex_classes", "get_dex_class", "disassemble_dex", "map_java_dotnet", "decompile_java",
             "search_dex", "find_dex_references", "list_jni_bindings",
-            "open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps", "list_notes",
+            "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps", "list_notes",
         ],
         ["triage"] =
         [
