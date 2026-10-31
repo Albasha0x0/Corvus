@@ -35,7 +35,9 @@ public static class AotRuntimeHelpers
     /// Helpers found through <paramref name="native"/>'s exports and call
     /// shapes, ordered by RVA; empty when none match. Addresses in
     /// <paramref name="taken"/> are skipped. An export wrapper that makes
-    /// zero or several direct calls names nothing.
+    /// zero or several direct calls names nothing. Class init and the
+    /// constructor run are named from exports only; they have no call-shape
+    /// match.
     /// </summary>
     public static IReadOnlyList<Helper> Find(INativeImage native, NativeCodeIndex index, IReadOnlySet<uint> taken, CancellationToken ct = default)
     {
@@ -79,10 +81,12 @@ public static class AotRuntimeHelpers
             ct.ThrowIfCancellationRequested();
             if (index.FunctionByStart(start) is not { } f) continue;
             // The lowest call site address is the first call the method makes.
-            var call = index.Callees(f, CallEdgeFilter.Direct).Where(c => c.Kind == XrefKind.Call).OrderBy(c => c.From).FirstOrDefault();
+            var call = index.Callees(f, CallEdgeFilter.Direct).Where(c => c.Kind is XrefKind.Call or XrefKind.ImportCall).OrderBy(c => c.From).FirstOrDefault();
             if (call == null) continue;
             callers++;
-            if (call.Function == null) continue;
+            // An import call or an unresolved target counts as a caller only,
+            // so it lowers the share.
+            if (call.Kind != XrefKind.Call || call.Function == null) continue;
             first[call.Function.Start] = first.GetValueOrDefault(call.Function.Start) + 1;
         }
         var best = first.Where(p => !named.Contains(p.Key) && !skip.Contains(p.Key)).OrderByDescending(p => p.Value).ThenBy(p => p.Key).FirstOrDefault();
