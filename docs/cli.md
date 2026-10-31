@@ -62,7 +62,9 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - `--json`: one object `{tool, isError, text, structured, error}`. `error` is the parsed record
   (`{code, retryable, message, next, partial, details}`, [errors.md](errors.md)). Indented on a terminal, one line when piped.
 - `--structured`: only the structured content, for `jq`. A tool without structured output is a usage error.
-- Progress is one updating line on stderr when stderr is a terminal.
+- Progress is one updating line on stderr in a terminal.
+- Piped stderr gets one `tool: [n/total] message` line per second, including `batch` steps.
+- The 1-second interval is fixed; the final step is always written.
 
 ## Batch
 

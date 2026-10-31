@@ -9,7 +9,11 @@ using Corvus.Mcp;
 namespace Corvus.Setup;
 
 /// <summary>The tool CLI's streams; Tty flags select indented JSON and a progress line.</summary>
-internal sealed record CliIo(TextWriter Out, TextWriter Error, TextReader In, bool OutTty = false, bool ErrorTty = false);
+internal sealed record CliIo(TextWriter Out, TextWriter Error, TextReader In, bool OutTty = false, bool ErrorTty = false)
+{
+    /// <summary>The run's progress lines for a non-terminal stderr, throttled across every call.</summary>
+    internal ProgressLog Log { get; } = new(Error);
+}
 
 /// <summary>Every tool from the terminal, typed from the live catalog and run through an in-process server.</summary>
 internal static partial class ToolCli
@@ -150,7 +154,7 @@ internal static partial class ToolCli
     /// <summary>One tool call; null after reporting a protocol error (a tool the --toolsets leave out).</summary>
     private static async Task<CallToolResult?> Invoke(ToolSession session, string name, Dictionary<string, object?> arguments, CliIo io, CancellationToken cancellationToken)
     {
-        IProgress<ProgressNotificationValue>? progress = io.ErrorTty ? new ProgressLine(io.Error) : null;
+        IProgress<ProgressNotificationValue> progress = io.ErrorTty ? new ProgressLine(io.Error) : io.Log.For(name);
         try
         {
             var result = await session.Client.CallToolAsync(name, arguments, progress, cancellationToken: cancellationToken);
@@ -161,6 +165,10 @@ internal static partial class ToolCli
         {
             io.Error.WriteLine($"{name}: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            if (progress is not ProgressLine) io.Log.Flush();
         }
     }
 
