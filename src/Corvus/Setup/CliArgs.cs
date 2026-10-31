@@ -38,6 +38,7 @@ internal sealed partial class CliArgs
     public bool JsonLines { get; private set; }
     public bool Wait { get; private set; }
     public string? Out { get; private set; }
+    public string? Session { get; private set; }
 
     public static CliArgs Parse(IReadOnlyList<string> tokens)
     {
@@ -73,6 +74,7 @@ internal sealed partial class CliArgs
                 case "--jsonl": a.JsonLines = true; continue;
                 case "--wait": a.Wait = true; continue;
                 case "--out": a.Out = Next(); continue;
+                case "--session": a.Session = Next(); continue;
             }
             if (t.StartsWith("--", StringComparison.Ordinal))
             {

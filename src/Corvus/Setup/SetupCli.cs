@@ -143,6 +143,7 @@ internal static class SetupCli
                                 the open database to Corvus when CORVUS_IDA_CONNECT=1.
           analyze <image>       Run auto-analysis of a native image (reanalyze_native arguments follow);
                                 --wait runs it as a background job, polls its status and reports the outcome.
+          serve --session NAME  Keep a named session open; call --session NAME (or CORVUS_SESSION) routes to it.
         Tool exit codes: 0 success, 1 tool error, 2 usage or invalid_argument, 3 engine missing or unsupported,
         124 timeout, 130 cancelled (Ctrl+C).
         """;

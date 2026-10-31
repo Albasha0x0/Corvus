@@ -22,6 +22,7 @@ agent's call. Tool reference: [tools.md](tools.md). Setup commands (`install`, `
 | `rules import <archive> [pack]` | install a pack from a local copy of its pinned archive; no network |
 | `ida-script [folder]` | write `corvus_connect.py` for using a database open in IDA |
 | `analyze <image> [--wait] [name=value ...]` | run auto-analysis of a native image; takes the `reanalyze_native` arguments |
+| `serve --session NAME [server options]` | keep a named session open for routed calls ([below](#session)) |
 
 - Tool names take snake case or kebab case (`decompile-member`). `corvus help` lists these and the setup commands.
 - `rules fetch` and `rules import` refuse a pack unless its SHA-256 matches the pinned value. They install under
@@ -67,6 +68,16 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - Progress is one updating line on stderr in a terminal.
 - Piped stderr gets one `tool: [n/total] message` line per second, including `batch` steps.
 - The 1-second interval is fixed; the final step is always written.
+
+## Session
+
+- `serve --session NAME [server options]` keeps loaded images in a named session until Ctrl+C.
+- `--session NAME` (or `CORVUS_SESSION=NAME`) routes a tool call to it; IDs and unsaved edits carry over between calls.
+- With `CORVUS_SESSION` set, every `call` is a routed call and needs `serve` running.
+- Server options belong to `serve`; a routed call with `--session` and one is a usage error, with `CORVUS_SESSION` they are ignored.
+- `serve` on a name already in use is a usage error (exit code 2).
+- Only the starting account can reach a session; calls run one at a time.
+- A routed call to a name with no running session is exit code 3.
 
 ## Batch
 

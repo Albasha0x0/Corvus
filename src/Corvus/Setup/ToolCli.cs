@@ -31,7 +31,7 @@ internal static partial class ToolCli
     }
 
     /// <summary>The CLI's commands; any other first word that is not a setup command is a tool name.</summary>
-    public static readonly string[] Commands = ["call", "tools", "describe", "help", "batch", "prompts", "prompt", "resources", "read", "completion", "rules", "ida-script", "analyze"];
+    public static readonly string[] Commands = ["call", "tools", "describe", "help", "batch", "prompts", "prompt", "resources", "read", "completion", "rules", "ida-script", "analyze", "serve"];
 
     internal const string Program = "corvus";
 
@@ -98,6 +98,7 @@ internal static partial class ToolCli
                 "rules" => await RulesAsync(a, io, cancellationToken),
                 "ida-script" => IdaScript(a, io),
                 "analyze" => await AnalyzeAsync(a, io, cancellationToken),
+                "serve" => await ServeAsync(a, io, cancellationToken),
                 _ => Describe(a, io),
             };
         }
@@ -150,6 +151,25 @@ internal static partial class ToolCli
         var name = NameOf(tool);
         if (a.Structured && tool["outputSchema"] is null) throw new UsageException($"{name} has no structured output; use --json.");
         var arguments = a.ToolArguments(tool["inputSchema"], io.In);
+        if (SessionOf(a) is { } sessionName)
+        {
+            if (a.ServerArgs.Count > 0)
+            {
+                var message = $"{a.ServerArgs[0]} belongs to serve: a routed call uses the session's options.";
+                if (a.Session != null) throw new UsageException(message);
+                io.Error.WriteLine($"Ignoring {a.ServerArgs[0]}: {SessionVariable} routes this call. {message}");
+            }
+            try
+            {
+                var routed = await InvokeRemote(sessionName, name, arguments, io, cancellationToken);
+                return routed is null ? Exit.Usage : Print(name, routed, a, io);
+            }
+            catch (SessionUnreachableException ex)
+            {
+                io.Error.WriteLine(ex.Message);
+                return Exit.Environment;
+            }
+        }
         var options = a.Server(oneShot: true);
         await using var session = await ToolSession.StartAsync(options, cancellationToken);
         var result = await Invoke(session, name, arguments, io, cancellationToken);
