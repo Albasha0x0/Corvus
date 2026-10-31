@@ -107,13 +107,25 @@ internal static partial class ToolCli
         var sarif = OutputPath("--sarif", a.Sarif);
         if (sarif != null && Directory.Exists(sarif)) throw new UsageException($"--sarif names a file, not a folder: {a.Sarif}.");
         var comparisons = new List<JsonObject>();
-        await using var session = await ToolSession.StartAsync(a.Server(), cancellationToken);
+        var routed = RoutedSession(a, io);
+        await using var session = routed == null ? await ToolSession.StartAsync(a.Server(), cancellationToken) : null;
         int exit = Exit.Ok;
         for (int i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
-            var (result, expired) = await WithStepLimit(stepSeconds, cancellationToken, ct => Invoke(session, step.Tool, step.Arguments, io, ct));
+            CallToolResult? result;
+            bool expired;
+            try
+            {
+                (result, expired) = await WithStepLimit(stepSeconds, cancellationToken, ct => routed == null ? Invoke(session!, step.Tool, step.Arguments, io, ct) : InvokeRemote(routed, step.Tool, step.Arguments, io, ct));
+            }
+            catch (SessionUnreachableException ex)
+            {
+                io.Error.WriteLine(ex.Message);
+                exit = Exit.Environment;
+                break;
+            }
             if (expired)
             {
                 if (ReportStepTimeout(io, a.Json, i + 1, steps.Count, step.Tool, stepSeconds, a.StopOnError, ref exit)) break;

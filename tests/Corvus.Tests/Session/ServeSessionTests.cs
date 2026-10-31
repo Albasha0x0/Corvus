@@ -57,6 +57,40 @@ public class ServeSessionTests
     }
 
     [Fact]
+    public async Task A_routed_batch_step_sees_an_image_loaded_by_a_routed_call()
+    {
+        var name = Unique();
+        var image = Path.Combine(AppContext.BaseDirectory, "corvus.dll").Replace("\\", "/");
+        var steps = Path.Combine(Path.GetTempPath(), name + ".jsonl");
+        await File.WriteAllTextAsync(steps, "{\"tool\":\"list_assemblies\"}\n");
+        try
+        {
+            await using var host = await new Host(name).StartAsync();
+            var loaded = await ToolCliTests.Run("load_assembly", "--session", name, "path=" + image);
+            Assert.Equal(0, loaded.Code);
+            var (code, output, _) = await ToolCliTests.Run("batch", steps, "--session", name);
+            Assert.Equal(0, code);
+            Assert.Contains("corvus", output);
+        }
+        finally { File.Delete(steps); }
+    }
+
+    [Fact]
+    public async Task A_batch_to_a_session_that_is_not_running_exits_with_3()
+    {
+        var name = Unique();
+        var steps = Path.Combine(Path.GetTempPath(), name + ".jsonl");
+        await File.WriteAllTextAsync(steps, "{\"tool\":\"list_assemblies\"}\n");
+        try
+        {
+            var (code, _, error) = await ToolCliTests.Run("batch", steps, "--session", name);
+            Assert.Equal(3, code);
+            Assert.Contains(name, error);
+        }
+        finally { File.Delete(steps); }
+    }
+
+    [Fact]
     public async Task A_routed_tool_error_exits_with_the_code_of_an_in_process_call()
     {
         var name = Unique();

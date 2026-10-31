@@ -52,7 +52,7 @@ agent's call. Tool reference: [tools.md](tools.md). Setup commands (`install`, `
 Every server option applies ([configuration.md](configuration.md#server-options)). Most used:
 
 - `--load PATH` preloads a file or folder (repeatable): `corvus get_type_info --load app.dll type=Ns.Type`.
-- `--no-index` skips background indexing in a `batch` session. A single call skips it unless its tool needs the index.
+- `--no-index` skips background indexing in a `batch` session; a routed batch uses the session's options. A single call skips it unless its tool needs the index.
 - `--max-output N` restores paging. Without it, the command line prints whole results.
 - `--timeout S`, `--engine E`, `--toolsets T`, `--log-level L`: as for the server.
 - `--audit F` appends one JSON line per call to `F`; a path outputs may not reach stops start-up.
@@ -75,8 +75,9 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - `--session NAME` (or `CORVUS_SESSION=NAME`) routes a tool call to it; IDs and unsaved edits carry over between calls.
 - With `CORVUS_SESSION` set, every `call` is a routed call and needs `serve` running.
 - Server options belong to `serve`; a routed call with `--session` and one is a usage error, with `CORVUS_SESSION` they are ignored.
+- `batch steps.jsonl --session NAME` runs each step in the session; `batch --file` and `analyze` stay in-process.
 - `serve` on a name already in use is a usage error (exit code 2).
-- Only the starting account can reach a session; calls run one at a time.
+- Only the starting account can reach a session; calls run one at a time, and a step abandoned by `--step-timeout` or Ctrl+C is cancelled before the next one starts.
 - A routed call to a name with no running session is exit code 3.
 
 ## Batch

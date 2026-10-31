@@ -107,6 +107,11 @@ internal static partial class ToolCli
             io.Error.WriteLine($"{ex.Message} Run: {Program} help");
             return Exit.Usage;
         }
+        catch (SessionUnreachableException ex)
+        {
+            io.Error.WriteLine(ex.Message);
+            return Exit.Environment;
+        }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             io.Error.WriteLine("Cancelled.");
@@ -151,29 +156,26 @@ internal static partial class ToolCli
         var name = NameOf(tool);
         if (a.Structured && tool["outputSchema"] is null) throw new UsageException($"{name} has no structured output; use --json.");
         var arguments = a.ToolArguments(tool["inputSchema"], io.In);
-        if (SessionOf(a) is { } sessionName)
+        if (RoutedSession(a, io) is { } sessionName)
         {
-            if (a.ServerArgs.Count > 0)
-            {
-                var message = $"{a.ServerArgs[0]} belongs to serve: a routed call uses the session's options.";
-                if (a.Session != null) throw new UsageException(message);
-                io.Error.WriteLine($"Ignoring {a.ServerArgs[0]}: {SessionVariable} routes this call. {message}");
-            }
-            try
-            {
-                var routed = await InvokeRemote(sessionName, name, arguments, io, cancellationToken);
-                return routed is null ? Exit.Usage : Print(name, routed, a, io);
-            }
-            catch (SessionUnreachableException ex)
-            {
-                io.Error.WriteLine(ex.Message);
-                return Exit.Environment;
-            }
+            var routed = await InvokeRemote(sessionName, name, arguments, io, cancellationToken);
+            return routed is null ? Exit.Usage : Print(name, routed, a, io);
         }
         var options = a.Server(oneShot: true);
         await using var session = await ToolSession.StartAsync(options, cancellationToken);
         var result = await Invoke(session, name, arguments, io, cancellationToken);
         return result is null ? Exit.Usage : Print(name, result, a, io);
+    }
+
+    /// <summary>The session a call or batch routes to, or null; server options are a usage error with --session, ignored otherwise.</summary>
+    internal static string? RoutedSession(CliArgs a, CliIo io)
+    {
+        if (SessionOf(a) is not { } name) return null;
+        if (a.ServerArgs.Count == 0) return name;
+        var message = $"{a.ServerArgs[0]} belongs to serve: a routed call or batch uses the session's options.";
+        if (a.Session != null) throw new UsageException(message);
+        io.Error.WriteLine($"Ignoring {a.ServerArgs[0]}: {SessionVariable} routes this call or batch. {message}");
+        return name;
     }
 
     /// <summary>The --step-timeout in seconds; null when not given; a usage error unless above 0 and at most 86400.</summary>
