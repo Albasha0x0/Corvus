@@ -80,6 +80,94 @@ public sealed partial class AotFieldNotesTests
     }
 
     [Fact]
+    public void A_direct_call_through_the_class_pointer_names_the_method_in_the_slot()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    [Fact]
+    public void A_call_offset_below_the_vtable_start_has_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rax + 0x138 - 8]);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_call_offset_off_a_slot_boundary_has_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rax + 0x138 + 5]);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_call_through_a_register_that_is_not_a_class_pointer_has_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, r8);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_class_pointer_overwritten_before_the_call_has_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.mov(rax, r8);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_truncated_class_pointer_gets_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.mov(edx, eax);
+            a.call(__qword_ptr[rdx + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void The_vtable_start_is_0x128_below_metadata_24_2_and_0x138_from_it()
+    {
+        Assert.Equal(0x128, AotSlotNotes.VtableStart(24.1f));
+        Assert.Equal(0x138, AotSlotNotes.VtableStart(24.2f));
+        Assert.Equal(0x138, AotSlotNotes.VtableStart(29f));
+    }
+
+    [Fact]
     public void A_receiver_that_is_this_names_the_method_in_the_slot()
     {
         var notes = SlotNotes(a =>

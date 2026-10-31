@@ -18,10 +18,24 @@ public static class AotSlotNotes
 
     private sealed record Receiver(TypeDef Type) : Value;
 
+    private sealed record ClassPointer(TypeDef Type) : Value;
+
+    private const int SlotSize = 16;
+
+    // Metadata version assumed when the build has no model; the current layout.
+    private const float CurrentMetadataVersion = 29f;
+
+    // Offset of the first vtable entry in the class record on x64. The 0x138
+    // start is tested at metadata 24.2 and later; 0x128 before it is
+    // source-derived from the earlier class record layout, not tested.
+    internal static int VtableStart(float metadataVersion) => metadataVersion >= 24.2f ? 0x138 : 0x128;
+
     /// <summary>
-    /// Notes keyed by call RVA for the helper(slot, object) calls of
+    /// Notes keyed by call RVA for the helper(slot, object) calls and the
+    /// direct call [class + offset] vtable calls of
     /// <paramref name="fn"/>. Empty on non-x64 images and on images without
-    /// metadata; a call whose slot is not a constant has no entry.
+    /// metadata; a call whose slot is not a constant, whose base is not a known
+    /// class pointer, or whose offset is outside the vtable has no entry.
     /// </summary>
     public static Dictionary<uint, string> Comments(LoadedNative native, NativeCodeIndex index, NativeFunction fn, CancellationToken ct = default)
     {
@@ -54,7 +68,11 @@ public static class AotSlotNotes
         bool IsHelperCall(in Instruction i) =>
             i.FlowControl == FlowControl.Call && i.Op0Kind == OpKind.NearBranch64
             && Helper((uint)(i.NearBranchTarget - imageBase)) != null;
-        if (!instructions.Any(i => IsHelperCall(i))) return notes;
+        int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
+        // A direct call needs the class pointer, loaded from a receiver's first field.
+        bool IsVtableCall(in Instruction i) =>
+            i.FlowControl == FlowControl.IndirectCall && i.Op0Kind == OpKind.Memory;
+        if (!instructions.Any(i => IsHelperCall(i) || IsVtableCall(i))) return notes;
         // A jump table or computed jump has targets this scan cannot see.
         for (int k = 0; k < instructions.Count - 1; k++)
             if (instructions[k].FlowControl == FlowControl.IndirectBranch) return notes;
@@ -83,6 +101,14 @@ public static class AotSlotNotes
                 foreach (var r in clobbered) state.Remove(r);
                 continue;
             }
+            if (IsVtableCall(ins))
+            {
+                if (VtableSlot(ins, vtableStart, state) is { } direct
+                    && Describe(applied.Image, direct.Slot, new Receiver(direct.Type)) is { } directNote)
+                    notes[(uint)(ins.IP - imageBase)] = directNote;
+                foreach (var r in clobbered) state.Remove(r);
+                continue;
+            }
             var loaded = Load(ins, state);
             foreach (var u in info.GetInfo(ins).GetUsedRegisters())
                 if (u.Access is OpAccess.Write or OpAccess.ReadWrite or OpAccess.CondWrite or OpAccess.ReadCondWrite)
@@ -90,6 +116,18 @@ public static class AotSlotNotes
             if (loaded != null) state[ins.Op0Register.GetFullRegister()] = loaded;
         }
         return notes;
+    }
+
+    // The slot a call [class + offset] addresses when the base holds the class
+    // pointer of a known type; null for others.
+    private static (TypeDef Type, long Slot)? VtableSlot(
+        in Instruction ins, int start, Dictionary<Register, Value> state)
+    {
+        if (ins.MemoryIndex != Register.None || ins.SegmentPrefix != Register.None
+            || !ins.MemoryBase.IsGPR64() || ins.MemoryBase == Register.RIP
+            || state.GetValueOrDefault(ins.MemoryBase) is not ClassPointer klass) return null;
+        long offset = (long)ins.MemoryDisplacement64;
+        return offset >= start && (offset - start) % SlotSize == 0 ? (klass.Type, (offset - start) / SlotSize) : null;
     }
 
     // Shared, generic and value-type methods have no single receiver type.
@@ -150,10 +188,12 @@ public static class AotSlotNotes
                 && (ins.Op1Register.IsGPR64() || ins.Op1Register.IsGPR32()):
                 var copied = state.GetValueOrDefault(ins.Op1Register.GetFullRegister());
                 // A 32-bit copy truncates a pointer.
-                return copied is Receiver && !dest.IsGPR64() ? null : copied;
+                return copied is Receiver or ClassPointer && !dest.IsGPR64() ? null : copied;
             case OpKind.Memory when dest.IsGPR64() && ins.SegmentPrefix == Register.None
                 && ins.MemoryIndex == Register.None && ins.MemoryBase.IsGPR64() && ins.MemoryBase != Register.RIP
                 && state.GetValueOrDefault(ins.MemoryBase) is Receiver r:
+                // A receiver is always a reference type, so offset 0 is its class pointer.
+                if (ins.MemoryDisplacement64 == 0) return new ClassPointer(r.Type);
                 return FieldType(r.Type, (long)ins.MemoryDisplacement64) is { } t ? new Receiver(t) : null;
             default:
                 return null;
