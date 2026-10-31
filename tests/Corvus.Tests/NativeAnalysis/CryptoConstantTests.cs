@@ -111,6 +111,130 @@ public sealed class CryptoConstantTests : IDisposable
         }
     }
 
+    private static byte[] Round(int[] rotates, byte rotateModRm, byte add = 0x01, byte xor = 0x31)
+    {
+        var code = new List<byte>();
+        foreach (var r in rotates) code.AddRange([add, 0xC8, xor, 0xC1, 0xC1, rotateModRm, (byte)r]);
+        return [.. code];
+    }
+
+    [Fact]
+    public async Task A_ChaCha_quarter_round_is_named_as_rotates_or_as_the_complementary_rotates()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        foreach (var (rotates, modRm) in new[] { (new[] { 16, 12, 8, 7 }, (byte)0xC0), (new[] { 16, 20, 24, 25 }, (byte)0xC8) })
+        {
+            var text = await SurveyBytes(server, [.. Pad(0x40), .. Round(rotates, modRm), .. Pad(0x40)]);
+            Assert.Contains("ChaCha20 quarter round", text);
+            Assert.DoesNotContain("Salsa20 quarter round", text);
+        }
+    }
+
+    [Fact]
+    public async Task A_Salsa_quarter_round_is_named_without_the_ChaCha_label()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Round([7, 9, 13, 18], 0xC0), .. Pad(0x40)]);
+        Assert.Contains("Salsa20 quarter round", text);
+        Assert.DoesNotContain("ChaCha20 quarter round", text);
+    }
+
+    [Fact]
+    public async Task A_lone_rotate_by_16_is_not_a_quarter_round()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Round([16], 0xC0), .. Pad(0x40)]);
+        Assert.DoesNotContain("quarter round", text);
+    }
+
+    [Fact]
+    public async Task A_TEA_round_is_named_without_its_constants()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] half = [0x89, 0xCA, 0xC1, 0xE2, 0x04, 0x89, 0xCB, 0xC1, 0xEB, 0x05, 0x31, 0xDA, 0x01, 0xCA];
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. half, .. half, .. Pad(0x40)]);
+        Assert.Contains("TEA / XTEA round", text);
+        Assert.DoesNotContain("XXTEA mixing step", text);
+    }
+
+    [Fact]
+    public async Task An_XXTEA_mixing_step_is_named_without_its_constants()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] mx = [0xC1, 0xE9, 0x05, 0xC1, 0xE2, 0x02, 0x31, 0xD1, 0xC1, 0xEA, 0x03, 0xC1, 0xE0, 0x04, 0x31, 0xC2, 0x01, 0xD1, 0x01, 0xC8];
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. mx, .. Pad(0x40)]);
+        Assert.Contains("XXTEA mixing step", text);
+        Assert.DoesNotContain("TEA / XTEA round", text);
+    }
+
+    [Fact]
+    public async Task A_ChaCha_round_with_memory_operand_add_and_xor_is_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var code = new List<byte>();
+        foreach (var r in new[] { 16, 12, 8, 7 })
+            code.AddRange([0x03, 0x45, 0x08, 0x33, 0x4D, 0x0C, 0xC1, 0xC1, 0xC0, (byte)r]);
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. code, .. Pad(0x40)]);
+        Assert.Contains("ChaCha20 quarter round", text);
+    }
+
+    [Fact]
+    public async Task Rotates_without_add_and_xor_steps_are_not_a_quarter_round()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] rots = [.. new byte[] { 16, 12, 8, 7 }.SelectMany(r => new byte[] { 0xC1, 0xC0, r })];
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. rots, .. Pad(0x40)]);
+        Assert.DoesNotContain("quarter round", text);
+    }
+
+    [Fact]
+    public async Task Rotates_in_the_wrong_order_or_amounts_are_not_a_quarter_round()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        foreach (var rotates in new[] { new[] { 12, 16, 8, 7 }, new[] { 16, 12, 8, 9 } })
+        {
+            var text = await SurveyBytes(server, [.. Pad(0x40), .. Round(rotates, 0xC0), .. Pad(0x40)]);
+            Assert.DoesNotContain("quarter round", text);
+        }
+    }
+
+    [Fact]
+    public async Task ChaCha_rotate_amounts_do_not_name_a_Salsa_round()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Round([16, 12, 8, 7], 0xC0), .. Pad(0x40)]);
+        Assert.DoesNotContain("Salsa20 quarter round", text);
+    }
+
+    [Fact]
+    public async Task A_shl_4_and_shr_5_routine_without_add_and_xor_is_not_named_TEA()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] half = [0x89, 0xCA, 0xC1, 0xE2, 0x04, 0x89, 0xCB, 0xC1, 0xEB, 0x05];
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. half, .. half, .. Pad(0x40)]);
+        Assert.DoesNotContain("TEA / XTEA round", text);
+    }
+
+    [Fact]
+    public async Task XXTEA_shifts_spread_beyond_the_span_are_not_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] gap = new byte[40];
+        byte[] mx = [0xC1, 0xE9, 0x05, .. gap, 0xC1, 0xE2, 0x02, 0x31, 0xD1, 0x01, 0xC8, .. gap, 0xC1, 0xEA, 0x03, 0x31, 0xC2, 0x01, 0xD1, .. gap, 0xC1, 0xE0, 0x04];
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. mx, .. Pad(0x40)]);
+        Assert.DoesNotContain("XXTEA mixing step", text);
+    }
+
+    [Fact]
+    public async Task Two_unrolled_XXTEA_mixing_steps_do_not_name_a_TEA_round()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] mx = [0xC1, 0xE9, 0x05, 0xC1, 0xE2, 0x02, 0x31, 0xD1, 0xC1, 0xEA, 0x03, 0xC1, 0xE0, 0x04, 0x31, 0xC2, 0x01, 0xD1, 0x01, 0xC8];
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. mx, .. mx, .. Pad(0x40)]);
+        Assert.Contains("XXTEA mixing step", text);
+        Assert.DoesNotContain("TEA / XTEA round", text);
+    }
+
     private static byte[] Loop(params byte[][] body)
     {
         byte[] code = [.. body.SelectMany(x => x)];

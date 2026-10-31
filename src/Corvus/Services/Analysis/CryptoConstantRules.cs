@@ -207,6 +207,10 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["cbc-loop"] = new("Block loop with chaining (x86 and x64 code shape, heuristic) [mode=CBC confidence=medium]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Cbc)),
         ["ctr-loop"] = new("Block loop with a counter and a keystream xor (x86 and x64 code shape, heuristic) [mode=CTR confidence=medium]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ctr)),
         ["gcm-tag-code"] = new("GCM tag production (carry-less multiply or reduction constant 0xE1000000 or 0xE100000000000000, x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: GcmTags),
+        ["chacha-round"] = new("ChaCha20 quarter round (rotates 16, 12, 8, 7; x86 and x64 code shape, heuristic)", true, [], Shape: ChaChaRounds),
+        ["salsa-round"] = new("Salsa20 quarter round (rotates 7, 9, 13, 18; x86 and x64 code shape, heuristic)", true, [], Shape: SalsaRounds),
+        ["tea-round"] = new("TEA / XTEA round (shifts 4 and 5; x86 and x64 code shape, heuristic)", true, [], Shape: TeaRounds),
+        ["xxtea-round"] = new("XXTEA mixing step (shifts 5, 2, 3, 4; x86 and x64 code shape, heuristic)", true, [], Shape: XxteaRounds),
         // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
         ["sha1-md5-code"] = new("MD5 / SHA-1 initial values as immediates", true, [Le(0x67452301), Le(0x98BADCFE)]),
@@ -448,6 +452,105 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         }
     }
 
+    // Immediate shifts and rotates on a register: C1 /r ib with ModRM mod 11.
+    // Yields (offset, ModRM reg field, count): 0 rol, 1 ror, 4 shl, 5 shr.
+    private static List<(int At, int Op, int Count)> ImmShifts(byte[] b, int read, CancellationToken ct)
+    {
+        var list = new List<(int, int, int)>();
+        for (int i = 0; i + 3 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            if (b[i] != 0xC1 || (b[i + 1] & 0xC0) != 0xC0) continue;
+            int op = (b[i + 1] >> 3) & 7;
+            if (op is 0 or 1 or 4 or 5) list.Add((i, op, b[i + 2]));
+        }
+        return list;
+    }
+
+    // Counts add (register 01, 03; memory 03; lea 8D) and xor (register 31, 33;
+    // memory 33) opcodes in [from, to).
+    private static (int Adds, int Xors) CountAddXor(byte[] b, int from, int to)
+    {
+        int adds = 0, xors = 0;
+        for (int i = from; i + 1 < to; i++)
+        {
+            bool reg = (b[i + 1] & 0xC0) == 0xC0;
+            if (reg ? b[i] is 0x01 or 0x03 : b[i] is 0x03 or 0x8D) adds++;
+            else if (reg ? b[i] is 0x31 or 0x33 : b[i] == 0x33) xors++;
+        }
+        return (adds, xors);
+    }
+
+    // Yields the first rotate of an ordered rotate-amount sequence (rol or the
+    // complementary ror) with add and xor steps between, within one round body.
+    private static IEnumerable<(int At, int Length)> RotateRounds(
+        byte[] b, int read, CancellationToken ct, int[] rol, int minAdds, int minXors)
+    {
+        const int MaxSpan = 160;
+        var ev = ImmShifts(b, read, ct).Where(e => e.Op is 0 or 1).ToList();
+        for (int k = 0; k < ev.Count; k++)
+        {
+            foreach (bool left in new[] { true, false })
+            {
+                int Want(int j) => left ? rol[j] : 32 - rol[j];
+                int op = left ? 0 : 1, j = 0, last = k;
+                if (ev[k].Op != op || ev[k].Count != Want(0)) continue;
+                for (int m = k; m < ev.Count && ev[m].At - ev[k].At <= MaxSpan && j < rol.Length; m++)
+                    if (ev[m].Op == op && ev[m].Count == Want(j)) { j++; last = m; }
+                if (j < rol.Length) continue;
+                var (adds, xors) = CountAddXor(b, ev[k].At, ev[last].At);
+                if (adds < minAdds || xors < minXors) continue;
+                yield return (ev[k].At, ev[last].At - ev[k].At);
+                k = last;
+                break;
+            }
+        }
+    }
+
+    private static IEnumerable<(int At, int Length)> ChaChaRounds(byte[] b, int read, CancellationToken ct) =>
+        RotateRounds(b, read, ct, [16, 12, 8, 7], 3, 3);
+
+    private static IEnumerable<(int At, int Length)> SalsaRounds(byte[] b, int read, CancellationToken ct) =>
+        RotateRounds(b, read, ct, [7, 9, 13, 18], 3, 3);
+
+    // Two half rounds, each a shl 4 and shr 5 within a few instructions, mixed
+    // by add and xor. The four shifts are consecutive among all shifts.
+    private static IEnumerable<(int At, int Length)> TeaRounds(byte[] b, int read, CancellationToken ct)
+    {
+        const int Pair = 24, MaxSpan = 128, Tail = 8;
+        var ev = ImmShifts(b, read, ct);
+        for (int k = 0; k + 3 < ev.Count; k++)
+        {
+            if (!ev.GetRange(k, 4).All(e => (e.Op, e.Count) is (4, 4) or (5, 5))) continue;
+            if (ev[k + 3].At - ev[k].At > MaxSpan) continue;
+            bool pairs = ev[k].Op != ev[k + 1].Op && ev[k + 2].Op != ev[k + 3].Op
+                && ev[k + 1].At - ev[k].At <= Pair && ev[k + 3].At - ev[k + 2].At <= Pair;
+            if (!pairs) continue;
+            var (adds, xors) = CountAddXor(b, ev[k].At, ev[k + 3].At + Tail);
+            if (adds < 2 || xors < 2) continue;
+            yield return (ev[k].At, ev[k + 3].At - ev[k].At);
+            k += 3;
+        }
+    }
+
+    // The XXTEA mix: shr 5, shl 2, shr 3 and shl 4 close together, with at
+    // least two add and two xor steps.
+    private static IEnumerable<(int At, int Length)> XxteaRounds(byte[] b, int read, CancellationToken ct)
+    {
+        const int MaxSpan = 64, Tail = 8;
+        var ev = ImmShifts(b, read, ct).Where(e => (e.Op, e.Count) is (5, 5) or (4, 2) or (5, 3) or (4, 4)).ToList();
+        for (int k = 0; k + 3 < ev.Count; k++)
+        {
+            if (ev[k + 3].At - ev[k].At > MaxSpan) continue;
+            var window = ev.GetRange(k, 4);
+            if (window.Select(e => (e.Op, e.Count)).Distinct().Count() != 4) continue;
+            var (adds, xors) = CountAddXor(b, ev[k].At, ev[k + 3].At + Tail);
+            if (adds < 2 || xors < 2) continue;
+            yield return (ev[k].At, ev[k + 3].At - ev[k].At);
+            k += 3;
+        }
+    }
+
     // A byte move through a base+index operand: opcode 88 or 8A, ModRM mod 00, 01 or 10 with a SIB byte.
     private static bool IsByteMove(byte[] b, int i, out bool store)
     {
@@ -514,7 +617,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:aes-schedule-code", "const:ecb-loop", "const:cbc-loop", "const:ctr-loop", "const:gcm-tag-code", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:aes-schedule-code", "const:ecb-loop", "const:cbc-loop", "const:ctr-loop", "const:gcm-tag-code", "const:chacha-round", "const:salsa-round", "const:tea-round", "const:xxtea-round", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
         new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:kdf"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:crc32c", "const:crc32c-poly", "const:crc64-poly", "const:adler32", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
