@@ -34,7 +34,7 @@ internal sealed class PageFileView : IFileSummaryView
         // An SVG is read for its redirects only.
         if (ext == ".svg" && findings.Count == 0) return null;
         var facts = new Facts(page.Url, page.Title, page.Resources, page.Imports, page.ModuleIntegrity, page.Policies, review, page.Notes);
-        return new FileView(facts, Highlights(page, review)) { Findings = findings };
+        return new FileView(facts, Highlights(page, review)) { Findings = [.. findings, .. LocalHandlerTargets.Scan(LocalHandlerTargets.FromHtml(text), "page")] };
     }
 
     private static List<string> Highlights(SavedPage.Page p, List<string> review)

@@ -45,7 +45,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description(ToolSupport.LimitDescription)] int? limit = null,
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
-        [Description("Overwrite either file.")] bool overwrite = false,
+        [Description("Overwrite either.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {

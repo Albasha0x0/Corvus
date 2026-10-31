@@ -41,7 +41,7 @@ internal sealed class OfficeFileView : IFileSummaryView
             [.. doc.Objects.Select(o => new EmbeddedFile(o.Path, o.Name, o.SourcePath, o.Bytes.Length, Blob.Identify(o.Bytes), Blob.Sha256(o.Bytes)))],
             doc.Links, doc.Notes);
         var links = doc.Links.Select(l => (l.Target, $"{l.Type} link in {l.Part}"));
-        return new FileView(facts, Highlights(doc)) { Findings = FindingRules.FromMacros(doc.Findings, "office"), Indicators = IndicatorList.FromText("office", links, ct) };
+        return new FileView(facts, Highlights(doc)) { Findings = [.. FindingRules.FromMacros(doc.Findings, "office"), .. LocalHandlerTargets.Scan(doc.Links.Select(l => (l.Target, l.Part)), "office")], Indicators = IndicatorList.FromText("office", links, ct) };
     }
 
     private const int MaxPeeledSource = 1 << 20, MaxPeeledChars = 8000, MaxPeeledTotal = 64_000;

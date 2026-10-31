@@ -100,6 +100,14 @@ public sealed class FileViewFuzzTests : IDisposable
             "<script type=importmap>{\"imports\":{\"a\":\"https://b.example.net/a.js\"},\"scopes\":{\"/s/\":{\"a\":\"./a.js\"}}}</script>"));
 
     [Fact]
+    [FuzzEntry(typeof(ShellFileView))]
+    public void Fuzzed_shell_files_never_throw_past_a_tool_error()
+    {
+        Fuzz(new ShellFileView(), "a.library-ms", 300, Encoding.UTF8.GetBytes("<libraryDescription><searchConnectorDescription><simpleLocation><url>\\\\h@SSL\\DavWWWRoot\\s</url></simpleLocation></searchConnectorDescription></libraryDescription>"));
+        Fuzz(new ShellFileView(), "a.url", 300, Encoding.UTF8.GetBytes("[InternetShortcut]\r\nURL=search-ms:query=x\r\nIconFile=C:\\x.ico\r\n"));
+    }
+
+    [Fact]
     [FuzzEntry(typeof(ScriptFileView))]
     public void Fuzzed_scripts_never_throw_past_a_tool_error() => Fuzz(new ScriptFileView(), "drop.ps1", 120,
         Encoding.UTF8.GetBytes("& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u = 7Xkhttp://'+'ex'+'ample.com/cor'+'vus7Xk').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39))"));

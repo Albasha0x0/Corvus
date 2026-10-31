@@ -195,6 +195,7 @@ public static class FindingRules
         I("pdf/ioc", "a URL a PDF action opens"),
         R("shortcut/suspicious", "a shortcut target or argument worth reviewing"),
         I("shortcut/ioc", "a URL in shortcut arguments"),
+        R("link/local-handler", "a link, relationship or action target that starts a local handler (ms-msdt:, search-ms:, an Office scheme, file://) or reaches a UNC path"),
         R("launcher/command-line", "a program that starts other code, with an argument shape that downloads, decodes or hides"),
         R("installer/suspicious", "an installer action or keyword worth reviewing"),
         I("installer/ioc", "a URL, address or file name in installer script"),

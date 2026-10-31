@@ -488,7 +488,9 @@ Pass the name as `view=`.
 | `model` | safetensors, GGUF, ONNX, PyTorch, pickle, joblib, `.npy`, `.npz`, `.keras`; code a file runs when loaded; nothing unpickled |
 | `installer` | MSI custom actions, services, autostart entries |
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
+| `shell` | the targets of a `.url`, `.library-ms` or `.searchConnector-ms` file; a WebDAV location is named |
 | `installer`, `lnk`, `script`, `procmon` | command lines that download, decode or hide through a system tool: one `launcher/command-line` finding |
+| `office`, `page`, `pdf`, `shell` | targets with `ms-msdt:`, `search-ms:`, an Office scheme, `file://` or a UNC path: one `link/local-handler` finding |
 | `mail` | headers, received chain, recorded authentication results, From, Reply-To and Return-Path side by side, links, parts, attachments |
 | `office` | VBA with folded strings, Excel 4.0 macros, OLE packages and classes, RTF objects and templates, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |
