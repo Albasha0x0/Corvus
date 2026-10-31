@@ -36,6 +36,74 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.Matches($"{System.Text.RegularExpressions.Regex.Escape(label)} @0x{offset:X}(?![0-9A-Fa-f])", text);
 
     [Fact]
+    public async Task The_TEA_delta_is_named_without_the_XTEA_or_XXTEA_labels()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x9E3779B9), .. Pad(0x40)]);
+        AssertAt("TEA delta (additive)", 0x100, text);
+        Assert.DoesNotContain("XTEA", text);
+        Assert.DoesNotContain("XXTEA", text);
+    }
+
+    [Fact]
+    public async Task The_XTEA_start_sum_and_the_XXTEA_subtractive_delta_get_their_own_labels()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0xC6EF3720), .. Pad(0x40), .. Le(0x61C88647), .. Pad(0x40)]);
+        AssertAt("XTEA / TEA decryption start sum (delta x 32)", 0x100, text);
+        AssertAt("XXTEA / TEA delta (subtractive form)", 0x144, text);
+        Assert.DoesNotContain("TEA delta (additive)", text);
+    }
+
+    [Fact]
+    public async Task An_RC5_key_schedule_table_is_named_once_in_either_byte_order()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        const string Rc5 = "RC5 / RC6 key schedule (first table words)";
+        foreach (var table in new[] { Le(0xB7E15163, 0x5618CB1C, 0xF45044D5), Be(0xB7E15163, 0x5618CB1C, 0xF45044D5) })
+        {
+            var text = await SurveyBytes(server, [.. Pad(0x100), .. table, .. Pad(0x40)]);
+            AssertAt(Rc5, 0x100, text);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(text, System.Text.RegularExpressions.Regex.Escape(Rc5) + " @0x"));
+        }
+    }
+
+    [Fact]
+    public async Task The_XTEA_start_sum_does_not_name_the_TEA_delta()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0xC6EF3720), .. Pad(0x40)]);
+        AssertAt("XTEA / TEA decryption start sum (delta x 32)", 0x100, text);
+        Assert.DoesNotContain("TEA delta", text);
+    }
+
+    [Fact]
+    public async Task A_Serpent_S_box_row_1_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] row = [0xF, 0xC, 0x2, 0x7, 0x9, 0x0, 0x5, 0xA, 0x1, 0xB, 0xE, 0x8, 0x6, 0xD, 0x3, 0x4];
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. row, .. Pad(0x40)]);
+        AssertAt("Serpent S-box rows 0 and 1 (4-bit entries as bytes)", 0x100, text);
+    }
+
+    [Fact]
+    public async Task A_Serpent_S_box_row_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] row = [0x3, 0x8, 0xF, 0x1, 0xA, 0x6, 0x5, 0xB, 0xE, 0xD, 0x4, 0x2, 0x7, 0x0, 0x9, 0xC];
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. row, .. Pad(0x40)]);
+        AssertAt("Serpent S-box rows 0 and 1 (4-bit entries as bytes)", 0x100, text);
+    }
+
+    [Fact]
+    public async Task The_IDEA_modulus_is_reported_as_low_confidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x10001), .. Pad(0x40)]);
+        AssertAt("IDEA modulus 65537 as immediate (low confidence)", 0x100, text);
+    }
+
+    [Fact]
     public async Task Constants_name_their_algorithms_in_a_raw_image()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -363,6 +431,22 @@ public sealed class CryptoConstantTests : IDisposable
     {
         blob.Align(4);
         return new() { ["parray"] = blob.Bytes(Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344)) };
+    }
+
+    [Fact]
+    public async Task Immediate_only_cipher_constants_in_an_image_data_section_are_not_named()
+    {
+        var path = _dir.File("immediates.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("immediates.dll", [("Run", 0)], [], _ => [0xC3], (blob, _) =>
+        {
+            blob.Align(4);
+            return new() { ["words"] = blob.Bytes(Le(0x10001, 0x9E3779B9, 0xC6EF3720, 0x61C88647, 0xB7E15163)) };
+        }));
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyImage(server, path);
+        Assert.DoesNotContain("IDEA", text);
+        Assert.DoesNotContain("TEA", text);
+        Assert.DoesNotContain("RC5", text);
     }
 
     private static string Lines(string text, string needle) =>

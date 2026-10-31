@@ -135,7 +135,18 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
         ["sha1-md5-code"] = new("MD5 / SHA-1 initial values as immediates", true, [Le(0x67452301), Le(0x98BADCFE)]),
-        ["tea"] = new("TEA / XTEA delta", true, [Le(0x9E3779B9), Le(0x61C88647)]),
+        // Each set holds the constant that tells TEA-family and RC5/RC6 apart.
+        ["tea"] = new("TEA delta (additive)", true, [Le(0x9E3779B9)]),
+        ["xtea"] = new("XTEA / TEA decryption start sum (delta x 32)", true, [Le(0xC6EF3720)]),
+        ["xxtea"] = new("XXTEA / TEA delta (subtractive form)", true, [Le(0x61C88647)]),
+        ["rc5-rc6"] = new("RC5 / RC6 key schedule (first table words)", false, [Le(0xB7E15163, 0x5618CB1C, 0xF45044D5), Be(0xB7E15163, 0x5618CB1C, 0xF45044D5)]),
+        ["rc5-rc6-code"] = new("RC5 / RC6 P32 magic as immediate", true, [Le(0xB7E15163)]),
+        ["serpent"] = new("Serpent S-box rows 0 and 1 (4-bit entries as bytes)", false,
+        [
+            new byte[] {0x3, 0x8, 0xF, 0x1, 0xA, 0x6, 0x5, 0xB, 0xE, 0xD, 0x4, 0x2, 0x7, 0x0, 0x9, 0xC},
+            new byte[] {0xF, 0xC, 0x2, 0x7, 0x9, 0x0, 0x5, 0xA, 0x1, 0xB, 0xE, 0x8, 0x6, 0xD, 0x3, 0x4},
+        ]),
+        ["idea"] = new("IDEA modulus 65537 as immediate (low confidence)", true, [Le(0x10001)]),
         ["crc32-poly"] = new("CRC-32 polynomial (reflected)", true, [Le(0xEDB88320)]),
         ["fnv"] = new("FNV-1 hash constants", true, [Le(0x811C9DC5), Le(0x01000193)]),
         ["murmur3"] = new("MurmurHash3 constants", true, [Le(0xCC9E2D51), Le(0x1B873593)]),
@@ -145,7 +156,8 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:tea"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
+        new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
     ];
 
