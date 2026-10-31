@@ -43,6 +43,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         /// <summary>The import hash of a PE image with regular imports (MD5 over "library.function" terms, as pefile computes it); null otherwise.</summary>
         public string? Imphash { get; init; }
+
+        /// <summary>The TLSH digest ("T1" form); null when the input has none, with the reason in <see cref="TlshAbsent"/>.</summary>
+        public string? Tlsh { get; init; }
+
+        /// <summary>Why <see cref="Tlsh"/> is null; null when it is present.</summary>
+        public string? TlshAbsent { get; init; }
     }
 
     public sealed record IdentityFacts(string Name, string? Version, string Mvid, string? TargetFramework, string Kind, string Architecture,
@@ -1084,21 +1090,24 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     private static FileFacts Facts(FileInput input, CancellationToken ct)
     {
         if (!input.Streamed) return Facts(input.Path, input.Bytes);
-        var (md5, sha1, sha256, entropy) = input.Hashes(ct);
+        var (md5, sha1, sha256, entropy, (tlsh, tlshAbsent)) = input.Hashes(ct);
         CertificateInfo certificate;
         if (PeImage.TryParse(input.Head) == null) certificate = new CertificateInfo(false);
         else
             using (var stream = input.OpenRead()) certificate = Certificates.Read(stream, input.Head);
-        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate);
+        return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate) { Tlsh = tlsh, TlshAbsent = tlshAbsent };
     }
 
     private static FileFacts Facts(string path, byte[] bytes)
     {
         bool pe = PeImage.TryParse(bytes) != null;
+        var (tlsh, tlshAbsent) = Tlsh.Of(bytes);
         return new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),
             pe ? Certificates.Read(bytes) : new CertificateInfo(false))
         {
             Imphash = pe ? Imphash(bytes) : null,
+            Tlsh = tlsh,
+            TlshAbsent = tlshAbsent,
         };
     }
 

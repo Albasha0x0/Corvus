@@ -140,14 +140,15 @@ public sealed class FileInput
         return File.ReadAllBytes(Path);
     }
 
-    /// <summary>MD5, SHA-1, SHA-256 and the byte entropy in one pass (streamed in 1 MiB blocks when the file is not in memory).</summary>
-    public (string Md5, string Sha1, string Sha256, double Entropy) Hashes(CancellationToken ct)
+    /// <summary>MD5, SHA-1, SHA-256, the byte entropy and the TLSH digest in one pass (streamed in 1 MiB blocks when the file is not in memory).</summary>
+    public (string Md5, string Sha1, string Sha256, double Entropy, (string? Digest, string? Absent) Tlsh) Hashes(CancellationToken ct)
     {
-        if (_bytes != null) return (Blob.Md5(_bytes), Blob.Sha1(_bytes), Blob.Sha256(_bytes), Blob.Entropy(_bytes));
+        if (_bytes != null) return (Blob.Md5(_bytes), Blob.Sha1(_bytes), Blob.Sha256(_bytes), Blob.Entropy(_bytes), Tlsh.Of(_bytes));
         using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
         using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var counts = new long[256];
+        var tlsh = new Tlsh();
         var buffer = new byte[1 << 20];
         long total = 0;
         using var s = OpenRead();
@@ -159,6 +160,7 @@ public sealed class FileInput
             md5.AppendData(block);
             sha1.AppendData(block);
             sha256.AppendData(block);
+            tlsh.Append(block);
             foreach (var b in block) counts[b]++;
             total += n;
         }
@@ -170,7 +172,7 @@ public sealed class FileInput
             e -= p * Math.Log2(p);
         }
         return (Convert.ToHexStringLower(md5.GetHashAndReset()), Convert.ToHexStringLower(sha1.GetHashAndReset()),
-            Convert.ToHexStringLower(sha256.GetHashAndReset()), e);
+            Convert.ToHexStringLower(sha256.GetHashAndReset()), e, tlsh.Final());
     }
 }
 

@@ -219,7 +219,7 @@ Frida's bindings ([live-inspection.md](live-inspection.md)).
 
 - PE, ELF and Mach-O (one slice of a universal file) load with `load_assembly`, or with any native tool given a path.
 - x86, x64, ARM64 and ARM32 / Thumb-2 decode in the built-in engine. Other instruction sets use IDA, else Ghidra, marked "(via IDA)" or "(via Ghidra)".
-- Headerless code: `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`. `summarize_file view=raw` suggests the instruction set and load base.
+- Headerless code: `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=â€¦ entry=â€¦`. `summarize_file view=raw` suggests the instruction set and load base.
 - `load_assembly` overrides: `processor=`, `language=`, `compilerSpec=`, `seeds=`, `disableAnalyzers=`. Each set gets its own engine database.
 - Ghidra `.gzf` archives (checked against their recorded SHA-256) and `.gpr` projects open without analysis. Projects are left unchanged.
 - An image open in IDA: run `corvus_connect.py` (from `corvus ida-script`) in IDA 9+, and start Corvus with `CORVUS_IDA_CONNECT=1`. No local IDA install is needed.
@@ -453,6 +453,7 @@ Labels:
 - `view=indicators` lists URLs, domains, addresses, TLS fingerprints, strings of native images and certificate names and revocation URLs from every view, one row per value with its sources.
 - `batch --file --report` names each rule the YARA step matched.
 - `summarize_file` reports the import hash of a PE image beside its file hashes.
+- `summarize_file` notes the TLSH digest of the file; an input under 50 bytes or with too little variation has none and says why.
 - `view=indicators` leaves out the CRL, OCSP, issuer and timestamp hosts of well-known certificate authorities.
 - Features describe API use, not whether the code runs.
 - `extract_embedded xorText=true` recovers repeating XOR keys of 1-16 bytes over text. Off by default.

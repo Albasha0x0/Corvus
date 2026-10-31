@@ -33,11 +33,11 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("Summarize a file, folder or assembly, never run: type, hashes, signature, containers, assemblies, " +
-                 "highlights, entry points. view= opens one aspect; the overview lists the views.")]
+                 "highlights, entry points. view= opens one aspect; overview lists them.")]
     public Task<string> SummarizeFile(
-        [Description("File (assembly, executable, package, archive) or folder.")] string? path = null,
+        [Description("File or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
-        [Description("A view the overview lists.")] string view = "overview",
+        [Description("A view overview lists.")] string view = "overview",
         [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace.")] string? table = null,
         [Description("With table=: these columns and rowid.")] string[]? columns = null,
         [Description("assets: assets of this script class.")] string? script = null,

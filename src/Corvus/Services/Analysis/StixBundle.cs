@@ -37,7 +37,8 @@ public static class StixBundle
         var file = summary.File;
         int networkValues = 0;
         bool cut = false;
-        var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256), ("IMPHASH", file.Imphash));
+        // The STIX TLSH hash is the 70 digits without the "T1" version prefix.
+        var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256), ("IMPHASH", file.Imphash), ("TLSH", file.Tlsh?[2..]));
         var sample = FileObject(sampleHashes, Path.GetFileName(file.Path), null);
         sample.Properties["size"] = file.Size;
 
@@ -141,7 +142,7 @@ public static class StixBundle
 
     /// <summary>The non-empty hashes, lower case, by their STIX hash names.</summary>
     private static Dictionary<string, string> Hashes(params (string Name, string? Value)[] hashes) =>
-        hashes.Where(h => !string.IsNullOrEmpty(h.Value)).ToDictionary(h => h.Name, h => h.Value!.ToLowerInvariant(), StringComparer.Ordinal);
+        hashes.Where(h => !string.IsNullOrEmpty(h.Value)).ToDictionary(h => h.Name, h => h.Name == "TLSH" ? h.Value! : h.Value!.ToLowerInvariant(), StringComparer.Ordinal);
 
     private static Observable FileObject(Dictionary<string, string> hashes, string? name, string? location)
     {

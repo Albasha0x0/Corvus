@@ -146,6 +146,8 @@ internal static class ContainerText
         var shown = s.Highlights.Where(h => !h.StartsWith("The file is Authenticode-signed by", StringComparison.Ordinal)).ToList();
         var highlights = shown.Take(MaxHighlights).ToList();
         var findings = s.Findings();
+        List<string> notes = s.Notes.Count > 0 ? [.. s.Notes.Take(MaxNotes), .. s.Notes.Count > MaxNotes ? [$"{s.Notes.Count - MaxNotes} more notes: view=all."] : Array.Empty<string>()] : [];
+        if (s.File.Type != "folder") notes.Insert(0, s.File.Tlsh != null ? $"TLSH {s.File.Tlsh}." : $"No TLSH: {s.File.TlshAbsent}.");
         return record with
         {
             Level = FindingLevel.Strongest(findings.Select(f => f.Level)),
@@ -162,7 +164,7 @@ internal static class ContainerText
             HighlightTotal = shown.Count > highlights.Count ? shown.Count : null,
             EntryPoints = main?.EntryPoints.Count > 0 ? main.EntryPoints.Take(MaxEntryPoints).Select(e => $"{e.Kind}: {e.Member}").ToList() : null,
             Values = main?.Values.ByType.Count > 0 ? main.Values.ByType : null,
-            Notes = s.Notes.Count > 0 ? [.. s.Notes.Take(MaxNotes), .. s.Notes.Count > MaxNotes ? [$"{s.Notes.Count - MaxNotes} more notes: view=all."] : Array.Empty<string>()] : null,
+            Notes = notes.Count > 0 ? notes : null,
         };
     }
 
