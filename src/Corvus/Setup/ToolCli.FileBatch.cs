@@ -97,6 +97,10 @@ internal static partial class ToolCli
         var extract = OutputPath("--extract", a.Extract);
         if (extract != null && (File.Exists(extract) || Directory.Exists(extract) && Directory.EnumerateFileSystemEntries(extract).Any()))
             throw new UsageException($"--extract needs a new or empty folder: {a.Extract}.");
+        var dumpModules = OutputPath("--dump-modules", a.DumpModules);
+        if (dumpModules != null && a.Recurse) throw new UsageException("--dump-modules reads one dump: it does not go with --recurse.");
+        if (dumpModules != null && (File.Exists(dumpModules) || Directory.Exists(dumpModules) && Directory.EnumerateFileSystemEntries(dumpModules).Any()))
+            throw new UsageException($"--dump-modules needs a new or empty folder: {a.DumpModules}.");
         var report = OutputPath("--report", a.Report);
         if (report != null && Directory.Exists(report)) throw new UsageException($"--report names a file, not a folder: {a.Report}.");
         var sarif = OutputPath("--sarif", a.Sarif);
@@ -107,6 +111,7 @@ internal static partial class ToolCli
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
+        var exported = dumpModules == null ? null : ExportDumpModules(path, dumpModules, cancellationToken);
         var baseline = a.Baseline == null ? null : ReadBaseline(Path.GetFullPath(a.Baseline), DateOnly.FromDateTime(DateTime.UtcNow));
         var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline, Password = password };
         if (extract != null) Directory.CreateDirectory(extract);
@@ -122,6 +127,7 @@ internal static partial class ToolCli
             if (run.Session != null) await run.Session.DisposeAsync();
         }
         WriteExtractIndex(run);
+        if (exported != null) document["dumpModules"] = exported;
         if (baseline != null) document["baseline"] = baseline.Record(Path.GetFullPath(a.Baseline!));
         int exit = run.TimedOut ? Exit.Timeout : Exit.Ok;
         if (a.FailOn != null)
@@ -147,6 +153,15 @@ internal static partial class ToolCli
             foreach (var record in records) target.Write(record.ToJsonString(Compact) + "\n");
         }
         return exit;
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions ExportJson = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    /// <summary>Writes the module images of the minidump at <paramref name="dump"/> to <paramref name="folder"/>; the record of what was written and what was left out.</summary>
+    private static JsonNode ExportDumpModules(string dump, string folder, CancellationToken cancellationToken)
+    {
+        try { return System.Text.Json.JsonSerializer.SerializeToNode(Native.Dump.DumpModuleExport.Write(dump, folder, cancellationToken), ExportJson)!; }
+        catch (ToolError ex) { throw new UsageException($"--dump-modules: {ex.Message}"); }
     }
 
     /// <summary>The full path of an output option, checked by the output refusal rules; null when the option is absent.</summary>

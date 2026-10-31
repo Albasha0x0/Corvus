@@ -120,6 +120,7 @@ internal static class SetupCli
                                 --fail-on noteworthy|review: exit 1 on a finding at that level or an
                                 incomplete record; --allow-incomplete fails on findings only.
                                 --extract <folder>: write decoded payloads with their chain.
+                                --dump-modules <folder>: write the module images of a minidump.
                                 --password-file <file>: password for encrypted members of --recurse.
                                 --baseline <file>: drop known findings by key until each entry expires;
                                 an earlier result's findings are entries that do not expire.
