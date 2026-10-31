@@ -391,17 +391,19 @@ public static class Containers
         }
         if (top != null && !top.Kind.EndsWith("with embedded .NET images", StringComparison.Ordinal) && top.Kind != "none") return top;
         var (items, native) = CarveRange(s, from, length, limits, ct);
+        const string WindowedNote = "gzip streams are not scanned in files over 64 MiB.";
         if (top == null)
         {
-            var notes = new List<string>();
+            var notes = new List<string> { WindowedNote };
             if (native > 0) notes.Add($"{native} embedded native PE image(s) found (not extracted).");
             if (items.Count == 0) notes.Add($"Not a known container ({kind}) and no embedded .NET images were found.");
             return new ContainerContents(items.Count > 0 ? $"{kind} with embedded .NET images" : "none", items, notes);
         }
-        if (items.Count == 0 && native == 0) return top;
+        if (items.Count == 0 && native == 0) return new ContainerContents(top.Kind, top.Items, [.. top.Notes, WindowedNote]);
         var merged = new List<ExtractedItem>([.. top.Items, .. items]);
         var mergedNotes = items.Count > 0 ? top.Notes.Where(n => !n.Contains("no embedded .NET images", StringComparison.Ordinal) && !n.StartsWith("A native executable with no .NET bundle", StringComparison.Ordinal)).ToList() : [.. top.Notes];
         if (native > 0) mergedNotes.Add($"{native} embedded native PE image(s) found after the image (not extracted).");
+        mergedNotes.Add(WindowedNote);
         return new ContainerContents(merged.Count > 0 ? $"{kind} with embedded .NET images" : top.Kind, merged, mergedNotes);
     }
 
@@ -748,15 +750,22 @@ public static class Containers
         Blob.StartsWith(bytes, "XABA"u8) || path.EndsWith(".blob", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".blob.so", StringComparison.OrdinalIgnoreCase)
         || path.EndsWith("libassembly-store.so", StringComparison.Ordinal);
 
-    /// <summary>Carves .NET images and XALZ chunks from arbitrary data; native images are counted, not extracted.</summary>
+    /// <summary>
+    /// Carves .NET images, XALZ chunks and gzip streams from arbitrary data;
+    /// native images are counted, not extracted. Files over 64 MiB take the
+    /// windowed carve, which does not scan for gzip streams.
+    /// </summary>
     public static ContainerContents Carve(byte[] data, string name, string kind, AnalysisLimits limits, CancellationToken ct)
     {
         var items = new List<ExtractedItem>();
         var notes = new List<string>();
         int native = 0;
+        // Streams inside a carved image are not repeated.
+        var covered = new List<(int Offset, int End)>();
         foreach (var c in Blob.CarvePe(data, limits.MaxItems, ct))
         {
             ct.ThrowIfCancellationRequested();
+            if (c.IsDotNet) covered.Add((c.Offset, c.Offset + c.Length));
             if (c.Offset == 0 && c.Length == data.Length) continue;
             if (!c.IsDotNet) { native++; continue; }
             items.Add(new ExtractedItem($"carved_0x{c.Offset:X}.dll", data.AsSpan(c.Offset, c.Length).ToArray(), $"carved .NET image at 0x{c.Offset:X}"));
@@ -767,12 +776,94 @@ public static class Containers
             var decoded = Blob.TryXalz(data.AsSpan(at), limits.MaxItemBytes);
             if (decoded != null) items.Add(new ExtractedItem($"xalz_0x{at:X}.dll", decoded, $"XALZ (LZ4) chunk at 0x{at:X}"));
         }
+        int managed = items.Count;
+        int gzips = 0;
+        // Every header hit is checked, since the trailer check bounds the cost.
+        foreach (int at in Blob.FindAll(data, GzipMagic, int.MaxValue))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (covered.Any(c => at > c.Offset && at < c.End)) continue;
+            var gz = GzipStreamAt(data, at, limits.MaxItemBytes, out bool tooLarge);
+            if (tooLarge) notes.Add($"gzip stream at 0x{at:X}: inflates past the item limit of {limits.MaxItemBytes} bytes (not extracted).");
+            if (gz is not { } found) continue;
+            if (items.Count >= limits.MaxItems)
+            {
+                notes.Add($"gzip scan stopped at the item limit of {limits.MaxItems}.");
+                break;
+            }
+            items.Add(new ExtractedItem($"gzip_0x{at:X}.bin", found.Bytes, $"gzip stream at 0x{at:X}, {found.Length} bytes"));
+            gzips++;
+        }
         if (native > 0) notes.Add($"{native} embedded native PE image(s) found (not extracted).");
         if (items.Count == 0)
             notes.Add(kind == "native PE"
                 ? "A native executable with no .NET bundle or embedded .NET images (it may be wrapped, compressed, or not .NET at all)."
                 : $"Not a known container ({kind}) and no embedded .NET images were found.");
-        return new ContainerContents(items.Count > 0 ? $"{kind} with embedded .NET images" : "none", items, notes);
+        string label = managed > 0 ? $"{kind} with embedded .NET images"
+            : gzips > 0 ? $"{kind} with embedded gzip streams" : "none";
+        return new ContainerContents(label, items, notes);
+    }
+
+    private static ReadOnlySpan<byte> GzipMagic => [0x1F, 0x8B, 0x08];
+
+    /// <summary>
+    /// The inflated bytes and compressed length of the gzip member at
+    /// <paramref name="at"/>; null when the header, CRC-32 or size trailer
+    /// does not hold. <paramref name="tooLarge"/> is set when a valid header
+    /// inflates past <paramref name="maxBytes"/>.
+    /// </summary>
+    private static (byte[] Bytes, int Length)? GzipStreamAt(byte[] data, int at, long maxBytes, out bool tooLarge)
+    {
+        tooLarge = false;
+        // Reserved flag bits must be clear. The smallest member is a
+        // 10-byte header, 2 deflate bytes and the 8-byte trailer.
+        if (at + 20 > data.Length || (data[at + 3] & 0xE0) != 0) return null;
+        int body = GzipHeaderEnd(data, at);
+        if (body < 0) return null;
+        try
+        {
+            // A raw deflate read stops at its final block, so one member is
+            // checked even when members are adjacent.
+            using var input = new MemoryStream(data, body, data.Length - body, writable: false);
+            using var z = new DeflateStream(input, CompressionMode.Decompress);
+            if (Blob.ReadBounded(z, maxBytes) is not { } inflated)
+            {
+                tooLarge = true;
+                return null;
+            }
+            Span<byte> trailer = stackalloc byte[8];
+            BinaryPrimitives.WriteUInt32LittleEndian(trailer, Crc32(inflated));
+            BinaryPrimitives.WriteUInt32LittleEndian(trailer[4..], (uint)inflated.Length);
+            // The decoder reads ahead, so the trailer lies at or before the
+            // stream position.
+            int pos = body + (int)input.Position;
+            int from = Math.Max(body, pos - 32768), to = Math.Min(data.Length, pos + 8);
+            if (from >= to) return null;
+            int found = data.AsSpan(from, to - from).IndexOf(trailer);
+            return found < 0 ? null : (inflated, from + found + 8 - at);
+        }
+        catch (InvalidDataException) { return null; }
+        catch (IOException) { return null; }
+    }
+
+    // The offset after the optional header fields of a member; -1 when truncated.
+    private static int GzipHeaderEnd(byte[] data, int at)
+    {
+        int flags = data[at + 3], p = at + 10;
+        if ((flags & 4) != 0)
+        {
+            if (p + 2 > data.Length) return -1;
+            p += 2 + BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p));
+        }
+        foreach (int bit in new[] { 8, 16 })
+        {
+            if ((flags & bit) == 0) continue;
+            int zero = p < data.Length ? Array.IndexOf(data, (byte)0, p) : -1;
+            if (zero < 0) return -1;
+            p = zero + 1;
+        }
+        if ((flags & 2) != 0) p += 2;
+        return p + 10 <= data.Length ? p : -1;
     }
 
     /// <summary>Bounds-checked little-endian reader; throws ToolError on truncated data.</summary>

@@ -535,6 +535,128 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
+    public void A_gzip_stream_inside_a_blob_is_carved_with_its_offset_and_length()
+    {
+        var text = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("carved stream payload ", 40)));
+        using var packed = new MemoryStream();
+        using (var z = new GZipStream(packed, CompressionLevel.Optimal, leaveOpen: true)) z.Write(text);
+        var stream = packed.ToArray();
+        var blob = new byte[0x300 + stream.Length + 0x100];
+        for (int i = 0; i < blob.Length; i++) blob[i] = (byte)(i * 7 + 3);
+        stream.CopyTo(blob, 0x300);
+
+        var r = Unpack(Save("blob.bin", blob));
+
+        var file = Assert.Single(r.Files);
+        Assert.Equal($"gzip stream at 0x300, {stream.Length} bytes", file.Origin);
+        Assert.Equal(Blob.Sha256(text), file.Sha256);
+        Assert.Equal(text, System.IO.File.ReadAllBytes(file.Path));
+    }
+
+    private static byte[] GzipOf(string text)
+    {
+        using var packed = new MemoryStream();
+        using (var z = new GZipStream(packed, CompressionLevel.Optimal, leaveOpen: true))
+            z.Write(Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat(text, 40))));
+        return packed.ToArray();
+    }
+
+    private static byte[] Noise(int length)
+    {
+        var blob = new byte[length];
+        for (int i = 0; i < blob.Length; i++) blob[i] = (byte)(i * 7 + 3);
+        return blob;
+    }
+
+    [Fact]
+    public void Adjacent_gzip_streams_are_each_carved()
+    {
+        var first = GzipOf("first member ");
+        var second = GzipOf("second member ");
+        var blob = Noise(0x300 + first.Length + second.Length + 0x100);
+        first.CopyTo(blob, 0x300);
+        second.CopyTo(blob, 0x300 + first.Length);
+
+        var r = Unpack(Save("pair.bin", blob));
+
+        Assert.Equal(2, r.Files.Count);
+        Assert.Contains(r.Files, f => f.Origin == $"gzip stream at 0x300, {first.Length} bytes");
+        Assert.Contains(r.Files, f => f.Origin == $"gzip stream at 0x{0x300 + first.Length:X}, {second.Length} bytes");
+    }
+
+    [Fact]
+    public void A_gzip_stream_with_a_wrong_checksum_is_not_carved()
+    {
+        var stream = GzipOf("checksum payload ");
+        stream[^8] ^= 0xFF;
+        var blob = Noise(0x300 + stream.Length + 0x100);
+        stream.CopyTo(blob, 0x300);
+
+        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("badcrc.bin", blob))).Code);
+    }
+
+    [Fact]
+    public void A_truncated_gzip_stream_is_not_carved()
+    {
+        var stream = GzipOf("truncated payload ");
+        var blob = Noise(0x300 + stream.Length / 2);
+        stream.AsSpan(0, stream.Length / 2).CopyTo(blob.AsSpan(0x300));
+
+        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("cut.bin", blob))).Code);
+    }
+
+    [Fact]
+    public void Header_bytes_without_a_stream_are_not_carved()
+    {
+        var blob = Noise(0x400);
+        new byte[] { 0x1F, 0x8B, 0x08, 0, 0, 0, 0, 0, 0, 0 }.CopyTo(blob, 0x100);
+
+        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("noise.bin", blob))).Code);
+    }
+
+    [Fact]
+    public void A_gzip_stream_past_the_item_limit_is_named_in_a_note()
+    {
+        var stream = GzipOf("oversize payload ");
+        var blob = Noise(0x300 + stream.Length + 0x100);
+        stream.CopyTo(blob, 0x300);
+        var limits = AnalysisLimits.Default with { MaxItemBytes = 16 };
+
+        var c = Containers.Carve(blob, "big.bin", "data", limits, default);
+
+        Assert.Empty(c.Items);
+        Assert.Contains(c.Notes, n => n.StartsWith("gzip stream at 0x300: inflates past the item limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_gzip_stream_inside_a_carved_image_is_skipped_and_the_label_keeps_images()
+    {
+        var image = System.IO.File.ReadAllBytes(Env.FixturePath);
+        var stream = GzipOf("outside payload ");
+        var blob = new byte[0x100 + image.Length + 0x100 + stream.Length];
+        image.CopyTo(blob, 0x100);
+        stream.CopyTo(blob, 0x100 + image.Length + 0x100);
+
+        var c = Containers.Carve(blob, "mixed.bin", "data", AnalysisLimits.Default, default);
+
+        Assert.Equal("data with embedded .NET images", c.Kind);
+        Assert.Contains(c.Items, i => i.Origin.StartsWith("carved .NET image", StringComparison.Ordinal));
+        Assert.Contains(c.Items, i => i.Origin.StartsWith("gzip stream at", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_blob_with_only_gzip_streams_is_labelled_for_them()
+    {
+        var stream = GzipOf("label payload ");
+        var blob = Noise(0x300 + stream.Length + 0x100);
+        stream.CopyTo(blob, 0x300);
+
+        var c = Containers.Carve(blob, "label.bin", "data", AnalysisLimits.Default, default);
+
+        Assert.Equal("data with embedded gzip streams", c.Kind);
+    }
+
+    [Fact]
     public void PE_corrupt_headers_fall_back_to_carving()
     {
         var lfanew = System.IO.File.ReadAllBytes(Env.FixturePath);

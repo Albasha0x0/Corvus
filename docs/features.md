@@ -308,6 +308,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Java runtime image (`lib/modules`) | every resource, as `jimage extract` writes it |
 | Electron `.asar` | every file, integrity checked against the app's declared hash |
 | WebGL `.data` (UnityWebData) | every file with its role |
+| Unrecognized data | .NET images, XALZ chunks and gzip streams carved by offset |
 | Godot `.pck` | every file, Godot 3 and 4 |
 | Qt resources (`.rcc` or compiled in) | every file, Qt 5 and 6 |
 | Flash SWF | tags, ActionScript blocks, images, sounds |
