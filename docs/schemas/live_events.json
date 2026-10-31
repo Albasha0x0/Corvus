@@ -41,11 +41,11 @@
       }
     },
     "cursor": {
-      "description": "Cursor for the next page; null at the end of the ring.",
+      "description": "Cursor for the next page; null at the ring end.",
       "type": "string"
     },
     "dropped": {
-      "description": "Events dropped from the cursor to this page's end, calls included.",
+      "description": "Events dropped since the cursor, calls included.",
       "type": "integer"
     },
     "namedAddresses": {

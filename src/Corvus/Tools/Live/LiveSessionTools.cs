@@ -92,7 +92,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     private const string StateDescription = "set, deferred (until its module loads or method compiles) or failed (deferred, then not set).";
 
-    public sealed record LiveScript(string Id, [property: Description("The source's file, or inline.")] string Source);
+    public sealed record LiveScript(string Id, [property: Description("Source file, or inline.")] string Source);
 
     public sealed record LiveScriptReport(string Session, IReadOnlyList<LiveScript> Scripts);
 
@@ -109,14 +109,14 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         string? Thread, string? Address, string? Name, string Text);
 
     public sealed record LiveEventPage(string Session, IReadOnlyList<LiveEvent> Items,
-        [property: Description("Cursor for the next page; null at the end of the ring.")] string? Cursor,
-        [property: Description("Events dropped from the cursor to this page's end, calls included.")] int Dropped)
+        [property: Description("Cursor for the next page; null at the ring end.")] string? Cursor,
+        [property: Description("Events dropped since the cursor, calls included.")] int Dropped)
     {
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.")]
+    [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
         [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
@@ -373,7 +373,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
-    [Description("Set, list or clear stop points; continue resumes held threads; wait returns the next stop with a named stack.")]
+    [Description("Set, list or clear stop points; continue resumes; wait returns the next stop with its stack.")]
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -515,7 +515,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
-    [Description("Record each call of a function with arguments and result, decoded by prototype or known API, as events (live_events from=WATCH).")]
+    [Description("Record each call of a function with arguments and result as events (live_events from=WATCH).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -580,7 +580,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         }, cancellationToken);
 
     [McpServerTool(Name = "live_script", Title = "User script in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveScriptReport))]
-    [Description("Load, list or unload your Frida script in a session's program; its messages are events (live_events from=SCRIPT). Needs --live-scripting.")]
+    [Description("Load, list or unload a Frida script in a session; its messages are events (live_events from=SCRIPT). Needs --live-scripting.")]
     public Task<string> LiveScriptCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -836,17 +836,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string Quote(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"";
 
     [McpServerTool(Name = "live_events", Title = "Session events", UseStructuredContent = true, OutputSchemaType = typeof(LiveEventPage))]
-    [Description("Page a session's events with a cursor and filters; polling never re-sends earlier ones.")]
+    [Description("Page session events with a cursor and filters; waitSeconds waits for the next.")]
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
-        [Description("Cursor of an earlier page; default the oldest kept.")] string? cursor = null,
+        [Description("Cursor of an earlier page; default oldest kept.")] string? cursor = null,
         [Description("Only this kind.")] string? kind = null,
         [Description("Only this thread id.")] string? thread = null,
-        [Description("Only events of this watch or script id.")] string? from = null,
+        [Description("Only this watch or script id.")] string? from = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description("Seconds to wait for an event, 1-300; 0 returns at once.")] int waitSeconds = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             Require(spawn: false);
             var s = live.Get(session);
@@ -859,7 +860,14 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             var source = string.IsNullOrWhiteSpace(from) ? null : from.Trim();
             if (source != null && !s.Issued(source))
                 throw new ToolError(ErrorCode.NotFound, $"Session {s.Id} has no watch or script '{from}'.", "live_watch and live_script action=list show their ids");
-            var (events, gaps, last, more) = s.Page(start, k, ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000), source);
+            if (waitSeconds < 0)
+                throw new ToolError(ErrorCode.InvalidArgument, $"Bad waitSeconds {waitSeconds}.", "waitSeconds=1..300, or 0 to return at once");
+            var threadId = ThreadId(thread);
+            var bound = Math.Min(waitSeconds, 300);
+            if (bound > 0)
+                await s.WaitEventAsync(start, k, threadId, source, TimeSpan.FromSeconds(bound), cancellationToken).ConfigureAwait(false);
+            var again = $"{(k != null ? " kind=" + k : "")}{(threadId != null ? " thread=" + thread!.Trim() : "")}{(source != null ? " from=" + source : "")}{(bound > 0 ? " waitSeconds=" + bound : "")}";
+            var (events, gaps, last, more) = s.Page(start, k, threadId, ToolSupport.ClampLimit(limit, 1_000), source);
             var named = new List<EvidenceName>();
             var rows = new List<LiveEvent>();
             var lines = new List<string>();
@@ -888,7 +896,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 if (calls > 0) page.AppendLine($"{(calls == 1 ? "1 call event" : $"{calls:N0} call events")} dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})");
                 if (others > 0) page.AppendLine($"{(others == 1 ? "1 event" : $"{others:N0} events")} dropped (ring capacity {Services.LiveSession.RingCapacity:N0})");
                 foreach (var l in lines.Take(count)) page.AppendLine(l);
-                page.AppendLine(kept.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
+                string empty = bound == 0 ? "No events."
+                    : s.Closed || s.Ended != null ? $"Session {s.State}; no events past cursor={next}."
+                    : $"No events within {bound} s. Call again with cursor={next}{again}";
+                page.AppendLine(kept.Count == 0 ? empty : nextCursor != null ? $"more: cursor={nextCursor}{again}" : $"end of the ring; poll again with cursor={next}{again}");
                 var dropped = (int)Math.Min(int.MaxValue, calls + others);
                 return (page.ToString(), new LiveEventPage(s.Id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
             }

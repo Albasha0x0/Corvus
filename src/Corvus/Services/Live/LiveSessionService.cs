@@ -329,6 +329,27 @@ public sealed class LiveSession
             }
             var left = until - DateTime.UtcNow;
             if (left <= TimeSpan.Zero) return null;
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            await Task.WhenAny(changed, Task.Delay(left, stop.Token)).ConfigureAwait(false);
+            stop.Cancel();
+            ct.ThrowIfCancellationRequested();
+        }
+    }
+
+    /// <summary>Waits up to <paramref name="wait"/> for an event at or after <paramref name="from"/> that passes the filters; returns at the first one, at session end or at the bound; throws on cancellation.</summary>
+    internal async Task WaitEventAsync(long from, string? kind, long? thread, string? source, TimeSpan wait, CancellationToken ct)
+    {
+        var until = DateTime.UtcNow + wait;
+        while (true)
+        {
+            Task changed;
+            lock (_gate)
+            {
+                if (Page(from, kind, thread, 1, source).Events.Count > 0 || Closed || Ended != null) return;
+                changed = _changed.Task;
+            }
+            var left = until - DateTime.UtcNow;
+            if (left <= TimeSpan.Zero) return;
             await Task.WhenAny(changed, Task.Delay(left, ct)).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
         }

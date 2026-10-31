@@ -2852,7 +2852,7 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a program** (destructive, open-world)
 
-Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.
+Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2873,7 +2873,7 @@ Structured output: `action`, `session`, `backend`, `program`, `processId`, `stat
 
 **Stop points in a session** (destructive, open-world)
 
-Set, list or clear stop points; continue resumes held threads; wait returns the next stop with a named stack.
+Set, list or clear stop points; continue resumes; wait returns the next stop with its stack.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2891,7 +2891,7 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 **Record calls in a session** (destructive, open-world)
 
-Record each call of a function with arguments and result, decoded by prototype or known API, as events (live_events from=WATCH).
+Record each call of a function with arguments and result as events (live_events from=WATCH).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2926,16 +2926,17 @@ Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`,
 
 **Session events** (read-only, idempotent, open-world)
 
-Page a session's events with a cursor and filters; polling never re-sends earlier ones.
+Page session events with a cursor and filters; waitSeconds waits for the next.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Id from live_session. |
-| `cursor` | string |  |  | Cursor of an earlier page; default the oldest kept. |
+| `cursor` | string |  |  | Cursor of an earlier page; default oldest kept. |
 | `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, child, output, error, exit. |
 | `thread` | string |  |  | Only this thread id. |
-| `from` | string |  |  | Only events of this watch or script id. |
+| `from` | string |  |  | Only this watch or script id. |
 | `limit` | integer |  | `100` |  |
+| `waitSeconds` | integer |  | `0` | Seconds to wait for an event, 1-300; 0 returns at once. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
@@ -2944,7 +2945,7 @@ Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
 
 **User script in a session** (destructive, open-world)
 
-Load, list or unload your Frida script in a session's program; its messages are events (live_events from=SCRIPT). Needs --live-scripting.
+Load, list or unload a Frida script in a session; its messages are events (live_events from=SCRIPT). Needs --live-scripting.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
