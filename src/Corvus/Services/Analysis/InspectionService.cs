@@ -198,8 +198,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         var view = PackageFileView.Of(Web.Packages.PackageReview.Review(folder, ct)!);
         var facts = new FileFacts(folder, 0, "", "", "", "folder", 0, new CertificateInfo(false));
-        return new FileSummary(facts, "folder", [], [.. view.Highlights, "A folder: list_assemblies with path lists the assemblies it holds."], [])
-            { Views = new Dictionary<string, FileView> { ["package"] = view } };
+        var views = new Dictionary<string, FileView> { ["package"] = view };
+        var (hits, notes) = SideloadReview.Scan(SideloadReview.OfFolder(folder), ct);
+        var sideload = SideloadReview.View(hits, notes);
+        if (sideload != null) views["sideload"] = sideload;
+        return new FileSummary(facts, "folder", [], [.. view.Highlights, .. sideload?.Highlights ?? [], "A folder: list_assemblies with path lists the assemblies it holds."], notes)
+            { Views = views };
     }
 
     /// <summary>The file for summarize_file: any size, streamed above <see cref="StreamAbove"/>.</summary>

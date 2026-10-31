@@ -18,6 +18,7 @@ Files, containers and wrapped apps (nothing is executed).
 - summarize_file views for single formats: qlog, certificate, evtx, procmon, registry (table= a key path), pri, protobuf, flutter, wasm, assets.
 - summarize_file view=script peels PowerShell, batch, VBScript and JavaScript transformation layers without running them.
 - summarize_file view=package reviews an npm, PyPI, RubyGems, NuGet, Composer, VS Code or browser extension package before install.
+- summarize_file of a folder or archive lists an unsigned DLL beside a signed image that imports it, outside KnownDLLs (view=sideload).
 - analyze_js: bundler signatures and source maps; view=position maps a minified line:column to the original.
 - Blazor WebAssembly (_framework/*.wasm): unpack_container converts the files to loadable PEs; save_assembly to a .wasm path writes Webcil back.
 - Other .wasm files load as native images: disassemble gives WAT, decompile_native a lifted view, find_xrefs and native_call_tree the calls.

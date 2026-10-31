@@ -180,6 +180,7 @@ public static class FindingRules
         R("archive/nested-executable", "an executable inside an archive that is inside another archive"),
         R("archive/hidden-entry", "an entry with the hidden attribute in an ISO, UDF, FAT or NTFS image"),
         // Native images.
+        R("sideload/unsigned-dll", "an unsigned DLL a signed image imports from its folder, not a KnownDLL"),
         I("packer/packing-tool", "a packing tool's section names or header"),
         I("packer/hardening-tool", "a hardening tool's section names"),
         R("packer/empty-code-section", "a code section empty on disk and filled at run time"),

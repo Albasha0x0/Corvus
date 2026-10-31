@@ -131,6 +131,9 @@ public sealed class FolderCompare
             notes.Add($"the hash budget ({MaxHashBytes:N0} bytes) ran out: entries past it were compared by size only (unverified)");
         if (oldInv.Kind == Core.Inventory.File && newInv.Kind == Core.Inventory.File && oldInv.Problems.Count == 0 && newInv.Problems.Count == 0)
             notes.Add("two single files: compared as one entry");
+        foreach (var (label, root) in new[] { ("old", oldRoot), ("new", newRoot) })
+            if (Directory.Exists(root))
+                notes.AddRange(SideloadReview.Scan(SideloadReview.OfFolder(root), ct).Hits.Select(h => $"{label} side, sideload/unsigned-dll: {SideloadReview.Describe(h)}"));
 
         var selected = rows.Where(r => view switch
         {
