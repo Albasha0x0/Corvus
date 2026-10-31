@@ -1596,8 +1596,8 @@ Load PDB (GUID and age checked) or DWARF debug symbols for a native image: names
 | `download` | boolean |  |  | If nothing local matches: symbol server (PDB), debuginfod (ELF). |
 | `server` | string |  |  | Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF). Others are refused. |
 | `allowMismatch` | boolean |  |  | Use the path file even if GUID/age or build-id differs. |
-| `timeoutSeconds` | integer |  | `120` | Download time limit, seconds. |
-| `maxMegabytes` | integer |  | `2048` | Download size limit in MB. |
+| `timeoutSeconds` | integer |  | `120` | Download time limit, seconds (5-3600). |
+| `maxMegabytes` | integer |  | `2048` | Download size limit in MB (1-16384). |
 | `clear` | boolean |  |  | Remove the PDB names and saved copy instead. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -2722,7 +2722,7 @@ Walk the call stack of a dump thread, naming frames from loaded images, PDBs or 
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own. |
-| `managed` | string |  | `auto` | auto: .NET frames through the DAC; off: native walk only. Values: auto, off. |
+| `managed` | string |  | `auto` | auto: .NET frames via the DAC; off: native only. Values: auto, off. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `items`, `offset`, `total`, `stop`, `scannedFrames`, `managed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2731,20 +2731,20 @@ Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, 
 
 **.NET heap of a dump or session** (read-only, idempotent, long-running)
 
-Lists the .NET GC heap of a dump or session: per-type counts and sizes, or matching objects. Needs heap memory in the dump, else heap_not_captured.
+List the .NET GC heap of a dump or session: per-type counts and sizes, or matching objects (first 100000 paged). Needs heap memory in the dump, else heap_not_captured.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path, open_minidump's id or a session id (live-1): its program, read while it runs. |
 | `mode` | string |  | `stats` | stats (per type) or objects (one row each). Values: stats, objects. |
-| `type` | string |  |  | Type full name, '*' / '?' wildcards; default all. |
+| `type` | string |  |  | Type full name, * ? wildcards; default all. |
 | `minSize` | integer |  | `0` | Min object size in bytes. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
 | `maxObjects` | integer |  | `5000000` | Max objects walked. |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `matchedBytes`, `items`, `offset`, `total`, `totalExact`, `notes`, `limit`, `hasMore`, `nextOffset`.
+Structured output: `dump`, `mode`, `type`, `walked`, `matchedBytes`, `items`, `offset`, `total`, `totalExact`, `notes`, `limit`, `hasMore`, `nextOffset`.
 
 ### dump_object
 
@@ -2756,9 +2756,9 @@ Read one .NET object of a dump or session: type, size, fields, a string's or box
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path, open_minidump's id or a session id (live-1): its program, read while it runs. |
 | `address` | string | yes |  | Hex address of the object. |
-| `depth` | integer |  | `1` | Levels of referenced objects expanded (up to 3). |
-| `maxFields` | integer |  | `100` | Max fields listed, nested ones included. |
-| `maxArrayItems` | integer |  | `32` | Max array elements listed. |
+| `depth` | integer |  | `1` | Reference levels expanded (up to 3). |
+| `maxFields` | integer |  | `100` | Max fields, nested included. |
+| `maxArrayItems` | integer |  | `32` | Max array elements. |
 
 Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buildCheck`, `value`, `length`, `fields`, `truncated`, `notes`.
 
@@ -2771,9 +2771,9 @@ Hex dump of a dump's memory at an address, with its module, captured range and p
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path or open_minidump's id. |
-| `address` | string | yes |  | Hex address, 'module+0x1234', or a module name (its base). |
+| `address` | string | yes |  | Hex address, module+0x1234 or module name (its base). |
 | `length` | integer |  | `256` | Bytes to read (up to 65536). |
-| `dumpOnly` | boolean |  |  | Only the bytes the dump holds, none from the module image. |
+| `dumpOnly` | boolean |  |  | Only the bytes the dump holds, none from the image. |
 | `offset` | integer |  |  | Byte offset into the read (a page's nextOffset). |
 | `maxTokens` | integer |  |  |  |
 
@@ -2803,14 +2803,14 @@ Structured output: `format`, `exception`, `frames`, `items`, `offset`, `total`, 
 
 **Group crash dumps** (read-only, idempotent, long-running)
 
-Group a folder of minidumps by crash signature (exception code, faulting function, top frames), by name so rebases do not split a bucket. Each bucket lists its dumps and the newest.
+Group a folder of minidumps by crash signature (exception code, faulting function, top frames), by name so rebases do not split a bucket.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `folder` | string | yes |  | Folder of .dmp or core files. |
-| `recursive` | boolean |  |  | Also search subfolders. |
+| `recursive` | boolean |  |  | Search subfolders. |
 | `pattern` | string |  |  | File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*). |
-| `topFrames` | integer |  | `3` | Frames after the faulting one in the signature. |
+| `topFrames` | integer |  | `3` | Signature frames after the faulting one. |
 | `skipModules` | string |  |  | More frames to skip, ;-separated: module or module!function, * wildcards. |
 | `splitByVersion` | boolean |  |  | Add the faulting module version to the signature. |
 | `managed` | string |  | `auto` | auto: managed signatures through a local DAC; off: native only. Values: auto, off. |
@@ -2819,6 +2819,7 @@ Group a folder of minidumps by crash signature (exception code, faulting functio
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
 | `maxTokens` | integer |  |  |  |
+| `budgetSeconds` | integer |  | `60` | Seconds parsing new dumps (1-3000). |
 
 Structured output: `folder`, `dumps`, `items`, `offset`, `total`, `failed`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

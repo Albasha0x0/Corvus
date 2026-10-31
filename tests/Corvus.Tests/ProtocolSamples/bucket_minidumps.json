@@ -14,7 +14,8 @@
       "parsed": 1,
       "cached": 0,
       "failed": 0,
-      "limitReached": false
+      "limitReached": false,
+      "pending": 0
     },
     "items": [
       {

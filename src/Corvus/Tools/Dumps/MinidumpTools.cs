@@ -80,7 +80,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
-        [Description("auto: .NET frames through the DAC; off: native walk only.")] string? managed = "auto",
+        [Description("auto: .NET frames via the DAC; off: native only.")] string? managed = "auto",
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -96,12 +96,12 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     }, cancellationToken);
 
     [McpServerTool(Name = "dump_heap", Title = ".NET heap of a dump or session", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
-    [Description("Lists the .NET GC heap of a dump or session: per-type counts and sizes, or matching objects. Needs heap memory in the " +
-                 "dump, else heap_not_captured.")]
+    [Description("List the .NET GC heap of a dump or session: per-type counts and sizes, or matching objects (first 100000 paged). " +
+                 "Needs heap memory in the dump, else heap_not_captured.")]
     public Task<string> DumpHeap(
         [Description(HeapSourceDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",
-        [Description("Type full name, '*' / '?' wildcards; default all.")] string? type = null,
+        [Description("Type full name, * ? wildcards; default all.")] string? type = null,
         [Description("Min object size in bytes.")] long minSize = 0,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
@@ -112,7 +112,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         var r = Session(dump) is { } session
             ? dumps.Heap(session, await sessions!.ClrAsync(session, cancellationToken), mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken)
             : await HeapOfDump(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
-        var header = $"{r.Dump}: {r.Walked:N0} objects walked, {r.MatchedBytes:N0} bytes matching{(r.Type != null ? $" type {r.Type}" : "")}{(r.MinSize > 0 ? $" of at least {r.MinSize} bytes" : "")}\n" +
+        var header = $"{r.Dump}: {r.Walked:N0} objects walked, {r.MatchedBytes:N0} bytes matching{(r.Type != null ? $" type {r.Type}" : "")}{(minSize > 0 ? $" of at least {minSize} bytes" : "")}\n" +
                      string.Concat(r.Notes.Select(n => $"note: {n}\n"));
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.HeapRow, page => r with { Items = page }, r.Mode == "stats" ? "type" : "object", header, r.TotalExact);
     }, cancellationToken);
@@ -122,9 +122,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     public Task<MinidumpService.ObjectReport> DumpObject(
         [Description(HeapSourceDescription)] string dump,
         [Description("Hex address of the object.")] string address,
-        [Description("Levels of referenced objects expanded (up to 3).")] int depth = 1,
-        [Description("Max fields listed, nested ones included.")] int maxFields = 100,
-        [Description("Max array elements listed.")] int maxArrayItems = 32,
+        [Description("Reference levels expanded (up to 3).")] int depth = 1,
+        [Description("Max fields, nested included.")] int maxFields = 100,
+        [Description("Max array elements.")] int maxArrayItems = 32,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () => Session(dump) is { } session
             ? dumps.Object(session, await sessions!.ClrAsync(session, cancellationToken), address, depth, maxFields, maxArrayItems)
@@ -157,9 +157,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
                  "come from the module image (writable data: initial values) unless dumpOnly.")]
     public Task<string> ReadDumpMemory(
         [Description(DumpDescription)] string dump,
-        [Description("Hex address, 'module+0x1234', or a module name (its base).")] string address,
+        [Description("Hex address, module+0x1234 or module name (its base).")] string address,
         [Description("Bytes to read (up to 65536).")] int length = 256,
-        [Description("Only the bytes the dump holds, none from the module image.")] bool dumpOnly = false,
+        [Description("Only the bytes the dump holds, none from the image.")] bool dumpOnly = false,
         [Description("Byte offset into the read (a page's nextOffset).")] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>

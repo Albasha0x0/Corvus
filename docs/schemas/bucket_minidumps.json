@@ -16,7 +16,7 @@
           "type": "integer"
         },
         "cached": {
-          "description": "Taken from the cache of an earlier call (same path, size and write time).",
+          "description": "Read from the cache (same path, size, write time).",
           "type": "integer"
         },
         "failed": {
@@ -25,6 +25,10 @@
         "limitReached": {
           "description": "More files than maxDumps: the newest were bucketed.",
           "type": "boolean"
+        },
+        "pending": {
+          "description": "Unparsed (budget).",
+          "type": "integer"
         }
       },
       "required": [
@@ -41,7 +45,7 @@
         "type": "object",
         "properties": {
           "signature": {
-            "description": "exception code | faulting module!function | the next frames; hang | top frames; clr | exception type | top managed frames.",
+            "description": "Exception code | module!function | next frames; hang | top frames; clr | exception type | managed frames.",
             "type": "string"
           },
           "kind": {

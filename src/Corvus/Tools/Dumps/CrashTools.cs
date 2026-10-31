@@ -46,12 +46,12 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
 
     [McpServerTool(Name = "bucket_minidumps", Title = "Group crash dumps", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpBuckets))]
     [Description("Group a folder of minidumps by crash signature (exception code, faulting function, top frames), by name so rebases do " +
-                 "not split a bucket. Each bucket lists its dumps and the newest.")]
+                 "not split a bucket.")]
     public Task<string> BucketMinidumps(
         [Description("Folder of .dmp or core files.")] string folder,
-        [Description("Also search subfolders.")] bool recursive = false,
+        [Description("Search subfolders.")] bool recursive = false,
         [Description("File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*).")] string? pattern = null,
-        [Description("Frames after the faulting one in the signature.")] int topFrames = 3,
+        [Description("Signature frames after the faulting one.")] int topFrames = 3,
         [Description("More frames to skip, ;-separated: module or module!function, * wildcards.")] string? skipModules = null,
         [Description("Add the faulting module version to the signature.")] bool splitByVersion = false,
         [Description("auto: managed signatures through a local DAC; off: native only.")] string? managed = "auto",
@@ -60,12 +60,13 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        [Description("Seconds parsing new dumps (1-3000).")] int budgetSeconds = MinidumpService.DefaultBucketBudgetSeconds,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress =>
         Task.Run(async () =>
         {
             var args = new FileWork.BucketArgs(folder, recursive, pattern, topFrames, skipModules, splitByVersion,
-                !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), maxDumps, imageDirectories, offset, limit);
+                !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), maxDumps, imageDirectories, offset, limit, budgetSeconds);
             var bucketed = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpBuckets, args, folder ?? "",
                 () => FileWork.BucketsOf(dumps, args,
                     (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} dumps" }),
@@ -78,7 +79,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
                 r = r with { Items = [.. r.Items.Select(b => b with { Sample = [.. b.Sample.Select(Own)], Representative = Own(b.Representative) })] };
             }
             var c = r.Dumps;
-            var header = $"{r.Folder}: {ToolSupport.Plural(c.Seen, "dump")} ({c.Parsed} parsed, {c.Cached} cached, {c.Failed} failed{(c.LimitReached ? ", maxDumps reached: the newest bucketed" : "")})\n" +
+            var header = $"{r.Folder}: {ToolSupport.Plural(c.Seen, "dump")} ({c.Parsed} parsed, {c.Cached} cached, {c.Failed} failed{(c.Pending > 0 ? $", {c.Pending} pending" : "")}{(c.LimitReached ? ", maxDumps reached: the newest bucketed" : "")})\n" +
                          string.Concat(r.Failed.Select(f => $"failed: {f.Path}: {f.Reason}\n")) + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
             return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.Bucket, page => r with { Items = page }, "bucket", header);
         }, cancellationToken));

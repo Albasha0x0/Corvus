@@ -125,4 +125,52 @@ public sealed class DumpBucketTests : IDisposable
     [InlineData(0x02000000L, null)]
     [InlineData(0x02000012L, "0x02000012")]
     public void Heap_rows_leave_out_a_nil_type_def_token(long token, string? expected) => Assert.Equal(expected, MinidumpService.TypeDefToken(token));
+
+    /// <summary>A clock that advances 100 ms on every reading.</summary>
+    private sealed class SteppingClock : TimeProvider
+    {
+        private long _ticks = -100;
+        public override long TimestampFrequency => 1000;
+        public override long GetTimestamp() => Interlocked.Add(ref _ticks, 100);
+    }
+
+    [Fact]
+    public async Task A_spent_budget_returns_a_partial_page_and_the_repeat_finishes_from_the_cache()
+    {
+        for (int i = 0; i < 50; i++) Write($"d{i:D2}.dmp", SyntheticCrash.Builder());
+        _service.BucketClock = new SteppingClock();
+
+        var partial = await _service.Bucket(Folder, false, null, 3, null, false, true, 1000, null, 0, 50, null, default, budgetSeconds: 1);
+        Assert.Equal(50, partial.Dumps.Seen);
+        Assert.Equal(9, partial.Dumps.Parsed);
+        Assert.Equal(41, partial.Dumps.Pending);
+        Assert.Contains(partial.Notes, n => n.Contains("Next: bucket_minidumps folder=", StringComparison.Ordinal));
+
+        _service.BucketClock = TimeProvider.System;
+        var done = await _service.Bucket(Folder, false, null, 3, null, false, true, 1000, null, 0, 50, null, default, budgetSeconds: 60);
+        Assert.Equal(0, done.Dumps.Pending);
+        Assert.Equal(9, done.Dumps.Cached);
+        Assert.Equal(41, done.Dumps.Parsed);
+        Assert.Equal(50, Assert.Single(done.Items).Count);
+    }
+
+    /// <summary>A clock that advances 1000 s on every reading.</summary>
+    private sealed class LongStepClock : TimeProvider
+    {
+        private long _ticks = -1_000_000;
+        public override long TimestampFrequency => 1000;
+        public override long GetTimestamp() => Interlocked.Add(ref _ticks, 1_000_000);
+    }
+
+    [Fact]
+    public async Task A_budget_above_the_maximum_is_clamped_and_named()
+    {
+        for (int i = 0; i < 10; i++) Write($"d{i}.dmp", SyntheticCrash.Builder());
+        _service.BucketClock = new LongStepClock();
+
+        var r = await _service.Bucket(Folder, false, null, 3, null, false, true, 1000, null, 0, 50, null, default, budgetSeconds: 1_000_000);
+
+        Assert.True(r.Dumps.Pending > 0);
+        Assert.Contains(r.Notes, n => n.Contains("raise budgetSeconds (up to 3000)", StringComparison.Ordinal));
+    }
 }

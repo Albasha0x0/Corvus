@@ -8,6 +8,25 @@ namespace Corvus.Services;
 public sealed partial class MinidumpService
 {
     public const long DefaultMaxHeapObjects = 5_000_000;
+    /// <summary>Most matching objects kept per walked dump for paging; pages past it need a narrower type or minSize.</summary>
+    public const int MaxCachedHeapObjects = 100_000;
+    private const int HeapWalksKept = 4;
+    /// <summary>Most objects a walk may be limited to.</summary>
+    public const long MaxHeapObjectsLimit = 100_000_000;
+    private readonly Dictionary<(string Id, string? Version, bool Stats, string? Type, ulong MinSize, long MaxObjects), HeapWalk> _heapWalks = [];
+    private readonly Queue<(string Id, string? Version, bool Stats, string? Type, ulong MinSize, long MaxObjects)> _heapWalkOrder = new();
+
+    /// <summary>Drops the kept heap walks of a dump id.</summary>
+    private void ForgetHeapWalks(string id)
+    {
+        lock (_heapWalks)
+        {
+            foreach (var k in _heapWalks.Keys.Where(k => k.Id == id).ToList()) _heapWalks.Remove(k);
+            var left = _heapWalkOrder.Where(_heapWalks.ContainsKey).ToList();
+            _heapWalkOrder.Clear();
+            foreach (var k in left) _heapWalkOrder.Enqueue(k);
+        }
+    }
 
     /// <summary>How to write a dump that holds the GC heap: a Linux core is written by the runtime's own dump tools.</summary>
     internal static string HeapHint(bool core) => core
@@ -19,17 +38,17 @@ public sealed partial class MinidumpService
 
     /// <summary>mode=stats: a type with its object count and total size; mode=objects: one object.</summary>
     public sealed record HeapRow(string Type,
-        [property: Description("stats: bytes of all its objects; objects: the object's size.")] ulong Size)
+        [property: Description("stats: bytes of its objects; objects: its size.")] ulong Size)
     {
         [Description("stats: objects of the type.")] public long? Count { get; init; }
         [Description("objects: the object's address (dump_object).")] public string? Address { get; init; }
         [Description("objects: a string's value (up to 200 characters).")] public string? Value { get; init; }
-        [Description("stats: id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.")] public string? Assembly { get; init; }
+        [Description("stats: id of the loaded assembly of the type's module (get_type_info).")] public string? Assembly { get; init; }
         [Description("stats: TypeDef token of the type in that assembly.")] public string? Token { get; init; }
     }
 
     public sealed record HeapReport(
-        string Dump, string Mode, string? Type, ulong MinSize,
+        string Dump, string Mode, string? Type,
         [property: Description("Objects walked.")] long Walked,
         [property: Description("Size of every matching object walked.")] ulong MatchedBytes,
         IReadOnlyList<HeapRow> Items, int Offset,
@@ -82,6 +101,10 @@ public sealed partial class MinidumpService
     internal const string LiveHeapNote = "The program runs during the read, so objects can be missing or counted twice; " +
                                          "a snapshot (live_session action=snapshot, then open_minidump) holds one state.";
 
+    /// <summary>The size and write time of a dump's file, so a replaced file is walked again.</summary>
+    private string? DumpVersion(string id) =>
+        PathOf(id) is { } p && new FileInfo(p) is { Exists: true } f ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : null;
+
     private static bool HeapStats(string? mode) => (mode?.Trim().ToLowerInvariant() ?? "stats") switch
     {
         "" or "stats" => true,
@@ -95,7 +118,8 @@ public sealed partial class MinidumpService
         using var s = Open(path, null);
         var decoder = await RequireRuntime(s, heap: true, ct);
         using (AssemblyWorkspace.Lock(decoder.Gate))
-            return HeapOf(s.Id, decoder, a => Hex(s.Memory, a), HeapHint(s.Core != null), stats, type, minSize, offset, limit, maxObjects, [], ct);
+            return HeapOf(s.Id, decoder.Walk, a => Hex(s.Memory, a), HeapHint(s.Core != null), stats, type, minSize, offset, limit, maxObjects, [], ct,
+                keep: true, version: DumpVersion(s.Id));
     }
 
     /// <summary>The heap of a session's running program, read through its runtime without stopping it.</summary>
@@ -108,22 +132,44 @@ public sealed partial class MinidumpService
             if (decoder.Facts().Heap is { Walkable: false } state)
                 throw new ToolError(ErrorCode.Conflict, $"{state.Reason}: a garbage collection is in progress.", "call again");
             // Cancelling would end the session's 32-bit decoder process, so that walk runs to its end.
-            return HeapOf(session.Id, decoder, a => LiveHex(session, a), "call again", stats, type, minSize, offset, limit, maxObjects, [LiveHeapNote],
+            return HeapOf(session.Id, decoder.Walk, a => LiveHex(session, a), "call again", stats, type, minSize, offset, limit, maxObjects, [LiveHeapNote],
                 decoder.OutOfProcess ? CancellationToken.None : ct);
         });
     }
 
-    private HeapReport HeapOf(string id, ClrDecoder decoder, Func<ulong, string> hex, string hint, bool stats, string? type, ulong minSize, int offset, int limit,
-        long maxObjects, List<string> notes, CancellationToken ct)
+    internal HeapReport HeapOf(string id, Func<string?, ulong, long, int, int, CancellationToken, HeapWalk> walk, Func<ulong, string> hex, string hint, bool stats, string? type, ulong minSize, int offset, int limit,
+        long maxObjects, List<string> notes, CancellationToken ct, bool keep = false, string? version = null)
     {
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxListLimit);
-        maxObjects = Math.Clamp(maxObjects, 1, 100_000_000);
+        maxObjects = Math.Clamp(maxObjects, 1, MaxHeapObjectsLimit);
         string? pattern = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
-        var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
+        // Keep the walk of a dump, which cannot change; walk a running program
+        // again. The caller holds the decoder gate, so calls on one dump
+        // run one at a time and a repeat finds the kept walk.
+        var key = (id, version, stats, pattern, minSize, maxObjects);
+        HeapWalk? kept;
+        lock (_heapWalks) _heapWalks.TryGetValue(key, out kept);
+        if (!keep) kept = null;
+        if (kept == null)
+        {
+            kept = keep ? walk(pattern, minSize, maxObjects, 0, stats ? 0 : MaxCachedHeapObjects, ct) : walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
+            if (keep && kept.Walked > 0)
+                lock (_heapWalks)
+                {
+                    if (_heapWalks.TryAdd(key, kept)) _heapWalkOrder.Enqueue(key);
+                    while (_heapWalks.Count > HeapWalksKept && _heapWalkOrder.TryDequeue(out var oldest)) _heapWalks.Remove(oldest);
+                }
+        }
+        var (rows, objects, matched, walked, stopped) = kept;
+        if (keep && !stats) objects = objects.Skip(offset).Take(limit).ToList();
+        if (keep && !stats && matched > MaxCachedHeapObjects && offset + limit > MaxCachedHeapObjects)
+            notes.Add($"Only the first {MaxCachedHeapObjects} matching objects are paged narrow type or raise minSize to reach the rest of the {matched} matches.");
         if (walked == 0)
             throw new ToolError(ErrorCode.Unsupported, "heap_not_captured: no object of the GC heap is readable in this dump.", hint);
-        if (stopped) notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap.");
+        if (stopped)
+            notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap. " +
+                      (maxObjects < MaxHeapObjectsLimit ? $"Next: dump_heap with a larger maxObjects (up to {MaxHeapObjectsLimit})." : "maxObjects is at its maximum: narrow type or minSize."));
         ulong bytes = 0;
         foreach (var r in rows) bytes += r.TotalSize;
         if (stats)
@@ -133,10 +179,10 @@ public sealed partial class MinidumpService
                 var (assembly, _) = AssemblyFor(r.Type.ModulePath, r.Type.Mvid);
                 return new HeapRow(r.Type.Name, r.TotalSize) { Count = r.Count, Assembly = assembly, Token = TypeDefToken(r.Type.Token) };
             }).ToList();
-            return new HeapReport(id, "stats", pattern, minSize, walked, bytes, page, offset, rows.Count, !stopped, notes);
+            return new HeapReport(id, "stats", pattern, walked, bytes, page, offset, rows.Count, !stopped, notes);
         }
         var list = objects.Select(o => new HeapRow(o.Type, o.Size) { Address = hex(o.Address), Value = o.Value }).ToList();
-        return new HeapReport(id, "objects", pattern, minSize, walked, bytes, list, offset, (int)Math.Min(matched, int.MaxValue), !stopped, notes);
+        return new HeapReport(id, "objects", pattern, walked, bytes, list, offset, (int)Math.Min(matched, int.MaxValue), !stopped, notes);
     }
 
     private static ulong ObjectAddress(string address) =>

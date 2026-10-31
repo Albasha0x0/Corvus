@@ -10,9 +10,6 @@
     "type": {
       "type": "string"
     },
-    "minSize": {
-      "type": "integer"
-    },
     "walked": {
       "description": "Objects walked.",
       "type": "integer"
@@ -30,7 +27,7 @@
             "type": "string"
           },
           "size": {
-            "description": "stats: bytes of all its objects; objects: the object's size.",
+            "description": "stats: bytes of its objects; objects: its size.",
             "type": "integer"
           },
           "count": {
@@ -46,7 +43,7 @@
             "type": "string"
           },
           "assembly": {
-            "description": "stats: id of the loaded assembly that is the type's module build, for get_type_info / decompile_member.",
+            "description": "stats: id of the loaded assembly of the type's module (get_type_info).",
             "type": "string"
           },
           "token": {
@@ -108,7 +105,6 @@
   "required": [
     "dump",
     "mode",
-    "minSize",
     "walked",
     "matchedBytes",
     "items",

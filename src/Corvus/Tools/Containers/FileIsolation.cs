@@ -361,7 +361,7 @@ public static class FileWork
     public sealed record StackArgs(DumpTarget Dump, string? Thread, bool ExceptionContext, int MaxFrames, int Offset, int Limit, bool Managed);
 
     public sealed record BucketArgs(string Folder, bool Recursive, string? Pattern, int TopFrames, string? SkipModules, bool SplitByVersion, bool Managed,
-        int MaxDumps, string? ImageDirectories, int Offset, int Limit);
+        int MaxDumps, string? ImageDirectories, int Offset, int Limit, int BudgetSeconds = MinidumpService.DefaultBucketBudgetSeconds);
 
     public sealed record SymbolizeArgs(string? Text, string? Path, string? Format, string? Images, string? ModuleBases, int Offset, int Limit, bool Compact);
 
@@ -385,7 +385,7 @@ public static class FileWork
     public static BucketResult BucketsOf(MinidumpService dumps, BucketArgs a, Action<int, int>? progress, CancellationToken ct)
     {
         var buckets = dumps.Bucket(a.Folder, a.Recursive, a.Pattern, a.TopFrames, a.SkipModules, a.SplitByVersion, a.Managed, a.MaxDumps, a.ImageDirectories, a.Offset, a.Limit,
-            progress, ct).GetAwaiter().GetResult();
+            progress, ct, a.BudgetSeconds).GetAwaiter().GetResult();
         var paths = buckets.Items.SelectMany(b => b.Sample.Append(b.Representative)).Distinct()
             .Select(id => (id, path: dumps.PathOf(id))).Where(e => e.path != null).ToDictionary(e => e.id, e => e.path!);
         return new BucketResult(buckets, paths);

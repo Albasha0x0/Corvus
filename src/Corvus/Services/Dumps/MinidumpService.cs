@@ -203,6 +203,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     {
         if (!_ids.TryRemove(id.Trim(), out var path)) return null;
         _imageDirectories.TryRemove(path, out _);
+        ForgetHeapWalks(id.Trim());
         return path;
     }
 

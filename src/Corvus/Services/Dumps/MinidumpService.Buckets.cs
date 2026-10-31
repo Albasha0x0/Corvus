@@ -12,9 +12,17 @@ namespace Corvus.Services;
 public sealed partial class MinidumpService
 {
     public const int DefaultMaxDumps = 1000;
+    /// <summary>Most dumps one bucketing call covers.</summary>
+    public const int MaxDumpsLimit = 100_000;
     /// <summary>Windows minidumps, then Linux and Android core files.</summary>
     public const string DefaultDumpPatterns = "*.dmp;*.mdmp;*.core;core.*";
     private const int BucketWalkFrames = 64;
+    /// <summary>Seconds a bucketing call parses new dumps before it answers with the dumps done so far.</summary>
+    public const int DefaultBucketBudgetSeconds = 60;
+    /// <summary>Most seconds of budget; a worker call ends at one hour, so the budget stays under it.</summary>
+    public const int MaxBucketBudgetSeconds = 3000;
+    /// <summary>The clock of the bucketing budget.</summary>
+    internal TimeProvider BucketClock { get; set; } = TimeProvider.System;
     /// <summary>Overrides the folder of the incremental bucketing cache.</summary>
     public const string BucketCacheVariable = "CORVUS_DUMP_BUCKET_CACHE";
 
@@ -29,12 +37,15 @@ public sealed partial class MinidumpService
     public sealed record DumpCounts(
         [property: Description("Dump files found.")] int Seen,
         [property: Description("Parsed in this call.")] int Parsed,
-        [property: Description("Taken from the cache of an earlier call (same path, size and write time).")] int Cached,
+        [property: Description("Read from the cache (same path, size, write time).")] int Cached,
         int Failed,
-        [property: Description("More files than maxDumps: the newest were bucketed.")] bool LimitReached);
+        [property: Description("More files than maxDumps: the newest were bucketed.")] bool LimitReached)
+    {
+        [Description("Unparsed (budget).")] public int Pending { get; init; }
+    }
 
     public sealed record DumpBucket(
-        [property: Description("exception code | faulting module!function | the next frames; hang | top frames; clr | exception type | top managed frames.")] string Signature,
+        [property: Description("Exception code | module!function | next frames; hang | top frames; clr | exception type | managed frames.")] string Signature,
         [property: Description("exception, clr_exception or no_exception.")] string Kind,
         int Count, string FirstTime, string LastTime,
         [property: Description("Faulting module versions: dumps per version.")] IReadOnlyDictionary<string, int> ModuleVersions,
@@ -53,8 +64,11 @@ public sealed partial class MinidumpService
     private sealed record CacheEntry(string Path, long Size, long Ticks, DumpSignature? Signature, string? Failure);
 
     public async Task<DumpBuckets> Bucket(string folder, bool recursive, string? pattern, int topFrames, string? skipModules, bool splitByVersion, bool managed,
-        int maxDumps, string? imageDirectories, int offset, int limit, Action<int, int>? progress, CancellationToken ct)
+        int maxDumps, string? imageDirectories, int offset, int limit, Action<int, int>? progress, CancellationToken ct,
+        int budgetSeconds = DefaultBucketBudgetSeconds)
     {
+        budgetSeconds = Math.Clamp(budgetSeconds, 1, MaxBucketBudgetSeconds);
+        long started = BucketClock.GetTimestamp();
         string root;
         try { root = Path.GetFullPath((folder ?? "").Trim()); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -64,7 +78,7 @@ public sealed partial class MinidumpService
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(root))
             throw Targets.DirectoryNotFound(folder ?? "");
         topFrames = Math.Clamp(topFrames, 0, 16);
-        maxDumps = Math.Clamp(maxDumps, 1, 100_000);
+        maxDumps = Math.Clamp(maxDumps, 1, MaxDumpsLimit);
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxListLimit);
         var skip = NoiseFrames.Concat((skipModules ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).ToList();
@@ -92,7 +106,8 @@ public sealed partial class MinidumpService
         if (limited)
         {
             files = files.Take(maxDumps).ToList();
-            notes.Add($"{seen} dump files: only the newest {maxDumps} (maxDumps) were bucketed.");
+            notes.Add($"{seen} dump files: only the newest {maxDumps} (maxDumps) were bucketed. " +
+                      (maxDumps < MaxDumpsLimit ? $"Next: bucket_minidumps with maxDumps={Math.Min(seen, MaxDumpsLimit)}." : "maxDumps is at its maximum: narrow with pattern or a subfolder."));
         }
 
         string settings = Settings(topFrames, skip, managed, imageDirectories);
@@ -110,6 +125,8 @@ public sealed partial class MinidumpService
             }
             else
             {
+                // Stop starting parses past the budget; parsed dumps stay cached.
+                if (BucketClock.GetElapsedTime(started).TotalSeconds >= budgetSeconds) return;
                 CacheEntry entry;
                 try { entry = new CacheEntry(f.FullName, f.Length, ticks, await Signature(f.FullName, imageDirectories, topFrames, skip, managed, token), null); }
                 catch (ToolError e) { entry = new CacheEntry(f.FullName, f.Length, ticks, null, e.Message); }
@@ -120,6 +137,11 @@ public sealed partial class MinidumpService
             progress?.Invoke(Interlocked.Increment(ref done), files.Count);
         });
         WriteCache(cachePath, settings, results.Values, notes);
+
+        int pending = files.Count - results.Count;
+        if (pending > 0)
+            notes.Add($"The {budgetSeconds} s budget (budgetSeconds) ended with {pending} of {files.Count} dumps not parsed: buckets cover the other {results.Count}. " +
+                      $"Next: bucket_minidumps folder={root} again with the same arguments, or raise budgetSeconds (up to {MaxBucketBudgetSeconds}); parsed dumps are read from the cache.");
 
         var failed = results.Values.Where(r => r.Signature == null).OrderBy(r => r.Path, StringComparer.Ordinal)
             .Select(r => new FailedDump(r.Path, r.Failure ?? "unreadable")).ToList();
@@ -137,7 +159,7 @@ public sealed partial class MinidumpService
             .OrderByDescending(b => b.Count).ThenByDescending(b => b.LastTime, StringComparer.Ordinal).ThenBy(b => b.Signature, StringComparer.Ordinal).ToList();
         if (files.Count == 0) notes.Add($"No file in {root} matches {string.Join(";", patterns)}{(recursive ? "" : " (recursive=false)")}.");
         var page = buckets.Skip(offset).Take(limit).ToList();
-        return new DumpBuckets(root, new DumpCounts(seen, parsed, cached, failed.Count, limited), page, offset, buckets.Count, failed.Take(100).ToList(), notes);
+        return new DumpBuckets(root, new DumpCounts(seen, parsed, cached, failed.Count, limited) { Pending = pending }, page, offset, buckets.Count, failed.Take(100).ToList(), notes);
     }
 
     private static Dictionary<string, int> Tally(IEnumerable<string> values) =>
