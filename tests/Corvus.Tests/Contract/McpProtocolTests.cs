@@ -1058,6 +1058,106 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 await reader;
             }
         }
+
+        [Fact]
+        public async Task A_trivial_call_after_a_cancelled_export_answers_within_seconds()
+        {
+            var library = RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll");
+            var output = _dir.File("export-inflight");
+            var trace = _dir.File("trace-inflight.jsonl");
+            using var server = new RawServer(ServerDll, AnnotationsDir, "--load", library, "--trace", trace);
+            static int Files(string dir) => Directory.Exists(dir)
+                ? Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count() : 0;
+            try
+            {
+                server.Send(new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new { protocolVersion = "2025-06-18", capabilities = new { }, clientInfo = new { name = "test", version = "1" } } });
+                await server.Until(m => RawServer.Is(m, 1), TimeSpan.FromMinutes(2));
+                server.Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
+                // Untimed warm-up, so the timed call below is not the first one.
+                server.Send(Convert(2, "1"));
+                await server.Until(m => RawServer.Is(m, 2), TimeSpan.FromMinutes(2));
+                server.Send(new { jsonrpc = "2.0", id = 3, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output }, _meta = new { progressToken = "export" } } });
+                // The export is in flight once it reports progress and has not answered.
+                await server.Until(RawServer.Progress, TimeSpan.FromMinutes(2));
+                Assert.DoesNotContain(server.Messages, m => RawServer.Is(m, 3));
+                server.Send(new { jsonrpc = "2.0", method = "notifications/cancelled", @params = new { requestId = 3, reason = "test" } });
+                var sent = System.Diagnostics.Stopwatch.StartNew();
+                server.Send(Convert(4, "0x41424344"));
+                await server.Until(m => RawServer.Is(m, 4), ContractSweep.CallLimit);
+                var elapsed = sent.Elapsed;
+                var reply = server.Messages.First(m => RawServer.Is(m, 4));
+                Assert.False(reply.TryGetProperty("error", out _), reply.ToString());
+                Assert.Contains("1094861636", reply.GetProperty("result").ToString());
+                Assert.True(elapsed < TimeSpan.FromSeconds(5), $"the follow-up call took {elapsed.TotalSeconds:0.0} s");
+                // The handler ends as cancelled, and its export stops writing.
+                Assert.Equal("cancelled", await TracedOutcome(trace, "export_project", TimeSpan.FromMinutes(2)));
+                Assert.DoesNotContain(server.Messages, m => RawServer.Is(m, 3) && m.TryGetProperty("result", out _));
+                var files = Files(output);
+                server.Send(Convert(5, "2"));
+                await server.Until(m => RawServer.Is(m, 5), ContractSweep.CallLimit);
+                Assert.Equal(files, Files(output));
+            }
+            finally
+            {
+                await server.StopAsync();
+            }
+
+            static object Convert(int id, string number) => new { jsonrpc = "2.0", id, method = "tools/call", @params = new { name = "convert_number", arguments = new { numbers = new[] { number } } } };
+        }
+
+        /// <summary>A server process driven by raw JSON-RPC lines.</summary>
+        private sealed class RawServer : IDisposable
+        {
+            private readonly System.Diagnostics.Process _process;
+            private readonly Task _reader;
+
+            public ConcurrentQueue<JsonElement> Messages { get; } = new();
+
+            public RawServer(string serverDll, string annotationsDir, params string[] args)
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                psi.ArgumentList.Add(serverDll);
+                foreach (var arg in args) psi.ArgumentList.Add(arg);
+                psi.Environment["CORVUS_ANNOTATIONS_DIR"] = annotationsDir;
+                _process = System.Diagnostics.Process.Start(psi)!;
+                _process.ErrorDataReceived += (_, _) => { };
+                _process.BeginErrorReadLine();
+                _reader = Task.Run(async () =>
+                {
+                    while (await _process.StandardOutput.ReadLineAsync() is { } line)
+                        Messages.Enqueue(JsonDocument.Parse(line).RootElement.Clone());
+                });
+            }
+
+            public static bool Is(JsonElement m, int id) => m.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.Number && i.GetInt32() == id;
+
+            public static bool Progress(JsonElement m) => m.TryGetProperty("method", out var method) && method.GetString() == "notifications/progress";
+
+            public void Send(object message)
+            {
+                _process.StandardInput.Write(JsonSerializer.Serialize(message) + '\n');
+                _process.StandardInput.Flush();
+            }
+
+            /// <summary>Waits for a matching message; throws when the limit passes or the output ends.</summary>
+            public async Task Until(Func<JsonElement, bool> match, TimeSpan limit)
+            {
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); !Messages.Any(match); await Task.Delay(10))
+                {
+                    if (waited.Elapsed > limit) throw new TimeoutException($"no such message in {limit.TotalSeconds:0} s");
+                    if (_reader.IsCompleted && !Messages.Any(match)) throw new InvalidOperationException("the server ended its output");
+                }
+            }
+
+            public async Task StopAsync()
+            {
+                _process.StandardInput.Close();
+                if (!_process.WaitForExit(10_000)) _process.Kill(entireProcessTree: true);
+                await _reader;
+            }
+
+            public void Dispose() => _process.Dispose();
+        }
     }
 
     /// <summary>Long results over the wire.</summary>
