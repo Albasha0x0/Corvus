@@ -20,6 +20,9 @@ public sealed class IndexingService : IDisposable
     private Task _task = Task.CompletedTask;
     private volatile string _status = "idle";
 
+    /// <summary>Runs at the start of each pass; tests use it to hold or fail a pass.</summary>
+    internal Action<CancellationToken>? PassProbe { get; set; }
+
     public IndexingService(AssemblyWorkspace workspace, CallGraphService graph, ServerOptions options, ILogger<IndexingService>? logger = null)
     {
         _workspace = workspace;
@@ -65,6 +68,7 @@ public sealed class IndexingService : IDisposable
         using var scope = AssemblyWorkspace.CancelWaitsWith(ct, "background indexing");
         try
         {
+            PassProbe?.Invoke(ct);
             var pending = _workspace.Read(() => _workspace.Assemblies.Where(a => !a.IsDirty && !_indexed.TryGetValue(a.Module, out _)).ToList());
             foreach (var asm in pending)
             {
@@ -88,9 +92,17 @@ public sealed class IndexingService : IDisposable
             }
             ct.ThrowIfCancellationRequested();
             _status = "building call graph";
-            _graph.EnsureBuilt(ct);
+            bool current = _graph.EnsureBuilt(ct);
+            ct.ThrowIfCancellationRequested();
+            if (!current)
+            {
+                _status = "stale";
+                _workspace.Notify($"Indexing ended after an edit ({pending.Count} assemblies); get_call_tree and find_call_paths build the call graph on first call.");
+                return;
+            }
             _status = "done";
             _logger?.LogInformation("Background indexing done ({Count} assemblies)", pending.Count);
+            _workspace.Notify($"Indexing done ({pending.Count} assemblies); get_call_tree and find_call_paths read the built call graph.");
         }
         catch (OperationCanceledException)
         {
@@ -104,6 +116,7 @@ public sealed class IndexingService : IDisposable
         {
             _status = $"failed: {ex.Message}";
             _logger?.LogWarning(ex, "Background indexing failed");
+            _workspace.Notify($"Indexing failed ({ex.Message}); get_call_tree and find_call_paths build the call graph on first call.");
         }
     }
 

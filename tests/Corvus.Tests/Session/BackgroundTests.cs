@@ -19,6 +19,84 @@ public class BackgroundTests
     }
 
     [Fact]
+    public void Indexing_then_get_call_tree_builds_the_call_graph_once()
+    {
+        using var env = new Env(typeof(ModuleDefMD).Assembly.Location);
+        var graph = new CallGraphService(env.Workspace);
+        using var indexing = new IndexingService(env.Workspace, graph, new ServerOptions());
+        indexing.Start();
+        var method = env.One("dnlib.DotNet.UTF8String::ToString()");
+        env.Workspace.Read(() => graph.Tree(method.Assembly, (MethodDef)method.Member, true, 1, 50, false, default));
+        Assert.True(indexing.WaitForIdle(TimeSpan.FromMinutes(2)));
+        Assert.Equal(1, graph.BuildCount);
+    }
+
+    [Fact]
+    public async Task A_cancelled_lock_holder_leaves_the_build_to_the_other_waiter()
+    {
+        using var env = new Env(typeof(ModuleDefMD).Assembly.Location);
+        var graph = new CallGraphService(env.Workspace);
+        var other = Task.Run(() => graph.EnsureBuilt(default));
+        using var cts = new CancellationTokenSource();
+        var holder = Task.Run(() =>
+        {
+            try { env.Workspace.Read(() => graph.EnsureBuilt(cts.Token)); }
+            catch (OperationCanceledException) { }
+        });
+        cts.CancelAfter(TimeSpan.FromMilliseconds(50));
+        await holder.WaitAsync(TimeSpan.FromMinutes(2));
+        Assert.True(await other.WaitAsync(TimeSpan.FromMinutes(2)));
+    }
+
+    [Fact]
+    public void A_finished_pass_notifies_once()
+    {
+        using var env = new Env(typeof(ModuleDefMD).Assembly.Location);
+        var graph = new CallGraphService(env.Workspace);
+        using var indexing = new IndexingService(env.Workspace, graph, new ServerOptions());
+        indexing.Start();
+        Assert.True(indexing.WaitForIdle(TimeSpan.FromMinutes(2)));
+        var notices = env.Workspace.DrainNotices();
+        Assert.Single(notices, n => n.StartsWith("Indexing done", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_failed_pass_notifies_with_the_reason()
+    {
+        using var env = new Env(typeof(ModuleDefMD).Assembly.Location);
+        var graph = new CallGraphService(env.Workspace);
+        using var indexing = new IndexingService(env.Workspace, graph, new ServerOptions())
+        {
+            PassProbe = _ => throw new InvalidOperationException("probe"),
+        };
+        indexing.Start();
+        Assert.True(indexing.WaitForIdle(TimeSpan.FromMinutes(2)));
+        Assert.Single(env.Workspace.DrainNotices(), n => n.StartsWith("Indexing failed (probe)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_superseded_pass_sends_no_notice()
+    {
+        using var env = new Env(typeof(ModuleDefMD).Assembly.Location);
+        var graph = new CallGraphService(env.Workspace);
+        using var indexing = new IndexingService(env.Workspace, graph, new ServerOptions());
+        var started = new ManualResetEventSlim();
+        // The first pass blocks until the second Start cancels it.
+        indexing.PassProbe = ct =>
+        {
+            indexing.PassProbe = null;
+            started.Set();
+            ct.WaitHandle.WaitOne();
+        };
+        indexing.Start();
+        Assert.True(started.Wait(TimeSpan.FromMinutes(1)));
+        indexing.Start();
+        Assert.True(indexing.WaitForIdle(TimeSpan.FromMinutes(2)));
+        var notice = Assert.Single(env.Workspace.DrainNotices());
+        Assert.StartsWith("Indexing done", notice, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Edits_are_not_blocked_or_broken_by_indexing()
     {
         using var env = new Env(typeof(ModuleDefMD).Assembly.Location);

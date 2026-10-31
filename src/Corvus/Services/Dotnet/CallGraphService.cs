@@ -34,58 +34,140 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
     private long StateKey() => ((long)workspace.Generation << 32) | (uint)workspace.Assemblies.Sum(a => a.Version);
 
-    /// <summary>Types per shared-lock section when the graph is built without the caller holding the lock.</summary>
+    /// <summary>Types per shared-lock section of a graph build.</summary>
     private const int SectionTypes = 500;
 
-    /// <summary>
-    /// Builds the graph unless it is current. Called without the workspace lock, it reads the assemblies in sections so a
-    /// queued writer gets in between; an edit meanwhile leaves the graph to be built on first use.
-    /// </summary>
-    public void EnsureBuilt(CancellationToken ct)
+    private sealed class Build(long key)
     {
-        if (workspace.LockHeld) GetGraph(ct);
-        else BuildInSections(ct);
+        public readonly long Key = key;
+        public readonly CancellationTokenSource Cts = new();
+        public Task<Graph?> Task = null!;
+        public int Waiters;
+        // Cancel LockedJoin when a lock-holding waiter joins, so the build's
+        // reads run under that hold. Replaced when the last such waiter leaves.
+        public CancellationTokenSource LockedJoin = new();
+        public int LockedWaiters;
     }
+
+    private Build? _build;
+    private int _builds;
+
+    /// <summary>Graph builds started so far; tests read it.</summary>
+    internal int BuildCount => Volatile.Read(ref _builds);
+
+    /// <summary>
+    /// Builds the graph unless it is current, joining a build already running
+    /// for the same workspace state. Returns false when an edit made the
+    /// build stale; the graph is then built on first use.
+    /// </summary>
+    public bool EnsureBuilt(CancellationToken ct) => Await(ct) != null;
 
     private Graph GetGraph(CancellationToken ct)
     {
-        long key = StateKey();
+        while (true)
+            if (Await(ct) is { } g) return g;
+    }
+
+    // Null when an edit made the build stale or the build was cancelled.
+    private Graph? Await(CancellationToken ct)
+    {
+        bool locked = workspace.LockHeld;
+        long key = locked ? StateKey() : workspace.Read(StateKey, ct);
+        Build build;
+        CancellationTokenSource join;
         lock (_sync)
         {
             if (_graph?.Key == key) return _graph;
+            // A build being cancelled is dead; start a new one for the key.
+            if (_build is not { Key: var k } current || k != key || current.Cts.IsCancellationRequested)
+            {
+                current = _build = new Build(key);
+                Interlocked.Increment(ref _builds);
+                var started = current;
+                current.Task = Task.Run(() => Run(started));
+            }
+            build = current;
+            build.Waiters++;
+            if (locked) build.LockedWaiters++;
+            join = build.LockedJoin;
         }
-        var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
-        var loadedModules = workspace.Assemblies.Select(a => (ModuleDef)a.Module).ToHashSet();
-        var edges = Collect(Types(workspace.Assemblies), resolved, loadedModules, ct);
-        foreach (var asm in workspace.Assemblies)
-            DelegateEdges(asm, edges, resolved, loadedModules, ct);
-        return Publish(key, edges);
+
+        if (locked) join.Cancel();
+        try
+        {
+            build.Task.Wait(ct);
+            return build.Task.Result;
+        }
+        catch (AggregateException ex) when (ex.InnerException != null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                if (locked && --build.LockedWaiters == 0) build.LockedJoin = new CancellationTokenSource();
+                if (--build.Waiters == 0 && !build.Task.IsCompleted) build.Cts.Cancel();
+            }
+        }
     }
 
-    private void BuildInSections(CancellationToken ct)
+    private Graph? Run(Build build)
     {
-        var (key, assemblies, work, loadedModules) = workspace.Read(() =>
-            (StateKey(), workspace.Assemblies, Types(workspace.Assemblies), workspace.Assemblies.Select(a => (ModuleDef)a.Module).ToHashSet()), ct);
-        lock (_sync)
+        try
         {
-            if (_graph?.Key == key) return;
+            var ct = build.Cts.Token;
+            var key = build.Key;
+            T Read<T>(Func<T> read)
+            {
+                while (true)
+                {
+                    CancellationTokenSource? join;
+                    lock (_sync) join = build.LockedWaiters > 0 ? null : build.LockedJoin;
+                    if (join == null) return read();
+                    try
+                    {
+                        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, join.Token);
+                        return workspace.Read(read, linked.Token);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested
+                        && join.IsCancellationRequested)
+                    {
+                    }
+                }
+            }
+            bool Section(Action read) => Read(() =>
+            {
+                if (StateKey() != key) return false;
+                read();
+                return true;
+            });
+
+            var (assemblies, work, loadedModules) = Read(() => StateKey() != key
+                ? default
+                : (workspace.Assemblies.ToList(), Types(workspace.Assemblies), workspace.Assemblies.Select(a => (ModuleDef)a.Module).ToHashSet()));
+            if (assemblies == null) return null;
+            var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
+            var edges = new List<Call>();
+            for (int start = 0; start < work.Length; start += SectionTypes)
+            {
+                var part = work[start..Math.Min(work.Length, start + SectionTypes)];
+                if (!Section(() => edges.AddRange(Collect(part, resolved, loadedModules, ct)))) return null;
+            }
+            foreach (var asm in assemblies)
+                if (!Section(() => DelegateEdges(asm, edges, resolved, loadedModules, ct))) return null;
+            return Publish(key, edges);
         }
-        var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
-        var edges = new List<Call>();
-        bool Section(Action read) => workspace.Read(() =>
+        catch (OperationCanceledException) when (build.Cts.IsCancellationRequested)
         {
-            if (StateKey() != key) return false;
-            read();
-            return true;
-        }, ct);
-        for (int start = 0; start < work.Length; start += SectionTypes)
-        {
-            var part = work[start..Math.Min(work.Length, start + SectionTypes)];
-            if (!Section(() => edges.AddRange(Collect(part, resolved, loadedModules, ct)))) return;
+            return null;
         }
-        foreach (var asm in assemblies)
-            if (!Section(() => DelegateEdges(asm, edges, resolved, loadedModules, ct))) return;
-        Publish(key, edges);
+        finally
+        {
+            lock (_sync)
+                if (ReferenceEquals(_build, build)) _build = null;
+        }
     }
 
     private record struct Call(MethodDef From, MethodDef? To, string? External, MethodDef? ExternalDef, uint Offset, string Op);
