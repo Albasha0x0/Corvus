@@ -94,12 +94,12 @@ internal sealed class ModelFileView : IFileSummaryView
                 pickle = Pickle(c.Pickle, null, null, null, tensors, ref parameters);
                 issues.AddRange(c.Pickle.Issues);
             }
-            else if (PickleScan.Looks(head))
+            else if (PickleScan.Looks(head) || ModelRisk.IsModelFile(file.Path) && PickleScan.LooksUnversioned(head))
             {
                 format = "pickle";
                 var p = PickleScan.Read(s, file.Length, ct);
                 if (p.Opcodes < 3 || (!p.Complete && p.Imports.Count == 0)) return null;
-                line = $"Python pickle (protocol {p.Protocol})";
+                line = "Python pickle (" + (p.Protocol >= 2 ? $"protocol {p.Protocol}" : "protocol 0 or 1") + ")";
                 pickle = Pickle(p, null, null, null, tensors, ref parameters);
                 issues.AddRange(p.Issues);
                 if (p.Complete && p.End < file.Length) issues.Add($"{file.Length - p.End:N0} bytes follow the pickle's STOP");

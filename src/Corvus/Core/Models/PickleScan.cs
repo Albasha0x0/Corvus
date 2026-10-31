@@ -113,6 +113,9 @@ public sealed class PickleScan
     /// <summary>The bytes start with a PROTO opcode of protocol 2 to 5.</summary>
     public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= 3 && head[0] == 0x80 && head[1] is >= 2 and <= 5;
 
+    /// <summary>The bytes start with an opcode a protocol 0 or 1 pickle starts with; these have no PROTO header, so only a file named as a pickle is tested.</summary>
+    public static bool LooksUnversioned(ReadOnlySpan<byte> head) => head.Length > 0 && "ci(]})SVINKJ"u8.IndexOf(head[0]) >= 0;
+
     /// <summary>Walks one pickle to STOP or <paramref name="end"/>; a malformed one ends with its offset in <see cref="Issues"/>.</summary>
     public static PickleScan Read(Stream s, long end, CancellationToken ct = default)
     {

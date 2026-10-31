@@ -108,6 +108,16 @@ public sealed class ModelFileTests
             p.TorchTensors(10).Select(t => $"{t.Name} {t.Dtype} [{string.Join(",", t.Shape)}] {t.StorageKey} {t.StorageElements}"));
     }
 
+    // A protocol 0 pickle, which has no PROTO header: GLOBAL datetime date, called on a tuple.
+    [Fact]
+    public void A_protocol_0_pickle_named_as_a_pickle_lists_its_imports_and_another_name_is_not_read()
+    {
+        var b = "cdatetime\ndate\n(I2024\nI1\nI2\ntR."u8.ToArray();
+        var facts = (ModelFileView.Facts)new ModelFileView().Inspect(new FileInput("values.pkl", b, Blob.Identify(b)), default)!.Detail;
+        Assert.Equal("datetime.date GLOBAL 1", facts.Pickle!.Imports.Select(i => $"{i.Name} {i.Opcode} {i.Count}").Single());
+        Assert.Null(new ModelFileView().Inspect(new FileInput("values.txt", b, Blob.Identify(b)), default));
+    }
+
     [Fact]
     public void Imports_outside_the_allowlist_and_newer_opcodes_are_reported_without_importing_them()
     {
@@ -280,6 +290,15 @@ public sealed class ModelFileTests
             Recorder(f, counts).load()
             for k, v in counts.items(): out.append(f"import {k} {v}")
 
+        # Protocols 0 and 1 have no header: a file whose opcodes parse to STOP is one.
+        def protocol_0_or_1(p):
+            import pickletools
+            try:
+                ops = list(pickletools.genops(open(p, "rb").read()))
+                return bool(ops) and ops[-1][0].name == "STOP"
+            except Exception:
+                return False
+
         def tensors(obj, prefix=""):
             import torch
             if isinstance(obj, torch.Tensor):
@@ -339,7 +358,7 @@ public sealed class ModelFileTests
                 tensors(torch.load(path, weights_only=True, map_location="cpu")); out.append("weights_only ok")
             except Exception:
                 out.append("weights_only refused")
-        elif head[0] == 0x80 and 2 <= head[1] <= 5:
+        elif head[0] == 0x80 and 2 <= head[1] <= 5 or protocol_0_or_1(path):
             import torch._weights_only_unpickler as w
             imports(open(path, "rb"))
             try:

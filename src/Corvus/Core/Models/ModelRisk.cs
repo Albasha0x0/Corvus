@@ -66,8 +66,7 @@ public static class ModelRisk
             else if (OnnxModel.Looks(b) && path.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)) DataPaths(b, f, ct);
             else if (Codec(b) is { } codec) Compressed(path, b, codec, f, depth, ct);
             else if (TorchCheckpoint.IsLegacy(b)) Add(TorchCheckpoint.ReadLegacy(new MemoryStream(b, writable: false), b.Length, ct).Pickle, f);
-            // Protocol 0 and 1 pickles have no PROTO header; they start with an opcode.
-            else if (PickleScan.Looks(b) || b.Length > 0 && "ci(]})SVINKJ"u8.IndexOf(b[0]) >= 0)
+            else if (PickleScan.Looks(b) || PickleScan.LooksUnversioned(b))
                 Add(PickleScan.Read(new MemoryStream(b, writable: false), b.Length, ct), f);
         }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or JsonException)
