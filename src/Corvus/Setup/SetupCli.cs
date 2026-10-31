@@ -116,9 +116,10 @@ internal static class SetupCli
           tools [filter]        List the tools by toolset (--json for a table).
           describe <name>       A tool's or prompt's description, parameters and an example (help <name> too).
           batch <file|->        Run steps ({"tool": ..., "args": {...}} as a JSON array or JSON Lines) in one session,
-                                so ids and in-memory edits carry over. --stop-on-error, --json (one line per step).
+                                so ids and in-memory edits carry over. --stop-on-error, --json (one line per step),
+                                --step-timeout S.
           batch --file <path> --json   Read one file with fixed read-only steps (summary, container, strings,
-                                yara) into one corvus.batch/1 document. --rules <file|folder>, --time-limit S,
+                                yara) into one corvus.batch/1 document. --rules <file|folder>, --time-limit S, --step-timeout S,
                                 --limit containerFiles=N, --limit strings=N, --limit yaraMatches=N.
                                 --recurse: every file under a folder, one record per SHA-256.
                                 --fail-on noteworthy|review: exit 1 on a finding at that level or an

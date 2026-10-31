@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -151,15 +152,43 @@ internal static partial class ToolCli
         return result is null ? Exit.Usage : Print(name, result, a, io);
     }
 
+    /// <summary>The --step-timeout in seconds; null when not given; a usage error unless above 0 and at most 86400.</summary>
+    internal static double? StepSeconds(string? text) =>
+        text == null ? null
+        : double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s > 0 && s <= 86_400 ? s
+        : throw new UsageException("--step-timeout needs a number of seconds above 0, at most 86400.");
+
+    /// <summary>Runs work under a per-step limit; Expired is true when the step limit, not the outer token, cancelled it.</summary>
+    internal static async Task<(T? Value, bool Expired)> WithStepLimit<T>(double? seconds, CancellationToken outer, Func<CancellationToken, Task<T>> work)
+    {
+        using var step = CancellationTokenSource.CreateLinkedTokenSource(outer);
+        if (seconds is { } s) step.CancelAfter(TimeSpan.FromSeconds(s));
+        try { return (await work(step.Token), false); }
+        catch (OperationCanceledException) when (!outer.IsCancellationRequested && step.IsCancellationRequested) { return (default, true); }
+    }
+
+    /// <summary>Reports an ordinary-batch step that hit --step-timeout (stderr, and a timeout record with --json); true when --stop-on-error ends the run.</summary>
+    internal static bool ReportStepTimeout(CliIo io, bool json, int step, int count, string tool, double? seconds, bool stopOnError, ref int exit)
+    {
+        io.Error.WriteLine($"Step {step} of {count} ({tool}) timed out after {seconds:0.###} s (--step-timeout).");
+        if (json)
+        {
+            var timeout = new JsonObject { ["code"] = "timeout", ["message"] = $"The step timed out after {seconds:0.###} s." };
+            io.Out.WriteLine(new JsonObject { ["step"] = step, ["tool"] = tool, ["isError"] = true, ["text"] = "", ["structured"] = null, ["error"] = timeout }.ToJsonString(Compact));
+        }
+        if (exit == Exit.Ok) exit = Exit.Timeout;
+        if (!stopOnError) return false;
+        io.Error.WriteLine($"Stopped at step {step} of {count} (--stop-on-error).");
+        return true;
+    }
+
     /// <summary>One tool call; null after reporting a protocol error (a tool the --toolsets leave out).</summary>
     private static async Task<CallToolResult?> Invoke(ToolSession session, string name, Dictionary<string, object?> arguments, CliIo io, CancellationToken cancellationToken)
     {
         IProgress<ProgressNotificationValue> progress = io.ErrorTty ? new ProgressLine(io.Error) : io.Log.For(name);
         try
         {
-            var result = await session.Client.CallToolAsync(name, arguments, progress, cancellationToken: cancellationToken);
-            if (progress is ProgressLine line) line.Clear();
-            return result;
+            return await session.Client.CallToolAsync(name, arguments, progress, cancellationToken: cancellationToken);
         }
         catch (McpProtocolException ex)
         {
@@ -168,7 +197,8 @@ internal static partial class ToolCli
         }
         finally
         {
-            if (progress is not ProgressLine) io.Log.Flush();
+            if (progress is ProgressLine line) line.Clear();
+            else io.Log.Flush();
         }
     }
 

@@ -129,7 +129,7 @@ internal static partial class ToolCli
         JsonObject section;
         try
         {
-            (section, var timedOut) = await Step(run.Session!, MembersStep, arguments, run.Io, run.Deadline, run.Cancellation);
+            (section, var timedOut) = await Step(run.Session!, MembersStep, arguments, run.Io, run.Deadline, run.Cancellation, run.StepSeconds);
             run.TimedOut |= timedOut;
         }
         catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)

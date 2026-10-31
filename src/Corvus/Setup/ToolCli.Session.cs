@@ -58,6 +58,7 @@ internal static partial class ToolCli
         try { text = source == "-" ? io.In.ReadToEnd() : File.ReadAllText(source); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { throw new UsageException($"Cannot read {source}: {ex.Message}"); }
         var steps = ParseBatch(text);
+        var stepSeconds = StepSeconds(a.StepTimeout);
         var sarif = OutputPath("--sarif", a.Sarif);
         if (sarif != null && Directory.Exists(sarif)) throw new UsageException($"--sarif names a file, not a folder: {a.Sarif}.");
         var comparisons = new List<JsonObject>();
@@ -66,7 +67,12 @@ internal static partial class ToolCli
         for (int i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
-            var result = await Invoke(session, step.Tool, step.Arguments, io, cancellationToken);
+            var (result, expired) = await WithStepLimit(stepSeconds, cancellationToken, ct => Invoke(session, step.Tool, step.Arguments, io, ct));
+            if (expired)
+            {
+                if (ReportStepTimeout(io, a.Json, i + 1, steps.Count, step.Tool, stepSeconds, a.StopOnError, ref exit)) break;
+                continue;
+            }
             int code = result is null ? Exit.Usage : result.IsError == true ? ExitCode(Split(result).Error) : Exit.Ok;
             if (result != null && step.Tool == "compare_folders" && result.IsError != true && Structured(result) is JsonObject comparison) comparisons.Add(comparison);
             if (result != null)

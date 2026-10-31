@@ -74,6 +74,7 @@ Every server option applies ([configuration.md](configuration.md#server-options)
   `#` starts a comment line. Every tool name is checked before the first step runs.
 - With `--json`, one line per step: `{step, tool, isError, text, structured, error}`.
 - Later steps run after a failed one unless `--stop-on-error` is given. The exit code is the first failed step's.
+- `--step-timeout <seconds>`: ends a step that runs longer (above 0, at most 86400); it counts as failed with exit code 124, and `--json` writes `error.code` `timeout` for it.
 
 ### File batch
 
@@ -131,6 +132,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - Results past 25,000 or a 10 MB gzip are cut, weakest levels first; `runs[0].properties.cut` and a run notification name the cut.
 - `--jsonl` in place of `--json` writes one record per line, files and members alike, no envelope; `--out <file>` instead of stdout.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
+- `--step-timeout <seconds>`: one step (above 0, at most 86400); the step is a `timeout` section and the run goes on.
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit members=N`: files `--recurse` reads under the folder (default 10000).
   `containerFiles` also bounds the members it reads from one container.

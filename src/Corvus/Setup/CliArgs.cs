@@ -22,6 +22,7 @@ internal sealed partial class CliArgs
     public bool StopOnError { get; private set; }
     public string? BatchFile { get; private set; }
     public string? TimeLimit { get; private set; }
+    public string? StepTimeout { get; private set; }
     public string? Rules { get; private set; }
     public List<string> Limits { get; } = [];
     public bool Recurse { get; private set; }
@@ -54,6 +55,7 @@ internal sealed partial class CliArgs
                 case "--stop-on-error": a.StopOnError = true; continue;
                 case "--file": a.BatchFile = Next(); continue;
                 case "--time-limit": a.TimeLimit = Next(); continue;
+                case "--step-timeout": a.StepTimeout = Next(); continue;
                 case "--rules": a.Rules = Next(); continue;
                 case "--limit": a.Limits.Add(Next()); continue;
                 case "--recurse": a.Recurse = true; continue;

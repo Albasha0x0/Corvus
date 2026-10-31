@@ -79,6 +79,7 @@ internal static partial class ToolCli
                 throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches, assetBytes, members, embeddedItems.");
             limits[name] = int.TryParse(value, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : throw new UsageException($"--limit {name} needs a positive count.");
         }
+        var stepSeconds = StepSeconds(a.StepTimeout);
         if (a.TimeLimit != null)
             limits["timeSeconds"] = double.TryParse(a.TimeLimit, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s > 0 && s <= 86_400
                 ? s : throw new UsageException("--time-limit needs a number of seconds above 0, at most 86400.");
@@ -113,7 +114,7 @@ internal static partial class ToolCli
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
         var exported = dumpModules == null ? null : ExportDumpModules(path, dumpModules, cancellationToken);
         var baseline = a.Baseline == null ? null : ReadBaseline(Path.GetFullPath(a.Baseline), DateOnly.FromDateTime(DateTime.UtcNow));
-        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline, Password = password };
+        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline, Password = password, StepSeconds = stepSeconds };
         if (extract != null) Directory.CreateDirectory(extract);
         JsonObject document;
         try
@@ -218,6 +219,7 @@ internal static partial class ToolCli
         public bool TimedOut { get; set; }
         public string? Extract { get; init; }
         public string? Password { get; init; }
+        public double? StepSeconds { get; init; }
         public Baseline? Baseline { get; init; }
         public JsonArray Index { get; } = [];
     }
@@ -282,7 +284,7 @@ internal static partial class ToolCli
             JsonObject section;
             try
             {
-                (section, var timedOut) = await Step(run.Session!, step, arguments!, run.Io, run.Deadline, run.Cancellation);
+                (section, var timedOut) = await Step(run.Session!, step, arguments!, run.Io, run.Deadline, run.Cancellation, run.StepSeconds);
                 run.TimedOut |= timedOut;
             }
             catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)
@@ -351,14 +353,28 @@ internal static partial class ToolCli
     }
 
     /// <summary>Runs one step, paging until its limit or the last row; a time limit on a later page keeps the rows read.</summary>
-    private static async Task<(JsonObject Section, bool TimedOut)> Step(ToolSession session, FileBatchStep step, Dictionary<string, object?> arguments,
-        CliIo io, CancellationToken deadline, CancellationToken cancellationToken)
+    private static Task<(JsonObject Section, bool TimedOut)> Step(ToolSession session, FileBatchStep step, Dictionary<string, object?> arguments,
+        CliIo io, CancellationToken deadline, CancellationToken cancellationToken, double? stepSeconds = null) =>
+        Step((name, args, ct) => Invoke(session, name, args, io, ct), step, arguments, deadline, cancellationToken, stepSeconds);
+
+    /// <summary>Runs one step through <paramref name="call"/>; a step limit gives a timeout section and the run goes on, the deadline wins when both fire.</summary>
+    internal static async Task<(JsonObject Section, bool TimedOut)> Step(Func<string, Dictionary<string, object?>, CancellationToken, Task<CallToolResult?>> call,
+        FileBatchStep step, Dictionary<string, object?> arguments, CancellationToken deadline, CancellationToken cancellationToken, double? stepSeconds)
     {
-        var result = await Invoke(session, step.Tool, arguments, io, deadline);
+        // The step limit ends one step only; the whole-run deadline still ends the run.
+        using var stepLimit = CancellationTokenSource.CreateLinkedTokenSource(deadline);
+        if (stepSeconds is { } limitSeconds) stepLimit.CancelAfter(TimeSpan.FromSeconds(limitSeconds));
+        var stepToken = stepLimit.Token;
+        CallToolResult? result;
+        try { result = await call(step.Tool, arguments, stepToken); }
+        catch (OperationCanceledException) when (!deadline.IsCancellationRequested && stepLimit.IsCancellationRequested)
+        {
+            return (Section(step, SectionStatus.Timeout, $"The step time limit of {stepSeconds:0.###} s ended this step."), false);
+        }
         if (result == null || result.IsError == true || arguments.GetValueOrDefault("limit") is not int limit) return (Section(step, result), false);
         var record = Structured(result);
         var gaps = Gaps(record).ToList();
-        bool timedOut = false;
+        bool timedOut = false, stepExpired = false;
         while (record?["items"] is JsonArray items && (bool?)record["hasMore"] == true && items.Count < limit)
         {
             int offset = (int?)arguments.GetValueOrDefault("offset") ?? 0;
@@ -370,10 +386,11 @@ internal static partial class ToolCli
             arguments["offset"] = next;
             arguments["limit"] = limit - items.Count;
             CallToolResult? page;
-            try { page = await Invoke(session, step.Tool, arguments, io, deadline); }
+            try { page = await call(step.Tool, arguments, stepToken); }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                timedOut = true;
+                if (deadline.IsCancellationRequested) timedOut = true;
+                else stepExpired = true;
                 break;
             }
             if (page == null || page.IsError == true)
@@ -392,10 +409,10 @@ internal static partial class ToolCli
         if (arguments.ContainsKey("offset") && record != null) record["limit"] = limit;
         var section = new JsonObject { ["name"] = step.Name, ["tool"] = step.Tool };
         int read = (record?["items"] as JsonArray)?.Count ?? 0;
-        if (timedOut)
+        if (timedOut || stepExpired)
         {
             section["status"] = SectionStatus.Timeout;
-            section["reason"] = $"The time limit ended this step after {read} rows.";
+            section["reason"] = timedOut ? $"The time limit ended this step after {read} rows." : $"The step time limit of {stepSeconds:0.###} s ended this step after {read} rows.";
             section["result"] = record;
         }
         else Finish(section, step, record, (bool?)record?["hasMore"] == true && read >= limit, gaps);
