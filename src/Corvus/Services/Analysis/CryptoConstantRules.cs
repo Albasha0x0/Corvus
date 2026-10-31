@@ -202,6 +202,11 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["chacha-code"] = new("ChaCha20 / Salsa20 constant words as immediates", true,
             [Le(0x61707865), Le(0x3320646E), Le(0x3120646E), Le(0x79622D32), Le(0x79622D36), Le(0x6B206574)]),
         ["rc4-loop"] = new("RC4 state fill and swap loops (x86 and x64 code shape, heuristic)", true, [], Shape: Rc4Loops),
+        ["aes-schedule-code"] = new("AES key schedule expansion without tables (x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: AesSchedules),
+        ["ecb-loop"] = new("Possible block loop without chaining (x86 and x64 code shape, heuristic) [mode=ECB confidence=low]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ecb)),
+        ["cbc-loop"] = new("Block loop with chaining (x86 and x64 code shape, heuristic) [mode=CBC confidence=medium]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Cbc)),
+        ["ctr-loop"] = new("Block loop with a counter and a keystream xor (x86 and x64 code shape, heuristic) [mode=CTR confidence=medium]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ctr)),
+        ["gcm-tag-code"] = new("GCM tag production (carry-less multiply or reduction constant 0xE1000000 or 0xE100000000000000, x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: GcmTags),
         // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
         ["sha1-md5-code"] = new("MD5 / SHA-1 initial values as immediates", true, [Le(0x67452301), Le(0x98BADCFE)]),
@@ -304,6 +309,145 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         }
     }
 
+    private enum LoopMode { Ecb, Cbc, Ctr }
+
+    // Yields an AES-NI key generation assist or a software round-constant
+    // doubling: shift left by one, then xor 1Bh.
+    private static IEnumerable<(int At, int Length)> AesSchedules(byte[] b, int read, CancellationToken ct)
+    {
+        const int DoublingReach = 12;
+        int lastShift = -1000;
+        for (int i = 0; i + 4 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            int p = Sse(b, i, read, 0x3A, 0xDF, 0xDF);
+            if (p >= 0) { yield return (i, p - i + 3); i = p; continue; }
+            if (IsShiftByOne(b, i, read)) { lastShift = i; continue; }
+            int xor = lastShift >= 0 && i - lastShift <= DoublingReach ? Xor1B(b, i, read) : 0;
+            if (xor != 0) { yield return (lastShift, i - lastShift + xor); lastShift = -1000; }
+        }
+    }
+
+    // Index of the opcode byte of a 66 [REX] 0F map or VEX (C4) form whose
+    // opcode is in lo..hi; -1 otherwise.
+    private static int Sse(byte[] b, int i, int read, byte map, byte lo, byte hi)
+    {
+        int p;
+        if (b[i] == 0x66)
+        {
+            p = i + 1;
+            if (p < read && b[p] is >= 0x40 and <= 0x4F) p++;
+            if (p + 2 >= read || b[p] != 0x0F || b[p + 1] != map) return -1;
+            p += 2;
+        }
+        else if (b[i] == 0xC4)
+        {
+            if (i + 4 > read || (b[i + 1] & 0x1F) != (map == 0x38 ? 2 : 3) || (b[i + 2] & 3) != 1) return -1;
+            p = i + 3;
+        }
+        else return -1;
+        return p < read && b[p] >= lo && b[p] <= hi ? p : -1;
+    }
+
+    // Shift left by one: D0 or D1 /4, or add of a register to itself.
+    private static bool IsShiftByOne(byte[] b, int i, int read) =>
+        i + 2 <= read && ((b[i] is 0xD0 or 0xD1) && (b[i + 1] & 0x38) == 0x20 && (b[i + 1] & 0xC0) == 0xC0
+            || (b[i] is 0x00 or 0x01) && (b[i + 1] & 0xC0) == 0xC0 && (b[i + 1] >> 3 & 7) == (b[i + 1] & 7));
+
+    // Length of a register xor with the immediate 1Bh, or 0 when none starts at i.
+    private static int Xor1B(byte[] b, int i, int read)
+    {
+        if (i + 2 <= read && b[i] == 0x34 && b[i + 1] == 0x1B) return 2;
+        if (i + 3 <= read && b[i] is 0x80 or 0x83 && (b[i + 1] & 0xF8) == 0xF0 && b[i + 2] == 0x1B) return 3;
+        if (i + 5 <= read && b[i] == 0x35 && b[i + 1] == 0x1B && b[i + 2] == 0 && b[i + 3] == 0 && b[i + 4] == 0) return 5;
+        if (i + 6 <= read && b[i] == 0x81 && (b[i + 1] & 0xF8) == 0xF0 && b[i + 2] == 0x1B && b[i + 3] == 0 && b[i + 4] == 0 && b[i + 5] == 0) return 6;
+        return 0;
+    }
+
+    // Yields a loop body whose block operation (a call or an AES-NI round) is
+    // stepped by 8 or 16 bytes, classified by where it xors and counts.
+    // Backward conditional jumps, jmp and loop close the body.
+    private static IEnumerable<(int At, int Length)> BlockLoops(byte[] b, int read, CancellationToken ct, LoopMode want)
+    {
+        const int MaxBody = 128;
+        for (int i = 0; i + 6 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            int end, target;
+            if ((b[i] is >= 0x70 and <= 0x7F or 0xE2 or 0xEB) && b[i + 1] >= 0x80) { end = i + 2; target = end + (sbyte)b[i + 1]; }
+            else if (b[i] == 0x0F && b[i + 1] is >= 0x80 and <= 0x8F && b[i + 5] >= 0x80) { end = i + 6; target = end + BitConverter.ToInt32(b, i + 2); }
+            else if (b[i] == 0xE9 && b[i + 4] >= 0x80) { end = i + 5; target = end + BitConverter.ToInt32(b, i + 1); }
+            else continue;
+            if (target < 0 || end - target > MaxBody || end - target < 8) continue;
+            int step = -1, op = -1;
+            for (int j = target; j < i; j++)
+            {
+                if (step < 0 && StepWidth(b, j, i) != 0) step = j;
+                if (op < 0 && (b[j] == 0xE8 || IsAesRound(b, j, i))) op = j;
+            }
+            if (step < 0 || op < 0) continue;
+            bool before = false, after = false, counter = false;
+            for (int j = target; j < i; j++)
+            {
+                // A call displacement is not code.
+                if (b[j] == 0xE8) { j += 4; continue; }
+                if (IsMemoryXor(b, j, i)) { if (j < op) before = true; else after = true; }
+                if (IsCounterStep(b, j, i)) counter = true;
+            }
+            // A xor after the block call with no counter has no chaining
+            // evidence, so it stays low confidence ECB; CBC decrypt lands here.
+            var mode = counter && after ? LoopMode.Ctr : before ? LoopMode.Cbc : LoopMode.Ecb;
+            if (mode == want) yield return (step, end - target);
+        }
+    }
+
+    // 16 or 8 for add reg, imm8 (not esp) and lea reg, [reg+imm8]; 0 otherwise.
+    private static int StepWidth(byte[] b, int j, int limit)
+    {
+        if (j + 3 > limit) return 0;
+        bool add = b[j] == 0x83 && (b[j + 1] & 0xF8) == 0xC0 && (b[j + 1] & 7) != 4;
+        bool lea = b[j] == 0x8D && (b[j + 1] & 0xC0) == 0x40 && (b[j + 1] & 7) != 4 && (b[j + 1] >> 3 & 7) == (b[j + 1] & 7);
+        return (add || lea) && b[j + 2] is 0x10 or 0x08 ? b[j + 2] : 0;
+    }
+
+    private static bool IsAesRound(byte[] b, int j, int limit) =>
+        Sse(b, j, limit, 0x38, 0xDC, 0xDF) >= 0;
+
+    // Xor into or from memory, or pxor of two registers. A register xor with
+    // itself is a zeroing idiom and does not chain.
+    private static bool IsMemoryXor(byte[] b, int j, int limit)
+    {
+        if (j + 2 <= limit && b[j] is >= 0x30 and <= 0x33 && (b[j + 1] & 0xC0) != 0xC0) return true;
+        if (j + 4 > limit || b[j] != 0x66 || b[j + 1] != 0x0F || b[j + 2] != 0xEF) return false;
+        int m = b[j + 3];
+        return (m & 0xC0) != 0xC0 || (m >> 3 & 7) != (m & 7);
+    }
+
+    // A counter increment: bswap, paddd or paddq. A plain inc or add by one
+    // is an ordinary loop index and is not read as a counter.
+    private static bool IsCounterStep(byte[] b, int j, int limit) =>
+        j + 2 <= limit && b[j] == 0x0F && b[j + 1] is >= 0xC8 and <= 0xCF
+        || j + 3 <= limit && b[j] == 0x66 && b[j + 1] == 0x0F && b[j + 2] is 0xD4 or 0xFE;
+
+    // Reads the block width of the loop whose step instruction sits at the
+    // offset.
+    private static string? LoopWidth(ReadOnlySpan<byte> bytes, int at, byte[] _) =>
+        at + 3 <= bytes.Length ? $"block={bytes[at + 2]} bytes" : null;
+
+    // Yields pclmulqdq or the reduction constant E1000000h as an immediate.
+    private static IEnumerable<(int At, int Length)> GcmTags(byte[] b, int read, CancellationToken ct)
+    {
+        for (int i = 0; i + 5 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            int p = Sse(b, i, read, 0x3A, 0x44, 0x44);
+            if (p >= 0) yield return (i, p - i + 3);
+            else if (b[i] == 0x35 && b[i + 1] == 0 && b[i + 2] == 0 && b[i + 3] == 0 && b[i + 4] == 0xE1) yield return (i, 5);
+            else if (i + 6 <= read && b[i] == 0x81 && (b[i + 1] & 0xF8) == 0xF0 && b[i + 2] == 0 && b[i + 3] == 0 && b[i + 4] == 0 && b[i + 5] == 0xE1) yield return (i, 6);
+            else if (i + 10 <= read && b[i] is 0x48 or 0x49 && b[i + 1] is >= 0xB8 and <= 0xBF && b[i + 9] == 0xE1 && b[i + 2] + b[i + 3] + b[i + 4] + b[i + 5] + b[i + 6] + b[i + 7] + b[i + 8] == 0) yield return (i, 10);
+        }
+    }
+
     // A byte move through a base+index operand: opcode 88 or 8A, ModRM mod 00, 01 or 10 with a SIB byte.
     private static bool IsByteMove(byte[] b, int i, out bool store)
     {
@@ -370,7 +514,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:aes-schedule-code", "const:ecb-loop", "const:cbc-loop", "const:ctr-loop", "const:gcm-tag-code", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
         new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:kdf"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:crc32c", "const:crc32c-poly", "const:crc64-poly", "const:adler32", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
@@ -470,7 +614,10 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                     uint rva = section.Rva + (uint)at;
                     count++;
                     if (locations.Count < MaxLocations)
-                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}"));
+                    {
+                        var note = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, []);
+                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (note is null ? "" : $" ({note})"));
+                    }
                 }
             var found = new List<(Pattern Pattern, uint Start, uint End)>();
             foreach (var pattern in constant.Patterns)

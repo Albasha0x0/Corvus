@@ -111,6 +111,124 @@ public sealed class CryptoConstantTests : IDisposable
         }
     }
 
+    private static byte[] Loop(params byte[][] body)
+    {
+        byte[] code = [.. body.SelectMany(x => x)];
+        return [.. code, 0x75, (byte)(-(code.Length + 2))];
+    }
+
+    private static readonly byte[] Step16 = [0x83, 0xC0, 0x10], Step8 = [0x83, 0xC0, 0x08], Call = [0xE8, 0, 0, 0, 0];
+    private static readonly byte[] XorMem = [0x31, 0x07], Bswap = [0x0F, 0xC8];
+
+    [Fact]
+    public async Task A_block_loop_without_xor_or_counter_is_an_ECB_shape_with_its_block_width()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var wide = await SurveyBytes(server, [.. Pad(0x40), .. Loop(Step16, Call), .. Pad(0x40)]);
+        Assert.Contains("[mode=ECB confidence=low] @0x40 in", wide);
+        Assert.Contains("block=16 bytes", wide);
+        var narrow = await SurveyBytes(server, [.. Pad(0x40), .. Loop(Step8, Call), .. Pad(0x40)]);
+        Assert.Contains("block=8 bytes", narrow);
+    }
+
+    [Fact]
+    public async Task A_block_loop_that_xors_before_the_block_call_is_a_CBC_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Loop(XorMem, Step16, Call), .. Pad(0x40)]);
+        Assert.Contains("[mode=CBC confidence=medium]", text);
+        Assert.DoesNotContain("mode=ECB", text);
+    }
+
+    [Fact]
+    public async Task A_block_loop_with_a_counter_and_a_keystream_xor_is_a_CTR_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Loop(Bswap, Step16, Call, XorMem), .. Pad(0x40)]);
+        Assert.Contains("[mode=CTR confidence=medium]", text);
+        Assert.DoesNotContain("mode=CBC", text);
+    }
+
+    [Fact]
+    public async Task Carry_less_multiply_and_the_reduction_constant_are_a_GCM_tag_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var clmul = await SurveyBytes(server, [.. Pad(0x40), 0x66, 0x0F, 0x3A, 0x44, 0xC1, 0x00, .. Pad(0x40)]);
+        Assert.Contains("GCM tag production", clmul);
+        var soft = await SurveyBytes(server, [.. Pad(0x40), 0x35, 0, 0, 0, 0xE1, .. Pad(0x40)]);
+        Assert.Contains("GCM tag production", soft);
+    }
+
+    [Fact]
+    public async Task An_AES_key_assist_and_a_software_round_constant_doubling_are_a_schedule_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var ni = await SurveyBytes(server, [.. Pad(0x40), 0x66, 0x0F, 0x3A, 0xDF, 0xC1, 0x01, .. Pad(0x40)]);
+        Assert.Contains("AES key schedule expansion without tables", ni);
+        var soft = await SurveyBytes(server, [.. Pad(0x40), 0xD0, 0xE0, 0x34, 0x1B, .. Pad(0x40)]);
+        Assert.Contains("AES key schedule expansion without tables", soft);
+    }
+
+    private async Task<string> Loops(byte[] body)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        return await SurveyBytes(server, [.. Pad(0x40), .. body, .. Pad(0x40)]);
+    }
+
+    [Fact]
+    public async Task A_loop_without_a_block_call_names_no_block_mode_shape()
+    {
+        var text = await Loops(Loop(Step16, XorMem, [0x90, 0x90]));
+        Assert.DoesNotContain("Block loop", text);
+    }
+
+    [Fact]
+    public async Task A_cdecl_stack_cleanup_around_a_call_is_not_a_block_step()
+    {
+        var text = await Loops(Loop(Call, [0x83, 0xC4, 0x10]));
+        Assert.DoesNotContain("block loop", text);
+        Assert.DoesNotContain("Block loop", text);
+    }
+
+    [Fact]
+    public async Task A_loop_index_increment_with_a_trailing_xor_is_not_a_CTR_shape()
+    {
+        var text = await Loops(Loop([0xFF, 0xC1], Step16, Call, XorMem));
+        Assert.DoesNotContain("mode=CTR", text);
+    }
+
+    [Fact]
+    public async Task A_register_zeroing_xor_in_the_body_is_not_a_CBC_shape()
+    {
+        var text = await Loops(Loop([0x66, 0x0F, 0xEF, 0xC0], Step16, Call));
+        Assert.DoesNotContain("mode=CBC", text);
+        Assert.Contains("mode=ECB", text);
+    }
+
+    [Fact]
+    public async Task A_block_loop_names_exactly_one_mode()
+    {
+        var text = await Loops(Loop(XorMem, Step16, Call));
+        Assert.Equal(1, new[] { "mode=ECB", "mode=CBC", "mode=CTR" }.Count(m => text.Contains(m)));
+    }
+
+    [Fact]
+    public async Task A_loop_closed_by_an_unconditional_backward_jump_is_a_block_loop()
+    {
+        byte[] code = [.. Step16, .. Call];
+        var text = await Loops([.. code, 0xEB, (byte)(-(code.Length + 2))]);
+        Assert.Contains("block=16 bytes", text);
+    }
+
+    [Fact]
+    public async Task A_64_bit_reduction_constant_and_a_REX_carry_less_multiply_are_a_GCM_tag_shape()
+    {
+        var wide = await Loops([0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0xE1]);
+        Assert.Contains("GCM tag production", wide);
+        var rex = await Loops([0x66, 0x44, 0x0F, 0x3A, 0x44, 0xC1, 0x00]);
+        Assert.Contains("GCM tag production", rex);
+    }
+
     [Fact]
     public async Task The_XTEA_start_sum_does_not_name_the_TEA_delta()
     {
