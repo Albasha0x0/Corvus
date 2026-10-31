@@ -140,6 +140,8 @@ internal static class SetupCli
                                 for search_container kind=yara query=pack:<name>.
           ida-script [folder]   Write corvus_connect.py and its worker for IDA's File > Script file; it serves
                                 the open database to Corvus when CORVUS_IDA_CONNECT=1.
+          analyze <image>       Run auto-analysis of a native image (reanalyze_native arguments follow);
+                                --wait runs it as a background job, polls its status and reports the outcome.
         Tool exit codes: 0 success, 1 tool error, 2 usage or invalid_argument, 3 engine missing or unsupported,
         124 timeout, 130 cancelled (Ctrl+C).
         """;

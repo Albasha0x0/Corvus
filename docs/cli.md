@@ -21,12 +21,14 @@ agent's call. Tool reference: [tools.md](tools.md). Setup commands (`install`, `
 | `rules [list]`, `rules fetch <pack>` | list or install YARA rule packs (malcontent, yara-forge-core) |
 | `rules import <archive> [pack]` | install a pack from a local copy of its pinned archive; no network |
 | `ida-script [folder]` | write `corvus_connect.py` for using a database open in IDA |
+| `analyze <image> [--wait] [name=value ...]` | run auto-analysis of a native image; takes the `reanalyze_native` arguments |
 
 - Tool names take snake case or kebab case (`decompile-member`). `corvus help` lists these and the setup commands.
 - `rules fetch` and `rules import` refuse a pack unless its SHA-256 matches the pinned value. They install under
   `rules/<pack>/<version>/` in the data folder.
 - `ida-script` writes to `<IDA user directory>/corvus` by default. Run the script in IDA (File > Script file), then start
   Corvus with `CORVUS_IDA_CONNECT=1`.
+- `analyze --wait` starts the run as a background job, polls `get_engine_status` and prints the outcome on stderr when it ends; a failed job exits 1 and a run past its budget exits 124.
 
 ## Arguments
 
