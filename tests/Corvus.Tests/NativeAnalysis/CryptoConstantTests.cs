@@ -633,15 +633,126 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.Contains(Pa, text);
     }
 
-    [Fact(Skip = "The survey does not attribute data-section constants to the reading function.")]
+    [Fact]
     public async Task The_survey_names_the_function_that_reads_the_Blowfish_P_array()
     {
         await using var server = await InProcessServer.StartAsync();
         var text = await SurveyImage(server, BlowfishImage());
-        Assert.Contains("Cipher", Lines(text, Pa));
+        Assert.Contains("used by Cipher", Lines(text, Pa));
     }
 
-    [Fact(Skip = "The dossier lists the constant data operand without its algorithm.")]
+    private const int CallerCount = 10;
+
+    // Cipher (16 bytes) loads the P-array; ten exports of 14 bytes each call it.
+    private string BlowfishCallersImage(int count = CallerCount)
+    {
+        var exports = new List<(string, object)> { ("Cipher", 0) };
+        for (int i = 0; i < count; i++) exports.Add(($"Decode{i}", 16 + 14 * i));
+        var path = _dir.File($"blowfish-callers-{count}.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("blowfish-callers.dll", [.. exports], [], slots =>
+        {
+            var a = new Iced.Intel.Assembler(64);
+            a.sub(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+            a.AddInstruction(Iced.Intel.Instruction.Create(
+                Iced.Intel.Code.Lea_r64_m, Iced.Intel.Register.RCX,
+                new Iced.Intel.MemoryOperand(Iced.Intel.Register.RIP, (long)(ImageBase + slots["parray"]), 8)));
+            a.add(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+            a.ret();
+            for (int i = 0; i < count; i++)
+            {
+                a.sub(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+                a.call(ImageBase + LinkedImages.Text);
+                a.add(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+                a.ret();
+            }
+            var stream = new MemoryStream();
+            a.Assemble(new Iced.Intel.StreamCodeWriter(stream), ImageBase + LinkedImages.Text);
+            return stream.ToArray();
+        }, PArrayData));
+        return path;
+    }
+
+    [Fact]
+    public async Task The_survey_lists_all_ten_callers_of_the_function_that_reads_the_Blowfish_P_array()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var line = Lines(await SurveyImage(server, BlowfishCallersImage()), Pa);
+        Assert.Contains("used by Cipher; 10 callers: ", line);
+        for (int i = 0; i < CallerCount; i++) Assert.Contains($"Decode{i}", line);
+    }
+
+    [Fact]
+    public async Task A_reader_without_callers_adds_no_callers_suffix()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var line = Lines(await SurveyImage(server, BlowfishImage()), Pa);
+        Assert.Contains("(used by Cipher)", line);
+        Assert.DoesNotContain("caller", line);
+    }
+
+    [Fact]
+    public async Task A_table_without_readers_keeps_its_line_unchanged()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var line = Lines(await SurveyBytes(server, [.. Pad(0x100), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344)]), Pa);
+        Assert.DoesNotContain("used by", line);
+    }
+
+    [Fact]
+    public async Task More_than_thirty_two_callers_are_counted_and_cut_with_a_marker()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var line = Lines(await SurveyImage(server, BlowfishCallersImage(40)), Pa);
+        Assert.Contains("40 callers: ", line);
+        Assert.Contains(", ...", line);
+        Assert.DoesNotContain("Decode39", line);
+    }
+
+    [Fact]
+    public async Task A_single_caller_is_counted_in_the_singular()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var line = Lines(await SurveyImage(server, BlowfishCallersImage(1)), Pa);
+        Assert.Contains("; 1 caller: Decode0", line);
+        Assert.DoesNotContain("1 callers", line);
+    }
+
+    // Cipher reads the P-array, Wrap calls Cipher, Loader calls Wrap.
+    private string BlowfishWrapperImage()
+    {
+        var path = _dir.File("blowfish-wrapper.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("blowfish-wrapper.dll", [("Cipher", 0), ("Wrap", 16), ("Loader", 30)], [], slots =>
+        {
+            var a = new Iced.Intel.Assembler(64);
+            a.sub(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+            a.AddInstruction(Iced.Intel.Instruction.Create(
+                Iced.Intel.Code.Lea_r64_m, Iced.Intel.Register.RCX,
+                new Iced.Intel.MemoryOperand(Iced.Intel.Register.RIP, (long)(ImageBase + slots["parray"]), 8)));
+            a.add(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+            a.ret();
+            foreach (var target in new ulong[] { 0, 16 })
+            {
+                a.sub(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+                a.call(ImageBase + LinkedImages.Text + target);
+                a.add(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+                a.ret();
+            }
+            var stream = new MemoryStream();
+            a.Assemble(new Iced.Intel.StreamCodeWriter(stream), ImageBase + LinkedImages.Text);
+            return stream.ToArray();
+        }, PArrayData));
+        return path;
+    }
+
+    [Fact]
+    public async Task The_survey_names_a_loader_that_reaches_the_reader_through_a_wrapper()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var line = Lines(await SurveyImage(server, BlowfishWrapperImage()), Pa);
+        Assert.Contains("; 1 caller: Wrap; 1 caller through wrappers: Loader", line);
+    }
+
+    [Fact]
     public async Task The_function_dossier_names_the_Blowfish_P_array_the_function_reads()
     {
         await using var server = await InProcessServer.StartAsync();

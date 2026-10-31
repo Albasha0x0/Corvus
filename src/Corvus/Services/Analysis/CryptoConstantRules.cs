@@ -1,5 +1,6 @@
 using Corvus.Core;
 using Corvus.Native;
+using Corvus.Native.Code;
 
 namespace Corvus.Services.Analysis;
 
@@ -9,6 +10,7 @@ namespace Corvus.Services.Analysis;
 internal sealed class CryptoConstantRules : ISurveyRuleProvider
 {
     private const int MaxLocations = 5;
+    private const int MaxUsers = 32;
     private const long MaxScanBytes = 256L << 20;
 
     /// <summary>Describes one hit from the section bytes, the offset and the matched pattern; null adds no detail.</summary>
@@ -377,6 +379,65 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         new("crypto or compression library version strings", "crypto", [["const:zlib-version", "const:openssl-version"]]),
     ];
 
+    private const int MaxCallerDepth = 4;
+
+    // Names the functions that read a table and the callers of those functions.
+    // Callers are walked transitively to a depth bound; wrapper callers are listed apart.
+    private static string Users(NativeCodeIndex index, uint rva, int length)
+    {
+        var users = new List<NativeFunction>();
+        foreach (var x in index.RefsToRange(rva, rva + (uint)length))
+            if (x.Kind is XrefKind.Read or XrefKind.Address && index.FunctionAt(x.From) is { } f && !users.Exists(u => u.Start == f.Start))
+                users.Add(f);
+        if (users.Count == 0) return "";
+        var seen = new HashSet<uint>(users.Select(u => u.Start));
+        var direct = new List<NativeFunction>();
+        var wrapped = new List<NativeFunction>();
+        var level = users;
+        for (int depth = 0; depth < MaxCallerDepth && level.Count > 0; depth++)
+        {
+            var next = new List<NativeFunction>();
+            foreach (var function in level)
+                foreach (var site in index.Callers(function))
+                    if (site.Caller is { } c && seen.Add(c.Start))
+                    {
+                        (depth == 0 ? direct : wrapped).Add(c);
+                        next.Add(c);
+                    }
+            level = next;
+        }
+        var text = $" (used by {Names(users)}";
+        if (direct.Count > 0) text += $"; {Plural(direct.Count, "caller")}: {Names(direct)}";
+        if (wrapped.Count > 0) text += $"; {Plural(wrapped.Count, "caller")} through wrappers: {Names(wrapped)}";
+        return text + ")";
+    }
+
+    private static string Plural(int n, string noun) => $"{n} {noun}{(n == 1 ? "" : "s")}";
+
+    // Up to MaxUsers names, then a marker; the caller states the total.
+    private static string Names(List<NativeFunction> functions) =>
+        string.Join(", ", functions.Take(MaxUsers).Select(f => f.Name)) + (functions.Count > MaxUsers ? ", ..." : "");
+
+    /// <summary>
+    /// Names the algorithm whose table starts at the address, or null when none does.
+    /// Immediate-only, version and weak sets are not tables and never match.
+    /// </summary>
+    internal static string? TableAt(NativeCodeIndex index, uint rva)
+    {
+        var buffer = new byte[MaxTableHead];
+        int read = index.Image.Read(rva, buffer);
+        foreach (var constant in Constants.Values)
+        {
+            if (constant.CodeOnly || constant.Version || constant.Weak || constant.Shape is not null) continue;
+            foreach (var pattern in constant.Patterns)
+                if (read >= pattern.Bytes.Length && buffer.AsSpan(0, pattern.Bytes.Length).SequenceEqual(pattern.Bytes))
+                    return constant.Algorithm;
+        }
+        return null;
+    }
+
+    private static readonly int MaxTableHead = Constants.Values.SelectMany(c => c.Patterns).Max(p => p.Bytes.Length);
+
     // Reads the dotted number that ends a version prefix, e.g. "1.3.1".
     private static string VersionAfter(byte[] bytes, int at, int prefixLength)
     {
@@ -437,7 +498,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                 {
                     int at = (int)(rva - section.Rva);
                     var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, pattern.Bytes);
-                    locations.Add($"{constant.Algorithm}{(constant.Version ? VersionAfter(bytes, at, pattern.Bytes.Length) : "")} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})") + (constant.Weak ? " (weak evidence)" : ""));
+                    locations.Add($"{constant.Algorithm}{(constant.Version ? VersionAfter(bytes, at, pattern.Bytes.Length) : "")} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})") + (constant.Weak ? " (weak evidence)" : "") + (constant.CodeOnly || constant.Version || constant.Weak ? "" : Users(index, rva, pattern.Bytes.Length)));
                 }
             }
         }
