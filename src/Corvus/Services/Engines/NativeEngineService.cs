@@ -656,18 +656,39 @@ public sealed class NativeEngineService : IDisposable
 
     private static async Task<INativeDecompilerSession> Wait(LoadedNative native, SessionHolder holder, Task<INativeDecompilerSession> opening, CancellationToken ct)
     {
-        try { return await opening.WaitAsync(ct).ConfigureAwait(false); }
+        try { return await opening.WaitAsync(EstimateAfter, ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
-        // The call's deadline came first; the open goes on and a later call picks it up.
-        catch (OperationCanceledException) when (ct.IsCancellationRequested && !opening.IsCompleted && !native.Released.IsCancellationRequested)
+        // The estimate comes after a short wait or at the call's deadline; the open goes on and a later call picks it up.
+        catch (Exception ex) when ((ex is TimeoutException || (ex is OperationCanceledException && ct.IsCancellationRequested))
+            && !opening.IsCompleted && !native.Released.IsCancellationRequested)
         {
             var stage = holder.Stage ?? "start";
             var seconds = Math.Round((DateTime.UtcNow - holder.OpenStarted).TotalSeconds);
+            // Measured history wins; the executable section size is the fallback.
+            var measured = holder.ExpectedSeconds > 0;
+            var minutes = measured ? Math.Max(1, (int)Math.Ceiling(holder.ExpectedSeconds / 60)) : EstimateMinutes(native.Image.Sections.Select(s => (s.IsExecutable, (long)s.MappedSize)));
+            var basis = measured ? "from earlier opens" : "from executable section size";
             throw new ToolError(ErrorCode.Timeout,
-                $"the engine is still opening {native.Id} ({stage}, {seconds:0} s; a first analysis can take minutes); the open goes on in the background.",
-                "call again after details.retryAfterMs to pick up the same open; server_status shows its stage")
-                { Details = new { stillRunning = true, stage, seconds, expectedSeconds = holder.ExpectedSeconds }, RetryAfter = OpenRetryAfter };
+                $"analysis running, about {minutes} min ({basis}); the engine is still opening {native.Id} ({stage}, {seconds:0} s); the open goes on in the background.",
+                $"call again after details.retryAfterMs to pick up the same open, or use engine={FallbackEngine} for an answer now; server_status shows its stage")
+                { Details = new { stillRunning = true, stage, seconds, expectedSeconds = holder.ExpectedSeconds, estimatedMinutes = minutes, image = native.Id, fallbackEngine = FallbackEngine }, RetryAfter = OpenRetryAfter };
         }
+    }
+
+    /// <summary>The engine value that answers without waiting for an external engine.</summary>
+    private const string FallbackEngine = "ours";
+
+    /// <summary>How long a call waits on a running open before it reports the estimate.</summary>
+    internal static TimeSpan EstimateAfter { get; set; } = TimeSpan.FromSeconds(20);
+
+    // The rate is not measured against a real engine.
+    private const int MinutesPerMiB = 1;
+
+    /// <summary>Returns the minutes a first analysis is expected to take: 1 per started MiB of executable sections, at least 1 (also when there are none).</summary>
+    internal static int EstimateMinutes(IEnumerable<(bool Executable, long Size)> sections)
+    {
+        var bytes = sections.Where(s => s.Executable).Sum(s => s.Size);
+        return (int)Math.Max(1, ((bytes + (1 << 20) - 1) >> 20) * MinutesPerMiB);
     }
 
     /// <summary>When a call that left an engine open running should come back.</summary>

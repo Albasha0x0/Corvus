@@ -166,14 +166,54 @@ public sealed class EngineOpenProfileTests : IDisposable
         var progress = new SyncProgress(p => { if (p.Stage == "analysis") deadline.Cancel(); });
         var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, progress, deadline.Token));
         Assert.Equal(ErrorCode.Timeout, error.Code);
-        Assert.Matches(@"still opening .+ \(analysis, \d+ s; a first analysis can take minutes\)", error.Message);
+        Assert.Matches(@"^analysis running, about \d+ min \((from (executable section size|earlier opens))\); the engine is still opening .+ \(analysis, \d+ s\)", error.Message);
         var details = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement.GetProperty("details");
         Assert.True(details.GetProperty("stillRunning").GetBoolean());
         Assert.Equal("analysis", details.GetProperty("stage").GetString());
+        Assert.Equal(native.Id, details.GetProperty("image").GetString());
+        Assert.Equal("ours", details.GetProperty("fallbackEngine").GetString());
+        Assert.True(details.GetProperty("estimatedMinutes").GetInt32() >= 1);
 
         analysis.SetResult();
         Assert.NotNull(await engines.Session(native, null, null, default));
         Assert.Equal(1, engine.Opens);
+    }
+
+    [Fact]
+    public async Task A_call_reports_the_estimate_after_a_short_wait_before_its_deadline()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine();
+        engine.OpenStages.AddRange([("start", 0), ("analysis", 0), ("ready", 0)]);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = gate;
+        var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        var previous = NativeEngineService.EstimateAfter;
+        NativeEngineService.EstimateAfter = TimeSpan.FromMilliseconds(300);
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, deadline.Token));
+            Assert.Equal(ErrorCode.Timeout, error.Code);
+            Assert.False(deadline.IsCancellationRequested);
+        }
+        finally { NativeEngineService.EstimateAfter = previous; gate.SetResult(); }
+    }
+
+    [Fact]
+    public void The_estimate_is_one_minute_per_started_mebibyte_of_executable_sections()
+    {
+        const long mib = 1 << 20;
+        Assert.Equal(1, NativeEngineService.EstimateMinutes([]));
+        Assert.Equal(1, NativeEngineService.EstimateMinutes([(true, 0)]));
+        Assert.Equal(1, NativeEngineService.EstimateMinutes([(true, mib)]));
+        Assert.Equal(2, NativeEngineService.EstimateMinutes([(true, mib + 1)]));
+        Assert.Equal(3, NativeEngineService.EstimateMinutes([(true, mib), (true, mib + mib / 2), (false, 40 * mib)]));
+        Assert.Equal(1, NativeEngineService.EstimateMinutes([(false, 40 * mib)]));
     }
 
     private sealed class SyncProgress(Action<NativeProviderProgress> report) : IProgress<NativeProviderProgress>
