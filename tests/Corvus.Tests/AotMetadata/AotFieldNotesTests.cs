@@ -183,6 +183,32 @@ public sealed partial class AotFieldNotesTests : IDisposable
         // 1014 ret
         0xD65F03C0);
 
+    // AAPCS64: x0 copied to x19, then a cbz target reads through x19.
+    private static readonly byte[] Arm64SavedCopyAtTargetCode = Words(
+        // 1000 mov x19, x0
+        0xAA0003F3,
+        // 1004 cbz x2, 100C
+        0xB4000042,
+        // 1008 ldr x1, [x19, #0x48]
+        0xF9402661,
+        // 100C ldr x3, [x19, #0x48]
+        0xF9402663,
+        // 1010 ret
+        0xD65F03C0);
+
+    // AAPCS64: x0 is overwritten before the cbz target reads through it.
+    private static readonly byte[] Arm64OverwrittenThisAtTargetCode = Words(
+        // 1000 mov x0, x4
+        0xAA0403E0,
+        // 1004 cbz x2, 100C
+        0xB4000042,
+        // 1008 nop
+        0xD503201F,
+        // 100C ldr x3, [x0, #0x48]
+        0xF9402403,
+        // 1010 ret
+        0xD65F03C0);
+
     private readonly TempDir _dir = new();
 
     public void Dispose()
@@ -195,7 +221,7 @@ public sealed partial class AotFieldNotesTests : IDisposable
 
     private readonly List<Env> _envs = [];
 
-    private (Env Env, NativeCodeService Service, LoadedNative Native, NativeCodeIndex Index) Open(byte[] code, ushort machine, bool elf = false, string? source = null)
+    private (Env Env, NativeCodeService Service, LoadedNative Native, NativeCodeIndex Index) Open(byte[] code, ushort machine, bool elf = false, string? source = null, bool macho = false)
     {
         var dump = Path.Combine(_dir.Path, "dump" + _envs.Count);
         var dummies = Path.Combine(dump, "DummyDll");
@@ -208,7 +234,12 @@ public sealed partial class AotFieldNotesTests : IDisposable
         var text = Enumerable.Repeat((byte)0xCC, 0x200).ToArray();
         code.CopyTo(text, 0);
         string binary;
-        if (elf)
+        if (macho)
+        {
+            binary = Path.Combine(dump, "GameAssembly.dylib");
+            File.WriteAllBytes(binary, new MachOWriter { CpuType = MachOWriter.CpuX64, Text = text, FunctionStarts = [MachOWriter.TextOffset] }.Build());
+        }
+        else if (elf)
         {
             binary = Path.Combine(dump, "GameAssembly.so");
             File.WriteAllBytes(binary, new ElfWriter { Machine = ElfWriter.EmX64, Type = 3, Base = 0, Entry = ElfWriter.TextRva, Text = text }.Build());
@@ -231,9 +262,9 @@ public sealed partial class AotFieldNotesTests : IDisposable
         return (env, service, native, index);
     }
 
-    private Dictionary<uint, string> Notes(byte[] code, ushort machine = 0x8664, bool elf = false, string? source = null)
+    private Dictionary<uint, string> Notes(byte[] code, ushort machine = 0x8664, bool elf = false, string? source = null, bool macho = false)
     {
-        var (_, _, native, index) = Open(code, machine, elf, source);
+        var (_, _, native, index) = Open(code, machine, elf, source, macho);
         return AotFieldNotes.Comments(native, index, index.FunctionAt(0x1000)!, default);
     }
 
@@ -259,6 +290,12 @@ public sealed partial class AotFieldNotesTests : IDisposable
     public void An_x64_elf_operand_on_rdi_or_its_copy_is_named_after_the_field()
     {
         Assert.Equal([0x1000u, 0x1007u], Notes(ElfCode, elf: true).Keys.Order());
+    }
+
+    [Fact]
+    public void An_x64_macho_operand_on_rdi_or_its_copy_is_named_after_the_field()
+    {
+        Assert.Equal([0x1000u, 0x1007u], Notes(ElfCode, macho: true).Keys.Order());
     }
 
     [Fact]
@@ -303,6 +340,18 @@ public sealed partial class AotFieldNotesTests : IDisposable
     public void An_unwritten_this_register_survives_a_branch_target()
     {
         Assert.Equal([0x1005u, 0x1009u], Notes(UnwrittenThisAtTargetCode).Keys.Order());
+    }
+
+    [Fact]
+    public void An_arm64_callee_saved_copy_survives_a_branch_target()
+    {
+        Assert.Equal([0x1008u, 0x100Cu], Notes(Arm64SavedCopyAtTargetCode, 0xAA64).Keys.Order());
+    }
+
+    [Fact]
+    public void An_arm64_overwritten_this_is_not_named_at_a_branch_target()
+    {
+        Assert.Empty(Notes(Arm64OverwrittenThisAtTargetCode, 0xAA64));
     }
 
     [Theory]
