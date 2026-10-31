@@ -425,6 +425,15 @@ public sealed class ClientCatalogTests : IDisposable
         foreach (var client in ClientCatalog.All(_home.Env())) Assert.Contains(client.Id, help);
     }
 
+    [Fact]
+    public void Help_names_the_core_and_lean_profiles()
+    {
+        var help = _home.Run("help").Output;
+        Assert.Contains("--toolsets P", help);
+        Assert.Contains("core (up to 100 tools)", help);
+        Assert.Contains("lean (up to 40 tools)", help);
+    }
+
     private static string RepoRoot()
     {
         var root = AppContext.BaseDirectory;

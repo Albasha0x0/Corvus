@@ -27,6 +27,20 @@ public class CatalogAuditTests
         Assert.True(bytes <= MaxToolsListBytes, $"tools/list is {bytes:N0} bytes, over {MaxToolsListBytes:N0}: trim descriptions or output schemas");
     }
 
+    [Fact]
+    public void Smaller_profiles_list_fewer_bytes_than_the_full_catalog()
+    {
+        static int ListBytes(IReadOnlySet<string> sets) =>
+            Encoding.UTF8.GetByteCount(new JsonObject { ["tools"] = new JsonArray([.. Catalog.OfThisBuild(sets).Tools]) }.ToJsonString());
+        var full = ListBytes(Toolsets.All);
+        var core = ListBytes(Toolsets.CoreProfile);
+        var lean = ListBytes(Toolsets.LeanProfile);
+        Assert.True(lean < core && core < full, $"lean {lean:N0}, core {core:N0}, full {full:N0} bytes");
+        Assert.True(full <= MaxToolsListBytes);
+        Assert.True(Catalog.OfThisBuild(Toolsets.CoreProfile).Tools.Count <= 100);
+        Assert.True(Catalog.OfThisBuild(Toolsets.LeanProfile).Tools.Count <= 40);
+    }
+
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild().Tools;
 
     private static int Bytes(JsonNode? node) => node == null ? 0 : Encoding.UTF8.GetByteCount(node.ToJsonString());

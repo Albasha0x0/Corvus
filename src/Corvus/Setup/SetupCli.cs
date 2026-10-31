@@ -100,6 +100,10 @@ internal static class SetupCli
                                 --dry-run       show the release, asset and checksum manifest it would use
           version               Print the version.
 
+        Server option --toolsets P (or CORVUS_TOOLSETS) picks the catalog: full (default),
+        core (up to 100 tools) or lean (up to 40 tools). install gives lean to clients that
+        cap tools; docs/configuration.md.
+
         Exit codes: 0 success (a dry run always), 1 a check or a registration failed, 2 usage error.
 
         Tools from the terminal (each call runs the server in this process; docs/cli.md):

@@ -153,6 +153,7 @@ so updates need no client changes.
 - Comments and formatting are kept. Each changed file is backed up once as `<file>.corvus.bak`. An unparseable file is
   left untouched and reported.
 - Every entry gets `--client <id>`. Clients that cap the tool count also get `--toolsets lean`, unless the entry sets its own.
+- Pick another profile with `--toolsets core` or `--toolsets lean` in an entry's `args`.
 - An entry the client turned off stays off. A Codex entry whose `tool_timeout_sec` is not 60 s gets `--client-timeout`.
 - When the server check takes over half of the 10 s Codex or Grok Build start wait, `startup_timeout_sec = 30` is set.
 
