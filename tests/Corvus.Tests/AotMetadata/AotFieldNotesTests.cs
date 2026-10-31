@@ -10,7 +10,7 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace Corvus.Tests;
 
 /// <summary>Operands based on the first argument register are named after the owning type's metadata fields.</summary>
-public sealed class AotFieldNotesTests : IDisposable
+public sealed partial class AotFieldNotesTests : IDisposable
 {
     private const string Source = """
         using System;

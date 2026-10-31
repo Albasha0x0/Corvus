@@ -1161,7 +1161,7 @@ Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `tota
 
 **Disassemble native code** (read-only, idempotent, open-world, long-running)
 
-MASM disassembly of the function at an address, with references named and call arguments recovered; outside a function, maxInstructions from the address.
+MASM disassembly of the function at an address, with references named and call arguments recovered; outside a function, maxInstructions from the address. Names the method behind slot-indexed virtual calls on x64 images.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
