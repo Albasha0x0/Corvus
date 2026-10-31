@@ -2,7 +2,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>survey_features crypto constants: AES S-box and SHA-256 IV in a raw fixture; ChaCha in e_sqlite3; CRC-32, MD5 and MurmurHash3 in libSkiaSharp.</summary>
+/// <summary>survey_features crypto constants: AES, SHA-256 and Blowfish P-array constants in a raw image; ChaCha in e_sqlite3; CRC-32, MD5 and MurmurHash3 in libSkiaSharp.</summary>
 public sealed class CryptoConstantTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -16,19 +16,104 @@ public sealed class CryptoConstantTests : IDisposable
         return string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
     }
 
+    private async Task<string> SurveyBytes(InProcessServer server, byte[] image)
+    {
+        var fixture = _dir.File($"blob{Guid.NewGuid():N}.bin");
+        File.WriteAllBytes(fixture, image);
+        var load = await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = fixture, ["format"] = "raw", ["arch"] = "x64" });
+        return await Survey(server, new() { ["assembly"] = load.StructuredContent!.Value.GetProperty("ids")[0].GetString() });
+    }
+
+    private static byte[] Le(params uint[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
+    private static byte[] Be(params uint[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
+    private static byte[] Pad(int n) => new byte[n];
+
+    private const string Aes = "AES (S-box, inverse S-box or T-table)";
+    private const string Pa = "Blowfish P-array";
+
+    private static void AssertAt(string label, int offset, string text) =>
+        Assert.Matches($"{System.Text.RegularExpressions.Regex.Escape(label)} @0x{offset:X}(?![0-9A-Fa-f])", text);
+
     [Fact]
     public async Task Constants_name_their_algorithms_in_a_raw_image()
     {
         await using var server = await InProcessServer.StartAsync();
-        var fixture = _dir.File("blob.bin");
         byte[] sbox = [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76];
-        byte[] iv = [.. new uint[] { 0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A }.SelectMany(BitConverter.GetBytes)];
-        File.WriteAllBytes(fixture, [.. new byte[0x100], .. sbox, .. new byte[0x40], .. iv, .. new byte[0x100]]);
-        var load = await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = fixture, ["format"] = "raw", ["arch"] = "x64" });
-        var id = load.StructuredContent!.Value.GetProperty("ids")[0].GetString();
-        var raw = await Survey(server, new() { ["assembly"] = id });
-        Assert.Contains("AES (S-box, inverse S-box or T-table) @0x100", raw);
-        Assert.Contains("SHA-256 (initial values or round constants) @0x150", raw);
+        var raw = await SurveyBytes(server, [.. Pad(0x100), .. sbox, .. Pad(0x40), .. Le(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A), .. Pad(0x100)]);
+        AssertAt(Aes, 0x100, raw);
+        AssertAt("SHA-256 (initial values or round constants)", 0x150, raw);
+    }
+
+    [Fact]
+    public async Task The_AES_inverse_S_box_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] inv = [0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB];
+        var text = await SurveyBytes(server, [.. Pad(0x180), .. inv, .. Pad(0x80)]);
+        AssertAt(Aes, 0x180, text);
+        Assert.DoesNotContain(Pa, text);
+    }
+
+    [Fact]
+    public async Task The_AES_little_endian_T_table_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x200), .. Le(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D), .. Pad(0x80)]);
+        AssertAt(Aes, 0x200, text);
+    }
+
+    [Fact]
+    public async Task A_Blowfish_P_array_alone_is_named_as_the_P_array_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x140), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(0x80)]);
+        AssertAt(Pa, 0x140, text);
+    }
+
+    [Fact]
+    public async Task A_second_Blowfish_P_array_is_named_at_both_offsets()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] p = Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344);
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. p, .. Pad(0x100), .. p, .. Pad(0x40)]);
+        AssertAt(Pa, 0x100, text);
+        AssertAt(Pa, 0x210, text);
+    }
+
+    // F-CRYPTO-1: the current rules match little-endian words only.
+    [Fact(Skip = "F-CRYPTO-1")]
+    public async Task The_AES_big_endian_T_table_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x200), .. Be(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D), .. Pad(0x80)]);
+        AssertAt(Aes, 0x200, text);
+    }
+
+    // F-CRYPTO-1: the current rules match little-endian words only.
+    [Fact(Skip = "F-CRYPTO-1")]
+    public async Task A_Blowfish_big_endian_P_array_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x140), .. Be(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(0x80)]);
+        AssertAt(Pa, 0x140, text);
+    }
+
+    // F-CRYPTO-1: no rule reads the first S-box words 0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7.
+    [Fact(Skip = "F-CRYPTO-1")]
+    public async Task A_Blowfish_S_box_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x300), .. Le(0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7), .. Pad(0x80)]);
+        AssertAt("Blowfish S-box", 0x300, text);
+    }
+
+    // F-CRYPTO-1: a P-array without an S-box should report weak evidence; no strength is reported today.
+    [Fact(Skip = "F-CRYPTO-1")]
+    public async Task A_Blowfish_P_array_without_an_S_box_is_reported_as_weak_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x140), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(0x80)]);
+        Assert.Contains("weak", text, StringComparison.OrdinalIgnoreCase);
     }
 
     // The two library surveys scan megabytes of native code, so they run in the full set.
