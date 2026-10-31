@@ -155,7 +155,7 @@ public sealed class DeadlineTests
         await clock.RunUntilAsync(first, within: TimeSpan.FromSeconds(6));
         var left = McpProtocolTests.ErrorJson(await first);
         Assert.True(left.GetProperty("details").GetProperty("stillRunning").GetBoolean());
-        Assert.Contains("same arguments", left.GetProperty("next").GetString());
+        Assert.Contains("repeat the same call", left.GetProperty("next").GetString());
         var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
         Assert.Equal(1, leftovers.Running);
 

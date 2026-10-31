@@ -217,13 +217,13 @@ public sealed class ServerOptions
     public const string StallWindowVariable = "CORVUS_STALL_WINDOW";
 
     /// <summary>
-    /// The longest an in-process call may run, long-running tools included;
-    /// null: no ceiling. Engine and live calls keep their own limits.
+    /// The longest an in-process call's caller waits, long-running tools
+    /// included; null (default): no ceiling. Engine and live calls keep their
+    /// own limits.
     /// </summary>
-    public TimeSpan? CallCeiling { get; set; } = TimeSpan.FromMinutes(DefaultMaxCallMinutes);
+    public TimeSpan? CallCeiling { get; set; }
 
     public const string MaxCallMinutesVariable = "CORVUS_MAX_CALL_MINUTES";
-    public const int DefaultMaxCallMinutes = 60;
 
     /// <summary>IDA's first open of an image: full auto-analysis (default) or none (load only; functions made on demand, kept under a separate database).</summary>
     public Native.Providers.EngineAnalysis EngineAnalysis { get; set; } = Native.Providers.EngineAnalysis.Full;

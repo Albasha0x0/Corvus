@@ -69,7 +69,7 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
         var clock = new ArmedClock();
         using var services = Services(time: clock);
         var release = new TaskCompletionSource();
-        var cooperative = Run(services, "decompile_member", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
+        var cooperative = Run(services, "rename_symbol", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
         var ignoring = Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask();
         var quick = Run(services, "get_type_info", _ => Task.FromResult(Done)).AsTask();
 
@@ -80,7 +80,8 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(early, await clock.RunUntilAsync(cooperative, within: early));
         var timedOut = McpProtocolTests.ErrorJson(await cooperative);
         Assert.Equal("timeout", timedOut.GetProperty("code").GetString());
-        Assert.True(timedOut.GetProperty("retryable").GetBoolean());
+        Assert.False(timedOut.GetProperty("retryable").GetBoolean());
+        Assert.Contains("narrow the call", timedOut.GetProperty("next").GetString());
         Assert.False(timedOut.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.False(timedOut.GetProperty("details").TryGetProperty("retryAfterMs", out _));
         // The work never ends until released below: an answer at all is the deadline's.
@@ -88,6 +89,8 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
         var abandoned = McpProtocolTests.ErrorJson(await ignoring);
         Assert.Equal("timeout", abandoned.GetProperty("code").GetString());
         Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.True(abandoned.GetProperty("retryable").GetBoolean());
+        Assert.StartsWith("repeat the same call", abandoned.GetProperty("next").GetString());
         Assert.Equal((long)LeftoverWork.RetryAfter.TotalMilliseconds, abandoned.GetProperty("details").GetProperty("retryAfterMs").GetInt64());
         release.SetResult();
     }
@@ -218,9 +221,65 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
     [Fact]
     public void The_call_ceiling_reads_minutes_and_zero_turns_it_off()
     {
-        Assert.Equal(TimeSpan.FromMinutes(ServerOptions.DefaultMaxCallMinutes), new ServerOptions().CallCeiling);
         Assert.Contains(ServerOptions.MaxCallMinutesVariable, ConfigFile.Locators);
         Assert.Null(CallFilter.Ceiling("export_project", new ServerOptions { CallCeiling = null }));
+    }
+
+    [Fact]
+    public void The_call_ceiling_is_off_by_default()
+    {
+        Assert.Null(new ServerOptions().CallCeiling);
+        Assert.Null(CallFilter.Ceiling("export_project", new ServerOptions()));
+    }
+
+    [Fact]
+    public async Task A_run_longer_than_the_deadline_runs_once_and_the_repeat_returns_its_result()
+    {
+        var clock = new ArmedClock();
+        using var services = Services(time: clock);
+        var release = new TaskCompletionSource();
+        int runs = 0;
+        CancellationToken seen = default;
+        TimeSpan? left = TimeSpan.Zero;
+        async Task<CallToolResult> Work(CancellationToken ct)
+        {
+            Interlocked.Increment(ref runs);
+            seen = ct;
+            left = Deadlines.Left;
+            await Task.WhenAny(release.Task, Task.Delay(Timeout.Infinite, ct));
+            ct.ThrowIfCancellationRequested();
+            return Done;
+        }
+        var first = Run(services, "search_strings", Work).AsTask();
+        await clock.RunUntilAsync(first);
+        var error = McpProtocolTests.ErrorJson(await first);
+        Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.StartsWith("repeat the same call", error.GetProperty("next").GetString());
+
+        // The run sees no deadline and is not cancelled at 3x the server deadline.
+        var deadline = CallFilter.Deadline("search_strings", services.GetRequiredService<ServerOptions>())!.Value;
+        clock.Advance(3 * deadline + CallFilter.DeadlineGrace);
+        Assert.Null(left);
+        Assert.False(seen.IsCancellationRequested);
+
+        var repeat = Run(services, "search_strings", Work).AsTask();
+        Assert.False(repeat.IsCompleted);
+        release.SetResult();
+        Assert.Equal("done", ((TextContentBlock)(await repeat.WaitAsync(TimeSpan.FromMinutes(1))).Content[0]).Text);
+        Assert.Equal(1, runs);
+    }
+
+    [Fact]
+    public async Task A_call_that_stopped_at_its_deadline_is_not_retryable()
+    {
+        var clock = new ArmedClock();
+        using var services = Services(time: clock);
+        // rename_symbol is not joined, so the deadline stops its work.
+        var stopped = Run(services, "rename_symbol", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
+        // Only the stop fires, so the cooperative work ends before the grace period.
+        await clock.RunUntilAsync(stopped, within: CallFilter.Early(CallFilter.Deadline("rename_symbol", services.GetRequiredService<ServerOptions>())!.Value));
+        Assert.False(McpProtocolTests.ErrorJson(await stopped).GetProperty("retryable").GetBoolean());
     }
 
     [Fact]
@@ -302,6 +361,7 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal("timeout", json.GetProperty("code").GetString());
         Assert.StartsWith("export_project (shared, running ", json.GetProperty("details").GetProperty("blockedBy").GetString());
         Assert.Contains("held by export_project", json.GetProperty("message").GetString());
+        Assert.True(json.GetProperty("retryable").GetBoolean());
         Assert.Contains(workspace.LockUsers(), u => u is { Tool: "export_project", Write: false, Waiting: false });
         release.SetResult();
         Assert.NotEqual(true, (await reader).IsError);

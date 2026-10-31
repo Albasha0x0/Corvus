@@ -205,7 +205,6 @@ internal static partial class CallFilter
         using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
         using var spent = Spent.Enter(new Spent(call.Token));
         using var stops = Deadlines.Enter(deadline is { } stopAfter ? Remaining(Early(stopAfter), time.GetElapsedTime(received)) : null);
-        var joinStopped = CancellationToken.None;
         string? phase = null;
         try
         {
@@ -257,10 +256,9 @@ internal static partial class CallFilter
                 (CallToolResult Result, OutputCall Output) outcome;
                 if (joins != null)
                 {
-                    // The shared run keeps the server's deadline only, so a caller that left at the client's deadline can pick it up again.
-                    var joined = joins.Run(joinKey!, Work, cancellationToken, (Deadline(tool, serverOptions!) ?? ceiling) is { } server ? Early(server) : null,
-                        o => (Copy(o.Result), o.Output), time);
-                    joinStopped = joined.Stopped;
+                    // The deadline ends this caller's wait only; a repeat of the call
+                    // picks the run up, so the run carries no deadline of its own.
+                    var joined = joins.Run(joinKey!, token => { using var unbounded = Deadlines.Enter(null); return Work(token); }, cancellationToken, o => (Copy(o.Result), o.Output));
                     outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, leftovers, time, tool);
                 }
                 else
@@ -293,8 +291,7 @@ internal static partial class CallFilter
         {
             return (ErrorResult.From(ex, tool, store), output);
         }
-        // A joined run stops at its own copy of the server deadline, possibly a moment before this call's timer.
-        catch (OperationCanceledException) when ((call.IsCancellationRequested || joinStopped.IsCancellationRequested) && !cancellationToken.IsCancellationRequested && deadline != null)
+        catch (OperationCanceledException) when (call.IsCancellationRequested && !cancellationToken.IsCancellationRequested && deadline != null)
         {
             return (DeadlineError(tool, deadline.Value, stillRunning: false, waits.BlockedBy, client, joined: false, byCeiling, phase), output);
         }
@@ -412,11 +409,12 @@ internal static partial class CallFilter
             $"{(stillRunning ? "; its work is still finishing in the background" : "")}.",
             blockedBy != null
                 ? "call again once that call has finished (server_status lists the lock holders); a long-running call can be cancelled by its client"
-                : stillRunning && joined ? "call again with the same arguments to pick up the running work"
-                : "narrow the call (one member instead of a type, a smaller limit or scope)" + (stillRunning ? "; or retry after details.retryAfterMs, once the background work is done" : ""))
+                : stillRunning ? "repeat the same call" + (joined ? " to pick up the running work" : " after details.retryAfterMs, once the background work is done")
+                : "narrow the call (one member instead of a type, a smaller limit or scope)")
         {
             Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = false, blockedBy, deadlineSource = byCeiling ? "ceiling" : byClient ? client!.DeadlineSource : "server" },
             RetryAfter = stillRunning ? LeftoverWork.RetryAfter : null,
+            Retryable = stillRunning || blockedBy != null,
         }, tool);
     }
 

@@ -264,7 +264,7 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 | `CORVUS_RESULT_MODE` | text | `json`: a structured result's text block is its compact JSON |
 | `CORVUS_MAX_LEFTOVER_CALLS` | 2 | cancelled or timed-out calls still running; past it, new calls that read files wait, then are refused; others answer |
 | `CORVUS_MAX_EXPANSION` | 2000 | past 256 MiB extracted, a call's output may reach this many times its input; `0`: no limit |
-| `CORVUS_MAX_CALL_MINUTES` | 60 | longest an in-process call runs, long-running tools included; engine and live tools are exempt; `0`: off; applies from `corvus.json` only when no other account can write it |
+| `CORVUS_MAX_CALL_MINUTES` | unset | longest an in-process call's caller waits, long-running tools included; engine and live tools are exempt; `0`: off; applies from `corvus.json` only when no other account can write it |
 
 ### Worker processes
 

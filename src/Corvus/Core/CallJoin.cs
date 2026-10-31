@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Corvus.Core;
 
-/// <summary>Identical read-only calls share one run, which outlives a caller's deadline and stops when all callers cancel.</summary>
+/// <summary>Identical read-only calls share one run that outlives a caller's deadline.</summary>
 public sealed class CallJoin
 {
     private static readonly ConditionalWeakTable<ServerOptions, CallJoin> Servers = new();
@@ -23,7 +23,7 @@ public sealed class CallJoin
     }
 
     /// <summary>One caller's view: the result (a copy per caller), the shared work and whether it joined work already running.</summary>
-    public readonly record struct Joined<T>(Task<T> Result, Task Work, bool WasRunning, CancellationToken Stopped);
+    public readonly record struct Joined<T>(Task<T> Result, Task Work, bool WasRunning);
 
     /// <summary>Work running now.</summary>
     public int Running { get { lock (_running) return _running.Count; } }
@@ -73,9 +73,8 @@ public sealed class CallJoin
         }
     }
 
-    /// <summary>Runs or attaches to the work under <paramref name="key"/>; cancelled when all callers cancel or at <paramref name="limit"/>.</summary>
-    public Joined<T> Run<T>(string key, Func<CancellationToken, Task<T>> work, CancellationToken clientToken, TimeSpan? limit, Func<T, T> copy,
-        TimeProvider? time = null)
+    /// <summary>Runs or attaches to the work under <paramref name="key"/>; cancelled only when all callers cancel.</summary>
+    public Joined<T> Run<T>(string key, Func<CancellationToken, Task<T>> work, CancellationToken clientToken, Func<T, T> copy)
     {
         Entry entry;
         bool wasRunning;
@@ -86,7 +85,7 @@ public sealed class CallJoin
             if (wasRunning) { entry.Attached++; }
             else
             {
-                var stop = limit is { } l ? new CancellationTokenSource(l, time ?? TimeProvider.System) : new CancellationTokenSource();
+                var stop = new CancellationTokenSource();
                 // Started after the lock; the placeholder keeps a second caller from starting its own copy meanwhile.
                 var start = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var shared = start.Task.Unwrap();
@@ -110,7 +109,7 @@ public sealed class CallJoin
         }
         var result = ((Task<T>)attached.Work).ContinueWith(t => copy(t.GetAwaiter().GetResult()), CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        return new Joined<T>(result, attached.Work, wasRunning, attached.Token);
+        return new Joined<T>(result, attached.Work, wasRunning);
     }
 
     private static Task<T> Start<T>(Func<CancellationToken, Task<T>> work, CancellationToken token)
