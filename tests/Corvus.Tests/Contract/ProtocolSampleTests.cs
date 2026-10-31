@@ -249,7 +249,8 @@ public partial class ProtocolSampleTests
     }
 
     // Never from inside a \uXXXX escape (JSON kept as a JSON string escapes its quotes).
-    [GeneratedRegex(@"(?<!\\u[0-9a-fA-F]{0,3})(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12})")]
+    // A TLSH digest ("T1" and 70 digits) is masked whole, like the other hashes.
+    [GeneratedRegex(@"(?<!\\u[0-9a-fA-F]{0,3})(?:T1[0-9A-F]{70}|[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|r-[0-9a-f]{12})")]
     private static partial Regex Volatile();
 
     /// <summary>Tools whose written file holds the machine's image path, so its size differs per checkout.</summary>
