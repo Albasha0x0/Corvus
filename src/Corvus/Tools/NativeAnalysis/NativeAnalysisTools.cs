@@ -210,7 +210,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
 
     public sealed record NativeImportReport(
         string Assembly,
-        [property: Description("P/Invoke declarations, PE imports or Mach-O load commands checked.")] int Declarations,
+        [property: Description("Declarations, imports or load commands checked.")] int Declarations,
         [property: Description("Declarations per verdict and reason.")] IReadOnlyList<VerdictCount> Counts,
         [property: Description("The status or reason filter applied, or null.")] string? Filter,
         int Offset,
@@ -223,7 +223,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify native imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check P/Invoke declarations, native PE imports or Mach-O load commands against library exports, as the loader resolves them. " +
+    [Description("Check P/Invoke declarations, PE imports or Mach-O load commands against library exports, as the loader resolves them. " +
                  "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,

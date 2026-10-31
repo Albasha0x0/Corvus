@@ -107,7 +107,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
     [Description("Functions of a native image: address, size, name, flags, how found and caller count. An exact name filter adds the " +
-                 "engine's function record. Through an engine, a row adds [engine: name] when the engine's name differs; the filter matches both.")]
+                 "engine's function record.")]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
@@ -180,8 +180,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code", UseStructuredContent = true, OutputSchemaType = typeof(DisassemblyPage))]
-    [Description("MASM-syntax disassembly of the native function containing an address, with references named and call arguments " +
-                 "recovered. Outside a function or with fromAddress=true, maxInstructions from the address.")]
+    [Description("MASM disassembly of the function at an address, with references named and call arguments recovered; outside " +
+                 "a function, maxInstructions from the address.")]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -190,7 +190,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
-        [Description("runtime: show lazy-initialization blocks, write-barrier loops and static-base calls as one comment line. Function listings of x86 and x64 images on the built-in engine only; other requests are refused. Default none.")] string? collapse = null,
+        [Description("runtime: fold lazy-init, write-barrier and static-base code to one comment line. Default none.")] string? collapse = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

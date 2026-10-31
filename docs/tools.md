@@ -1118,7 +1118,7 @@ Structured output: `items`.
 
 **List native functions** (read-only, idempotent, open-world, long-running)
 
-Functions of a native image: address, size, name, flags, how found and caller count. An exact name filter adds the engine's function record. Through an engine, a row adds [engine: name] when the engine's name differs; the filter matches both.
+Functions of a native image: address, size, name, flags, how found and caller count. An exact name filter adds the engine's function record.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1161,7 +1161,7 @@ Structured output: `image`, `items`, `offset`, `total`, `engine`, `limit`, `tota
 
 **Disassemble native code** (read-only, idempotent, open-world, long-running)
 
-MASM-syntax disassembly of the native function containing an address, with references named and call arguments recovered. Outside a function or with fromAddress=true, maxInstructions from the address.
+MASM disassembly of the function at an address, with references named and call arguments recovered; outside a function, maxInstructions from the address.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1172,7 +1172,7 @@ MASM-syntax disassembly of the native function containing an address, with refer
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA or Ghidra if analyzed, else ours. Values: auto, ours, ida, ghidra. |
-| `collapse` | string |  |  | runtime: show lazy-initialization blocks, write-barrier loops and static-base calls as one comment line. Function listings of x86 and x64 images on the built-in engine only; other requests are refused. Default none. |
+| `collapse` | string |  |  | runtime: fold lazy-init, write-barrier and static-base code to one comment line. Default none. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `function`, `address`, `engine`.
 
@@ -1557,7 +1557,7 @@ Emulate native code from an address: return value, registers and written strings
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
 | `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
-| `read` | string |  |  | Shown after the run: ADDR or register, space or colon, length (rcx 64). |
+| `read` | string |  |  | Shown after the run: ADDR or register, space or :, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
@@ -1570,7 +1570,7 @@ Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `retu
 
 **Verify native imports** (read-only, idempotent, long-running)
 
-Check P/Invoke declarations, native PE imports or Mach-O load commands against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.
+Check P/Invoke declarations, PE imports or Mach-O load commands against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1872,7 +1872,7 @@ Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`,
 
 **Compare native builds** (read-only, idempotent, open-world, long-running)
 
-Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched and ambiguous functions, and capabilities added or removed. engine compares oldImage's file with an engine's memory; oldResult / newResult compare kept results.
+Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched and ambiguous functions, and capabilities added or removed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

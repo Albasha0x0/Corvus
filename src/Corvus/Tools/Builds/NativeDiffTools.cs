@@ -163,7 +163,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
     [Description("Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched and ambiguous functions, and " +
-                 "capabilities added or removed. engine compares oldImage's file with an engine's memory; oldResult / newResult compare kept results.")]
+                 "capabilities added or removed.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,

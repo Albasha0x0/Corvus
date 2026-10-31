@@ -12,6 +12,8 @@ public static partial class Guide
         - References: find_xrefs ('kernel32!CreateFileW' lists every call site), native_call_tree, find_call_paths to='native:<image>!<function>'.
         - Indirect calls: resolve_call_targets, find_virtual_calls (crossCheck=true compares with IDA or Ghidra).
         - Values: get_call_arguments (callee= a name or 0x function start; other callees take an open engine session's prototype), trace_native_values (engine=ida|ghidra uses the decompiler's IR).
+        - disassemble collapse=runtime: function listings of x86 and x64 images on the built-in engine; other requests are refused.
+        - list_functions through an engine: a row adds [engine: name] when the engine's name differs; filter matches both.
         - verify_native_imports on a native PE: rows module!entry; reasons exact, ordinal, forwarded, missing_export, missing_ordinal, forwarder_broken, dll_not_found, api_set_unmapped, system_dll_not_on_host.
         - emulate_native runs a decoder or hash in an emulator, never natively; engine=speakeasy runs a whole PE with Windows APIs modelled.
         - emulate_native models malloc, calloc, realloc, free, memcpy, memset and strlen; a named stub wins over a model, and *= answers only imports and calls outside the image; stubs are separated by , or ;.
