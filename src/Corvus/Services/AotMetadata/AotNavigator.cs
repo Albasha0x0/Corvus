@@ -15,6 +15,9 @@ public sealed class AotNavigator(AssemblyWorkspace workspace, AotMetadataService
     private (int Generation, Dictionary<string, AotStringService.MethodStarts> Maps) _undumped = (-1, new());
     private (int Generation, Dictionary<string, Dictionary<int, List<ResolvedSymbol>>> Maps) _typeKeys = (-1, new());
 
+    /// <summary>Whether any method of <paramref name="asm"/> carries a valid [Address] attribute.</summary>
+    public bool HasAddresses(LoadedAssembly asm) => aot.GetIndex(asm).Count > 0;
+
     /// <summary>The dummy assemblies of one dump in a scope, or those without dump files, with what navigation uses.</summary>
     public sealed class Image
     {

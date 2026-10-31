@@ -5,6 +5,7 @@ using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Native;
+using Corvus.Native.Code;
 using Corvus.Services;
 using static Corvus.Tools.ToolSupport;
 
@@ -12,7 +13,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService graph, NativeLinkService? link = null,
-    NativeCodeService? code = null, NativeEngineService? engines = null)
+    NativeCodeService? code = null, NativeEngineService? engines = null, AotMetadataService? metadata = null, AotNavigator? navigator = null)
 {
     /// <summary>Nodes a call tree walk visits at most; past it the tree is cut (totalExact=false).</summary>
     private const int MaxNodes = 20_000;
@@ -61,6 +62,12 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             var lines = text.Split('\n');
             // The title, and the "none" line of an empty tree.
             var header = lines[0] + "\n" + (nodes.Count == 0 ? string.Concat(lines.Skip(1).Where(l => l.Trim().Length > 0).Select(l => l + "\n")) : "");
+            if (PlaceholderCode(sym.Assembly, (MethodDef)sym.Member) is { } placeholder)
+            {
+                // A placeholder has no managed body: its calls are those of its native function.
+                if (nodes.Count == 0) header = lines[0] + "\n";
+                header += PlaceholderTree(placeholder, callers, levels, nodes, ref truncated, cancellationToken);
+            }
             return Page(header, nodes, $"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, truncated);
         }, cancellationToken);
     }
@@ -157,6 +164,58 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         return header.ToString();
     }
 
+    // Native is the binary at Rva, Function its function there; Problem says what is missing.
+    // ByAddress marks a binary chosen by RVA alone, with no dump naming it.
+    private sealed record Placeholder(string Label, uint Rva, LoadedNative? Native, NativeFunction? Function, string? Problem, bool ByAddress = false);
+
+    /// <summary>The native code of a method with an [Address] attribute; null for any other method.</summary>
+    private Placeholder? PlaceholderCode(LoadedAssembly asm, MethodDef method)
+    {
+        if (metadata == null || navigator == null || code == null || link == null) return null;
+        var addresses = metadata.GetIndex(asm);
+        if (addresses.Count == 0 || addresses.FirstOrDefault(e => e.Method == method)?.Rva is not { } wide || wide > uint.MaxValue) return null;
+        uint rva = (uint)wide;
+        var label = Format.MemberLabel(method);
+        var image = navigator.ImageOf(asm);
+        var native = workspace.Natives.FirstOrDefault(n => image?.Dump?.Files.Describes(n) == true);
+        bool byAddress = false;
+        if (native == null && image?.Dump == null)
+        {
+            // Without a dump only the RVA ties the method to a binary: one match is a guess, several are ambiguous.
+            var candidates = workspace.Natives.Where(n => n.Image.SectionAt(rva) is { IsExecutable: true }).ToList();
+            if (candidates.Count > 1)
+                return new Placeholder(label, rva, null, null,
+                    $"it is a placeholder with its code at RVA 0x{rva:X}, and {candidates.Count} loaded binaries have code there ({string.Join(", ", candidates.Select(c => c.Id))}); unload the others, or load the dump that describes the binary");
+            native = candidates.FirstOrDefault();
+            byAddress = native != null;
+        }
+        if (native == null)
+            return new Placeholder(label, rva, null, null, $"it is a placeholder with its code at RVA 0x{rva:X}, in a binary that is not loaded; load the binary with load_assembly to see its native callers and callees");
+        if (code.Ready(native) is not { } index)
+            return new Placeholder(label, rva, native, null, $"the code index of {native.Id} is still being built; repeat the call", byAddress);
+        var function = index.FunctionByStart(rva) ?? index.FunctionAt(rva);
+        return function == null
+            ? new Placeholder(label, rva, native, null, $"it is a placeholder, but {native.Id} has no function at RVA 0x{rva:X}", byAddress)
+            : new Placeholder(label, rva, native, function, null, byAddress);
+    }
+
+    /// <summary>Appends a placeholder's native tree to <paramref name="nodes"/>; returns its header lines.</summary>
+    private string PlaceholderTree(Placeholder p, bool callers, int levels, List<CallGraphService.TreeNode> nodes, ref bool truncated, CancellationToken ct)
+    {
+        if (p is not { Native: { } image, Function: { } function })
+            return $"  (placeholder: {p.Problem})\n";
+        var rows = new List<NativeTreeNode>();
+        // The managed rows already count against the limit.
+        int budget = Math.Max(1, MaxNodes - nodes.Count);
+        link!.AppendTree(new StringBuilder(), image, function, callers, levels, budget, 1, withRoot: false, ct, rows: rows, home: image);
+        if (rows.Count >= budget) truncated = true;
+        int shift = nodes.Count;
+        nodes.AddRange(rows.Select(n => Node(n) with { Id = n.Id + shift, Parent = n.Parent is { } up ? up + shift : null }));
+        return $"  (placeholder: native {(callers ? "callers" : "callees")} of {function.Name} at {NativeAddress.Va(image.Image, function.Start)} [{image.Id}]" +
+               (p.ByAddress ? "; binary matched by RVA only" : "") +
+               (rows.Count == 0 ? "; none found in the code index)\n" : ")\n");
+    }
+
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
     [Description("Call chains that reach a method, from from= or from entry points, shortest first. " +
                  "A native to= follows native callers and P/Invokes back to managed code.")]
@@ -218,6 +277,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             var start = from == null ? null : ResolveStart(from);
             var found = new List<(List<CallGraphService.PathStep> Path, NativeLinkService.ManagedLink? Native)>();
             string label;
+            string? placeholderHint = null;
             if (native != null)
             {
                 var target = link!.Resolve(native);
@@ -230,8 +290,17 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             else
             {
                 var target = SymbolResolver.ResolveOne(workspace, assembly, to, SymbolKind.Method, referenced: true);
+                List<List<CallGraphService.PathStep>>? viaIl = null;
+                if (PlaceholderCode(target.Assembly, (MethodDef)target.Member) is { } placeholder)
+                {
+                    placeholderHint = placeholder.Problem;
+                    // From entry points the native search also joins managed callers; a managed start tries IL first.
+                    if (start != null) viaIl = graph.PathSteps((MethodDef?)start?.Member, (MethodDef)target.Member, deepest, wanted, includeVirtual, cancellationToken);
+                    if ((viaIl == null || viaIl.Count == 0) && placeholder is { Native: { } image, Function: { } goal })
+                        return NativePaths(new NativeSymbol(image.Id, placeholder.Label), new NativeNode(image, goal.Start), null, nativeFrom, from, deepest, offset, limit, includeVirtual, cancellationToken);
+                }
                 label = target.Label;
-                found.AddRange(graph.PathSteps((MethodDef?)start?.Member, (MethodDef)target.Member, deepest, wanted, includeVirtual, cancellationToken)
+                found.AddRange((viaIl ?? graph.PathSteps((MethodDef?)start?.Member, (MethodDef)target.Member, deepest, wanted, includeVirtual, cancellationToken))
                     .Select(p => (p, (NativeLinkService.ManagedLink?)null)));
             }
             // The search stops at offset + limit paths: reaching that many means there may be more.
@@ -241,6 +310,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             if (found.Count == 0)
                 header += (native != null
                     ? "none: no P/Invoke declaration in the loaded assemblies binds to it, or nothing reaches those declarations."
+                    : placeholderHint != null ? $"none in the loaded assemblies: {placeholderHint}"
                     : start != null
                         ? $"none within {deepest} calls (raise maxDepth{(includeVirtual ? "" : ", drop directOnly")}, or the call happens through reflection/delegates/events)."
                         : "none: nothing in the loaded assemblies reaches it (it may be called by the runtime, reflection, or unloaded code).") + "\n";

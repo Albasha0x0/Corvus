@@ -282,8 +282,25 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 Notes = [.. report.Notes, $"category {CapaCategory}: rules of {capa.Checker ?? "capa"} over the native binary's direct calls, {capa.State}",
                     .. capa.Notes.Select(n => $"{CapaCategory}: {n}")],
             };
-        return Filter(report, category);
+        var filtered = Filter(report, category);
+        // A category filter that kept features is about those features, not the missing bodies.
+        if (assembly != null && (category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase) || filtered.Features.Count == 0) && PlaceholderNote(assembly) is { } note)
+            filtered = filtered with { Notes = [note, .. filtered.Notes] };
+        return filtered;
     }
+
+    /// <summary>For a dummy assembly, a note that its capabilities are those of the native binary; null otherwise.</summary>
+    private string? PlaceholderNote(string assembly) => workspace.Read(() =>
+    {
+        LoadedAssembly asm;
+        try { asm = workspace.Get(assembly); }
+        catch (ToolError) { return null; }
+        if (aot == null || !aot.HasAddresses(asm)) return null;
+        var native = aot?.ImageOf(asm) is { Dump: { } dump } ? workspace.Natives.FirstOrDefault(n => dump.Files.Describes(n)) : null;
+        return native != null
+            ? $"{asm.Id} is a dummy assembly: its methods have no bodies, so no call is scanned here; survey_features image={native.Id} reads the native code"
+            : $"{asm.Id} is a dummy assembly: its methods have no bodies, so no call is scanned here; load the native binary with load_assembly, then run survey_features image=<id>";
+    });
 
     /// <summary>The category of capa's rules; each rule's evidence is its namespace, at the functions it matched.</summary>
     private const string CapaCategory = "capa";
