@@ -178,6 +178,44 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
         await Assert.ThrowsAsync<ToolError>(() => tools.GetMethodAddresses("Vt.Derived::Stop", slot: "6"));
     }
 
+    [Fact]
+    public async Task A_stored_model_lists_inherited_empty_and_unloaded_vtable_slots()
+    {
+        var dump = _dir.File("built");
+        var dummies = Path.Combine(dump, "DummyDll");
+        Directory.CreateDirectory(dummies);
+        var path = Path.Combine(dummies, "Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildTokenedTypes));
+        new AotBuildModel
+        {
+            BinaryPath = "", MetadataPath = "", MetadataVersion = 29, HeaderVersion = 29, EngineVersion = "2021.3.0f1", EngineVersionSource = "test",
+            ImageBase = 0, MemoryImage = false, VtableImages = ["Vt.dll", "Gone.dll"],
+            Vtables = [new(0, 0x02000003, [new(0, 0x06000001), new(0, 0x06000003), new(0, 0), new(1, 0x06000009)])],
+        }.Write(Path.Combine(dump, AotBuildModel.FileName));
+        var marker = new AotBuildLoader.Marker("", "", "-", "-", 2, "r", DateTime.UtcNow);
+        File.WriteAllText(Path.Combine(dump, AotBuildLoader.MarkerFileName), System.Text.Json.JsonSerializer.Serialize(marker));
+        using var env = new Env(path);
+        var all = await env.MethodAddressTools().GetMethodAddresses("Vt.Derived", slot: "all");
+        Assert.Contains("vtable slots from the metadata, inherited ones included: 4", all);
+        Assert.Contains("slot 0: Vt.Base::Run()", all);
+        Assert.Contains("slot 1: Vt.Derived::Stop()", all);
+        Assert.Contains("slot 2: no method definition", all);
+        Assert.Contains("slot 3: method 0x06000009 of Gone.dll, which is not loaded", all);
+        Assert.Contains("slot 1: Vt.Derived::Stop()", await env.MethodAddressTools().GetMethodAddresses("Vt.Derived", slot: "1"));
+    }
+
+    [Fact]
+    public async Task A_build_without_a_stored_model_or_addresses_names_the_missing_slots()
+    {
+        var path = _dir.File("Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildTokenedTypes));
+        using var env = new Env(path);
+        var all = await env.MethodAddressTools().GetMethodAddresses("Vt.Derived", slot: "all");
+        Assert.Contains("vtable slots declared by it and its base types: 0", all);
+        var one = await env.MethodAddressTools().GetMethodAddresses("Vt.Derived", slot: "1");
+        Assert.Contains("no slots: the dummy methods carry no Slot values", one);
+    }
+
     // The fixture is BuildVTableTypes, whose Base::Run has RVA 0x1400.
     [Fact]
     public void A_stub_in_a_placeholder_assembly_names_the_native_patch()
@@ -252,6 +290,39 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
         baseType.Methods.Add(Virtual("Stop", 0x1440, 6));
         var derived = new TypeDefUser("Vt", "Derived", baseType) { Attributes = TypeAttributes.Public };
         derived.Methods.Add(Virtual("Stop", 0x1500, 6));
+        module.Types.Add(baseType);
+        module.Types.Add(derived);
+    }
+
+    /// <summary>Vt.Base (Run 0x06000001, Stop 0x06000002) and Vt.Derived (0x02000003, Stop 0x06000003), each with a [Token].</summary>
+    private static void BuildTokenedTypes(ModuleDefUser module)
+    {
+        var attribute = new TypeDefUser("Il2CppDummyDll", "TokenAttribute", module.Import(typeof(Attribute)));
+        var ctor = new MethodDefUser(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void),
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName) { Body = Ret() };
+        attribute.Methods.Add(ctor);
+        attribute.Fields.Add(new FieldDefUser("Token", new FieldSig(module.CorLibTypes.String), FieldAttributes.Public));
+        module.Types.Add(attribute);
+        void Tag(IHasCustomAttribute member, uint token)
+        {
+            var ca = new CustomAttribute(ctor);
+            ca.NamedArguments.Add(new CANamedArgument(true, module.CorLibTypes.String, "Token", new CAArgument(module.CorLibTypes.String, $"0x{token:X}")));
+            member.CustomAttributes.Add(ca);
+        }
+        MethodDefUser Virtual(string name, uint token)
+        {
+            var m = new MethodDefUser(name, MethodSig.CreateInstance(module.CorLibTypes.Void),
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig) { Body = Ret() };
+            Tag(m, token);
+            return m;
+        }
+        var baseType = new TypeDefUser("Vt", "Base", module.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public };
+        Tag(baseType, 0x02000002);
+        baseType.Methods.Add(Virtual("Run", 0x06000001));
+        baseType.Methods.Add(Virtual("Stop", 0x06000002));
+        var derived = new TypeDefUser("Vt", "Derived", baseType) { Attributes = TypeAttributes.Public };
+        Tag(derived, 0x02000003);
+        derived.Methods.Add(Virtual("Stop", 0x06000003));
         module.Types.Add(baseType);
         module.Types.Add(derived);
     }

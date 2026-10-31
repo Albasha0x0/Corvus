@@ -57,7 +57,8 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
         var sb = new StringBuilder();
         bool any = false;
         // A symbol may match in both managed and dummy assemblies; only the dummy side has addresses.
-        var withMetadata = symbols.Where(s => aot.GetIndex(s.Assembly).Count > 0).ToList();
+        // With slot, a stored model counts as metadata too.
+        var withMetadata = symbols.Where(s => aot.GetIndex(s.Assembly).Count > 0 || (slot != null && navigator.ImageOf(s.Assembly) != null)).ToList();
         if (withMetadata.Count > 0 && withMetadata.Count < symbols.Count)
         {
             sb.AppendLine($"({symbols.Count - withMetadata.Count} match(es) in assemblies without metadata skipped: " +
@@ -73,7 +74,8 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
             var attributes = AotMetadataService.GetAttributes(sym.Member);
             foreach (var a in attributes) { sb.AppendLine("  " + a); any = true; }
             var row = MemberRow(sym.Kind, sym.Label, sym.Assembly, sym.Member);
-            var image = aot.GetIndex(sym.Assembly).Count > 0 ? navigator.ImageOf(sym.Assembly) : null;
+            // A metadata-only build has no [Address] values but still has vtables.
+            var image = slot != null || aot.GetIndex(sym.Assembly).Count > 0 ? navigator.ImageOf(sym.Assembly) : null;
             if (sym.Member is MethodDef method)
             {
                 if (image != null) row = AppendCode(sb, image, sym.Assembly, method, offset, limit, facts, row, cancellationToken);
