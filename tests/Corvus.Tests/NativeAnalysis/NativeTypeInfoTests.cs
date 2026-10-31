@@ -357,6 +357,34 @@ public sealed class NativeTypeInfoTests : IDisposable
         var typed = catalog.AtAddress(c, 0x5000, default)!;
         Assert.Equal(("Fixture.Native.NativeThing", "Fixture.Native.NativeThing_TypeInfo"), (typed.Type.Name, typed.Owner));
     }
+
+    [Fact]
+    public async Task A_metadata_type_lookup_reports_its_layout_without_a_missing_names_state()
+    {
+        var (dll, binary) = AotNativeNamesTests.CreateDump(_dir);
+        using var env = new Env(dll);
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("applied_names")));
+        var native = env.Workspace.LoadAny(binary).Native!;
+        new AotNativeNames(env.AotMetadata, env.AotNavigator, code).Apply(native, await code.Index(native, null, default), env.Workspace.Assemblies, default);
+        var tools = new NativeTypeInfoTools(env.Workspace, code);
+        var collector = ToolOutput.Collect();
+        var text = await tools.GetNativeType(binary, "Fixture.Native.NativeThing", source: "metadata");
+        var report = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);
+        Assert.DoesNotContain("no metadata names applied", text, StringComparison.Ordinal);
+        Assert.Equal("metadata:Fixture.Native.NativeThing", report.Type!.Id);
+        Assert.Equal(["+0x0 klass header", "+0x8 monitor header", "+0x10 Counter member"], report.Type.Fields.Select(f => $"+0x{f.Offset:X} {f.Name} {f.Kind}"));
+    }
+
+    [Fact]
+    public async Task A_metadata_type_lookup_before_names_are_applied_reports_the_missing_names_state()
+    {
+        var (dll, binary) = AotNativeNamesTests.CreateDump(_dir);
+        using var env = new Env(dll);
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("unapplied_names")));
+        var tools = new NativeTypeInfoTools(env.Workspace, code);
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.GetNativeType(binary, "Fixture.Native.NativeThing", source: "metadata"));
+        Assert.Contains("no metadata names applied", error.Message, StringComparison.Ordinal);
+    }
 }
 
 /// <summary>get_native_type on an MSVC-built image with its PDB (<see cref="PdbIdaTypesTests.Source"/>).</summary>
