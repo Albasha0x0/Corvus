@@ -10,7 +10,7 @@ public sealed class AotMetadataService(AssemblyWorkspace workspace)
     private static readonly string[] KnownAttributes =
         ["AddressAttribute", "FieldOffsetAttribute", "TokenAttribute", "MetadataOffsetAttribute", "Il2CppAddressAttribute"];
 
-    private readonly Dictionary<LoadedAssembly, (List<MethodAddress> Index, Dictionary<uint, MethodAddress> ByRid)> _indexes = new();
+    private readonly Dictionary<LoadedAssembly, (int Generation, List<MethodAddress> Index, Dictionary<MethodDef, MethodAddress> ByMethod)> _indexes = new();
 
     public sealed record DummyAttribute(string Name, IReadOnlyDictionary<string, string> Values)
     {
@@ -89,15 +89,15 @@ public sealed class AotMetadataService(AssemblyWorkspace workspace)
     {
         GetIndex(asm);
         lock (_indexes)
-            return _indexes[asm].ByRid.GetValueOrDefault(method.Rid);
+            return _indexes.TryGetValue(asm, out var e) ? e.ByMethod.GetValueOrDefault(method) : null;
     }
 
-    /// <summary>The methods of <paramref name="asm"/> with a native address; empty for an ordinary assembly. Built once per loaded assembly, as edits keep the address attributes.</summary>
+    /// <summary>The methods of <paramref name="asm"/> with a native address; empty for an ordinary assembly. Rebuilt after a write, since a revert or reload replaces the module.</summary>
     public IReadOnlyList<MethodAddress> GetIndex(LoadedAssembly asm)
     {
         lock (_indexes)
         {
-            if (_indexes.TryGetValue(asm, out var e))
+            if (_indexes.TryGetValue(asm, out var e) && e.Generation == workspace.Generation)
                 return e.Index;
         }
         var index = new List<MethodAddress>();
@@ -119,7 +119,7 @@ public sealed class AotMetadataService(AssemblyWorkspace workspace)
         {
             // Unloaded assemblies leave the cache so their modules can be freed.
             foreach (var gone in _indexes.Keys.Where(k => !loaded.Contains(k)).ToList()) _indexes.Remove(gone);
-            _indexes[asm] = (index, index.ToDictionary(a => a.Method.Rid));
+            _indexes[asm] = (workspace.Generation, index, index.ToDictionary(a => a.Method));
         }
         return index;
     }

@@ -111,6 +111,18 @@ public class AotExportTests : IDisposable
     }
 
     [Fact]
+    public async Task Export_after_an_edit_is_reverted_reads_the_restored_module()
+    {
+        // The contract sweep on 9f361986: the index kept methods of the module the revert replaced.
+        var tools = EditTools();
+        await tools.StubMethod("Fixture.Native.NativeThing::First", dryRun: false);
+        await tools.RevertEdits(_env.Fixture.Id);
+        var exporter = new AotExporter(_env.AotMetadata);
+        var result = _env.Workspace.Read(() => exporter.Export(_env.Workspace.Assemblies, _dir.Path, "all", "rv", default));
+        Assert.Equal(2, result.Methods);
+    }
+
+    [Fact]
     public void Export_writes_scripts_a_header_and_JSON()
     {
         var exporter = new AotExporter(_env.AotMetadata);
