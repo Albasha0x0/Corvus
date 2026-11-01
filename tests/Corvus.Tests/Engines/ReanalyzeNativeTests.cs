@@ -95,9 +95,11 @@ public sealed class ReanalyzeNativeTests : IDisposable
         var again = await control.ReanalyzeNative(native.Id);
         Assert.Contains("already running", again);
         Assert.Contains("cancel=true", again);
-        Assert.Single(engine.Reanalyses);
         engine.ReanalysisGate.SetResult();
         await Ended(native);
+        // Counted after the end: the job may not have reached the engine
+        // before the second call (macOS CI on 44a0d6b6).
+        Assert.Single(engine.Reanalyses);
     }
 
     [Fact]

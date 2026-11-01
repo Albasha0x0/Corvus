@@ -15,10 +15,13 @@ public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
 
     internal static string Text(CallToolResult r) => string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
 
-    /// <summary>A successful call: its text and structured record.</summary>
+    /// <summary>A successful call: its text and structured record. A "still running" answer is repeated, as an agent
+    /// does; the repeat joins the running work, and the server's stall rule bounds it.</summary>
     internal static async Task<(string Text, JsonElement Record)> Call(McpClient client, string tool, Dictionary<string, object?> args)
     {
         var r = await client.CallToolAsync(tool, args);
+        while (r.IsError == true && Text(r).Contains("\"stillRunning\":true", StringComparison.Ordinal))
+            r = await client.CallToolAsync(tool, args);
         Assert.True(r.IsError != true, $"{tool}: {Text(r)}");
         return (Text(r), r.StructuredContent ?? default);
     }

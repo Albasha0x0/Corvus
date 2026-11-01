@@ -42,9 +42,11 @@ internal static class LeakGuard
         // compiled once per run, not per cache root.
         Environment.SetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, DeleteAtEnd(Path.Combine(RunTemp, "ghidra-workers")));
         Environment.SetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.SpareWorkerVariable, "on");
-        // A test reads the engine's answer, not its early estimate, so a loaded
-        // machine only slows an open; the early-answer tests set their own wait.
+        // A test reads the engine's answer, not its early estimate or a soft
+        // "running", so a loaded machine only slows a call; the tests of those
+        // answers set their own wait or run on a fake clock.
         Corvus.Services.NativeEngineService.DefaultEstimateAfter = TimeSpan.FromHours(1);
+        Corvus.Core.Deadlines.Soft = TimeSpan.FromHours(1);
         // A discovery-only run never reaches the check.
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
