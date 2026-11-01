@@ -84,7 +84,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         var highlights = parts == null ? Highlights(reading) : [$"{parts.Kind[..1].ToUpperInvariant()}{parts.Kind[1..]}: {parts.Commands.Count} command(s) found; view=script shows the plain text."];
         if (parts != null && reading.Calls.Count > 0) highlights.Add("Commands worth reviewing: " + string.Join("; ", reading.Calls.Take(8)) + (reading.Calls.Count > 8 ? "; ..." : "") + ".");
         highlights.AddRange(payloads.Take(3).Select(p => $"Builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it; unpack_container carves it as {p.Name}."));
-        return new FileView(facts, highlights) { Findings = findings, Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct) };
+        return new FileView(facts, highlights) { Findings = findings, Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct, IndicatorEvidence.String) };
     }
 
     private static List<string> Highlights(ScriptReading r)

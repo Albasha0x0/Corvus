@@ -30,4 +30,6 @@ client.stix2.import_bundle_from_file("sample.stix.json")
 ## Notes
 
 - A bundle of an incomplete read keeps what was read; run `corvus summarize_file path=sample.bin view=indicators` to see the rows before importing.
+- Network and fingerprint observables carry `x_corvus_evidence` (`reference`, `decoded`, `traffic`) and `x_corvus_confidence` (50, 70, 85).
+- Values found only as strings are left out of the bundle; `view=indicators` lists them as `string`.
 - The bundle states what the file contains, not a verdict.

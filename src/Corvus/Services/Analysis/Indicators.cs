@@ -1,10 +1,40 @@
 namespace Corvus.Services.Analysis;
 
-/// <summary>An observable a reader found: its type, value, the reader's name and where in the file it sits.</summary>
-public sealed record IndicatorHit(string Type, string Value, string Source, string? Location);
+/// <summary>An observable a reader found, with its source, location and evidence class.</summary>
+public sealed record IndicatorHit(string Type, string Value, string Source, string? Location, string Evidence = IndicatorEvidence.String);
 
-/// <summary>A deduplicated indicator: every reader that found it and the first location.</summary>
-public sealed record Indicator(string Type, string Value, IReadOnlyList<string> Sources, string FirstLocation);
+/// <summary>A deduplicated indicator with its readers, first location and strongest evidence class.</summary>
+public sealed record Indicator(string Type, string Value, IReadOnlyList<string> Sources, string FirstLocation, string Evidence);
+
+/// <summary>How an observable was found, weakest first.</summary>
+public static class IndicatorEvidence
+{
+    /// <summary>Text matched in a string or a text run with no use of it seen.</summary>
+    public const string String = "string";
+
+    /// <summary>A link target, call argument or certificate field the file refers to.</summary>
+    public const string Reference = "reference";
+
+    /// <summary>Text recovered by decoding or peeling a layer of the file.</summary>
+    public const string Decoded = "decoded";
+
+    /// <summary>A name or fingerprint seen in captured network traffic.</summary>
+    public const string Traffic = "traffic";
+
+    /// <summary>The classes, weakest first.</summary>
+    public static readonly string[] Classes = [String, Reference, Decoded, Traffic];
+
+    private static readonly int[] Scores = [15, 50, 70, 85];
+
+    // An unknown class ranks with the weakest.
+    private static int Rank(string evidence) => Math.Max(0, Array.IndexOf(Classes, evidence));
+
+    /// <summary>The STIX confidence (0 to 100) of a class; an unknown class gets the weakest score.</summary>
+    public static int Confidence(string evidence) => Scores[Rank(evidence)];
+
+    /// <summary>The stronger of two classes.</summary>
+    public static string Stronger(string a, string b) => Rank(b) > Rank(a) ? b : a;
+}
 
 /// <summary>view=indicators: the observables of every view and assembly of the file, one row per type and value.</summary>
 public sealed record IndicatorFacts(int Total, IReadOnlyDictionary<string, int> ByType, IReadOnlyList<Indicator> Indicators, IReadOnlyList<string> Notes);
@@ -21,9 +51,9 @@ public static class IndicatorList
     private static readonly HashSet<string> NetworkTypes = new(StringComparer.Ordinal) { "url", "domain", "ipv4", "ipv6", "email" };
 
     /// <summary>The network values of field texts, each with its field's location; empty for none.</summary>
-    public static List<IndicatorHit> FromText(string source, IEnumerable<(string Text, string Location)> fields, CancellationToken ct) =>
+    public static List<IndicatorHit> FromText(string source, IEnumerable<(string Text, string Location)> fields, CancellationToken ct, string evidence = IndicatorEvidence.Reference) =>
         [.. Values.FromFields(fields, out _, ct).Where(v => NetworkTypes.Contains(v.Type))
-            .Select(v => new IndicatorHit(v.Type, v.Value, source, v.Locations.FirstOrDefault()))];
+            .Select(v => new IndicatorHit(v.Type, v.Value, source, v.Locations.FirstOrDefault(), evidence))];
 
     // Shorter runs are mostly identifiers and padding.
     private const int MinStringChars = 8, MaxStringChars = 2_048, MaxImageBytes = 256 << 20;
@@ -58,7 +88,7 @@ public static class IndicatorList
         }
         Scan(1, "ASCII");
         Scan(2, "UTF-16");
-        return FromText(source, fields, ct);
+        return FromText(source, fields, ct, IndicatorEvidence.String);
     }
 
     /// <summary>The signer and issuer names and the OCSP, CRL and CA issuer URLs of certificates; self-issued certificates give no issuer.</summary>
@@ -69,15 +99,15 @@ public static class IndicatorList
         foreach (var c in certificates)
         {
             ct.ThrowIfCancellationRequested();
-            if (c.Ca != true) hits.Add(new IndicatorHit("signer", c.Subject, source, $"certificate #{c.Index}"));
-            if (!c.SelfIssued) hits.Add(new IndicatorHit("issuer", c.Issuer, source, $"certificate #{c.Index}"));
+            if (c.Ca != true) hits.Add(new IndicatorHit("signer", c.Subject, source, $"certificate #{c.Index}", IndicatorEvidence.Decoded));
+            if (!c.SelfIssued) hits.Add(new IndicatorHit("issuer", c.Issuer, source, $"certificate #{c.Index}", IndicatorEvidence.Decoded));
             foreach (var u in c.Urls)
             {
                 int space = u.IndexOf(' ');
                 urls.Add((space < 0 ? u : u[(space + 1)..], $"{(space < 0 ? "URL" : u[..space] + " URL")} of certificate #{c.Index}"));
             }
         }
-        hits.AddRange(FromText(source, urls, ct));
+        hits.AddRange(FromText(source, urls, ct, IndicatorEvidence.Decoded));
         return hits;
     }
 
@@ -88,28 +118,35 @@ public static class IndicatorList
     public static string HostType(string host) =>
         System.Net.IPAddress.TryParse(host, out var ip) ? ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? "ipv6" : "ipv4" : "domain";
 
+    private static readonly string[] NetworkApis = ["System.Net.", "System.Uri::", "System.Diagnostics.Process::Start"];
+
+    /// <summary>The class of an assembly value: a reference when the code passes it to a network API, else a string.</summary>
+    internal static string AssemblyEvidence(ExtractedValue v) =>
+        v.PassedTo.Any(api => NetworkApis.Any(n => api.Contains(n, StringComparison.Ordinal))) ? IndicatorEvidence.Reference : IndicatorEvidence.String;
+
     /// <summary>The hits of the file's assemblies and views merged by type and value; sources and first location keep reading order.</summary>
     public static IndicatorFacts Of(InspectionService.FileSummary summary)
     {
-        var rows = new Dictionary<(string Type, string Value), (List<string> Sources, string Location)>();
+        var rows = new Dictionary<(string Type, string Value), (List<string> Sources, string Location, string Evidence)>();
         var notes = new List<string>();
-        void Add(string type, string value, string source, string? location)
+        void Add(string type, string value, string source, string? location, string evidence)
         {
             var key = (type, value);
             var where = location == null ? source : $"{source}: {location}";
-            if (!rows.TryGetValue(key, out var row)) rows[key] = row = ([], where);
+            if (!rows.TryGetValue(key, out var row)) rows[key] = row = ([], where, evidence);
+            else rows[key] = row = (row.Sources, row.Location, IndicatorEvidence.Stronger(row.Evidence, evidence));
             if (!row.Sources.Contains(source)) row.Sources.Add(source);
         }
         foreach (var a in summary.Assemblies)
         {
             foreach (var v in a.NetworkValues ?? a.Values.Top.Where(v => NetworkTypes.Contains(v.Type)))
-                Add(v.Type, v.Value, a.Path, v.Locations.FirstOrDefault());
+                Add(v.Type, v.Value, a.Path, v.Locations.FirstOrDefault(), AssemblyEvidence(v));
             if (a.NetworkValues == null && a.Values.Total > a.Values.Top.Count)
                 notes.Add($"{a.Path}: {a.Values.Top.Count} of {a.Values.Total} extracted values listed; extract_strings lists all.");
         }
         foreach (var h in summary.Views.OrderBy(v => v.Key, StringComparer.Ordinal).SelectMany(v => v.Value.Indicators))
-            Add(h.Type, h.Value, h.Source, h.Location);
-        var list = rows.Select(r => new Indicator(r.Key.Type, r.Key.Value, r.Value.Sources, r.Value.Location))
+            Add(h.Type, h.Value, h.Source, h.Location, h.Evidence);
+        var list = rows.Select(r => new Indicator(r.Key.Type, r.Key.Value, r.Value.Sources, r.Value.Location, r.Value.Evidence))
             .OrderBy(i => Types.ToList().IndexOf(i.Type)).ThenBy(i => i.Value, StringComparer.Ordinal).ToList();
         return new IndicatorFacts(list.Count, list.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.Count()), list, notes);
     }

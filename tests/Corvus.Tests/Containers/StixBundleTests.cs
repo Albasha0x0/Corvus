@@ -49,8 +49,8 @@ public sealed class StixBundleTests : IDisposable
         var app = InspectionTests.Compile("UpdateCheck", """
             public static class UpdateCheck
             {
-                public static string Endpoint() => "https://updates.example.com/check";
-                public static string Mirror() => "192.0.2.10";
+                public static object Endpoint() => new System.Uri("https://updates.example.com/check");
+                public static object Mirror() => System.Net.IPAddress.Parse("192.0.2.10");
             }
             """);
         var path = _dir.File("app.zip");
@@ -89,10 +89,10 @@ public sealed class StixBundleTests : IDisposable
     [Fact]
     public void Network_values_past_the_cap_are_cut_and_the_bundle_says_partial()
     {
-        // One more URL literal than the cap, in one assembly.
-        var urls = string.Join(", ", Enumerable.Range(0, InspectionService.MaxNetworkValues + 1).Select(i => $"\"https://h{i}.example.com/p\""));
+        // One more URL than the cap, each passed to a network API, in one assembly.
+        var urls = string.Join(", ", Enumerable.Range(0, InspectionService.MaxNetworkValues + 1).Select(i => $"new System.Uri(\"https://h{i}.example.com/p\")"));
         var path = _dir.File("Many.dll");
-        File.WriteAllBytes(path, InspectionTests.Compile("Many", $"public static class Many {{ public static string[] All = {{ {urls} }}; }}"));
+        File.WriteAllBytes(path, InspectionTests.Compile("Many", $"public static class Many {{ public static System.Uri[] All = {{ {urls} }}; }}"));
         var objects = Objects(Bundle(path));
         Assert.Equal(InspectionService.MaxNetworkValues, objects.Count(o => o.GetProperty("type").GetString() is "url" or "domain-name"));
         Assert.Contains($"past the first {InspectionService.MaxNetworkValues:N0} are not listed",
@@ -149,6 +149,35 @@ public sealed class StixBundleTests : IDisposable
         var ja4 = objects.Single(o => o.GetProperty("type").GetString() == "x-tls-fingerprint" && o.GetProperty("algorithm").GetString() == "JA4");
         Assert.Equal("t12d0103h2_0f2cb44170f4_4298e3b3ed58", ja4.GetProperty("value").GetString());
         Assert.DoesNotContain("not checked", objects.Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public void A_bundle_labels_each_observable_with_how_it_was_found()
+    {
+        var capture = _dir.File("a.pcap");
+        File.WriteAllBytes(capture, PcapTests.Pcap(PcapTests.EthernetFrames()));
+        var domain = Objects(Bundle(capture)).Single(o => o.GetProperty("type").GetString() == "domain-name" && o.GetProperty("value").GetString() == "api.example.com");
+        Assert.Equal("traffic", domain.GetProperty("x_corvus_evidence").GetString());
+        Assert.Equal(85, domain.GetProperty("x_corvus_confidence").GetInt32());
+
+        var app = Fixture();
+        var url = Objects(Bundle(app)).Single(o => o.GetProperty("type").GetString() == "url");
+        Assert.Equal("reference", url.GetProperty("x_corvus_evidence").GetString());
+        Assert.Equal(50, url.GetProperty("x_corvus_confidence").GetInt32());
+        Assert.False(Objects(Bundle(app)).Single(o => o.GetProperty("type").GetString() == "file" && o.GetProperty("name").GetString() == "app.zip").TryGetProperty("x_corvus_evidence", out _));
+    }
+
+    [Fact]
+    public void A_value_found_only_as_a_string_is_left_out_and_counted()
+    {
+        var app = InspectionTests.Compile("Named", """
+            public static class Named { public static string Name() => "https://named.example.com/b"; }
+            """);
+        var path = _dir.File("named.zip");
+        File.WriteAllBytes(path, ContainerFixtures.Zip(("Named.dll", app)));
+        var bytes = Bundle(path);
+        Assert.DoesNotContain(Objects(bytes), o => o.GetProperty("type").GetString() == "url");
+        Assert.Contains("found only as strings are not exported", Objects(bytes).Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("description").GetString());
     }
 
     [Fact]

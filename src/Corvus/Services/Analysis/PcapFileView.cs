@@ -62,12 +62,12 @@ internal sealed class PcapFileView : IFileSummaryView
     {
         var hits = new List<IndicatorHit>();
         foreach (var d in dns.Take(IndicatorList.MaxPerReader))
-            if (IndicatorList.Domain(d.Name) is { Length: > 0 } name) hits.Add(new IndicatorHit(IndicatorList.HostType(name), name, "pcap", "DNS query"));
+            if (IndicatorList.Domain(d.Name) is { Length: > 0 } name) hits.Add(new IndicatorHit(IndicatorList.HostType(name), name, "pcap", "DNS query", IndicatorEvidence.Traffic));
         foreach (var t in tls.Take(IndicatorList.MaxPerReader))
         {
-            if (IndicatorList.Domain(t.ServerName) is { Length: > 0 } name) hits.Add(new IndicatorHit(IndicatorList.HostType(name), name, "pcap", "TLS server name"));
-            hits.AddRange(t.Ja3.Select(j => new IndicatorHit("ja3", j, "pcap", $"ClientHello to {t.ServerName}")));
-            hits.AddRange(t.Ja4.Select(j => new IndicatorHit("ja4", j, "pcap", $"ClientHello to {t.ServerName}")));
+            if (IndicatorList.Domain(t.ServerName) is { Length: > 0 } name) hits.Add(new IndicatorHit(IndicatorList.HostType(name), name, "pcap", "TLS server name", IndicatorEvidence.Traffic));
+            hits.AddRange(t.Ja3.Select(j => new IndicatorHit("ja3", j, "pcap", $"ClientHello to {t.ServerName}", IndicatorEvidence.Traffic)));
+            hits.AddRange(t.Ja4.Select(j => new IndicatorHit("ja4", j, "pcap", $"ClientHello to {t.ServerName}", IndicatorEvidence.Traffic)));
         }
         return hits;
     }

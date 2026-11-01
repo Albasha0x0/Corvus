@@ -27,7 +27,10 @@ public static class StixBundle
     // A custom observable: STIX 2.1 has no object for a TLS client fingerprint.
     private const string Fingerprint = "x-tls-fingerprint";
 
-    private sealed record Observable(string Id, string Type, Dictionary<string, object> Properties, SortedSet<string> Locations);
+    private sealed record Observable(string Id, string Type, Dictionary<string, object> Properties, SortedSet<string> Locations)
+    {
+        public string Evidence { get; set; } = IndicatorEvidence.String;
+    }
 
     /// <summary>The bundle as UTF-8 JSON; observable ids are stable UUIDv5, the analysis and bundle ids are the given UUIDv4 values.</summary>
     public static byte[] Write(InspectionService.FileSummary summary, string toolVersion, DateTimeOffset timestamp, Guid analysis, Guid bundle)
@@ -35,7 +38,7 @@ public static class StixBundle
         var observables = new Dictionary<string, Observable>(StringComparer.Ordinal);
         var notes = new List<string>();
         var file = summary.File;
-        int networkValues = 0;
+        int networkValues = 0, stringOnly = 0;
         bool cut = false;
         // The STIX TLSH hash is the 70 digits without the "T1" version prefix.
         var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256), ("IMPHASH", file.Imphash), ("TLSH", file.Tlsh?[2..]));
@@ -58,29 +61,32 @@ public static class StixBundle
             foreach (var v in a.NetworkValues ?? a.Values.Top)
             {
                 if (!ValueTypes.TryGetValue(v.Type, out var type)) continue;
+                if (IndicatorList.AssemblyEvidence(v) == IndicatorEvidence.String) { stringOnly++; continue; }
                 if (++networkValues > InspectionService.MaxNetworkValues) { cut = true; break; }
                 var value = new Dictionary<string, object> { ["value"] = v.Value };
                 IEnumerable<string> locations = v.Locations.Count == 0 ? [a.Path] : v.Locations.Select(l => $"{a.Path}: {l}");
-                Add(observables, new Observable(ObservableId(type, value), type, value, new SortedSet<string>(locations, StringComparer.Ordinal)));
+                Add(observables, new Observable(ObservableId(type, value), type, value, new SortedSet<string>(locations, StringComparer.Ordinal)) { Evidence = IndicatorList.AssemblyEvidence(v) });
             }
             if (a.NetworkValues == null && a.Values.Total > a.Values.Top.Count)
                 notes.Add($"{a.Path}: {a.Values.Top.Count} of {a.Values.Total} extracted values listed; extract_strings lists all.");
         }
         foreach (var h in summary.Views.OrderBy(v => v.Key, StringComparer.Ordinal).SelectMany(v => v.Value.Indicators))
         {
+            if (h.Evidence == IndicatorEvidence.String && h.Type is not ("ja3" or "ja4")) { stringOnly++; continue; }
             if (++networkValues > InspectionService.MaxNetworkValues) { cut = true; break; }
             var where = h.Location == null ? h.Source : $"{h.Source}: {h.Location}";
             if (h.Type is "ja3" or "ja4")
             {
                 var print = new Dictionary<string, object> { ["algorithm"] = h.Type.ToUpperInvariant(), ["value"] = h.Value };
-                Add(observables, new Observable($"{Fingerprint}--{Uuid5(CorvusNamespace, Canonical(print))}", Fingerprint, print, new SortedSet<string>([where], StringComparer.Ordinal)));
+                Add(observables, new Observable($"{Fingerprint}--{Uuid5(CorvusNamespace, Canonical(print))}", Fingerprint, print, new SortedSet<string>([where], StringComparer.Ordinal)) { Evidence = h.Evidence });
             }
             else if (ValueTypes.TryGetValue(h.Type, out var type))
             {
                 var value = new Dictionary<string, object> { ["value"] = h.Value };
-                Add(observables, new Observable(ObservableId(type, value), type, value, new SortedSet<string>([where], StringComparer.Ordinal)));
+                Add(observables, new Observable(ObservableId(type, value), type, value, new SortedSet<string>([where], StringComparer.Ordinal)) { Evidence = h.Evidence });
             }
         }
+        if (stringOnly > 0) notes.Add($"Partial: {stringOnly:N0} URLs, domains and IP addresses found only as strings are not exported; summarize_file view=indicators lists them with their evidence.");
         if (cut) notes.Add($"Partial: URLs, domains and IP addresses past the first {InspectionService.MaxNetworkValues:N0} are not listed.");
         if (summary.Assemblies.Count == 0 && !summary.Views.Values.Any(v => v.Indicators.Count > 0))
             notes.Add("URLs, domains and IP addresses not checked: summarize_file reads them from managed assemblies only.");
@@ -159,7 +165,11 @@ public static class StixBundle
 
     private static void Add(Dictionary<string, Observable> observables, Observable o)
     {
-        if (observables.TryGetValue(o.Id, out var known)) known.Locations.UnionWith(o.Locations);
+        if (observables.TryGetValue(o.Id, out var known))
+        {
+            known.Locations.UnionWith(o.Locations);
+            known.Evidence = IndicatorEvidence.Stronger(known.Evidence, o.Evidence);
+        }
         else observables[o.Id] = o;
     }
 
@@ -170,6 +180,12 @@ public static class StixBundle
         w.WriteString("spec_version", SpecVersion);
         w.WriteString("id", o.Id);
         foreach (var (key, value) in o.Properties) { w.WritePropertyName(key); JsonSerializer.Serialize(w, value); }
+        // File observables describe the target, not a found value.
+        if (o.Type != "file")
+        {
+            w.WriteString("x_corvus_evidence", o.Evidence);
+            w.WriteNumber("x_corvus_confidence", IndicatorEvidence.Confidence(o.Evidence));
+        }
         if (o.Locations.Count > 0)
         {
             w.WriteStartArray("x_corvus_locations");
