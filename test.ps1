@@ -196,7 +196,8 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
             }
         }
         foreach ($name in $extra.Keys) { $context[$name] = $extra[$name] }
-        Write-Host (Save-TestTimes $trx $context $timeHistory $timeReport)
+        Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+        Write-Host (Save-TestTimes $trx $context $timeHistory $timeReport (Get-ClassMap $tests))
     }
     catch { Write-Host "Recording the run times failed: $_" -ForegroundColor Yellow }
     finally {

@@ -359,8 +359,25 @@ function Format-Setup($times, $run) {
     "build $(Format-Seconds $run.build), test start and setup $(Format-Seconds ([math]::Max(0, $outside - $run.build)))"
 }
 
-# The report section of one run, as markdown lines.
-function Get-RunSection($times, $run, $history) {
+# Time per test family (a test folder): Tests, Summed and Critical
+# seconds, largest summed first. A class outside $classMap is "other".
+function Get-FamilyTimes($times, [hashtable]$classMap) {
+    $familyOf = @{}
+    # A class in two folders keeps the first folder in name order.
+    foreach ($family in @($classMap.Keys | Sort-Object)) {
+        foreach ($class in $classMap[$family]) { if (-not $familyOf.ContainsKey($class)) { $familyOf[$class] = $family } }
+    }
+    $of = { param($test) $name = $test.Class -replace '\+.*$', ''; if ($familyOf[$name]) { $familyOf[$name] } else { 'other' } }
+    $onPath = @{}
+    foreach ($test in Get-CriticalPath $times) { $family = & $of $test; $onPath[$family] = $onPath[$family] + $test.Seconds }
+    $times.Tests | Group-Object { & $of $_ } | ForEach-Object {
+        [pscustomobject]@{ Family = $_.Name; Tests = $_.Count; Summed = ($_.Group | Measure-Object Seconds -Sum).Sum; Critical = [double]$onPath[$_.Name] }
+    } | Sort-Object Summed -Descending
+}
+
+# The report section of one run, as markdown lines. $classMap adds the
+# time per test family.
+function Get-RunSection($times, $run, $history, [hashtable]$classMap = $null) {
     $mode = $run.mode
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("## Latest $mode run")
@@ -404,6 +421,17 @@ function Get-RunSection($times, $run, $history) {
         $lines.Add("| $($group.Name) | $($group.Count) | $(Format-Seconds ($group.Group | Measure-Object Seconds -Sum).Sum) |")
     }
     $lines.Add('')
+
+    if ($classMap) {
+        $lines.Add('### Time by family')
+        $lines.Add('')
+        $lines.Add('| Family | Tests | Summed | Critical path |')
+        $lines.Add('|---|---:|---:|---:|')
+        foreach ($family in Get-FamilyTimes $times $classMap | Select-Object -First 15) {
+            $lines.Add("| $($family.Family) | $($family.Tests) | $(Format-Seconds $family.Summed) | $(Format-Seconds $family.Critical) |")
+        }
+        $lines.Add('')
+    }
 
     $lines.Add('### Slowest classes')
     $lines.Add('')
@@ -486,13 +514,13 @@ function Get-TargetReason($times, $run) {
 }
 
 # Records a run and rewrites the time report; returns the one-line summary the run prints.
-function Save-TestTimes([string]$trxPath, [System.Collections.IDictionary]$context, [string]$historyPath, [string]$reportPath) {
+function Save-TestTimes([string]$trxPath, [System.Collections.IDictionary]$context, [string]$historyPath, [string]$reportPath, [hashtable]$classMap = $null) {
     $times = Read-TestTimes $trxPath
     if (-not $times) { return 'Time report not updated: the run wrote no timed results.' }
     $id = Add-TestHistory $historyPath $times $context
     $history = Read-TestHistory $historyPath $context.mode
     $run = $history.Runs | Where-Object run -eq $id | Select-Object -Last 1
-    $section = Get-RunSection $times $run $history
+    $section = Get-RunSection $times $run $history $classMap
     Invoke-HistoryLocked {
         $old = if (Test-Path $reportPath) { Get-Content $reportPath -Raw } else { '' }
         $reasons = @{}
@@ -603,4 +631,4 @@ function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
     @($over | Where-Object { $_ -in $before })
 }
 
-Export-ModuleMember -Function Get-PermitCounts, Get-EnginePermits, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
+Export-ModuleMember -Function Get-PermitCounts, Get-EnginePermits, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Get-FamilyTimes, Save-TestTimes, Get-TimeSummary

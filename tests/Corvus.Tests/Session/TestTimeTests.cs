@@ -63,6 +63,34 @@ public class TestTimeTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Time_is_attributed_to_the_family_of_each_class_and_nested_classes_follow_their_outer_class()
+    {
+        var dir = NewFolder();
+        var trx = Path.Combine(dir, "run.trx");
+        File.WriteAllText(trx, Trx(("Open", "A", 0, 10, "Passed"), ("Open+Inner", "B", 0, 4, "Passed"), ("Scan", "C", 10, 13, "Passed"), ("Loose", "D", 0, 1, "Passed")));
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                $times = Read-TestTimes '{{trx}}'
+                $map = @{ Engines = @('Open'); Native = @('Scan') }
+                'families=' + ((Get-FamilyTimes $times $map | ForEach-Object { "$($_.Family):$($_.Tests):$($_.Summed):$($_.Critical)" }) -join ',')
+                $run = [pscustomobject]@{ mode = 'full'; run = 1; commit = 'abc'; at = 'now'; code = 0; tests = 4; failed = 0; wall = 20.0; build = $null; loadStart = $null; loadEnd = $null; heavyWait = $null; permits = $null; reused = $null; offload = $null }
+                $history = [pscustomobject]@{ Runs = @() }
+                'with=' + ((Get-RunSection $times $run $history $map) -match 'Time by family').Count
+                'without=' + ((Get-RunSection $times $run $history) -match 'Time by family').Count
+                """);
+            // No pwsh on this machine.
+            if (lines is ["skip"]) return;
+            Assert.Equal("Engines:2:14:10,Native:1:3:3,other:1:1:0", Line(lines, "families"));
+            Assert.Equal("1", Line(lines, "with"));
+            Assert.Equal("0", Line(lines, "without"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void The_report_names_a_missed_target_and_a_regression_and_keeps_other_modes_sections()
     {
         var dir = NewFolder();
