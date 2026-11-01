@@ -1060,6 +1060,28 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
+    public void An_assembly_without_a_transformed_site_reports_none_seen_and_no_next_call()
+    {
+        var path = _dir.File("Plain.dll");
+        File.WriteAllBytes(path, CompileRelease("Plain", "namespace P { public static class T { public static int Add(int a, int b) => a + b; } }"));
+        using var env = new Env(path);
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "transforms", out _));
+        Assert.Contains("Transforms: none seen", text);
+        Assert.DoesNotContain("Next: simplify_methods", text);
+    }
+
+    [Fact]
+    public void A_dispatcher_loop_makes_a_control_flow_layer_with_two_sites_and_names_the_restoring_call()
+    {
+        using var env = new Env(FlatFixture());
+        var flow = Assert.Single(env.Workspace.Read(() => TransformLayers.Read(env.Fixture, default)), l => l.Layer == TransformLayers.ControlFlow);
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "transforms", out _));
+        Assert.Equal((2, 1), (flow.Sites, flow.Restored));
+        Assert.Contains($"  control flow: {flow.State}, 2 site(s), 1 restored", text);
+        Assert.Contains("Next: simplify_methods assembly=" + env.Fixture.Id + " passes=[\"cfg\"]", text);
+    }
+
+    [Fact]
     public void Layers_the_time_limit_stops_are_unknown_and_name_the_limit()
     {
         using var env = new Env(ObfFixture());
