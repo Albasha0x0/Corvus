@@ -34,6 +34,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
+        // A missing dump is named before any argument combination is checked.
+        var target = Target(path, imageDirectories);
         var v = (view ?? "summary").Trim().ToLowerInvariant();
         if (!MinidumpService.Views.Contains(v))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
@@ -43,7 +45,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (filter != "all" && v != "memory") throw new ToolError(ErrorCode.InvalidArgument, "regionFilter goes with view=memory.");
         if (!string.IsNullOrWhiteSpace(yara) && filter != "unbacked") throw new ToolError(ErrorCode.InvalidArgument, "yara goes with regionFilter=unbacked.");
         if (!string.IsNullOrWhiteSpace(outputPath) && v != "modules") throw new ToolError(ErrorCode.InvalidArgument, "outputPath goes with view=modules.", "pass view=modules");
-        var args = new FileWork.DumpViewArgs(Target(path, imageDirectories), v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
+        var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
             string.IsNullOrWhiteSpace(yara) ? null : yara, string.IsNullOrWhiteSpace(outputPath) ? null : outputPath);
         var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
