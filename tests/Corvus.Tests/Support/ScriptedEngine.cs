@@ -32,6 +32,13 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public TaskCompletionSource? ReanalysisGate { get; set; }
     public Func<NativeReanalysis> ReanalysisResult { get; set; } = () => new NativeReanalysis(true, 2, 3, TimeSpan.FromSeconds(1), []);
     public List<NativeFunctionCandidate> Candidates { get; } = [];
+    /// <summary>Request limits seen by each script run; null when the call set none.</summary>
+    public List<TimeSpan?> ScriptLimits { get; } = [];
+    /// <summary>Seconds a script takes; a run whose request limit (default 120 s) is shorter times out.</summary>
+    public double ScriptSeconds { get; set; }
+    /// <summary>When set, a script runs until it completes or is cancelled.</summary>
+    public TaskCompletionSource? ScriptGate { get; set; }
+    public NativeScriptResult ScriptResult { get; set; } = new("1", "", "", null);
     public List<(IReadOnlyList<NativeMark> Marks, string Stamp)> MarkPushes { get; } = [];
 
     public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
@@ -181,6 +188,15 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         {
             await gate.WaitAsync(cancellationToken);
             return e.ReanalysisResult();
+        }
+
+        public async Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default)
+        {
+            e.ScriptLimits.Add(EngineRequestLimit.Current);
+            if (e.ScriptGate is { } gate) await gate.Task.WaitAsync(cancellationToken);
+            else if (EngineRequestLimit.Current != Timeout.InfiniteTimeSpan && e.ScriptSeconds > (EngineRequestLimit.Current ?? TimeSpan.FromSeconds(120)).TotalSeconds)
+                throw new ToolError(ErrorCode.Timeout, "ida did not answer python within the limit.");
+            return e.ScriptResult;
         }
 
         public Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) =>

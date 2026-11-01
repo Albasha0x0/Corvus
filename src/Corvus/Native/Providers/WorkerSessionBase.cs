@@ -632,7 +632,9 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             try
             {
                 JsonElement result;
-                try { result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken, stallLimit: stall).ConfigureAwait(false); }
+                var limit = timeout ?? RequestTimeout;
+                // A request with no time limit ends on the stall check.
+                try { result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), limit, cancellationToken, stallLimit: stall ?? (limit == Timeout.InfiniteTimeSpan ? StallLimit : null)).ConfigureAwait(false); }
                 catch when (changes)
                 {
                     // A change that failed part way leaves an unknown state.

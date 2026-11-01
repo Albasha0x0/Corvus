@@ -92,7 +92,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Add C# types (with namespace) to an assembly; they see its internal types and patch_method_csharp can call them.")]
+    [Description("Add C# types (with namespace) to an assembly; they see its internal types; patch_method_csharp can call them.")]
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
         [Description("C# source declaring the new types.")] string code,
@@ -105,7 +105,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "list_edits", Title = "List unsaved edits", UseStructuredContent = true, OutputSchemaType = typeof(EditList))]
-    [Description("Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays when other edits are undone.")]
+    [Description("Unsaved edits of an assembly in order; numbers (editId <assembly>#<n>) stay when others are undone.")]
     public Task<string> ListEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -150,7 +150,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "diff_edits", Title = "Diff edits (before/after C#)", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Unified diff of the decompiled C# of each member the edits (or one edit) touched; review before save_assembly.")]
+    [Description("Unified diff of the decompiled C# of each member the edits (or one) touched.")]
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this edit (list_edits number).")] int? number = null,
@@ -309,6 +309,6 @@ public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditRes
     /// <summary>Batch items that failed (engine declarations); absent otherwise.</summary>
     public int? Failed { get; init; }
 
-    [Description("The edit's content digest: the same in its dry run and when applied; save results list it with the edit id.")]
+    [Description("The edit's content digest: equal in its dry run and when applied; save results list it.")]
     public string? Digest { get; init; }
 }

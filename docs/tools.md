@@ -2270,7 +2270,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Start IDA or Ghidra auto-analysis over an image or range in the background and save; completes a cut-short analysis. analyzers=true lists the options.
+Run IDA or Ghidra auto-analysis over an image or range in the background and save. analyzers=true lists the options.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2282,7 +2282,7 @@ Start IDA or Ghidra auto-analysis over an image or range in the background and s
 | `preset` | string |  |  | full (Ghidra defaults) or a preset in analysis-presets.json. |
 | `from` | string |  |  | Range start (default: whole image). |
 | `to` | string |  |  | Range end (exclusive). |
-| `timeoutSeconds` | integer |  |  | Budget in seconds; omit to run until done or stalled. Other engine calls conflict until done. |
+| `timeoutSeconds` | integer |  |  | Budget in seconds; omit to run until done or stalled. |
 | `offset` | integer |  |  | With analyzers: rows to skip. |
 | `limit` | integer |  | `200` | With analyzers: max rows. |
 
@@ -2310,18 +2310,20 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run IDAPython on the image database; returns the last expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1); the code runs with server rights and is not undoable.
+Run IDAPython on the image database. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1); runs with server rights, not undoable.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `code` | string |  |  | Python source (or scriptPath); base is the image base. |
+| `code` | string |  |  | Python source; base is the image base. |
 | `reset` | boolean |  |  | Clear globals kept from earlier calls. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
 | `scriptPath` | string |  |  | A .py file to run instead of code. |
 | `maxTokens` | integer |  |  |  |
 | `persist` | boolean |  |  | Save the database afterwards. |
-| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
+| `allowError` | boolean |  |  | Return an exception as the result. |
+| `timeoutSeconds` | integer |  |  | Seconds before it is cancelled. |
+| `background` | boolean |  |  | Return at once; the end arrives as a notice. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
@@ -2329,19 +2331,20 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run a Java or Python Ghidra script on the image in one transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1); the code runs with server rights.
+Run a Java or Python Ghidra script on the image in one transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1); runs with server rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `code` | string |  |  | Java (a GhidraScript class, or a run() body with imports first) or Python source. |
-| `name` | string |  |  | Instead of code: a script in the Ghidra script folders or DATA/ghidra_scripts. |
+| `name` | string |  |  | Instead of code: an installed script. |
 | `args` | string[] |  |  | With name: script arguments (getScriptArgs). |
-| `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
+| `timeoutSeconds` | integer |  |  | Seconds before it is cancelled. Default 120. |
 | `language` | string |  |  | java (default) or python (needs CORVUS_GHIDRA_PYTHON); name *.py is Python. |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 | `maxTokens` | integer |  |  |  |
-| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
+| `allowError` | boolean |  |  | Return an exception as the result. |
+| `background` | boolean |  |  | Return at once; the end arrives as a notice. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 

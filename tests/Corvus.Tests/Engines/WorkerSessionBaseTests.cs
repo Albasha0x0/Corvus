@@ -12,11 +12,11 @@ public sealed class WorkerSessionBaseTests : IDisposable
 
     public void Dispose() => _tmp.Dispose();
 
-    private async Task<TestSession> Open(bool concurrent = false, bool savedDatabase = false, bool damaged = false, int maxRestarts = 3)
+    private async Task<TestSession> Open(bool concurrent = false, bool savedDatabase = false, bool damaged = false, int maxRestarts = 3, NativeOpenOptions? options = null)
     {
         var input = _tmp.File("image.bin");
         if (!File.Exists(input)) File.WriteAllBytes(input, [1, 2, 3]);
-        var s = new TestSession(new AnalysisCache(_tmp.File("cache-" + Guid.NewGuid().ToString("N"))), concurrent, maxRestarts)
+        var s = new TestSession(new AnalysisCache(_tmp.File("cache-" + Guid.NewGuid().ToString("N"))), concurrent, maxRestarts, options)
         {
             HasDatabase = savedDatabase,
             Damaged = damaged,
@@ -80,6 +80,16 @@ public sealed class WorkerSessionBaseTests : IDisposable
         using (EngineRequestLimit.Use(TimeSpan.FromSeconds(7)))
             Assert.Equal(7, (await s.CallAsync("timeout", new JsonObject(), default)).GetProperty("timeout").GetDouble());
         Assert.Null(EngineRequestLimit.Current);
+    }
+
+    [Fact]
+    public async Task A_request_with_no_time_limit_ends_on_the_stall_check()
+    {
+        await using var s = await Open(options: new NativeOpenOptions { AnalysisStall = TimeSpan.FromMilliseconds(400) });
+        using var limit = EngineRequestLimit.Use(Timeout.InfiniteTimeSpan);
+        var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("hold", new JsonObject(), default)).WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(ErrorCode.Timeout, e.Code);
+        Assert.Contains(StallRule.MessagePrefix, e.Message);
     }
 
     // Reproduces the 47be8db0 push run: a virtual_targets batch with a 72 s budget stopped at 2 min in one decompilation.
@@ -367,7 +377,7 @@ public sealed class WorkerSessionBaseTests : IDisposable
         Assert.Equal("idle", s.State().State);
     }
 
-    private sealed class TestSession(AnalysisCache cache, bool concurrent, int maxRestarts) : WorkerSessionBase(new NativeOpenOptions())
+    private sealed class TestSession(AnalysisCache cache, bool concurrent, int maxRestarts, NativeOpenOptions? options = null) : WorkerSessionBase(options ?? new NativeOpenOptions())
     {
         public bool HasDatabase;
         public bool Damaged;

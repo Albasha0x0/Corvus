@@ -26,9 +26,9 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         int? Offset,
         int? Total);
 
-    /// <summary>The workspace notice for a background reanalysis that ended: its outcome, then the next call that outcome calls for.</summary>
-    internal static string BackgroundEndNotice(string file, string imageId, string engine, string kind, string result, string? remediation = null) =>
-        $"{file}: {engine} {result}; next: {NativeEngineService.EndNext(kind, imageId, engine)}" + (remediation is { Length: > 0 } ? $"; {remediation}" : "");
+    /// <summary>The workspace notice for a background job that ended: its outcome, then the next call that outcome calls for (<paramref name="next"/> replaces the analysis default).</summary>
+    internal static string BackgroundEndNotice(string file, string imageId, string engine, string kind, string result, string? remediation = null, string? next = null) =>
+        $"{file}: {engine} {result}; next: {next ?? NativeEngineService.EndNext(kind, imageId, engine)}" + (remediation is { Length: > 0 } ? $"; {remediation}" : "");
 
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
     [Description("Start IDA or Ghidra auto-analysis over an image or range in the background and save; completes a cut-short analysis. analyzers=true lists the options.")]

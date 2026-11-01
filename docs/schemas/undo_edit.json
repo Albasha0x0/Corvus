@@ -35,7 +35,7 @@
       "type": "integer"
     },
     "digest": {
-      "description": "The edit's content digest: the same in its dry run and when applied; save results list it with the edit id.",
+      "description": "The edit's content digest: equal in its dry run and when applied; save results list it.",
       "type": "string"
     },
     "notices": {

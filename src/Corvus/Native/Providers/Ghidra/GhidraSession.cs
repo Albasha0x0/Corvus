@@ -621,15 +621,15 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
         RunJavaAsync(code, Options.RequestTimeout.TotalSeconds, cancellationToken);
 
-    /// <summary>Runs a script in one transaction within <paramref name="seconds"/>, committed on normal return, then saves; not journaled, as a restart could not replay it, so its committed changes are on disk.</summary>
-    internal async Task<NativeScriptResult> RunJavaAsync(string code, double seconds, CancellationToken cancellationToken = default,
+    /// <summary>Runs a script in one transaction within <paramref name="seconds"/> (null: until it ends or stalls), committed on normal return, then saves; not journaled, as a restart could not replay it, so its committed changes are on disk.</summary>
+    internal async Task<NativeScriptResult> RunJavaAsync(string code, double? seconds, CancellationToken cancellationToken = default,
         string? name = null, IReadOnlyList<string>? args = null, string? userDirectory = null, string? language = null)
     {
         ArgumentNullException.ThrowIfNull(code);
-        var request = WorkerRows.Args(("code", code), ("timeout", seconds), ("name", name), ("user_dir", userDirectory), ("language", language));
+        var request = WorkerRows.Args(("code", code), ("timeout", seconds ?? EngineControl.UnlimitedBudget.TotalSeconds), ("name", name), ("user_dir", userDirectory), ("language", language));
         if (args is { Count: > 0 }) request["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode?)a)]);
         var r = await CallAsync("script", request, cancellationToken, saves: true,
-            timeout: TimeSpan.FromSeconds(seconds + 30)).ConfigureAwait(false);
+            timeout: seconds is { } s ? TimeSpan.FromSeconds(s + 30) : Timeout.InfiniteTimeSpan).ConfigureAwait(false);
         return new NativeScriptResult(null, WorkerRows.Text(r.GetProperty("stdout")) ?? "", WorkerRows.Text(r.GetProperty("stderr")) ?? "",
             WorkerRows.Text(r.GetProperty("error")));
     }

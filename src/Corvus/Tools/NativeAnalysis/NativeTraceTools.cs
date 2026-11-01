@@ -90,7 +90,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, call, function start (with argument) or writable global: " + NativeTools.AddressDescription)] string address,
-        [Description("The value at address: a register (rdx, xmm1, x1, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return).")] string? location = null,
+        [Description("Value at address: register (rdx, xmm1, x1), stack slot ([rsp+28h], [x29-8]), op1 / op2 (operand) or result (call return).")] string? location = null,
         [Description("Argument of the call or parameter of the function at address: 1-based or API name.")]
         string? argument = null,
         [Description("backward (default): values reaching it; forward: its uses.")] string? direction = null,

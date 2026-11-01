@@ -455,7 +455,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                  "Metadata literals appear after apply_metadata_names; an engine adds unreferenced strings.")]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Case-insensitive substring, or regex with regex=true or written /pattern/ (always a regex; regex=true keeps the slashes); omit for all.")] string? query = null,
+        [Description("Case-insensitive substring, or regex (regex=true, or /pattern/: always a regex; regex=true keeps the slashes); omit for all.")] string? query = null,
         [Description("query is a regex.")] bool regex = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 100,

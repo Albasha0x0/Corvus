@@ -12,7 +12,7 @@ public sealed class DeviceTools(DeviceService devices)
     private const string SerialDescription = "Device serial; omit if one device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
-    [Description("Android devices and emulators adb sees: serial, state, model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.")]
+    [Description("Android devices and emulators: serial, state, model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.")]
     public Task<AndroidDeviceList> ListAndroidDevices(CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 
@@ -127,7 +127,7 @@ public sealed class DeviceTools(DeviceService devices)
         ToolOutput.Edit(new EditOutcome(true, false, [new EditChange(c.Kind, c.Package != null ? $"{c.Serial}:{c.Package}" : c.Serial, null, c.VersionCode)], []), c.Text);
 
     [McpServerTool(Name = "uninstall_android_package", Title = "Uninstall package from device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Remove an app (and its data unless keepData) from a device; needs the server option --allow-device-changes.")]
+    [Description("Remove an app (and its data unless keepData) from a device; needs --allow-device-changes.")]
     public Task<string> UninstallAndroidPackage(
         [Description("Package name (com.example.app).")] string package,
         [Description("Keep app data and cache.")] bool keepData = false,
