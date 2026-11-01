@@ -214,4 +214,56 @@ public sealed class IncidentListTests : IDisposable
         }, 100);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
+
+    [Fact]
+    public void A_label_after_a_listed_hash_is_shown_on_its_row()
+    {
+        var bytes = Encoding.UTF8.GetBytes("labelled file");
+        Write("files/a.bin", bytes);
+        Write("files/b.bin", Encoding.UTF8.GetBytes("plain file"));
+        var sha1 = Convert.ToHexStringLower(SHA1.HashData(Encoding.UTF8.GetBytes("plain file")));
+        var list = Write("incident.txt", $"{Sha(bytes)}  driver   build\t1\n{sha1}\n");
+        var rows = Search(_dir.File("files"), list).Items.ToDictionary(i => i.Path, i => i.Detail);
+        Assert.EndsWith(", driver build 1", rows["a.bin"], StringComparison.Ordinal);
+        Assert.EndsWith(" bytes", rows["b.bin"], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_long_label_is_cut_to_80_characters()
+    {
+        var bytes = Encoding.UTF8.GetBytes("long label");
+        Write("files/a.bin", bytes);
+        var label = new string('x', 100);
+        var list = Write("incident.txt", $"{Convert.ToHexStringLower(SHA1.HashData(bytes))} {label}\n");
+        Assert.EndsWith(", " + label[..80], Search(_dir.File("files"), list).Items.Single().Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_file_over_the_hash_limit_is_named_as_not_hashed()
+    {
+        Write("files/big.bin", new byte[2048]);
+        var list = Write("incident.txt", Sha(new byte[2048]) + "\n");
+        IncidentSearchKind.MaxFileBytesOverride = 1024;
+        try
+        {
+            var found = Search(_dir.File("files"), list);
+            Assert.Empty(found.Items);
+            Assert.Contains(found.Notes, n => n.Contains("big.bin: larger than 1,024 bytes; not hashed, its hashes are unknown", StringComparison.Ordinal));
+        }
+        finally { IncidentSearchKind.MaxFileBytesOverride = null; }
+    }
+
+    [Fact]
+    public void A_walk_past_the_file_limit_names_the_subfolder_call()
+    {
+        for (int i = 0; i < 3; i++) Write($"files/{i}.bin", [(byte)i]);
+        var list = Write("incident.txt", Sha([9]) + "\n");
+        IncidentSearchKind.MaxFilesOverride = 2;
+        try
+        {
+            Assert.Contains(Search(_dir.File("files"), list).Notes,
+                n => n.Contains("stopped at the 2-file limit", StringComparison.Ordinal) && n.Contains("path=<subfolder>", StringComparison.Ordinal));
+        }
+        finally { IncidentSearchKind.MaxFilesOverride = null; }
+    }
 }

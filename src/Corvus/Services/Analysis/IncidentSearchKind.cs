@@ -8,8 +8,16 @@ namespace Corvus.Services.Analysis;
 /// <summary>search_container kind=incident: locked packages and file hashes that an incident list names, queried as a list file or pack:name; a match is listed, not a verdict.</summary>
 internal sealed class IncidentSearchKind : IContainerSearchKind
 {
-    private const int MaxFiles = 20000;
-    private const long MaxFileBytes = 256L << 20;
+    private const int DefaultMaxFiles = 20000;
+    private const long DefaultMaxFileBytes = 256L << 20;
+
+    // Per-thread test overrides of the two limits.
+    [ThreadStatic] internal static int? MaxFilesOverride;
+    [ThreadStatic] internal static long? MaxFileBytesOverride;
+
+    private static int MaxFiles => MaxFilesOverride ?? DefaultMaxFiles;
+    private static long MaxFileBytes => MaxFileBytesOverride ?? DefaultMaxFileBytes;
+    private static string MaxFileBytesText => MaxFileBytes >= 1 << 20 ? $"{MaxFileBytes >> 20} MB" : $"{MaxFileBytes:N0} bytes";
     private static readonly string[] ListExtensions = [".txt", ".list"];
 
     public IReadOnlyList<string> Kinds => ["incident"];
@@ -41,7 +49,7 @@ internal sealed class IncidentSearchKind : IContainerSearchKind
         void Hash(string where, byte[] bytes)
         {
             void Row(IncidentList l, string hash, string what) =>
-                rows.Add(new ContainerMatch(where, hash, "incident") { Detail = $"listed in {l.Name}, {what}, {bytes.Length:N0} bytes" });
+                rows.Add(new ContainerMatch(where, hash, "incident") { Detail = $"listed in {l.Name}, {what}, {bytes.Length:N0} bytes" + (l.LabelOf(hash) is { } label ? $", {label}" : "") });
 
             var sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
             foreach (var l in lists.Where(l => l.Lists(sha))) Row(l, sha, "sha256");
@@ -81,7 +89,11 @@ internal sealed class IncidentSearchKind : IContainerSearchKind
         else
         {
             var name = Path.GetFileName(source);
-            if (hashes && new FileInfo(source).Length <= MaxFileBytes) Hash(name, File.ReadAllBytes(source));
+            if (hashes)
+            {
+                if (new FileInfo(source).Length <= MaxFileBytes) Hash(name, File.ReadAllBytes(source));
+                else notes.Add($"{name}: larger than {MaxFileBytesText}; not hashed, its hashes are unknown; hash it outside Corvus and list that hash to look it up");
+            }
             try
             {
                 var (scope, scopeNotes) = UnpackService.Scope(source, AnalysisLimits.Default, ct);
@@ -126,13 +138,13 @@ internal sealed class IncidentSearchKind : IContainerSearchKind
                     ct.ThrowIfCancellationRequested();
                     if (count == MaxFiles)
                     {
-                        notes.Add($"hashing stopped at {MaxFiles:N0} files; others are unknown");
+                        notes.Add($"hashed {count:N0} files and stopped at the {MaxFiles:N0}-file limit; the others are unknown, call search_container kind=incident with path=<subfolder> to cover them");
                         return count;
                     }
                     var relative = Path.GetRelativePath(root, f).Replace('\\', '/');
                     if (new FileInfo(f).Length > MaxFileBytes)
                     {
-                        notes.Add($"{relative}: larger than {MaxFileBytes >> 20} MB; not hashed");
+                        notes.Add($"{relative}: larger than {MaxFileBytesText}; not hashed, its hashes are unknown; hash it outside Corvus and list that hash to look it up");
                         continue;
                     }
                     hash(relative, File.ReadAllBytes(f));
