@@ -10,14 +10,20 @@ public sealed record Feature(string Name, string Category, IReadOnlyList<Evidenc
     public Features.Rule? Rule { get; init; }
 }
 
-/// <summary>A matched feature pattern, its match count and up to 5 locations.</summary>
+/// <summary>A matched feature pattern, its match count and up to <see cref="MaxLocations"/> locations.</summary>
 public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> Locations)
 {
+    /// <summary>Upper bound on stored locations per entry.</summary>
+    internal const int MaxLocations = 100;
+
     /// <summary>"derived" when a string or argument constant suggests the operation; null when an import or call site shows it.</summary>
     public string? Basis { get; init; }
 
     /// <summary>Mobile rules: matches in library code, not counted in <see cref="Count"/>.</summary>
     public int? Library { get; init; }
+
+    /// <summary>Locations left out by locations=.</summary>
+    public int? Omitted { get; init; }
 }
 
 /// <summary>Capability rules over managed assemblies and native images; a rule matches when every group has a matching feature.</summary>
@@ -247,8 +253,6 @@ public static class Features
             "api:System.Threading.Mutex::.ctor", "api:System.Threading.Mutex::OpenExisting", "api:System.Threading.Mutex::TryOpenExisting", "native:kernel32!CreateMutex*"),
     ];
 
-    private const int MaxLocations = 5;
-
     /// <summary>Feature kinds; managed modules evaluate api / native / str, native images native / str / arg / section / rtti / image.</summary>
     private static readonly HashSet<string> Kinds = ["api", "native", "str", "arg", "section", "rtti", "image"];
 
@@ -312,7 +316,7 @@ public static class Features
         void Hit(string where)
         {
             count++;
-            if (locations.Count < MaxLocations && !locations.Contains(where)) locations.Add(where);
+            if (locations.Count < Evidence.MaxLocations && !locations.Contains(where)) locations.Add(where);
         }
 
         switch (kind)
@@ -332,7 +336,7 @@ public static class Features
                 // Locations in scan order, as when every call was tested in turn.
                 foreach (var call in matched.OrderBy(c => c.Index))
                 {
-                    if (locations.Count >= MaxLocations) break;
+                    if (locations.Count >= Evidence.MaxLocations) break;
                     var where = $"{Format.MemberLabel(call.Caller)} @IL_{call.Offset:X4}";
                     if (!locations.Contains(where)) locations.Add(where);
                 }

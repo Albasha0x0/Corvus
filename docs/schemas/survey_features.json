@@ -46,6 +46,9 @@
                 },
                 "library": {
                   "type": "integer"
+                },
+                "omitted": {
+                  "type": "integer"
                 }
               },
               "required": [

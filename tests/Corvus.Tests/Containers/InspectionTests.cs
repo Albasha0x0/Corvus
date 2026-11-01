@@ -218,10 +218,74 @@ public class InspectionTests : IDisposable
         var report = Inspection.SurveyFeatures(null, Save("Calls.dll", Compile("Calls", source)), null, default);
         var start = report.Features.Single(f => f.Name == "create processes").Evidence.Single(e => e.Feature == "api:System.Diagnostics.Process::Start");
         Assert.Equal(7, start.Count);
-        Assert.Equal(Enumerable.Range(0, 5).Select(i => $"Calls::M{i}()"), start.Locations.Select(l => l[..l.IndexOf(" @", StringComparison.Ordinal)]));
+        Assert.Equal(Enumerable.Range(0, 7).Select(i => $"Calls::M{i}()"), start.Locations.Select(l => l[..l.IndexOf(" @", StringComparison.Ordinal)]));
         var tcp = report.Features.Single(f => f.Name == "use raw TCP / UDP sockets").Evidence.Single();
         Assert.Equal(("api:System.Net.Sockets.TcpClient::.ctor(System.String,System.Int32)", 1), (tcp.Feature, tcp.Count));
         Assert.StartsWith("Calls::Tcp()", Assert.Single(tcp.Locations));
+    }
+
+    private string EightCallsPath() =>
+        Save("EightCalls.dll", Compile("EightCalls", "using System.Diagnostics; public static class Calls {\n" +
+            string.Concat(Enumerable.Range(0, 8).Select(i => $"public static void M{i}() {{ Process.Start(\"a{i}\"); }}\n")) + "}"));
+
+    private static int ListedCalls(string text) => text.Split('\n').Count(l => l.Contains("Calls::M") && l.Contains(" @IL_"));
+
+    [Fact]
+    public void A_capped_list_prints_first_5_of_8_with_the_next_call()
+    {
+        var report = Inspection.SurveyFeatures(null, EightCallsPath(), "execution", default);
+        var shown = Corvus.Tools.ContainerText.Survey(Corvus.Tools.ContainerText.Survey(report, "execution"));
+        Assert.Contains("first 5 of 8; rerun with locations=8", shown);
+        Assert.Equal(5, ListedCalls(shown));
+    }
+
+    [Fact]
+    public void Locations_8_lists_all_eight()
+    {
+        var report = Inspection.SurveyFeatures(null, EightCallsPath(), "execution", default);
+        var all = Corvus.Tools.ContainerText.Survey(Corvus.Tools.ContainerText.Survey(report, "execution", 8));
+        Assert.DoesNotContain("first 5 of 8", all);
+        Assert.DoesNotContain("rerun with locations", all);
+        Assert.Equal(8, ListedCalls(all));
+    }
+
+    [Fact]
+    public void The_path_only_worker_carries_locations_through_its_arguments()
+    {
+        var args = new Corvus.Tools.FileWork.SurveyArgs(EightCallsPath(), "execution", 8);
+        var text = Corvus.Tools.ContainerText.Survey(Corvus.Tools.FileWork.SurveyWith(Inspection, args, default));
+        Assert.Equal(8, ListedCalls(text));
+    }
+
+    [Fact]
+    public void Locations_is_ignored_without_a_category()
+    {
+        var report = Inspection.SurveyFeatures(null, EightCallsPath(), null, default);
+        var text = Corvus.Tools.ContainerText.Survey(Corvus.Tools.ContainerText.Survey(report, null, 8));
+        Assert.Equal(0, ListedCalls(text));
+        Assert.DoesNotContain("rerun with locations", text);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    [InlineData(-1)]
+    public async Task A_locations_value_outside_1_to_100_is_refused(int locations)
+    {
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace), _workspace);
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.SurveyFeatures(path: EightCallsPath(), category: "execution", locations: locations));
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+    }
+
+    [Fact]
+    public void Matches_beyond_the_stored_locations_print_the_distinct_count_without_a_rerun()
+    {
+        var evidence = new Evidence("api:X", 9, ["a", "b"]);
+        var feature = new Feature("f", "c", [evidence]);
+        var report = new InspectionService.FeatureReport("m", 0, [feature], []);
+        var text = Corvus.Tools.ContainerText.Survey(Corvus.Tools.ContainerText.Survey(report, "c"));
+        Assert.Contains("9 matches, 2 distinct locations", text);
+        Assert.DoesNotContain("rerun with locations", text);
     }
 
     [Fact]

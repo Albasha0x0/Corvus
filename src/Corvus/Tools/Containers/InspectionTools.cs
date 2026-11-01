@@ -113,26 +113,29 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
-    [Description("Capabilities found by rules over API calls, imports and strings (network, execution, persistence, crypto); " +
-                 "category= adds evidence. Apps add MASVS findings; category=capa adds capa labels by function (CORVUS_CAPA).")]
+    [Description("Capabilities by rules over calls, imports and strings; category= adds evidence. " +
+                 "Apps add MASVS findings; category=capa adds labels (CORVUS_CAPA).")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
-        [Description("A .NET, native or app file, read without loading.")] string? path = null,
-        [Description("Category or MASVS prefix: with evidence; all: everything.")] string? category = null,
-        [Description("A native image, loaded or a path (instead of assembly).")] string? image = null,
+        [Description("A .NET, native or app file, not loaded.")] string? path = null,
+        [Description("Category or MASVS prefix; all: everything.")] string? category = null,
+        [Description("A native image or path (instead of assembly).")] string? image = null,
+        [Description("Locations per evidence entry, 1-100; default 5.")] int locations = ContainerText.ShownLocations,
         CancellationToken cancellationToken = default)
     {
+        if (locations is < 1 or > Evidence.MaxLocations)
+            throw new ToolError(ErrorCode.InvalidArgument, $"locations must be 1-{Evidence.MaxLocations}.");
         if (image != null && assembly != null)
             throw new ToolError(ErrorCode.InvalidArgument, "Pass assembly or image, not both: they name the same thing.");
         if (image != null && path == null && workspace?.Read(() => workspace.FindNative(image)) == null && File.Exists(image)) (path, image) = (image, null);
         SurveyRecord record;
         if (assembly == null && image == null && path != null)
         {
-            var args = new FileWork.SurveyArgs(path, category);
+            var args = new FileWork.SurveyArgs(path, category, locations);
             record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Survey, args, path,
                 () => FileWork.SurveyWith(inspection, args, cancellationToken), cancellationToken);
         }
-        else record = ContainerText.Survey(await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken), category);
+        else record = ContainerText.Survey(await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken), category, locations);
         return ToolOutput.Report(ContainerText.Survey(record), record);
     }
 

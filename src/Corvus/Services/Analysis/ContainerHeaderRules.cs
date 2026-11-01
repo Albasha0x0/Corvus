@@ -11,7 +11,6 @@ namespace Corvus.Services.Analysis;
 // aligned offsets. The body must reach 7.5 bits per byte.
 internal sealed class ContainerHeaderRules : ISurveyRuleProvider
 {
-    private const int MaxLocations = 5;
     private const int MaxEntries = 256;
     private const int MinBody = 600;
     private const int MaxReferences = 3;
@@ -53,7 +52,7 @@ internal sealed class ContainerHeaderRules : ISurveyRuleProvider
         var owned = headers
             .Select(h => (Start: h.Section.Rva + (uint)h.At, Length: (uint)(12 + 4 * h.Found.Entries.Length)))
             .ToList();
-        var locations = headers.Take(MaxLocations)
+        var locations = headers.Take(Evidence.MaxLocations)
             .Select(h => Describe(index, sections, owned, h.Section, h.At, h.Found, ct))
             .ToList();
         return new Evidence(feature, headers.Count, locations);

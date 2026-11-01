@@ -336,12 +336,16 @@ internal static class ContainerText
 
     internal static string Escape(string s) => Format.EscapeMarkers(s).Replace("\r", "\\r").Replace("\n", "\\n");
 
-    public static SurveyRecord Survey(InspectionService.FeatureReport report, string? category)
+    /// <summary>Locations survey_features prints per evidence entry unless locations= asks for more.</summary>
+    public const int ShownLocations = 5;
+
+    /// <summary>The survey of a report; with a category, each evidence entry keeps its first <paramref name="locations"/> locations.</summary>
+    public static SurveyRecord Survey(InspectionService.FeatureReport report, string? category, int locations = ShownLocations)
     {
         var features = report.Features.Select(f => new SurveyFeature(f.Name, f.Category, f.Evidence.Sum(e => e.Count))
         {
             Basis = f.Evidence.Count > 0 && f.Evidence.All(e => e.Basis == "derived") ? "derived" : null,
-            Evidence = category != null ? f.Evidence : null,
+            Evidence = category != null ? f.Evidence.Select(e => e.Locations.Count > locations ? e with { Locations = [.. e.Locations.Take(locations)], Omitted = e.Locations.Count - locations } : e).ToList() : null,
             Rule = f.Rule?.Id,
             Masvs = f.Rule?.Masvs,
             Severity = f.Rule?.Severity,
@@ -376,6 +380,10 @@ internal static class ContainerText
                 {
                     sb.Append($"    {Escape(e.Feature)} x{e.Count}{(e.Basis != null ? " (derived)" : "")}\n");
                     foreach (var at in e.Locations) sb.Append("      ").Append(Escape(at)).Append('\n');
+                    if (e.Omitted is { } omitted)
+                        sb.Append($"      first {e.Locations.Count} of {e.Count:N0}; rerun with locations={e.Locations.Count + omitted}\n");
+                    else if (e.Count > e.Locations.Count)
+                        sb.Append($"      {e.Count:N0} matches, {e.Locations.Count} distinct locations\n");
                 }
             }
         }

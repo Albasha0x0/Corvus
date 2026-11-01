@@ -76,8 +76,6 @@ public sealed class MobileSubject
 // objc:check:trust-unchecked; sym:REGEX (Swift names mangled); plist:ats-insecure, plist:pinned-domains; Apple rules also use str:.
 internal sealed partial class MobileRules : ISurveyRuleProvider
 {
-    private const int MaxLocations = 5;
-
     private static Features.Rule Android(string id, string masvs, string severity, string name, string review, params string[] features) =>
         Rule("android", id, masvs, severity, name, review, features);
 
@@ -248,7 +246,7 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
     private static partial System.Text.RegularExpressions.Regex PinText();
 
     private static Evidence? Of(string feature, List<string> found, string? basis = null) =>
-        found.Count == 0 ? null : new Evidence(feature, found.Count, [.. found.Take(MaxLocations)]) { Basis = basis };
+        found.Count == 0 ? null : new Evidence(feature, found.Count, [.. found.Take(Evidence.MaxLocations)]) { Basis = basis };
 
     private static Evidence? Package(MobileSubject m, string feature, string check)
     {
@@ -313,8 +311,8 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
         {
             var sites = index.RefsTo((uint)(r.Va - image.ImageBase), 1000);
             count += Math.Max(1, sites.Count);
-            if (sites.Count == 0 && found.Count < MaxLocations) found.Add($"{what} (referenced @{r.Va:x}, no code reference read)");
-            foreach (var s in sites.Take(MaxLocations - found.Count)) found.Add($"{Where(s.From)}: {what}");
+            if (sites.Count == 0 && found.Count < Evidence.MaxLocations) found.Add($"{what} (referenced @{r.Va:x}, no code reference read)");
+            foreach (var s in sites.Take(Evidence.MaxLocations - found.Count)) found.Add($"{Where(s.From)}: {what}");
         }
         if (pattern.StartsWith("sel:", StringComparison.Ordinal))
         {
@@ -328,7 +326,7 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
             foreach (var c in objc.Classes.Where(c => c.Name == name || c.Superclass == name))
             {
                 count++;
-                if (found.Count < MaxLocations) found.Add(c.Name == name ? $"defines class {name}" : $"class {c.DisplayName} : {name}");
+                if (found.Count < Evidence.MaxLocations) found.Add(c.Name == name ? $"defines class {name}" : $"class {c.DisplayName} : {name}");
             }
         }
         else if (pattern == "check:trust-unchecked")
@@ -344,7 +342,7 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
                     if (index.FunctionAt(s.From) is { } f && !evaluated.Contains(f.Start) && reported.Add(f.Start))
                     {
                         count++;
-                        if (found.Count < MaxLocations) found.Add($"{Where(s.From)}: {r.Name} without SecTrustEvaluate* in the function");
+                        if (found.Count < Evidence.MaxLocations) found.Add($"{Where(s.From)}: {r.Name} without SecTrustEvaluate* in the function");
                     }
         }
         return count == 0 ? null : new Evidence(feature, count, found);
@@ -363,14 +361,14 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
             var callers = index.Callers(imp);
             var first = callers.Count > 0 && index.FunctionAt(callers[0].From) is { } f ? $", first in {index.NameAt(f.Start) ?? f.Name}" : "";
             count += Math.Max(1, callers.Count);
-            if (found.Count < MaxLocations) found.Add($"import {imp.Module}!{imp.Name} ({callers.Count} call sites{first})");
+            if (found.Count < Evidence.MaxLocations) found.Add($"import {imp.Module}!{imp.Name} ({callers.Count} call sites{first})");
         }
         if (index.Image is MachOFile macho)
             foreach (var s in macho.Symbols)
             {
                 if (!Match(s.Name) || !seen.Add(s.Name)) continue;
                 count++;
-                if (found.Count < MaxLocations) found.Add($"symbol {s.Name} @{NativeAddress.Va(index.Image, s.Rva)}");
+                if (found.Count < Evidence.MaxLocations) found.Add($"symbol {s.Name} @{NativeAddress.Va(index.Image, s.Rva)}");
             }
         return count == 0 ? null : new Evidence(feature, count, found);
     }

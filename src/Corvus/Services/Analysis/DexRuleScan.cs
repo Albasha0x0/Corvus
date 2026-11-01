@@ -12,8 +12,8 @@ namespace Corvus.Services.Analysis;
 // Strings returned by decoder calls (DexStringFolding) count as const-strings at the call.
 internal sealed class DexRuleScan
 {
-    private const int MaxLocations = 5;
     private const int MaxStringChars = 512;
+    private const int MaxLocations = Corvus.Services.Analysis.Evidence.MaxLocations;
 
     /// <summary>The time decoder calls may take within a survey; a search or a later survey continues the pass.</summary>
     internal static readonly TimeSpan FoldTimeLimit = TimeSpan.FromSeconds(2);

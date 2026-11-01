@@ -9,7 +9,6 @@ namespace Corvus.Services.Analysis;
 // halves, so there only tables match.
 internal sealed class CryptoConstantRules : ISurveyRuleProvider
 {
-    private const int MaxLocations = 5;
     private const int MaxUsers = 32;
     // Section bytes read per image by a scan; the rest is reported unscanned.
     internal const long ScanLimit = 256L << 20;
@@ -885,7 +884,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                     ct.ThrowIfCancellationRequested();
                     uint rva = section.Rva + (uint)at;
                     count++;
-                    if (locations.Count < MaxLocations)
+                    if (locations.Count < Evidence.MaxLocations)
                     {
                         var note = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, []);
                         locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (note is null ? "" : $" ({note})"));
@@ -913,7 +912,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             foreach (var (pattern, rva, _) in kept)
             {
                 count++;
-                if (locations.Count < MaxLocations)
+                if (locations.Count < Evidence.MaxLocations)
                 {
                     int at = (int)(rva - section.Rva);
                     var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, pattern.Bytes);
