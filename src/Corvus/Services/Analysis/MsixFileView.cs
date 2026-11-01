@@ -16,14 +16,14 @@ namespace Corvus.Services.Analysis;
 /// </summary>
 internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
 {
-    // Bounds the zip entries read so a crafted archive cannot stall the call.
+    // Zip entries read, at most; a crafted archive cannot stall the call.
     private const int MaxEntries = 50_000;
     private const int MaxListed = 20;
     private const int MaxManifest = 4 << 20;
     private const int MaxConfig = 1 << 20;
     private const int BlockSize = 64 << 10;
 
-    // Bounds block hashing so a large package cannot stall the call.
+    // Default block hashing budget in bytes (256 MiB) for one package.
     private const long MaxHashBytes = 256L << 20;
 
     private static readonly string[] TargetAttributes =
@@ -58,10 +58,10 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
         string? Id, string? Executable, string? EntryPoint,
         IReadOnlyList<Extension> Extensions);
 
-    /// <summary>An Extension element: its Category and the executables, names and aliases it targets.</summary>
+    /// <summary>An Extension element: its Category and its targets.</summary>
     public sealed record Extension(string Category, IReadOnlyList<string> Targets);
 
-    /// <summary>A declared capability; Restricted when it comes from the restricted capabilities namespace.</summary>
+    /// <summary>A declared capability; Restricted for the restricted namespace.</summary>
     public sealed record Capability(string Name, string Kind, bool Restricted);
 
     /// <summary>A Package entry of a bundle manifest; fields are null when absent.</summary>
@@ -82,7 +82,7 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
         string? Id, string? Executable, string? Arguments,
         string? WorkingDirectory, IReadOnlyList<PsfScript> Scripts);
 
-    /// <summary>A PSF script: phase start or end, its path, whether the package holds it (null: unknown) and its options.</summary>
+    /// <summary>A PSF script: phase, path, in-package flag (null: unknown), options.</summary>
     public sealed record PsfScript(
         string Phase, string Path, bool? InPackage, string? Arguments,
         string? Options);
@@ -431,7 +431,7 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
             budget -= entry.Length;
             try
             {
-                if (!SameBlocks(entry, recorded.Hashes)) modified.Add(path);
+                if (!SameBlocks(entry, recorded.Hashes, entry.Length)) modified.Add(path);
                 hashed++;
             }
             catch (InvalidDataException) { unreadable++; modified.Add(path); }
@@ -457,15 +457,19 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
             partial.Count > 0 ? string.Join("; ", partial) : null);
     }
 
-    private static bool SameBlocks(ZipArchiveEntry entry, List<string> hashes)
+    // The read stops past the declared length, so a crafted entry cannot exceed the budget.
+    private static bool SameBlocks(ZipArchiveEntry entry, List<string> hashes, long length)
     {
         using var stream = entry.Open();
         var buffer = new byte[BlockSize];
         int index = 0;
+        long total = 0;
         while (true)
         {
             int got = stream.ReadAtLeast(buffer, BlockSize, throwOnEndOfStream: false);
             if (got == 0) break;
+            total += got;
+            if (total > length) return false;
             if (index >= hashes.Count
                 || Convert.ToBase64String(SHA256.HashData(buffer.AsSpan(0, got))) != hashes[index])
                 return false;
@@ -522,7 +526,14 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
                 h.Add($"Differs from the block map: {map.ModifiedCount} modified, {map.NotInMapCount} not in the map, {missing}.");
             if (map.Partial != null) h.Add($"Partial: {map.Partial}.");
         }
-        else h.Add("No readable AppxBlockMap.xml: file contents are unchecked.");
+        else
+        {
+            var unreadable = f.Notes.Any(n => n.StartsWith("AppxBlockMap.xml", StringComparison.Ordinal));
+            h.Add(unreadable
+                ? "AppxBlockMap.xml is unreadable (see Partial): file contents are unchecked."
+                : "AppxBlockMap.xml is absent: file contents are unchecked.");
+            if (f.Kind != "MSIX bundle") h.Add("Next: unpack_container path=<package> reads the entries.");
+        }
         if (f.Kind == "MSIX bundle") h.Add("Next: unpack_container path=<bundle> extracts the packages.");
         h.AddRange(f.Notes.Where(n => f.BlockMap?.Partial?.Contains(n) != true).Select(n => $"Partial: {n}."));
         return h;

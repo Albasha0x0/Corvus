@@ -478,7 +478,7 @@ Pass the name as `view=`.
 | `native` | ELF / Mach-O facts, packers, NativeAOT counts, triage of a loaded image |
 | `android` | manifest, runtimes, ABIs, DEX, signature; `view=layers` graphs the code layers |
 | `apple` | `.ipa` / `.app`: Info.plist, Mach-O signatures, entitlements, profile |
-| `msix` | `.msix` / `.appx` / bundle: identity, entry points, capabilities, Package Support Framework scripts, signer, and changes against the block map |
+| `msix` | `.msix` / `.appx` / bundle: identity, entry points, capabilities, Package Support Framework scripts, signer (chain not evaluated), and changes against the block map (hashing bounded at 256 MiB, 50,000 entries) |
 | `electron` | versions, fuses, archive integrity, `webPreferences` |
 | `go` | toolchain, modules, build settings |
 | `rust` | crates from cargo-auditable or panic paths |

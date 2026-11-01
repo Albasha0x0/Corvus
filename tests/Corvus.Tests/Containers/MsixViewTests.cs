@@ -9,7 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>summarize_file view=msix on self-built packages: manifest facts, scripts, signature record and block map check.</summary>
+/// <summary>summarize_file view=msix on self-built packages.</summary>
 public sealed class MsixViewTests(ITestOutputHelper output)
 {
     private const string Publisher = "CN=Example Publisher, O=Example";
@@ -226,11 +226,20 @@ public sealed class MsixViewTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_malformed_block_map_is_unreadable_not_absent()
+    {
+        var view = Inspect(Package(Manifest, null, Plain(), _ => "<BlockMap"));
+        Assert.Null(((MsixFileView.Facts)view.Detail).BlockMap);
+        Assert.Contains(view.Highlights, h => h.StartsWith("AppxBlockMap.xml is unreadable"));
+        Assert.Contains(view.Highlights, h => h.StartsWith("Next: unpack_container path=<package>"));
+    }
+
+    [Fact]
     public void A_package_without_a_block_map_says_no_map_is_readable()
     {
         var view = Inspect(Package(Manifest, null, Plain()));
         Assert.Null(((MsixFileView.Facts)view.Detail).BlockMap);
-        Assert.Contains(view.Highlights, h => h.StartsWith("No readable AppxBlockMap.xml"));
+        Assert.Contains(view.Highlights, h => h.StartsWith("AppxBlockMap.xml is absent"));
     }
 
     [Fact]
