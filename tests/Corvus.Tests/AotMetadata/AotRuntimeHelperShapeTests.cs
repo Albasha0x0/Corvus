@@ -36,7 +36,7 @@ public sealed class AotRuntimeHelperShapeTests
     // Each method first calls a leaf of its own, so no shared initializer
     // leads the methods. A null check branches to a block holding one call
     // to a thrower, which calls a wrapper that builds and raises.
-    private static Built NullChecks(int methods, bool nullCheck, bool wrapperReturns, bool twoThrowers = false)
+    private static Built NullChecks(int methods, bool nullCheck, bool wrapperReturns, bool twoThrowers = false, bool loopBranch = false)
     {
         return Build((a, L, Here) =>
         {
@@ -46,6 +46,15 @@ public sealed class AotRuntimeHelperShapeTests
                 var fail = a.CreateLabel();
                 a.sub(rsp, 0x28);
                 a.call(L("Leaf" + i));
+                if (loopBranch)
+                {
+                    // A backward branch on non-zero, with the thrower call after it.
+                    var top = a.CreateLabel();
+                    a.Label(ref top);
+                    a.test(rdi, rdi); a.jne(top);
+                    a.call(L("Thrower")); a.int3();
+                    continue;
+                }
                 if (nullCheck) { a.test(rdi, rdi); a.je(fail); }
                 else { a.cmp(rdi, 5); a.jae(fail); }
                 a.mov(eax, 1); a.add(rsp, 0x28); a.ret();
@@ -67,7 +76,7 @@ public sealed class AotRuntimeHelperShapeTests
 
     // Each method loads the receiver's class pointer, calls Setup through a
     // thunk, reloads the class pointer and calls a slot.
-    private static Built ClassSetups(int methods, bool sameReceiver)
+    private static Built ClassSetups(int methods, bool sameReceiver, int? entryOffset = null)
     {
         return Build((a, L, Here) =>
         {
@@ -79,7 +88,8 @@ public sealed class AotRuntimeHelperShapeTests
                 a.mov(rcx, __qword_ptr[rdi]);
                 a.call(L("Thunk"));
                 a.mov(rax, __qword_ptr[sameReceiver ? rdi : rsi]);
-                a.call(__qword_ptr[rax + 0x338]);
+                if (entryOffset is { } disp) { a.mov(rdx, __qword_ptr[rax + disp]); a.call(rdx); }
+                else a.call(__qword_ptr[rax + 0x338]);
                 a.add(rsp, 0x28); a.ret(); a.int3();
             }
             Here("Init"); a.ret(); a.int3();
@@ -145,5 +155,24 @@ public sealed class AotRuntimeHelperShapeTests
     public void A_call_with_a_class_pointer_in_two_methods_is_not_the_class_setup()
     {
         Assert.Null(Named(ClassSetups(2, sameReceiver: true), "Runtime_ClassSetup"));
+    }
+
+    [Fact]
+    public void A_backward_branch_on_non_zero_before_a_throw_call_is_not_a_null_check()
+    {
+        Assert.Null(Named(NullChecks(4, nullCheck: true, wrapperReturns: false, loopBranch: true), "Runtime_ThrowNullReference"));
+    }
+
+    [Fact]
+    public void A_call_through_a_register_loaded_from_a_slot_entry_after_the_class_setup_names_it()
+    {
+        var b = ClassSetups(4, sameReceiver: true, entryOffset: 0x338);
+        Assert.Equal(b.At["Thunk"], Named(b, "Runtime_ClassSetup")?.Rva);
+    }
+
+    [Fact]
+    public void A_call_through_a_register_loaded_from_a_field_is_not_a_slot_call_for_the_class_setup()
+    {
+        Assert.Null(Named(ClassSetups(4, sameReceiver: true, entryOffset: 0x8), "Runtime_ClassSetup"));
     }
 }

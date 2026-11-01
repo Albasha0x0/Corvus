@@ -221,17 +221,17 @@ public sealed partial class AotFieldNotesTests : IDisposable
 
     private readonly List<Env> _envs = [];
 
-    private (Env Env, NativeCodeService Service, LoadedNative Native, NativeCodeIndex Index) Open(byte[] code, ushort machine, bool elf = false, string? source = null, bool macho = false, string? store = null, bool apply = true, bool loadDummies = true)
+    private (Env Env, NativeCodeService Service, LoadedNative Native, NativeCodeIndex Index) Open(byte[] code, ushort machine, bool elf = false, string? source = null, bool macho = false, string? store = null, bool apply = true, bool loadDummies = true, string? script = null, uint entry = 0)
     {
         var dump = Path.Combine(_dir.Path, "dump" + (store ?? _envs.Count.ToString()));
         var dummies = Path.Combine(dump, "DummyDll");
         Directory.CreateDirectory(dummies);
         var dll = Path.Combine(dummies, "Fixture.dll");
         File.WriteAllBytes(dll, Roslyn.Compile("Fixture", source ?? Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
-        File.WriteAllText(Path.Combine(dump, "script.json"), ScriptJson);
+        File.WriteAllText(Path.Combine(dump, "script.json"), script ?? ScriptJson);
         File.WriteAllText(Path.Combine(dump, "stringliteral.json"), "[]");
 
-        var text = Enumerable.Repeat((byte)0xCC, 0x200).ToArray();
+        var text = Enumerable.Repeat((byte)0xCC, Math.Max(0x200, code.Length)).ToArray();
         code.CopyTo(text, 0);
         string binary;
         if (macho)
@@ -247,7 +247,7 @@ public sealed partial class AotFieldNotesTests : IDisposable
         else
         {
             var b = new PeBuilder { ImageBase = 0x180000000, Machine = machine };
-            b.EntryPoint = b.Add(".text", text, 0x60000020).Rva;
+            b.EntryPoint = b.Add(".text", text, 0x60000020).Rva + entry;
             b.Add(".data", new byte[0x100], 0xC0000040);
             binary = Path.Combine(dump, "GameAssembly.dll");
             File.WriteAllBytes(binary, b.Build());

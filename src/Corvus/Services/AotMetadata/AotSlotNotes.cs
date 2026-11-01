@@ -82,14 +82,17 @@ public static class AotSlotNotes
             && Helper((uint)(i.NearBranchTarget - imageBase)) != null;
         int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
         // A direct call needs the class pointer, loaded from a receiver's first field.
+        // A jump through a register is a call in tail position.
         bool IsVtableCall(in Instruction i) =>
-            i.FlowControl == FlowControl.IndirectCall && i.Op0Kind is OpKind.Memory or OpKind.Register;
+            (i.FlowControl == FlowControl.IndirectCall && i.Op0Kind is OpKind.Memory or OpKind.Register)
+            || (i.FlowControl == FlowControl.IndirectBranch && i.Op0Kind == OpKind.Register);
         // A register call needs a vtable entry loaded from memory in the function.
         bool LoadsEntry = instructions.Any(i => i.Mnemonic == Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Memory);
         if (!instructions.Any(i => IsHelperCall(i) || (IsVtableCall(i) && (i.Op0Kind == OpKind.Memory || LoadsEntry)))) return [];
-        // A jump table or computed jump has targets this scan cannot see.
+        // A jump table or computed jump has targets this scan cannot see; a
+        // register jump is checked against the slot entries when reached.
         for (int k = 0; k < instructions.Count - 1; k++)
-            if (instructions[k].FlowControl == FlowControl.IndirectBranch) return [];
+            if (instructions[k].FlowControl == FlowControl.IndirectBranch && instructions[k].Op0Kind != OpKind.Register) return [];
 
         var state = new Dictionary<Register, Value>();
         if (Owner(applied.Image.MethodsAt(fn.Start)) is { } method) Entry(method, args, windows, state);
@@ -136,6 +139,7 @@ public static class AotSlotNotes
             }
             if (IsVtableCall(ins))
             {
+                if (ins.FlowControl == FlowControl.IndirectBranch && VtableSlot(ins, vtableStart, state) == null) return [];
                 if (VtableSlot(ins, vtableStart, state) is { } direct
                     && Describe(applied.Image, direct.Slot, new Receiver(direct.Type)) is { } directNote)
                     calls[(uint)(ins.IP - imageBase)] = directNote with { Rva = (uint)(ins.IP - imageBase) };

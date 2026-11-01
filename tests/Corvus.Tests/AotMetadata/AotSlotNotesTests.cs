@@ -110,6 +110,48 @@ public sealed partial class AotFieldNotesTests
     }
 
     [Fact]
+    public void A_register_jump_to_a_slot_entry_names_the_method_in_the_slot()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.mov(rax, __qword_ptr[rcx]);
+            a.mov(rax, __qword_ptr[rax + 0x138 + 16 * 3]);
+            a.jmp(rax);
+        });
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    [Fact]
+    public void A_register_jump_through_a_switch_table_leaves_the_function_unnoted()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28);
+            a.mov(rax, __qword_ptr[r8 + rdx * 8]);
+            a.jmp(rax);
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_register_jump_to_a_register_that_holds_no_slot_entry_leaves_the_function_unnoted()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28);
+            a.mov(rax, r8);
+            a.jmp(rax);
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
     public void A_register_overwritten_between_the_slot_load_and_the_call_has_no_note()
     {
         var notes = SlotNotes(a =>

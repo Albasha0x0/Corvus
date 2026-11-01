@@ -251,8 +251,9 @@ public sealed class ImagePrints
         return built;
     }
 
-    // Instructions after a shift by 12 that may mask the card index.
-    private const int CardMaskWindow = 3;
+    // Instructions after a shift by 12 that may mask the card index: compilers
+    // schedule a second shift, a bit mask and loads between them.
+    private const int CardMaskWindow = 8;
 
     private static FunctionPrint Print(NativeCodeIndex index, MaskedDecoder decoder, NativeFunction f, int i, Dictionary<uint, string> slots, CancellationToken ct)
     {

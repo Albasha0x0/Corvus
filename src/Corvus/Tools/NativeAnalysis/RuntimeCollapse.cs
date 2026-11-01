@@ -10,8 +10,12 @@ internal static partial class RuntimeCollapse
 {
     internal const string Runtime = "runtime";
 
-    // Instructions searched after a shift by 12 for the card-table update.
-    private const int BarrierWindow = 8;
+    // Instructions searched after a shift by 12 for the card-table update,
+    // which may retry its exchange in a loop.
+    private const int BarrierWindow = 32;
+
+    // Instructions between the last exchange and the branch that closes the loop.
+    private const int BarrierClose = 8;
 
     // Setup instructions allowed between a guard branch and its initializer call.
     private const int LazyWindow = 4;
@@ -87,6 +91,7 @@ internal static partial class RuntimeCollapse
     }
 
     // Shift by 12, a bit-set or locked exchange, and a closing backward branch.
+    // A first exchange may skip the retry loop by a forward branch.
     private static Run? Barrier(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va)
     {
         if (!ShiftBy12().IsMatch(Normal(lines[i]))) return null;
@@ -95,31 +100,52 @@ internal static partial class RuntimeCollapse
         {
             var flow = lines[k].Facts.Flow;
             if (flow is FlowKind.Call or FlowKind.IndirectCall or FlowKind.Return) break;
-            if (Mnemonic(lines[k]) == "bts" || IsLockCmpxchg(lines[k])) last = k;
+            // The card table is updated in memory; a register bit-set is index math.
+            if ((Mnemonic(lines[k]) == "bts" || IsLockCmpxchg(lines[k])) && lines[k].Text.Contains('[')) last = k;
         }
-        if (last < 0 || last + 1 >= lines.Count) return null;
-        var close = lines[last + 1];
+        if (last < 0) return null;
         uint start = lines[i].Rva, tail = lines[last].Rva;
-        if (close.Facts.Flow != FlowKind.ConditionalJump || close.Facts.BranchTarget is not { } head || head < start || head > tail) return null;
-        // A jump out of the run means the shift is ordinary index math.
-        for (int k = i + 1; k <= last; k++)
+        // The closing branch returns to the loop head, a few instructions
+        // after the exchange.
+        int closeAt = -1;
+        for (int k = last + 1; k < lines.Count && k <= last + BarrierClose; k++)
+        {
+            var flow = lines[k].Facts.Flow;
+            if (flow is FlowKind.Call or FlowKind.IndirectCall or FlowKind.Return) return null;
+            if (flow is FlowKind.ConditionalJump or FlowKind.Jump && lines[k].Facts.BranchTarget is { } head && head >= start && head <= tail) { closeAt = k; break; }
+        }
+        if (closeAt < 0) return null;
+        var close = lines[closeAt];
+        uint closeEnd = close.Rva + (uint)close.Facts.Length;
+        // A jump out of the run, other than past the closing branch, means
+        // the shift is ordinary index math.
+        for (int k = i + 1; k < closeAt; k++)
         {
             if (lines[k].Facts.Flow is not (FlowKind.ConditionalJump or FlowKind.Jump)) continue;
-            if (lines[k].Facts.BranchTarget is not { } to || to < start || to > close.Rva) return null;
+            if (lines[k].Facts.BranchTarget is not { } to || to < start || to > closeEnd) return null;
         }
-        return Make(lines, i, last + 1 - i + 1, "write barrier", va);
+        return Make(lines, i, closeAt - i + 1, "write barrier", va);
     }
 
-    // Skips initializer calls after a zero check of a static. The run starts
-    // at the branch, so register moves scheduled after the check stay listed.
-    // One call may have any target; several must all be metadata initializers.
+    // Skips initializer calls after a zero check of a static: a compare with
+    // zero, or a load of the flag and a test of the loaded register. The run
+    // starts at the branch or the test, so register moves scheduled after the
+    // check stay listed. One call may have any target; several must all be
+    // metadata initializers.
     private static Run? Lazy(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls, out int lead)
     {
         lead = 0;
         var cmp = lines[i];
-        if (Mnemonic(cmp) != "cmp" || !cmp.Facts.MemoryIsRipRelative || !ZeroOperand().IsMatch(Normal(cmp))) return null;
         int j = i + 1;
+        bool compare = Mnemonic(cmp) == "cmp" && cmp.Facts.MemoryIsRipRelative && ZeroOperand().IsMatch(Normal(cmp));
+        if (!compare && !LoadsFlag(cmp)) return null;
         while (j < lines.Count && j < i + 1 + LazyWindow && IsRegisterMove(lines[j])) j++;
+        if (!compare)
+        {
+            if (j + 1 >= lines.Count || !TestsRegister(lines[j], cmp)) return null;
+            lead = j - i;
+            j++;
+        }
         if (j + 1 >= lines.Count) return null;
         var jump = lines[j];
         if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
@@ -142,7 +168,9 @@ internal static partial class RuntimeCollapse
                 // A fence between two calls is part of the run, not setup.
                 if (end != skip) { k = last; continue; }
                 if (callCount > 1 && !allInit) return null;
-                lead = j == i + 1 ? 0 : j - i;
+                // A tested load of a wider static is a null check, not a flag.
+                if (!compare && !allInit && !ByteLoad(cmp)) { lead = 0; return null; }
+                if (compare) lead = j == i + 1 ? 0 : j - i;
                 return Make(lines, i + lead, last - i - lead + 1, $"lazy initialization of {va(cmp.Facts.MemoryTarget ?? 0)}", va);
             }
             if (Mnemonic(l) is not ("mov" or "lea" or "xor" or "sub" or "add") || ++setup > LazyWindow) return null;
@@ -150,17 +178,36 @@ internal static partial class RuntimeCollapse
         return null;
     }
 
-    // Folds a zero check of a class flag, a skip and the class-init call.
+    // Folds a zero check of a class flag, a skip and the class-init call. The
+    // check is a compare with zero, or a load of the flag and a test of the
+    // loaded register.
     private static Run? ClassInit(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls)
     {
-        if (i + 2 >= lines.Count) return null;
-        var cmp = lines[i];
-        if (Mnemonic(cmp) != "cmp" || cmp.Facts.MemoryIsRipRelative || !cmp.Text.Contains('[') || !ZeroOperand().IsMatch(Normal(cmp))) return null;
-        var jump = lines[i + 1];
-        var call = lines[i + 2];
+        var first = lines[i];
+        int j = i + 1;
+        bool compare = Mnemonic(first) == "cmp" && !first.Facts.MemoryIsRipRelative && first.Text.Contains('[') && ZeroOperand().IsMatch(Normal(first));
+        if (!compare)
+        {
+            if (Mnemonic(first) is not ("mov" or "movzx") || first.Facts.MemoryIsRipRelative || Destination(first).Contains('[') || !first.Text.Contains('[')) return null;
+            if (j >= lines.Count || !TestsRegister(lines[j], first)) return null;
+            j++;
+        }
+        if (j >= lines.Count) return null;
+        var jump = lines[j];
         if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
-        if (call.Facts.Flow != FlowKind.Call || !Names(ClassInitName(), call, calls) || call.Rva + (uint)call.Facts.Length != skip) return null;
-        return Make(lines, i, 3, "class initialization", va);
+        // The argument is set up between the branch and the call.
+        int k = j + 1;
+        while (k < lines.Count && k < j + 1 + LazyWindow && IsRegisterLoad(lines[k])) k++;
+        if (k >= lines.Count) return null;
+        var call = lines[k];
+        if (call.Facts.Flow != FlowKind.Call || !Names(ClassInitName(), call, calls)) return null;
+        // A padding instruction may follow the call.
+        if (call.Rva + (uint)call.Facts.Length != skip)
+        {
+            if (k + 1 >= lines.Count || Mnemonic(lines[k + 1]) != "nop" || lines[k + 1].Rva + (uint)lines[k + 1].Facts.Length != skip) return null;
+            k++;
+        }
+        return Make(lines, i, k - i + 1, "class initialization", va);
     }
 
     // A call matches when its call-map name, its operand text or its decoder comment does.
@@ -168,7 +215,55 @@ internal static partial class RuntimeCollapse
         name.IsMatch(calls != null && calls.TryGetValue(l.Rva, out var c) ? c : "") || name.IsMatch(l.Text) || name.IsMatch(l.Comment ?? "");
 
     // A move between registers has no memory operand, so it cannot write memory.
-    private static bool IsRegisterMove(DisasmLine l) => Mnemonic(l) == "mov" && l.Facts.Flow == FlowKind.Next && !l.Text.Contains('[') && !l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == null;
+    private static bool IsRegisterMove(DisasmLine l) => Mnemonic(l) is "mov" or "movzx" or "movsx" or "movsxd" && l.Facts.Flow == FlowKind.Next && !l.Text.Contains('[') && !l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == null;
+
+    // A load or address into a register: the destination is not memory.
+    private static bool IsRegisterLoad(DisasmLine l) =>
+        Mnemonic(l) is "mov" or "movzx" or "lea" && l.Facts.Flow == FlowKind.Next && !Destination(l).Contains('[');
+
+    private static string Destination(DisasmLine l)
+    {
+        var text = Normal(l);
+        int space = text.IndexOf(' ');
+        int comma = text.IndexOf(',');
+        return space < 0 || comma < space ? "" : text[(space + 1)..comma];
+    }
+
+    // A load of a static into a register.
+    private static bool LoadsFlag(DisasmLine l) =>
+        Mnemonic(l) is "mov" or "movzx" && l.Facts.MemoryIsRipRelative && l.Facts.Flow == FlowKind.Next && !Destination(l).Contains('[');
+
+    // A load of one byte: a byte operand or an 8-bit destination register.
+    private static bool ByteLoad(DisasmLine l) =>
+        Normal(l).Contains("byte ptr", StringComparison.Ordinal) || ByteRegister().IsMatch(Destination(l));
+
+    // test reg,reg on the register family that the load wrote.
+    private static bool TestsRegister(DisasmLine test, DisasmLine load)
+    {
+        var m = TestSelf().Match(Normal(test));
+        return m.Success && m.Groups[1].Value == m.Groups[2].Value && Family(m.Groups[1].Value) == Family(Destination(load));
+    }
+
+    // The 64-bit register that a name addresses: al, ax, eax and rax are one.
+    private static string Family(string register)
+    {
+        var r = NumberedRegister().Match(register);
+        if (r.Success) return "r" + r.Groups[1].Value;
+        var legacy = LegacyRegister().Match(register);
+        return legacy.Success ? (legacy.Groups[1].Success ? legacy.Groups[1].Value : legacy.Groups[2].Value) : register;
+    }
+
+    [GeneratedRegex(@"^(?:[abcd]l|[abcd]h|(?:si|di|sp|bp)l|r\d+b)$")]
+    private static partial Regex ByteRegister();
+
+    [GeneratedRegex(@"^test (\w+),(\w+)$")]
+    private static partial Regex TestSelf();
+
+    [GeneratedRegex(@"^r(\d+)[dwb]?$")]
+    private static partial Regex NumberedRegister();
+
+    [GeneratedRegex(@"^(?:e|r)?([abcd])(?:x|l|h)$|^(?:e|r)?(si|di|sp|bp)l?$")]
+    private static partial Regex LegacyRegister();
 
     private static bool IsFence(DisasmLine l) => FenceText().IsMatch(Normal(l));
 

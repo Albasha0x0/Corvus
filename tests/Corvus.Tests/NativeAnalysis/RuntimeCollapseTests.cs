@@ -240,6 +240,47 @@ public class RuntimeCollapseTests
     }
 
     [Fact]
+    public void A_shift_and_register_bit_set_in_a_loop_is_kept()
+    {
+        var lines = new[]
+        {
+            L(0x10, "shr rax,0Ch"), L(0x14, "bts rdx,rax"), L(0x18, "jne 0000000140000010h", FlowKind.ConditionalJump, 0x10),
+            L(0x1C, "ret", FlowKind.Return),
+        };
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
+    [Fact]
+    public void A_tested_load_of_a_pointer_static_before_one_call_is_kept()
+    {
+        var lines = new[]
+        {
+            L(0, "mov rax,qword ptr [140003000h]", rip: true, mem: 0x3000),
+            L(4, "test rax,rax"),
+            L(8, "jne 0000000140000010h", FlowKind.ConditionalJump, 0x10),
+            L(12, "call 0000000140001000h", FlowKind.Call, 0x1000, len: 4),
+            L(16, "nop"),
+            L(20, "ret", FlowKind.Return),
+        };
+        Assert.DoesNotContain(RuntimeCollapse.Find(lines, Va).Values, r => r.Note.Contains("lazy", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_tested_byte_load_of_a_flag_before_one_call_is_one_lazy_initialization()
+    {
+        var lines = new[]
+        {
+            L(0, "movzx eax,byte ptr [140003000h]", rip: true, mem: 0x3000),
+            L(4, "test eax,eax"),
+            L(8, "jne 0000000140000010h", FlowKind.ConditionalJump, 0x10),
+            L(12, "call 0000000140001000h", FlowKind.Call, 0x1000, len: 4),
+            L(16, "nop"),
+            L(20, "ret", FlowKind.Return),
+        };
+        Assert.Contains("lazy initialization", Assert.Single(RuntimeCollapse.Find(lines, Va).Values).Note);
+    }
+
+    [Fact]
     public void A_shift_and_bit_set_without_a_closing_loop_is_kept()
     {
         var lines = new[] { L(0, "shr rax,0Ch"), L(4, "bts dword ptr [rdx],eax"), L(8, "ret", FlowKind.Return) };

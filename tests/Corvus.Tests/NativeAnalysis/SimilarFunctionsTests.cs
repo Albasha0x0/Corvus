@@ -501,4 +501,30 @@ public class SimilarFunctionsTests
         Assert.Equal(ErrorCode.InvalidArgument, await Error(() => tools.FindSimilarFunctions(path, "First", minInstructions: 0)));
         Assert.Equal(ErrorCode.InvalidArgument, await Error(() => tools.FindSimilarFunctions(path, "First", view: "near")));
     }
+
+    // Shift by 12, the given number of register moves, then a 10-bit mask.
+    private static ulong[] MaskedAfter(int moves)
+    {
+        var a = new Assembler(64);
+        a.shr(rax, 12);
+        for (int i = 0; i < moves; i++) a.mov(rbx, rcx);
+        a.and(eax, 0x3FF);
+        a.ret();
+        var stream = new MemoryStream();
+        a.Assemble(new StreamCodeWriter(stream), 0x140000000UL + Code);
+        var sample = Make(NativeArch.X64, stream.ToArray(), new() { ["F"] = Code });
+        return sample.Prints.Functions[sample.Of("F")].Constants;
+    }
+
+    [Fact]
+    public void A_mask_within_the_card_window_after_a_shift_by_12_is_left_out_of_the_constants()
+    {
+        Assert.DoesNotContain(0x3FFUL, MaskedAfter(5));
+    }
+
+    [Fact]
+    public void A_mask_past_the_card_window_after_a_shift_by_12_stays_in_the_constants()
+    {
+        Assert.Contains(0x3FFUL, MaskedAfter(10));
+    }
 }

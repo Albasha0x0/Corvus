@@ -30,6 +30,9 @@ public static class AotRuntimeHelpers
     /// <summary>Instructions between the steps of a call-site shape.</summary>
     private const int Window = 8;
 
+    // The first slot entry offset in a class record, across metadata versions.
+    private const int FirstSlotOffset = 0x128;
+
     /// <summary>
     /// A helper found at <paramref name="Rva"/>: the name to apply and the
     /// evidence, which is the text applied as its comment.
@@ -193,23 +196,43 @@ public static class AotRuntimeHelpers
         foreach (var caller in callers.OrderBy(f => f.Start).Take(MaxSampledCallers))
         {
             var code = NativeAotCode.Decode(image, index.Ranges(caller), ct);
+            // The call is the target of a branch on zero, or follows a branch
+            // over it on non-zero.
             var branches = new HashSet<ulong>();
             for (int k = 1; k < code.Count; k++)
-                if (code[k].Mnemonic == Mnemonic.Je && code[k].Op0Kind == OpKind.NearBranch64 && IsSelfTest(code[k - 1]))
-                    branches.Add(code[k].NearBranchTarget);
+            {
+                if (code[k].Op0Kind != OpKind.NearBranch64 || !IsZeroCheck(code[k - 1])) continue;
+                if (code[k].Mnemonic == Mnemonic.Je) branches.Add(code[k].NearBranchTarget);
+                else if (code[k].Mnemonic == Mnemonic.Jne && k + 1 < code.Count && SkipsCall(code, k)) branches.Add(code[k + 1].IP);
+            }
             if (code.Any(i => i.FlowControl == FlowControl.Call && i.Op0Kind == OpKind.NearBranch64 && i.NearBranchTarget == target && branches.Contains(i.IP)))
                 checkedCallers++;
         }
         return checkedCallers;
     }
 
-    private static bool IsSelfTest(in Instruction i) =>
-        i.Mnemonic == Mnemonic.Test && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Register && i.Op0Register == i.Op1Register;
+    // A forward branch that lands right after the next instruction, or
+    // after a padding nop that follows it, so the call is all it skips. The
+    // index cuts a function after a call that never returns.
+    private static bool SkipsCall(List<Instruction> code, int branch)
+    {
+        ulong end = code[branch + 1].NextIP;
+        int after = branch + 2;
+        if (after < code.Count && code[after].Mnemonic == Mnemonic.Nop) end = code[after++].NextIP;
+        ulong next = after < code.Count ? code[after].IP : end;
+        return code[branch].NearBranchTarget >= end && code[branch].NearBranchTarget <= next;
+    }
+
+    // test reg,reg, or a compare of a register or a stack slot with zero.
+    private static bool IsZeroCheck(in Instruction i) =>
+        (i.Mnemonic == Mnemonic.Test && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Register && i.Op0Register == i.Op1Register)
+        || (i.Mnemonic == Mnemonic.Cmp && i.Op0Kind is OpKind.Register or OpKind.Memory && i.Op1Kind is OpKind.Immediate8 or OpKind.Immediate8to32 or OpKind.Immediate8to64 && i.GetImmediate(1) == 0);
 
     /// <summary>
     /// The function called with a receiver's class pointer right before a
     /// virtual call through the same receiver: <c>mov rcx,[r]</c>, the call,
-    /// <c>mov rax,[r]</c>, <c>call [rax+d]</c>. Named when at least three named
+    /// <c>mov rax,[r]</c>, then <c>call [rax+d]</c> or a call through a
+    /// register loaded from <c>[rax+d]</c>. Named when at least three named
     /// functions call it this way and it has at least twice the sites of any
     /// other; at most <see cref="MaxScanned"/> named functions are scanned.
     /// </summary>
@@ -261,12 +284,21 @@ public static class AotRuntimeHelpers
     private static bool VirtualCallAfter(List<Instruction> code, int call, Register receiver)
     {
         bool reloaded = false;
+        // The register a slot entry was loaded into.
+        var entry = Register.None;
         for (int k = call + 1; k < code.Count && k <= call + Window; k++)
         {
             var i = code[k];
             if (reloaded && i.FlowControl == FlowControl.IndirectCall && i.Op0Kind == OpKind.Memory && i.MemoryBase == Register.RAX) return true;
+            if (entry != Register.None && i.FlowControl == FlowControl.IndirectCall && i.Op0Kind == OpKind.Register && i.Op0Register == entry) return true;
             if (i.FlowControl != FlowControl.Next) return false;
-            if (i.Op0Kind == OpKind.Register && i.Op0Register.GetFullRegister() == Register.RAX)
+            if (i.Op0Kind != OpKind.Register) continue;
+            var written = i.Op0Register.GetFullRegister();
+            if (written == entry) entry = Register.None;
+            if (reloaded && i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && i.MemoryBase == Register.RAX && i.MemoryIndex == Register.None && i.Op0Register.IsGPR64()
+                && i.MemoryDisplacement64 >= FirstSlotOffset && i.MemoryDisplacement64 % 8 == 0)
+                entry = i.Op0Register;
+            if (written == Register.RAX)
                 reloaded = i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && i.MemoryBase == receiver && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0;
         }
         return false;
