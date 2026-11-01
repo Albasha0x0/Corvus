@@ -100,19 +100,30 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     /// <summary>Longest wait of <see cref="WarmUp"/>; images still indexing after it are reported as such in results.</summary>
     public static readonly TimeSpan MaxWarmUp = TimeSpan.FromSeconds(30);
 
-    /// <summary>Waits up to <see cref="MaxWarmUp"/> for the code indexes of <paramref name="natives"/> (all when null); failures are skipped.</summary>
-    public async Task WarmUp(IEnumerable<LoadedNative>? natives, CancellationToken ct)
+    /// <summary>The wait of <see cref="WarmUp"/>.</summary>
+    internal TimeSpan WarmUpWait { get; init; } = MaxWarmUp;
+
+    /// <summary>Waits up to <see cref="WarmUpWait"/> for the indexes of <paramref name="natives"/> (all when null); returns the images still indexing.</summary>
+    public async Task<IReadOnlyList<LoadedNative>> WarmUp(IEnumerable<LoadedNative>? natives, CancellationToken ct)
     {
         var list = (natives ?? workspace.Natives).Distinct().Where(n => code.Ready(n) == null).ToList();
-        if (list.Count == 0) return;
+        if (list.Count == 0) return [];
         var all = Task.WhenAll(list.Select(async n =>
         {
             try { await code.Index(n, null, ct); }
             catch (ToolError) { }
         }));
-        await Task.WhenAny(all, Task.Delay(MaxWarmUp, ct));
+        await Task.WhenAny(all, Task.Delay(WarmUpWait, ct));
         ct.ThrowIfCancellationRequested();
+        return list.Where(n => code.StateOf(n).State is "building" or "pending").ToList();
     }
+
+    /// <summary>The header line for a result built while <paramref name="pending"/> images were still indexing; empty when none.</summary>
+    public static string PartialNote(IReadOnlyList<LoadedNative> pending) =>
+        pending.Count == 0 ? ""
+            : $"partial: edges into {string.Join(", ", pending.Select(n => n.Id))} are not yet known, the code index is still building; " +
+              $"list_assemblies filter={pending[0].Id} waitSeconds=60 waits for it, " +
+              (pending.Count > 1 ? "then wait the others the same way and repeat this call\n" : "then repeat this call\n");
 
     /// <summary>Binds one import of <paramref name="importer"/>, following thunks in loaded providers.</summary>
     public Binding BindImport(LoadedNative importer, NativeImport import)

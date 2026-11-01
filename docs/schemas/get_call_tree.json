@@ -70,6 +70,10 @@
     "totalExact": {
       "type": "boolean"
     },
+    "partial": {
+      "description": "Edges into images still indexing are not yet known.",
+      "type": "string"
+    },
     "limit": {
       "type": "integer"
     },

@@ -89,6 +89,10 @@
       "description": "Why that engine answered: the engine parameter, the server default, or auto and the engine's analysis state.",
       "type": "string"
     },
+    "partial": {
+      "description": "Edges into images still indexing are not yet known.",
+      "type": "string"
+    },
     "limit": {
       "type": "integer"
     },

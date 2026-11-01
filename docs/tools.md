@@ -1058,9 +1058,9 @@ Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 ### resolve_address
 
-**Resolve native address** (read-only, idempotent)
+**Resolve native address** (read-only, idempotent, long-running)
 
-What a native address is: RVA, VA, file offset, section, nearest symbol, source line, and with the code index its function, instruction or data item and references. Reads PDB, DWARF and AOT metadata where present.
+A native address as RVA, VA, file offset, section, nearest symbol, source line; with the code index, its function, instruction or data item and references. Uses PDB, DWARF and AOT metadata.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

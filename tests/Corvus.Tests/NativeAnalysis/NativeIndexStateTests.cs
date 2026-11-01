@@ -1,4 +1,5 @@
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Native.Annotations;
 using Corvus.Services;
 using Corvus.Services.Analysis;
@@ -71,6 +72,109 @@ public sealed class NativeIndexStateTests : IDisposable
         Assert.Equal("building", state.State);
         Assert.Equal("building: starting", state.Text);
         Assert.Equal($"{native.Id} building: starting", CachesStatus.IndexStates(code, _env.Workspace));
+    }
+
+    [Fact]
+    public async Task A_warm_up_names_the_image_still_indexing_and_the_call_that_waits()
+    {
+        var (code, native) = Load(Gated);
+        var link = new NativeLinkService(_env.Workspace, code) { WarmUpWait = TimeSpan.FromMilliseconds(50) };
+        var pending = await link.WarmUp(null, default);
+        Assert.Equal([native], pending);
+        var note = NativeLinkService.PartialNote(pending);
+        Assert.Contains($"edges into {native.Id} are not yet known", note);
+        Assert.Contains($"list_assemblies filter={native.Id} waitSeconds=60", note);
+        _gate.Set();
+        Assert.Empty(await link.WarmUp(null, default));
+        Assert.Equal("", NativeLinkService.PartialNote([]));
+    }
+
+    [Fact]
+    public async Task A_cancelled_warm_up_throws_while_an_index_is_building()
+    {
+        var (code, _) = Load(Gated);
+        var link = new NativeLinkService(_env.Workspace, code);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => link.WarmUp(null, cancelled.Token));
+    }
+
+    [Fact]
+    public void The_note_for_several_images_waits_the_first_and_says_to_wait_the_others()
+    {
+        var (_, native) = Load(Gated);
+        var note = NativeLinkService.PartialNote([native, native]);
+        Assert.Contains($"filter={native.Id} waitSeconds=60 waits for it, then wait the others the same way", note);
+    }
+
+    // The first image indexes at once; the second holds its symbol starts until the gate opens.
+    private (NativeCodeService Code, LoadedNative Ready, LoadedNative Held) LoadPair()
+    {
+        _env.Options.CodeIndexCache = null;
+        _env.Options.BackgroundIndexing = true;
+        string? heldPath = null;
+        var code = new NativeCodeService(_env.Workspace, _env.Options, null, new AnnotationStore(_dir.File("ann")))
+        {
+            SymbolStarts = (n, token) =>
+            {
+                if (n.FilePath != heldPath) return [0x1000u, 0x1040u];
+                _gate.Wait(TimeSpan.FromMinutes(1), token);
+                return [0x1000u, 0x1040u];
+            },
+        };
+        var first = _dir.File("first.dll");
+        var second = _dir.File("second.dll");
+        File.WriteAllBytes(first, NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1));
+        File.WriteAllBytes(second, NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 2));
+        heldPath = second;
+        return (code, _env.Workspace.LoadAny(first).Native!, _env.Workspace.LoadAny(second).Native!);
+    }
+
+    [Fact]
+    public async Task A_two_image_call_tree_is_partial_while_one_index_is_gated()
+    {
+        var (code, ready, held) = LoadPair();
+        var tools = new NativeCodeTools(_env.Workspace, code, _env.Pager,
+            new NativeLinkService(_env.Workspace, code) { WarmUpWait = TimeSpan.FromMilliseconds(50) });
+        var collector = ToolOutput.Collect();
+        var text = await tools.NativeCallTree(ready.Id, "rva:0x1000");
+        var partial = Assert.IsType<NativeCallTreeResult>(collector.Value).Partial;
+        Assert.StartsWith($"partial: edges into {held.Id} are not yet known", partial);
+        Assert.Contains(partial!, text);
+
+        // Once the gate opens the repeated call builds a fresh tree without the note.
+        _gate.Set();
+        var later = new NativeCodeTools(_env.Workspace, code, _env.Pager, new NativeLinkService(_env.Workspace, code));
+        var again = ToolOutput.Collect();
+        Assert.DoesNotContain("partial:", await later.NativeCallTree(ready.Id, "rva:0x1000"));
+        Assert.Null(Assert.IsType<NativeCallTreeResult>(again.Value).Partial);
+    }
+
+    [Fact]
+    public async Task A_stalled_name_wait_in_resolve_address_names_the_call_that_waits()
+    {
+        var (code, _, held) = LoadPair();
+        var tools = new NativeTools(_env.Workspace, _env.Pager, code) { StallWindow = TimeSpan.FromMilliseconds(100) };
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.ResolveAddress(held.Id, "main"));
+        Assert.Equal(ErrorCode.Timeout, error.Code);
+        Assert.Contains($"list_assemblies filter={held.Id} waitSeconds=60", error.Remediation);
+    }
+
+    [Fact]
+    public async Task Reading_bytes_by_name_does_not_wait_for_the_code_index()
+    {
+        var (code, _, held) = LoadPair();
+        var tools = new NativeTools(_env.Workspace, _env.Pager, code) { StallWindow = TimeSpan.FromMilliseconds(100) };
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.ReadBytes(held.Id, "no_such_name"));
+        Assert.NotEqual(ErrorCode.Timeout, error.Code);
+        Assert.Equal(0, code.Waiting(held));
+        Assert.Equal("building", code.StateOf(held).State);
+    }
+
+    [Fact]
+    public void Resolving_an_address_by_name_is_a_long_running_call()
+    {
+        Assert.True(Corvus.Mcp.ToolEffects.Of("resolve_address").LongRunning);
     }
 
     [Fact]

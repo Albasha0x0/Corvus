@@ -274,8 +274,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (link == null || fn == null) return "";
         var imports = index.Callees(fn).Select(c => c.Import).OfType<NativeImport>().Distinct().ToList();
         if (imports.Count == 0) return "";
-        await link.WarmUp(null, ct);
-        var sb = new StringBuilder("; imports called, bound to:\n");
+        var pending = await link.WarmUp(null, ct);
+        var sb = new StringBuilder(pending.Count > 0 ? "; " + NativeLinkService.PartialNote(pending) : "").Append("; imports called, bound to:\n");
         foreach (var import in imports.Take(200))
             sb.AppendLine($";   {NativeCodeIndex.ImportName(import)} -> {NativeLinkService.Describe(link.BindImport(native, import))}");
         return sb.ToString();
@@ -339,7 +339,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static partial Regex XrefRow();
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", UseStructuredContent = true, OutputSchemaType = typeof(NativeCallTreeResult))]
-    [Description("Callers or callees of a native function, several levels deep across loaded images and through thunks and import slots; " +
+    [Description("Callers or callees of a native function across loaded images, thunks and import slots; " +
                  "module!import gives its callers. Callees include GetProcAddress and virtual call targets.")]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
@@ -397,18 +397,18 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         }
         if (callers && index.FunctionAt(at) == null && index.Image.Imports.FirstOrDefault(i => i.SlotRva == at) is { } import)
         {
-            if (link != null) await link.WarmUp(null, cancellationToken);
+            var pending = link != null ? await link.WarmUp(null, cancellationToken) : [];
             var rows = workspace.Read(() => ImportCallerTree(native, index, import, depth, maxNodes, edges, cancellationToken));
-            return TreePage(limit, native, rows[0].Node.Name, dir, rows, offset, "", choice);
+            return TreePage(limit, native, rows[0].Node.Name, dir, rows, offset, "", choice, NativeLinkService.PartialNote(pending));
         }
         var root = FunctionAt(index, at);
         if (link != null)
         {
-            await link.WarmUp(null, cancellationToken);
+            var pending = await link.WarmUp(null, cancellationToken);
             var nodes = new List<NativeTreeNode>();
             var text = new StringBuilder();
             workspace.Read(() => link.AppendTree(text, native, root, callers, depth, maxNodes, 0, true, cancellationToken, edges, nodes, null, native));
-            return TreePage(limit, native, root.Name, dir, Zip(text.ToString(), nodes), offset, "", choice);
+            return TreePage(limit, native, root.Name, dir, Zip(text.ToString(), nodes), offset, "", choice, NativeLinkService.PartialNote(pending));
         }
         var tree = index.CallTree(root, depth, callers, maxNodes, edges);
         var dynamic = callers || edges == CallEdgeFilter.Virtual ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, tree, cancellationToken);

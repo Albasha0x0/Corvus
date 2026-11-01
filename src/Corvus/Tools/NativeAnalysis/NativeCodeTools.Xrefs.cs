@@ -214,7 +214,7 @@ public sealed partial class NativeCodeTools
         if (link != null)
         {
             // Other loaded images reach this address through their imports; an import slot shows what it is bound to.
-            await link.WarmUp(null, ct);
+            title = NativeLinkService.PartialNote(await link.WarmUp(null, ct)) + title;
             if (import != null) title += $"Bound to: {boundTo = NativeLinkService.Describe(link.BindImport(native, import))}\n";
             rows.AddRange(workspace.Read(() => link.ImportCallSites(native, rva, ct)));
         }

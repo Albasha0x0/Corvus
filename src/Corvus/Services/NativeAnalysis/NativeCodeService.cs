@@ -187,13 +187,13 @@ public sealed class NativeCodeService
     /// <summary>
     /// Resolves <paramref name="image"/> (loading a path) and returns its index.
     /// Waits <paramref name="waitSeconds"/> at most, else until the build makes no
-    /// progress for <see cref="Deadlines.Soft"/>; then a retryable timeout names the phase.
+    /// progress for <paramref name="stall"/> (default <see cref="Deadlines.Soft"/>); then a retryable timeout names the phase.
     /// </summary>
     public async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<CodeIndexProgress>? progress, CancellationToken ct,
-        int? waitSeconds = null)
+        int? waitSeconds = null, TimeSpan? stall = null)
     {
         var native = await Task.Run(() => Targets.Native(_workspace, image), ct);
-        return (native, await Index(native, progress, ct, waitSeconds is { } s ? TimeSpan.FromSeconds(s) : null, Deadlines.Soft));
+        return (native, await Index(native, progress, ct, waitSeconds is { } s ? TimeSpan.FromSeconds(s) : null, stall ?? Deadlines.Soft));
     }
 
     /// <summary>The index state of <paramref name="native"/>; pending when no build started.</summary>

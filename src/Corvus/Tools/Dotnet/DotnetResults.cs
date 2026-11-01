@@ -205,6 +205,7 @@ public sealed record CallTree(
     int Total)
 {
     public bool? TotalExact { get; init; }
+    [Description("Edges into images still indexing are not yet known.")] public string? Partial { get; init; }
 }
 
 public sealed record PathStepEntry([property: Description("Method label or native function.")] string Name)

@@ -16,7 +16,8 @@ public static partial class ToolEffects
         // Call sites wait for the code index.
         ["list_imports"] = Reads(longRunning: true),
         ["list_exports"] = Reads(),
-        ["resolve_address"] = Reads(),
+        // A symbol name waits for the code index.
+        ["resolve_address"] = Reads(longRunning: true),
         ["search_bytes"] = Reads(),
         ["read_bytes"] = Reads(),
         ["convert_number"] = Reads(),

@@ -17,7 +17,10 @@ public sealed record NativeCallTreeResult(
     IReadOnlyList<NativeTreeNode> Items, int Offset, int Total,
     [property: Description("VAs of nodes cut by depth or maxNodes: pass one as function to continue there.")] IReadOnlyList<string>? Frontier,
     [property: Description(EngineDoc.Engine)] string Engine,
-    [property: Description(EngineDoc.Note)] string? EngineNote);
+    [property: Description(EngineDoc.Note)] string? EngineNote)
+{
+    [Description("Edges into images still indexing are not yet known.")] public string? Partial { get; init; }
+}
 
 /// <summary>A tree node with its text line (indented by depth).</summary>
 internal sealed record TreeRow(NativeTreeNode Node, string Line);
@@ -25,14 +28,14 @@ internal sealed record TreeRow(NativeTreeNode Node, string Line);
 public sealed partial class NativeCodeTools
 {
     /// <summary>The page of <paramref name="rows"/> from <paramref name="offset"/>, as text lines and the record.</summary>
-    private static string TreePage(int limit, LoadedNative native, string root, string direction, List<TreeRow> rows, int offset, string header, EngineChoice choice)
+    private static string TreePage(int limit, LoadedNative native, string root, string direction, List<TreeRow> rows, int offset, string header, EngineChoice choice, string partial = "")
     {
         // The page's frontier: a whole tree's can hold thousands of nodes.
         static List<string>? Frontier(IEnumerable<TreeRow> page) =>
             page.Where(r => r.Node.Flags?.Contains("more") == true && r.Node.Address != null).Select(r => r.Node.Address!).Distinct().ToList() is { Count: > 0 } f ? f : null;
         return ToolOutput.List(rows, Math.Max(0, offset), ClampLimit(limit), r => r.Line,
             page => new NativeCallTreeResult(native.Id, root, direction, page.Select(r => r.Node).ToList(), Math.Max(0, offset), rows.Count,
-                Frontier(page), choice.Engine, choice.Note), "node", choice.Line + "\n" + header);
+                Frontier(page), choice.Engine, choice.Note) { Partial = partial.Length > 0 ? partial.TrimEnd() : null }, "node", choice.Line + "\n" + partial + header);
     }
 
     /// <summary>Rows of a link-service tree: its text lines beside the rows it wrote.</summary>

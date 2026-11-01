@@ -16,6 +16,9 @@ namespace Corvus.Tools;
 public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null,
     NativeEngineService? engines = null, PdbService? pdbs = null)
 {
+    /// <summary>The no-progress window of a name wait; <see cref="ServerOptions.StallWindow"/> when null.</summary>
+    internal TimeSpan? StallWindow { get; init; }
+
     /// <summary>Longest get_pe_info waits for the automatic PDB search it reports.</summary>
     private static readonly TimeSpan PdbSearchWait = TimeSpan.FromSeconds(30);
 
@@ -265,7 +268,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
-        if (bind && link != null) await link.WarmUp(null, cancellationToken);
+        var pending = bind && link != null ? await link.WarmUp(null, cancellationToken) : [];
         List<string>? dynamicRows = null;
         if (includeDynamic && code != null)
         {
@@ -323,6 +326,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                        (unresolved.Count > 0 ? $" ({string.Join(", ", unresolved.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))})" : "") + "\n";
             }
             else if (bind) head = "Bindings: not available in this configuration\n";
+            if (bind) head = NativeLinkService.PartialNote(pending) + head;
             return ToolOutput.With(head + pager.PageRows(rows, offset, limit, "import"),
                 Paged(items, offset, limit, (page, o, total, more) => new ImportList(native.Id, page, o, total, more, head.Length > 0 ? head.Trim() : null)));
         }, cancellationToken);
@@ -371,8 +375,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         : null;
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
-    [Description("What a native address is: RVA, VA, file offset, section, nearest symbol, source line, and with the code index its " +
-                 "function, instruction or data item and references. Reads PDB, DWARF and AOT metadata where present.")]
+    [Description("What a native address is: RVA, VA, file offset, section, nearest symbol, source line; with the code index, its " +
+                 "function, instruction or data item, references. Reads PDB, DWARF, AOT metadata where present.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string? address = null,
@@ -410,7 +414,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     {
         if (code != null && texts.Any(t => !string.IsNullOrWhiteSpace(t) && NativeAddress.IsName(t))
             && workspace.GetNative(Targets.Native(workspace, image).Id) is var native && code.Ready(native) == null)
-            await code.Index(native, null, ct);
+            await code.Open(image, null, ct, stall: StallWindow ?? ServerOptions.StallWindow());
         return await work();
     }
 

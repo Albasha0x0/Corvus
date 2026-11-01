@@ -128,7 +128,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                 throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.", "use engine=ours");
             if (names != null) await names.EnsureAsync(native, session, cancellationToken);
         }
-        if (link != null && workspace.Read(() => workspace.Natives.Count) > 1) await link.WarmUp(null, cancellationToken);
+        var pending = link != null && workspace.Read(() => workspace.Natives.Count) > 1 ? await link.WarmUp(null, cancellationToken) : [];
         return await Task.Run(() =>
         {
             var links = link != null ? new NativeTraceLinks(workspace, link, code) : null;
@@ -142,6 +142,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken, links is { Any: true } ? links : null, new NativeTraceTypes(workspace, code));
             var report = Report(index, graph, offset, limit);
             if (provider != null && SliceNote(graph, provider) is { } note) report = report with { Notes = [.. report.Notes, note] };
+            if (pending.Count > 0) report = report with { Notes = [.. report.Notes, NativeLinkService.PartialNote(pending).TrimEnd()] };
             return ToolOutput.With(choice.Line + "\n" + Text(index, graph, report), report);
         }, cancellationToken);
     });

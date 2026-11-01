@@ -19,22 +19,23 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     private const int MaxNodes = 20_000;
 
     [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
-    [Description("Callers or callees of a method across loaded assemblies, several levels deep, one row per node in tree order. " +
-                 "Continues through P/Invokes into loaded native code; takes a native export too.")]
+    [Description("Callers or callees of a method across loaded assemblies, several levels deep, one row per node. " +
+                 "Continues through P/Invokes into native code; takes a native export.")]
     public async Task<string> GetCallTree(
         [Description(SymbolOrNativeDescription)] string method,
         [Description("callers or callees.")] string direction = "callers",
-        [Description("Levels to expand (1-8).")] int depth = 3,
-        [Description("Callees: also calls into assemblies not loaded (framework).")] bool includeExternal = false,
+        [Description("Levels (1-8).")] int depth = 3,
+        [Description("Callees: also calls into unloaded assemblies (framework).")] bool includeExternal = false,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
-        string Page(string header, List<CallGraphService.TreeNode> nodes, string root, string direction, int levels, bool truncated) =>
+        string Page(string partial, string header, List<CallGraphService.TreeNode> nodes, string root, string direction, int levels, bool truncated) =>
             ToolOutput.List(nodes.Skip(offset).Take(limit).ToList(), offset, limit, nodes.Count, TreeRow,
-                rows => new CallTree(root, direction, levels, Rows(rows), offset, nodes.Count) { TotalExact = truncated ? false : null }, "node", header, totalExact: !truncated);
+                rows => new CallTree(root, direction, levels, Rows(rows), offset, nodes.Count)
+                    { TotalExact = truncated ? false : null, Partial = partial.Length > 0 ? partial.TrimEnd() : null }, "node", partial + header, totalExact: !truncated);
         bool callers = (direction ?? "").Trim().ToLowerInvariant() switch
         {
             "callers" or "caller" or "up" or "in" => true,
@@ -43,13 +44,13 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         };
         int levels = Math.Clamp(depth, 1, 8);
         var directionName = callers ? "callers" : "callees";
-        if (link != null) await link.WarmUp(null, cancellationToken);
+        var pending = link != null ? await link.WarmUp(null, cancellationToken) : [];
         if (link != null && SymbolResolver.ParseNative(method) is { } native)
             return await Read(workspace, () =>
             {
                 var nodes = new List<CallGraphService.TreeNode>();
                 var header = NativeTree(link, native, callers, levels, nodes, cancellationToken);
-                return Page(header, nodes, $"native {native}", directionName, levels, false);
+                return Page(NativeLinkService.PartialNote(pending), header, nodes, $"native {native}", directionName, levels, false);
             }, cancellationToken);
         return await Read(workspace, () =>
         {
@@ -68,7 +69,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 if (nodes.Count == 0) header = lines[0] + "\n";
                 header += PlaceholderTree(placeholder, callers, levels, nodes, ref truncated, cancellationToken);
             }
-            return Page(header, nodes, $"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, truncated);
+            return Page(NativeLinkService.PartialNote(pending), header, nodes, $"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, truncated);
         }, cancellationToken);
     }
 
@@ -217,7 +218,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
-    [Description("Call chains that reach a method, from from= or from entry points, shortest first. " +
+    [Description("Call chains that reach a method, from from= or entry points, shortest first. " +
                  "A native to= follows native callers and P/Invokes back to managed code.")]
     public async Task<string> FindCallPaths(
         [Description(ToolSupport.SymbolOrNativeDescription)] string to,
@@ -236,7 +237,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         if (nativeFrom != null && native == null)
             throw new ToolError(ErrorCode.Unsupported, "A native 'from' needs a native 'to': chains are followed from native code into native code.",
                 "pass to as native:<image>!<function>, or use native_call_tree with direction=callees from the native function");
-        if (native != null) await link!.WarmUp(null, cancellationToken);
+        var pending = native != null ? await link!.WarmUp(null, cancellationToken) : [];
         // 'from' is looked up in the assembly first (another loaded build defines it too), then anywhere: it may call in from another assembly.
         ResolvedSymbol ResolveStart(string symbol)
         {
@@ -306,7 +307,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             // The search stops at offset + limit paths: reaching that many means there may be more.
             bool cut = found.Count >= wanted;
             found = found.Take(wanted).ToList();
-            var header = $"Paths to {label}{(start != null ? $" from {start.Label}" : " from entry points")}: ";
+            var header = (native != null ? NativeLinkService.PartialNote(pending) : "") + $"Paths to {label}{(start != null ? $" from {start.Label}" : " from entry points")}: ";
             if (found.Count == 0)
                 header += (native != null
                     ? "none: no P/Invoke declaration in the loaded assemblies binds to it, or nothing reaches those declarations."

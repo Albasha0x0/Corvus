@@ -14,8 +14,8 @@ namespace Corvus.Tools;
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every use of a symbol in loaded assemblies: method call sites (also via base or interface), field reads, writes " +
-                 "and address uses, type uses. A native export gives P/Invoke callers and native call sites.")]
+    [Description("Every use of a symbol in loaded assemblies: method call sites (also via base or interface), field reads, writes, " +
+                 "address uses and type uses. A native export gives P/Invoke callers and native call sites.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
         [Description("Assembly defining the symbol; default: all loaded.")] string? assembly = null,
@@ -27,9 +27,9 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         CancellationToken cancellationToken = default)
     {
         bool overrides = string.Equals(kind?.Trim(), "overrides", StringComparison.OrdinalIgnoreCase);
-        if (link != null && !overrides) await link.WarmUp(null, cancellationToken);
+        var pending = link != null && !overrides ? await link.WarmUp(null, cancellationToken) : [];
         if (link != null && !overrides && SymbolResolver.ParseNative(symbol) is { } native)
-            return await Read(workspace, () => NativeReferences(link, native, !directOnly, offset, limit, cancellationToken), cancellationToken);
+            return await Read(workspace, () => NativeReferences(link, native, !directOnly, offset, limit, NativeLinkService.PartialNote(pending), cancellationToken), cancellationToken);
         return await Read(workspace, () =>
         {
             if (overrides) return Overrides(symbol, assembly, offset, limit, cancellationToken);
@@ -53,7 +53,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                     ? "none found. Only loaded assemblies are searched: load the assemblies that might use it.\n"
                     : "none found in loaded assemblies.\n";
             return ToolOutput.List(page, offset, limit, total, Row, rows => new ReferenceList($"{target.Label} [{target.Assembly.Id}]", Runs(rows), offset, total), "reference",
-                SkippedBodiesNote(workspace.Assemblies) + header);
+                NativeLinkService.PartialNote(pending) + SkippedBodiesNote(workspace.Assemblies) + header);
         }, cancellationToken);
     }
 
@@ -102,12 +102,12 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             : $"{e.Kind}: {e.Detail}";
 
     /// <summary>P/Invoke declarations bound to a native export with their callers, then native call sites in loaded images, paged as one list.</summary>
-    private string NativeReferences(NativeLinkService link, NativeSymbol symbol, bool includeVirtualCalls, int offset, int limit, CancellationToken ct)
+    private string NativeReferences(NativeLinkService link, NativeSymbol symbol, bool includeVirtualCalls, int offset, int limit, string partial, CancellationToken ct)
     {
         var target = link.Resolve(symbol);
         var managed = link.ManagedLinksTo(target, ct);
         var sites = link.NativeCallSites(target, ct);
-        var header = new StringBuilder($"References to native {symbol}: {target.Label}\n");
+        var header = new StringBuilder($"{partial}References to native {symbol}: {target.Label}\n");
         header.Append($"Managed declarations bound to it: {managed.Count}\n");
         foreach (var m in managed)
             header.Append($"  {Format.MemberLabel(m.Method)}  [{m.Assembly.Id}] {Format.Token(m.Method)}  ({m.Kind}: {NativeLinkService.Describe(m.Binding)})\n");
@@ -134,7 +134,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
 
     [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", UseStructuredContent = true, OutputSchemaType = typeof(CalleeList))]
     [Description("What a method uses, in IL order with offsets: calls, field reads and writes, types, strings. " +
-                 "A P/Invoke or native export gives its native callees as call-tree rows.")]
+                 "A P/Invoke or native export gives native callees as call-tree rows.")]
     public async Task<string> FindCallees(
         [Description(SymbolOrNativeDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -144,12 +144,13 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
-        if (link != null) await link.WarmUp(null, cancellationToken);
+        var pending = link != null ? await link.WarmUp(null, cancellationToken) : [];
+        var partial = NativeLinkService.PartialNote(pending);
         if (link != null && SymbolResolver.ParseNative(method) is { } native)
             return await Read(workspace, () =>
             {
                 var target = link.Resolve(native);
-                var header = $"native {native}: {target.Label}\n";
+                var header = $"{partial}native {native}: {target.Label}\n";
                 var nodes = new List<NativeTreeNode>();
                 if (link.FunctionOf(target.Binding) is not { } fn)
                     header += target.Binding.Status == NativeLinkService.Bound
@@ -167,13 +168,13 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             {
                 var nodes = new List<NativeTreeNode>();
                 link.NativeCallees(md, 2, 1, 5_000, cancellationToken, nodes);
-                return NativePage(label, $"{label} is a {own.Kind} with no IL body; it runs:\n", nodes, offset, limit);
+                return NativePage(label, $"{partial}{label} is a {own.Kind} with no IL body; it runs:\n", nodes, offset, limit);
             }
             if (link?.PlaceholderCode(md) is { } placeholder && link.Index(placeholder.Image)?.FunctionByStart(placeholder.Rva) is { } fn)
             {
                 var nodes = new List<NativeTreeNode>();
                 link.AppendTree(new StringBuilder(), placeholder.Image, fn, false, 1, 5_000, 1, withRoot: false, cancellationToken, rows: nodes, home: placeholder.Image);
-                return NativePage(label, $"{label} is a generated placeholder; its native code {fn.Name} runs:\n", nodes, offset, limit);
+                return NativePage(label, $"{partial}{label} is a generated placeholder; its native code {fn.Name} runs:\n", nodes, offset, limit);
             }
             if (link?.PlaceholderCode(md) is { } missing)
                 return $"{label} is a generated placeholder; no function starts at "
