@@ -1,155 +1,169 @@
-using System.Text.Json;
-using Corvus.Core;
-using Corvus.Native.Providers;
+using System.IO.Compression;
 
 namespace Corvus.Services.Analysis.Dependencies;
 
-/// <summary>An OSV advisory for a component; Severity is the group's highest CVSS score, null when none is given.</summary>
-public sealed record DependencyAdvisory(string Component, string Name, string Version, string Id, IReadOnlyList<string> Aliases, string? Summary,
-    string? Severity, IReadOnlyList<string> Fixed);
+/// <summary>An OSV advisory for a component; Severity is null when unknown.</summary>
+public sealed record DependencyAdvisory(
+    string Component, string Name, string Version, string Id,
+    IReadOnlyList<string> Aliases, string? Summary, string? Severity,
+    IReadOnlyList<string> Fixed);
 
-/// <summary>The advisory check of an inventory; State is "checked" or "not checked", never "none found" without a check; Checked counts components matched by package URL, NotChecked those without one.</summary>
-public sealed record DependencyAdvisories(string State, string? Checker, int Checked, int NotChecked, IReadOnlyList<DependencyAdvisory> Findings,
-    string? Note);
+/// <summary>The advisory check of an inventory; Note names what was not checked.</summary>
+public sealed record DependencyAdvisories(
+    string State, string? Checker, int Checked, int NotChecked,
+    IReadOnlyList<DependencyAdvisory> Findings, string? Note);
 
-/// <summary>Matches a dependency inventory's package URLs against OSV advisories with osv-scanner, offline.</summary>
+/// <summary>Matches components against OSV records in a local folder.</summary>
 internal static class OsvAdvisories
 {
-    private const long MaxOutput = 64L * 1024 * 1024;
+    /// <summary>The variable naming the folder of OSV exports.</summary>
+    internal const string DatabaseVariable = "CORVUS_OSV_DATABASE";
 
-    /// <summary>The variable osv-scanner reads its offline databases from; passed through to it when set.</summary>
-    private const string DatabaseVariable = "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY";
+    private const int MaxRecordBytes = 8 * 1024 * 1024;
 
-    /// <summary>The advisories of <paramref name="components"/>; "not checked" with the reason when osv-scanner is not usable or fails.</summary>
-    public static DependencyAdvisories Check(IReadOnlyList<DependencyComponent> components, CancellationToken ct)
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Scan> Cache = new();
+
+    /// <summary>The advisories of <paramref name="components"/>; "partial" when any was not matched.</summary>
+    internal static DependencyAdvisories Check(IReadOnlyList<DependencyComponent> components, CancellationToken ct)
     {
-        var tool = ExternalTools.OsvScanner;
-        var candidates = components.Where(c => c.Purl != null).ToList();
-        int without = components.Count - candidates.Count;
-        var probe = ExternalTools.Probe(tool);
-        if (!probe.Usable)
-            return NotChecked(null, without + candidates.Count, $"advisories not checked: osv-scanner {probe.Problem}; {probe.Remediation}");
-        var checker = $"osv-scanner {probe.Version ?? "(version unknown)"}, offline";
-        if (candidates.Count == 0) return NotChecked(checker, without, "advisories not checked: no component has a package URL");
-        var dir = Native.Providers.PrivateFolder.Temp("osv", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
-        try
-        {
-            Native.Providers.PrivateFolder.Create(dir);
-            // osv-scanner picks its CycloneDX reader by the .cdx.json file name.
-            var sbom = Path.Combine(dir, "components.cdx.json");
-            File.WriteAllBytes(sbom, Bom(candidates));
-            var environment = Environment.GetEnvironmentVariable(DatabaseVariable) is { Length: > 0 } db
-                ? new Dictionary<string, string?> { [DatabaseVariable] = db } : null;
-            var run = ExternalTools.Run(probe.Path!, ExternalTools.Arguments(tool, "scan", ("file", sbom)), Timeout.InfiniteTimeSpan, MaxOutput, ct, environment, watch: new(new StallRule(ServerOptions.StallWindow())));
-            return Read(run, candidates, without, checker);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return NotChecked(checker, components.Count, $"advisories not checked: {ex.Message}");
-        }
-        finally
-        {
-            try { Directory.Delete(dir, true); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        }
-    }
+        if (Native.Providers.ExternalTools.ReadVariable(DatabaseVariable) is not { Length: > 0 } root)
+            return NotChecked(null, components.Count,
+                $"advisories not checked: set {DatabaseVariable} to a folder of OSV exports, " +
+                "one folder per ecosystem holding all.zip");
+        if (!Directory.Exists(root))
+            return NotChecked(null, components.Count,
+                $"advisories not checked: {DatabaseVariable} names a folder that does not exist");
 
-    /// <summary>The advisories osv-scanner's JSON report names for <paramref name="candidates"/>, or "not checked" with its error.</summary>
-    internal static DependencyAdvisories Read(ExternalTools.RunResult run, IReadOnlyList<DependencyComponent> candidates, int without, string checker)
-    {
-        // osv-scanner exits 0 with no advisory, 1 with advisories, and 127 or 128 on an error.
-        if (run.StartError != null || run.StalledAt != null || run.Truncated || run.ExitCode is not (0 or 1))
-        {
-            var why = run.StartError ?? (run.StalledAt is { } reached ? $"no output for {ServerOptions.StallWindow().TotalSeconds:0.###} s and under 1% of a core after {reached:N0} bytes; repeat the same call or raise {ServerOptions.StallWindowVariable}" : run.Truncated ? $"a report over {MaxOutput / (1024 * 1024)} MiB"
-                : $"exit {run.ExitCode}: {LastLines(run.Stderr)}");
-            return NotChecked(checker, candidates.Count + without, $"advisories not checked: osv-scanner gave {why}");
-        }
+        var problems = new List<string>();
         var findings = new List<DependencyAdvisory>();
+        int matched = 0;
+        var candidates = components
+            .Where(c => c.Purl != null && c.Version != null && VersionOrder.Osv(c.Ecosystem) != null).ToList();
+        int without = components.Count - candidates.Count;
+        var read = new List<string>();
+        foreach (var group in candidates.GroupBy(c => VersionOrder.Osv(c.Ecosystem)!))
+        {
+            var ecosystem = group.Key;
+            var wanted = group.Select(c => Key(ecosystem, c.Name)).ToHashSet(StringComparer.Ordinal);
+            var scan = Open(root, ecosystem, wanted, ct);
+            if (scan == null || scan.Error != null)
+            {
+                problems.Add($"{group.Count()} {ecosystem} components not checked: " +
+                    (scan?.Error ?? $"no {ecosystem} database under {DatabaseVariable}"));
+                continue;
+            }
+            int unordered = 0;
+            foreach (var c in group)
+            {
+                bool ordered = true;
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var record in scan.Records.Where(r => !r.Withdrawn))
+                {
+                    var hit = record.Affects(ecosystem, c.Name, c.Version!, out var fixedIn);
+                    if (hit == null) ordered = false;
+                    if (hit != true || !seen.Add(record.Id) || record.Aliases.Any(seen.Contains)) continue;
+                    seen.UnionWith(record.Aliases);
+                    findings.Add(new(c.Ref, c.Name, c.Version!, record.Id,
+                        [.. record.Aliases.Where(a => a != record.Id)],
+                        record.Summary, record.Severity, fixedIn));
+                }
+                if (ordered) matched++;
+                else unordered++;
+            }
+            read.Add(ecosystem);
+            if (unordered > 0)
+                problems.Add($"{unordered} {ecosystem} components not checked: a version could not be ordered");
+            if (scan.Skipped > 0)
+                problems.Add($"{scan.Skipped:N0} of {scan.Total:N0} {ecosystem} records not read " +
+                    $"(not JSON, corrupt or over {MaxRecordBytes / (1024 * 1024)} MiB)");
+        }
+        var notes = new List<string>(problems);
+        if (without > 0)
+            notes.Add($"{without} components without a package URL or a version, " +
+                "or in an ecosystem OSV does not cover, were not checked");
+        var note = notes.Count == 0 ? null : string.Join("; ", notes);
+        if (matched == 0)
+            return NotChecked(null, components.Count, "advisories not checked: " + (note ?? "no component to match"));
+        var state = problems.Count == 0 && without == 0 ? "checked" : "partial";
+        return new DependencyAdvisories(state, "in process", matched, components.Count - matched, findings, note);
+    }
+
+    private static string Key(string ecosystem, string name) => ecosystem switch
+    {
+        "PyPI" => Purl.PyPIName(name),
+        "NuGet" => name.ToLowerInvariant(),
+        _ => name,
+    };
+
+    private sealed record Scan(List<OsvRecord> Records, int Total, int Skipped, string? Error = null);
+
+    // Reads the records naming a wanted package; null when no database exists.
+    private static Scan? Open(string root, string ecosystem, HashSet<string> wanted, CancellationToken ct)
+    {
+        var folder = Path.Combine(root, ecosystem);
+        var zip = Path.Combine(folder, "all.zip");
+        var cacheKey = File.Exists(zip)
+            ? $"{zip}|{File.GetLastWriteTimeUtc(zip).Ticks}|{new FileInfo(zip).Length}|" +
+              string.Join('\n', wanted.Order(StringComparer.Ordinal))
+            : null;
+        if (cacheKey != null && Cache.TryGetValue(cacheKey, out var cached)) return cached;
+
+        var records = new List<OsvRecord>();
+        int total = 0, skipped = 0;
+        void Add(byte[]? json)
+        {
+            ct.ThrowIfCancellationRequested();
+            total++;
+            var record = json == null ? null : OsvRecord.Parse(json);
+            if (record == null) skipped++;
+            else if (record.Affected.Any(a => a.Ecosystem == ecosystem && wanted.Contains(Key(ecosystem, a.Name))))
+                records.Add(record);
+        }
         try
         {
-            using var doc = JsonDocument.Parse(run.Output);
-            var byPurl = candidates.GroupBy(c => c.Purl!, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            foreach (var result in Array(doc.RootElement, "results"))
-            foreach (var package in Array(result, "packages"))
+            if (cacheKey != null)
             {
-                var info = package.GetProperty("package");
-                var purl = Text(info, "purl");
-                var name = Text(info, "name") ?? "";
-                var version = Text(info, "version") ?? "";
-                var component = purl != null && byPurl.TryGetValue(purl, out var c) ? c
-                    : candidates.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && x.Version == version);
-                var vulns = Array(package, "vulnerabilities").ToDictionary(v => Text(v, "id") ?? "", v => v, StringComparer.Ordinal);
-                // A group is one advisory published under several ids (GHSA and CVE); it is reported once.
-                var groups = Array(package, "groups").Select(g => (Ids: Strings(g, "ids"), Aliases: Strings(g, "aliases"), Severity: Text(g, "max_severity"))).ToList();
-                if (groups.Count == 0) groups = [.. vulns.Keys.Select(id => (Ids: (IReadOnlyList<string>)[id], Aliases: (IReadOnlyList<string>)[], Severity: (string?)null))];
-                foreach (var (ids, aliases, severity) in groups)
+                using var archive = ZipFile.OpenRead(zip);
+                var entries = archive.Entries
+                    .Where(e => e.FullName.EndsWith(".json", StringComparison.OrdinalIgnoreCase));
+                foreach (var entry in entries)
                 {
-                    if (ids.Count == 0) continue;
-                    var id = ids[0];
-                    var vuln = vulns.GetValueOrDefault(id);
-                    findings.Add(new DependencyAdvisory(component?.Ref ?? purl ?? name, name, version, id,
-                        [.. ids.Skip(1).Concat(aliases).Where(a => a != id).Distinct(StringComparer.Ordinal)],
-                        vuln.ValueKind == JsonValueKind.Object ? Text(vuln, "summary") : null, severity is { Length: > 0 } ? severity : null,
-                        vuln.ValueKind == JsonValueKind.Object ? Fixed(vuln, name) : []));
+                    byte[]? bytes = null;
+                    try { bytes = ReadBounded(entry); }
+                    catch (InvalidDataException) { }
+                    Add(bytes);
                 }
+                var scan = new Scan(records, total, skipped);
+                if (Cache.Count >= 8) Cache.Clear();
+                Cache[cacheKey] = scan;
+                return scan;
             }
+            if (!Directory.Exists(folder)) return null;
+            foreach (var file in Directory.EnumerateFiles(folder, "*.json", SearchOption.AllDirectories))
+                Add(new FileInfo(file).Length > MaxRecordBytes ? null : File.ReadAllBytes(file));
+            return new(records, total, skipped);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            return NotChecked(checker, candidates.Count + without, $"advisories not checked: osv-scanner's report could not be read ({ex.Message})");
+            return new([], 0, 0, $"the {ecosystem} database could not be read ({ex.Message})");
         }
-        var note = without > 0 ? $"{without} components without a package URL were not checked" : null;
-        return new DependencyAdvisories("checked", checker, candidates.Count, without, findings, note);
     }
 
-    private static DependencyAdvisories NotChecked(string? checker, int notChecked, string note) => new("not checked", checker, 0, notChecked, [], note);
-
-    /// <summary>A minimal CycloneDX document of the components osv-scanner matches by package URL.</summary>
-    private static byte[] Bom(IReadOnlyList<DependencyComponent> candidates)
+    // The declared size can be forged, so the copy itself stops at the bound.
+    private static byte[]? ReadBounded(ZipArchiveEntry entry)
     {
-        using var stream = new MemoryStream();
-        using (var w = new Utf8JsonWriter(stream))
+        using var s = entry.Open();
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int n;
+        while ((n = s.Read(chunk, 0, chunk.Length)) > 0)
         {
-            w.WriteStartObject();
-            w.WriteString("bomFormat", "CycloneDX");
-            w.WriteString("specVersion", CycloneDx.SpecVersion);
-            w.WriteNumber("version", 1);
-            w.WriteStartArray("components");
-            foreach (var c in candidates)
-            {
-                w.WriteStartObject();
-                w.WriteString("bom-ref", c.Ref);
-                w.WriteString("type", "library");
-                w.WriteString("name", c.Name);
-                if (c.Version != null) w.WriteString("version", c.Version);
-                w.WriteString("purl", c.Purl);
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
-            w.WriteEndObject();
+            buffer.Write(chunk, 0, n);
+            if (buffer.Length > MaxRecordBytes) return null;
         }
-        return stream.ToArray();
+        return buffer.ToArray();
     }
 
-    /// <summary>The fixed versions an advisory's ranges name for the package <paramref name="name"/>.</summary>
-    private static List<string> Fixed(JsonElement vuln, string name) =>
-        [.. Array(vuln, "affected")
-            .Where(a => a.TryGetProperty("package", out var p) && string.Equals(Text(p, "name"), name, StringComparison.OrdinalIgnoreCase))
-            .SelectMany(a => Array(a, "ranges")).SelectMany(r => Array(r, "events"))
-            .Select(e => Text(e, "fixed")).OfType<string>().Distinct(StringComparer.Ordinal)];
-
-    private static IEnumerable<JsonElement> Array(JsonElement e, string name) =>
-        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array ? a.EnumerateArray() : [];
-
-    private static string? Text(JsonElement e, string name) =>
-        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-    private static IReadOnlyList<string> Strings(JsonElement e, string name) => [.. Array(e, name).Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!)];
-
-    private static string LastLines(string text)
-    {
-        var lines = text.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var tail = string.Join("; ", lines.TakeLast(2));
-        return tail.Length == 0 ? "no message" : tail[..Math.Min(tail.Length, 500)];
-    }
+    private static DependencyAdvisories NotChecked(string? checker, int notChecked, string note) =>
+        new("not checked", checker, 0, notChecked, [], note);
 }

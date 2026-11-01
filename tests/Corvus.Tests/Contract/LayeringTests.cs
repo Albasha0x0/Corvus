@@ -36,7 +36,6 @@ public class LayeringTests
     // through SafeFile.
     private static readonly Dictionary<string, (int Writes, string Reason)> OwnFileWriters = new(StringComparer.Ordinal)
     {
-        ["Services/Analysis/Dependencies/OsvAdvisories.cs"] = (1, "the component list osv-scanner reads, in a private temporary folder"),
         ["Services/Analysis/NativeCapa.cs"] = (1, "a copy of the input for capa, in a private temporary folder"),
         ["Services/Analysis/ProgramEmulationOps.cs"] = (4, "the emulator's input copy, saved files and regions, in the folder the emulation names"),
         ["Services/Analysis/WebGlBuild.cs"] = (2, "unpacked build files in the cache folder"),

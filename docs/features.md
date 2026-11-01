@@ -524,7 +524,7 @@ Pass the name as `view=`.
 - .NET: packages from deps.json with SHA-512. Without one, assemblies by name, versions unknown.
 - Also: Go modules, Rust crates, frozen Python distributions, Android Maven and native libraries.
 - `sbomPath=` writes a CycloneDX 1.6 SBOM. An existing file needs `overwrite=true`.
-- Advisories: matched offline by osv-scanner (`CORVUS_OSV_SCANNER`). Without it, reported as not checked.
+- Advisories: components matched in process against OSV exports in `CORVUS_OSV_DATABASE` (NuGet, crates.io, PyPI, Go, Maven). Without a database, reported as not checked.
 
 ### Large files
 

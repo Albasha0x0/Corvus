@@ -208,7 +208,6 @@ public class ServerStatusToolVariableTests
             ["CORVUS_PY_DECOMPILER"] = Place("pycdc"),
             ["CORVUS_ADB"] = Place("adb"),
             ["CORVUS_TSHARK"] = Place("tshark"),
-            ["CORVUS_OSV_SCANNER"] = Place("osv-scanner"),
             ["CORVUS_CAPA"] = Place("capa"),
             ["CORVUS_EMULATOR"] = Place("speakeasy"),
             ["CORVUS_GUARDDOG"] = Place("guarddog"),

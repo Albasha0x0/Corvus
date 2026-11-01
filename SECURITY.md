@@ -89,7 +89,7 @@ What starts a program outside Corvus:
 | `server_status` | the Python IDA uses (a version probe) |
 | `emulate_native engine=speakeasy` | speakeasy |
 | a capture filter on a field the built-in decoder does not know | TShark |
-| `summarize_file` on Python bytecode; `view=dependencies` advisories | pycdc; osv-scanner (offline) |
+| `summarize_file` on Python bytecode; `view=dependencies` advisories | pycdc; `CORVUS_OSV_DATABASE` (osv.dev exports, read in process) |
 | `survey_features` on an image with `global-metadata.dat` | capa |
 | a snapshot of a running program on Linux; on macOS | gcore; lldb |
 | `ida_python`, `ghidra_script` (opt-in) | code in the engine workers |

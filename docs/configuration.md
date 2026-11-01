@@ -220,7 +220,7 @@ file or its folder.
 | `CORVUS_PY_DECOMPILER` | [pycdc](https://github.com/zrax/pycdc) or a program that prints a `.pyc`'s source | source in `summarize_file view=python` |
 | `CORVUS_ADB` | `adb` (`PATH`, Android SDK) | the Android device tools |
 | `CORVUS_TSHARK` | `tshark` 3+ (`PATH`, Wireshark folder) | packet filters on fields not decoded in process |
-| `CORVUS_OSV_SCANNER` | [osv-scanner](https://github.com/google/osv-scanner) 2+ | advisories in `summarize_file view=dependencies` |
+| `CORVUS_OSV_DATABASE` | folder with `<Ecosystem>/all.zip` (or record files) from the osv.dev exports; NuGet, crates.io, PyPI, Go, Maven | advisories in `summarize_file view=dependencies` |
 | `CORVUS_GUARDDOG` | [GuardDog](https://github.com/DataDog/guarddog) 3.2.0; Linux and macOS only | rule matches in `summarize_file view=package` |
 | `CORVUS_CAPA` | standalone [capa](https://github.com/mandiant/capa) 10.0.0 | `survey_features` capa labels |
 | `CORVUS_EMULATOR` | [speakeasy](https://github.com/mandiant/speakeasy) 2.0.0b9 (report format 5) | `emulate_native engine=speakeasy` |
@@ -228,8 +228,6 @@ file or its folder.
 | `CORVUS_CLR32` | `Corvus.Clr32.exe` (`clr32/` beside the server) | decoding 32-bit .NET dumps |
 | `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER`, `CORVUS_DART`, `CORVUS_FLUTTER`, `CORVUS_RCODESIGN`, `CORVUS_ARCHIVE_LISTER`, `CORVUS_LZFSE`, `CORVUS_ASSET_CATALOG_READER`, `CORVUS_ARK_DISASSEMBLER`, `CORVUS_PAK_TOOL`, `CORVUS_GAMEMAKER_TOOL`, `CORVUS_QEMU_AARCH64` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft, Dart SDK, Flutter SDK, rcodesign, 7-Zip, lzfse, carfile-go, ark_disasm, repak, UndertaleModCli, qemu-aarch64 | test oracles only |
 
-- osv-scanner: download its databases first with `osv-scanner scan source --offline-vulnerabilities --download-offline-databases`.
-  `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY` is passed on. Without offline databases, advisories are reported as not checked.
 - `CORVUS_QEMU_AARCH64` names `qemu-aarch64` (Linux host) or a wrapper script.
 - GuardDog: `pip install guarddog==3.2.0`. `threat-*` rules are noteworthy. It does not build on Windows.
 - capa: on compiled-metadata builds, from a freeze file of the calls the metadata names. With `category=capa`, labels of

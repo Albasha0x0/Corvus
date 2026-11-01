@@ -289,10 +289,10 @@ public class ExternalToolsTests : IDisposable
     {
         // Regression: CI run 39774585910, a probe of the fake crashed on the shared log while another call held it.
         using var fake = new FakeTool();
-        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0");
+        fake.On("^--version$", stdout: "diec version: 2.7.0");
         var runs = Enumerable.Range(0, 16).AsParallel().WithDegreeOfParallelism(16)
             .Select(_ => ExternalTools.Run(FakeTool.Executable, ["--version"], TimeSpan.FromSeconds(60), 1000, default, fake.Environment)).ToList();
-        Assert.All(runs, r => Assert.Equal((0, "osv-scanner version: 2.7.0"), (r.ExitCode ?? -1, r.Text)));
+        Assert.All(runs, r => Assert.Equal((0, "diec version: 2.7.0"), (r.ExitCode ?? -1, r.Text)));
         Assert.Equal(16, fake.ArgumentLists.Count);
     }
 
@@ -300,15 +300,15 @@ public class ExternalToolsTests : IDisposable
     public void A_version_check_that_times_out_leaves_the_tool_usable_with_its_version_unknown()
     {
         using var fake = new FakeTool();
-        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0", sleepMs: 3000);
-        using var env = new EnvironmentScope().Set("CORVUS_OSV_SCANNER", fake.CopyAs("osv-scanner")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        fake.On("^--version$", stdout: "diec version: 2.7.0", sleepMs: 3000);
+        using var env = new EnvironmentScope().Set("CORVUS_DIE", fake.CopyAs("diec")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
         var saved = ExternalTools.VersionTimeout;
         ExternalTools.VersionTimeout = TimeSpan.FromMilliseconds(300);
         try
         {
-            var probe = ExternalTools.Probe(ExternalTools.OsvScanner);
+            var probe = ExternalTools.Probe(ExternalTools.Die);
             Assert.Equal((true, null, "check timed out after 300 ms"), (probe.Usable, probe.Version, probe.VersionUnknown));
-            var status = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+            var status = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("Detect It Easy", StringComparison.Ordinal));
             Assert.True(status.Available);
             Assert.EndsWith("version unknown (check timed out after 300 ms)", status.Detail);
         }
@@ -319,7 +319,7 @@ public class ExternalToolsTests : IDisposable
     public async Task A_version_check_still_running_when_status_stops_waiting_is_an_unknown_version_read_by_the_next_call()
     {
         using var fake = new FakeTool();
-        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0");
+        fake.On("^--version$", stdout: "diec version: 2.7.0");
         // The check runs until the test releases it: the first answer cannot have waited for it, however loaded the
         // runner (a 2.5 s bound on that answer failed in a push run at 2.8 s).
         var release = Path.Combine(fake.Directory, "check.release");
@@ -327,18 +327,18 @@ public class ExternalToolsTests : IDisposable
         {
             ["--version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "check.started"), ["waitFor"] = release, ["seconds"] = 100 },
         });
-        using var env = new EnvironmentScope().Set("CORVUS_OSV_SCANNER", fake.CopyAs("osv-scanner")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        using var env = new EnvironmentScope().Set("CORVUS_DIE", fake.CopyAs("diec")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
         try
         {
             var answer = Task.Run(() => Corvus.Tools.SessionTools.ExternalToolCapabilities(TimeSpan.FromMilliseconds(300)).ToList());
             // A status that waits for the check fails here, not after the barrier's own 100 s.
             Assert.True(await Task.WhenAny(answer, Task.Delay(TimeSpan.FromSeconds(60))) == answer, "status waited for the version check");
-            var first = Assert.Single(await answer, c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+            var first = Assert.Single(await answer, c => c.Name.StartsWith("Detect It Easy", StringComparison.Ordinal));
             Assert.True(first.Available);
             Assert.EndsWith("version unknown (check running; call server_status again)", first.Detail);
         }
         finally { File.WriteAllText(release, ""); }
-        var next = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+        var next = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("Detect It Easy", StringComparison.Ordinal));
         Assert.Contains("version 2.7.0", next.Detail);
     }
 

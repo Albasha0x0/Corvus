@@ -1,14 +1,13 @@
 using Corvus.Core;
 using Corvus.Native.Providers;
 using Corvus.Services.Analysis;
-using Corvus.Services.Analysis.Dependencies;
 
 namespace Corvus.Tests;
 
 /// <summary>Analysis tool errors name the call to repeat when the shared stall rule ends a run.</summary>
 public sealed class ExternalToolStallTests
 {
-    // Task 296: the yara, TShark, osv-scanner and malcontent ceilings.
+    // Task 296: the yara, TShark and malcontent ceilings.
     [Fact]
     public void A_stalled_yara_scan_is_retryable_and_names_the_variable_to_raise()
     {
@@ -17,16 +16,6 @@ public sealed class ExternalToolStallTests
         Assert.True(e.Retryable);
         Assert.Contains("a.bin", e.Message);
         Assert.Contains("CORVUS_STALL_WINDOW", e.NextFor(null));
-    }
-
-    [Fact]
-    public void A_stalled_osv_scanner_run_is_reported_not_checked_with_its_progress()
-    {
-        var run = new ExternalTools.RunResult(null, [], "", false, false, null) { StalledAt = 1234 };
-        var result = OsvAdvisories.Read(run, [], 2, "osv-scanner 2");
-        Assert.Equal("not checked", result.State);
-        Assert.Contains("1,234 bytes", result.Note);
-        Assert.Contains("CORVUS_STALL_WINDOW", result.Note);
     }
 
     [Fact]

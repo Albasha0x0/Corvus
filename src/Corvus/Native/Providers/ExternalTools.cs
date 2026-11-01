@@ -163,11 +163,6 @@ public static partial class ExternalTools
         ["hbcdump" + Exe], ["-version"], 0, "oracle for the Hermes bytecode disassembler in tests", true,
         Ops(("objdump", ["-objdump-disassemble", "-c", "disassemble;quit", "{file}"])));
 
-    // Offline only: it matches against databases the user downloaded and never fetches them.
-    public static readonly ExternalTool OsvScanner = new("osv-scanner", "osv-scanner 2+ (OSV advisories, offline)", "CORVUS_OSV_SCANNER", ExternalToolKind.Executable,
-        ["osv-scanner" + Exe], ["--version"], 2, "summarize_file view=dependencies advisories", false,
-        Ops(("scan", ["scan", "source", "--offline", "--format", "json", "-L", "{file}"])));
-
     // The freeze file and result formats are capa's own and change between releases: 10.0.0 is the version tested.
     public static readonly ExternalTool Capa = new("capa", "capa (standalone, rules built in)", "CORVUS_CAPA", ExternalToolKind.Executable,
         ["capa" + Exe], ["--version"], 10, "survey_features category=capa and analyze_native_function labels", false,
@@ -251,7 +246,7 @@ public static partial class ExternalTools
         ["qemu-aarch64" + Exe], ["--version"], 0, "oracle for the AArch64 emulator in tests", true, Ops(("run", ["{file}"])));
 
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Die, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool, QemuUser];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, GuardDog, Emulator, Capa, Die, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool, QemuUser];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
