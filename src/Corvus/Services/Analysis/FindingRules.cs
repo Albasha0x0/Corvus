@@ -23,6 +23,8 @@ public static class FindingRules
         R("package/python-network", "opens network connections (Python)"),
         R("package/rust-process", "starts processes (std::process::Command)"),
         R("package/rust-network", "opens network connections (Rust)"),
+        R("package/perl-process", "starts processes (system, exec, qx)"),
+        R("package/perl-network", "opens network connections (LWP, HTTP::Tiny, sockets)"),
         R("package/download-tool", "downloads with a command-line tool"),
         R("package/eval", "evaluates code built at run time"),
         N("package/exec-decoded", RunsDecoded, "executes decoded code (exec of base64, zlib, marshal)"),

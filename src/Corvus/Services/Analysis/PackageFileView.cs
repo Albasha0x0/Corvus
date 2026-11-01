@@ -4,15 +4,15 @@ using Corvus.Services.Web.Packages;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// view=package: reviews an npm, PyPI, RubyGems, NuGet, Composer, Cargo, VS
-/// Code or browser extension package, or a repository's agent configuration,
-/// without running it.
+/// view=package: reviews an npm, PyPI, RubyGems, NuGet, Composer, Cargo, CPAN,
+/// VS Code or browser extension package, or a repository's agent
+/// configuration, without running it.
 /// </summary>
 internal sealed class PackageFileView : IFileSummaryView
 {
     private static readonly HashSet<string> RepositoryKinds = new(StringComparer.Ordinal) { "git hook", "git config", "dev container", "direnv", "build step" };
 
-    private static readonly string[] Manifests = ["package.json", "composer.json", "Cargo.toml", "manifest.json", "setup.py", "pyproject.toml", "PKG-INFO", "extension.vsixmanifest", "server.json", "tools-list.json", "tools_list.json"];
+    private static readonly string[] Manifests = ["package.json", "composer.json", "Cargo.toml", "Makefile.PL", "Build.PL", "manifest.json", "setup.py", "pyproject.toml", "PKG-INFO", "extension.vsixmanifest", "server.json", "tools-list.json", "tools_list.json"];
 
     public string Name => "package";
 

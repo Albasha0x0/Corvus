@@ -3415,4 +3415,128 @@ public sealed class PackageReviewTests : IDisposable
         }, 100);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
+
+    private const string CpanMeta = "{\"name\":\"Sample-Tool\",\"version\":\"1.02\",\"abstract\":\"A sample\",\"author\":[\"A Author\"],\"prereqs\":{\"runtime\":{\"requires\":{\"perl\":\"5.010\",\"JSON::PP\":\"0\"}}}}";
+
+    [Fact]
+    public void A_cpan_installer_is_listed_as_an_install_script_and_read_by_the_install_rules()
+    {
+        // The installer is text the reader matches; nothing runs it.
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/META.json", CpanMeta),
+            ("Sample-Tool-1.02/Makefile.PL", "use LWP::UserAgent; system('sh', 'setup.sh');")));
+        Assert.Equal(("cpan", "Sample-Tool", "1.02", 2), (r.Ecosystem, r.Name, r.Version, r.Dependencies));
+        Assert.Contains(r.Scripts, s => s is { Name: "Makefile.PL", Command: "perl Makefile.PL", AtInstall: true });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/perl-process", Path: "Sample-Tool-1.02/Makefile.PL" });
+        Assert.Contains(r.Findings, f => f.Rule == "package/perl-network");
+    }
+
+    [Fact]
+    public void A_cpan_build_script_is_listed_beside_the_makefile_installer()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/META.json", CpanMeta),
+            ("Sample-Tool-1.02/Makefile.PL", "WriteMakefile(NAME => 'Sample::Tool');"),
+            ("Sample-Tool-1.02/Build.PL", "Module::Build->new(module_name => 'Sample::Tool')->create_build_script;")));
+        Assert.Equal(["Makefile.PL", "Build.PL"], r.Scripts.Select(s => s.Name));
+    }
+
+    [Fact]
+    public void A_cpan_distribution_without_meta_reads_its_name_from_the_installer()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/Makefile.PL", "WriteMakefile(NAME => 'Sample::Tool', VERSION => '1.02');")));
+        Assert.Equal(("Sample::Tool", "1.02"), (r.Name, r.Version));
+        Assert.Contains(r.Notes, n => n.StartsWith("META.json absent"));
+    }
+
+    [Fact]
+    public void A_lone_cpan_installer_path_reports_meta_json_as_not_read()
+    {
+        var folder = _dir.File("cpan-lone");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Makefile.PL"), "WriteMakefile(NAME => 'Sample::Tool');");
+        var r = PackageReview.Review(Path.Combine(folder, "Makefile.PL"), default)!;
+        Assert.Contains(r.Notes, n => n.StartsWith("META.json not read (single file)"));
+    }
+
+    [Fact]
+    public void A_cpan_meta_without_prerequisites_reports_dependencies_as_unknown()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/META.json", "{\"name\":\"Sample-Tool\",\"version\":\"1.02\"}"),
+            ("Sample-Tool-1.02/Makefile.PL", "WriteMakefile(NAME => 'Sample::Tool');")));
+        Assert.Contains(r.Notes, n => n.Contains("dependencies unknown"));
+    }
+
+    [Fact]
+    public void A_cpan_meta_without_a_name_falls_back_to_the_installer_name()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/META.json", "{\"version\":\"1.02\"}"),
+            ("Sample-Tool-1.02/Makefile.PL", "WriteMakefile(NAME => 'Sample::Tool');")));
+        Assert.Equal(("Sample::Tool", "1.02"), (r.Name, r.Version));
+    }
+
+    [Fact]
+    public void A_cpan_build_script_alone_gives_its_module_name_and_version()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/Build.PL", "Module::Build->new(module_name => 'Sample::Tool', dist_version => '1.02')->create_build_script;")));
+        Assert.Equal(("Sample::Tool", "1.02"), (r.Name, r.Version));
+    }
+
+    [Fact]
+    public void A_cpan_installer_beside_a_package_json_is_still_listed()
+    {
+        var r = Review(Tgz("sample-1.0.0.tgz",
+            ("package/package.json", "{\"name\":\"sample\",\"version\":\"1.0.0\"}"),
+            ("package/Makefile.PL", "system('sh', 'setup.sh');")));
+        Assert.Equal("npm", r.Ecosystem);
+        Assert.Contains(r.Scripts, s => s.Name == "Makefile.PL");
+        Assert.Contains(r.Findings, f => f.Rule == "package/perl-process");
+    }
+
+    [Fact]
+    public void Perl_process_rule_skips_method_calls_in_an_installer()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/Makefile.PL", "$dbh->exec('x'); $o->system('y'); WriteMakefile(NAME => 'Sample::Tool');")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/perl-process");
+    }
+
+    [Theory]
+    [InlineData("system qw(sh -c x);")]
+    [InlineData("system {$prog} @args;")]
+    [InlineData("my $o = `uname -a`;")]
+    public void Perl_process_rule_reads_qw_block_and_backtick_forms_in_an_installer(string code)
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz", ("Sample-Tool-1.02/Build.PL", code)));
+        Assert.Contains(r.Findings, f => f.Rule == "package/perl-process");
+    }
+
+    [Fact]
+    public void Perl_rules_do_not_read_files_that_are_not_perl_source()
+    {
+        var r = Review(Tgz("sample-1.0.0.tgz",
+            ("package/package.json", "{\"name\":\"sample\",\"version\":\"1.0.0\"}"),
+            ("package/run.js", "// system('x') and LWP::UserAgent are the Perl spelling\nconsole.log(1);")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule.StartsWith("package/perl-", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(PackageReview))]
+    public void Fuzzed_cpan_distributions_never_throw()
+    {
+        var seed = Encoding.UTF8.GetBytes(CpanMeta);
+        var folder = _dir.File("fuzz-cpan");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Makefile.PL"), "WriteMakefile(NAME => 'X');");
+        var failures = FormatFuzz.Run(seed, b =>
+        {
+            File.WriteAllBytes(Path.Combine(folder, "META.json"), b);
+            _ = PackageReview.Review(folder, default);
+        }, 100);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
 }
