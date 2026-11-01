@@ -425,6 +425,14 @@ public sealed class DexStringFoldingTests : IDisposable
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(30), $"200 rounds took {clock.Elapsed}");
     }
 
+    [Fact]
+    public void An_empty_string_argument_folds_to_an_empty_string()
+    {
+        var fold = new DalvikEvaluator(new OneFile(DexFile.Read(_bytes, "x.dex"))).Fold(Rev, [""]);
+        Assert.Equal(DexFoldStatus.Simplified, fold.Status);
+        Assert.Equal("", fold.Value);
+    }
+
     private static DalvikArray Ints(params int[] values)
     {
         var a = new DalvikArray("[I", values.Length);
