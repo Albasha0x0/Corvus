@@ -320,6 +320,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Lua 5.1-5.4 and LuaJIT 2.0/2.1 bytecode | functions with listings and strings |
 | Compiled AutoIt script | the script source, rebuilt for EA06 |
 | Frozen Python (PyInstaller, py2exe, cx_Freeze, Nuitka onefile) | modules as `.pyc`, the entry script, the Python version |
+| Python zipapp (`python -m zipapp`, shiv, pex) | the interpreter line, the entry module, bundled packages, the shiv or pex entry point |
 | HAR, mitmproxy flows | one file per response body |
 | squashfs, cramfs, ext2/3/4, FAT, JFFS2, UBI, UBIFS | every file and link |
 | uImage, FIT, Android boot, TRX | kernels, ramdisks, device trees |

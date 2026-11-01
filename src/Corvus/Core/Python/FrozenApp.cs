@@ -9,7 +9,7 @@ public sealed class FrozenApp(string freezer, string kind)
     public const string Script = "entry script", Bootstrap = "bootstrap script", Module = "module", Package = "package", Native = "native module",
         Runtime = "Python runtime", Data = "data", Encrypted = "encrypted module", Archive = "module archive";
 
-    /// <summary>PyInstaller, py2exe, cx_Freeze, Nuitka, or a Python library zip.</summary>
+    /// <summary>PyInstaller, py2exe, cx_Freeze, Nuitka, a Python library zip, or a zipapp.</summary>
     public string Freezer { get; } = freezer;
     /// <summary>The container kind reported.</summary>
     public string Kind { get; } = kind;
@@ -90,6 +90,17 @@ public sealed class FrozenApp(string freezer, string kind)
             "top_level.txt" => folder.EndsWith(".dist-info", StringComparison.OrdinalIgnoreCase) || folder.EndsWith(".egg-info", StringComparison.OrdinalIgnoreCase),
             var file => file.EndsWith(".egg-info", StringComparison.OrdinalIgnoreCase),
         };
+    }
+
+    /// <summary>The module name of a .py source path in a zip, with the same package rule as <see cref="ModuleOf"/>; null for other paths.</summary>
+    public static (string Name, bool Package)? SourceOf(string path)
+    {
+        if (!path.EndsWith(".py", StringComparison.OrdinalIgnoreCase)) return null;
+        var parts = path[..^3].Replace('\\', '/').Split('/');
+        if (parts.Contains("__pycache__")) return null;
+        bool package = parts[^1] == "__init__";
+        var name = string.Join('.', package ? parts[..^1] : parts);
+        return name.Length == 0 ? null : (name, package);
     }
 
     /// <summary>The module name of a .pyc path in a library: "a/b/__init__.pyc" is package a.b, "a/b.pyc" module a.b.</summary>

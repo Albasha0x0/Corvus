@@ -183,6 +183,101 @@ public sealed class FrozenPythonTests : IDisposable
     }
 
     [Fact]
+    public void A_zipapp_names_its_interpreter_entry_module_and_bundled_packages()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "import pkg\n"u8.ToArray()), ("pkg/__init__.py", "x = 1\n"u8.ToArray()), ("pkg/data.txt", "x"u8.ToArray()));
+        var app = Containers.Open([.. "#!/usr/bin/env python3.11\n"u8.ToArray(), .. zip], "tool.pyz", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("Python zipapp", app.Kind);
+        Assert.StartsWith("Python zipapp: Python 3.11 (the interpreter line); entry __main__", app.Notes[0]);
+        Assert.Equal("__main__.py=entry script; pkg/__init__.py=package; pkg/data.txt=data", Roles(app));
+    }
+
+    [Fact]
+    public void A_shiv_zipapp_reports_the_entry_point_its_environment_file_names()
+    {
+        var env = Encoding.UTF8.GetBytes("{\"entry_point\":\"tool.cli:main\",\"root\":\"~/.shiv\"}");
+        var app = Containers.Open(ContainerFixtures.Zip(("__main__.py", "pass\n"u8.ToArray()), ("environment.json", env)), "tool.pyz", AnalysisLimits.Default, default);
+        Assert.Contains("Built by shiv; entry point tool.cli:main.", app.Notes);
+    }
+
+    [Fact]
+    public void A_zipapp_of_compiled_modules_is_a_zipapp_not_a_library_zip()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.pyc", PyVersion.WithHeader(Magic312, V312, Code("__main__.py"))), ("pkg/__init__.pyc", PyVersion.WithHeader(Magic312, V312, Code("pkg/__init__.py"))));
+        var app = Containers.Open(zip, "tool.pyz", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("Python zipapp", app.Kind);
+        Assert.Equal("__main__.pyc=entry script; pkg/__init__.pyc=package", Roles(app));
+    }
+
+    [Fact]
+    public void A_shebang_zipapp_loads_entries_with_relative_and_absolute_offsets()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "import pkg\n"u8.ToArray()), ("pkg/__init__.py", "x = 1\n"u8.ToArray()));
+        byte[] line = "#!/usr/bin/env python3.11\n"u8.ToArray();
+        var relative = Containers.Open([.. line, .. zip], "a.pyz", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("x = 1\n", Encoding.ASCII.GetString(relative.Items.Single(i => i.Name == "pkg/__init__.py").Bytes));
+        // Absolute offsets: the central directory is shifted by the line length.
+        var shifted = ShiftOffsets([.. line, .. zip], line.Length);
+        var absolute = Containers.Open(shifted, "b.pyz", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("x = 1\n", Encoding.ASCII.GetString(absolute.Items.Single(i => i.Name == "pkg/__init__.py").Bytes));
+    }
+
+    /// <summary>Adds <paramref name="by"/> to every local header offset in the central directory and to the directory offset.</summary>
+    private static byte[] ShiftOffsets(byte[] data, int by)
+    {
+        var d = (byte[])data.Clone();
+        int eocd = d.AsSpan().LastIndexOf("PK"u8);
+        int dir = BitConverter.ToInt32(d, eocd + 16);
+        BitConverter.GetBytes(dir + by).CopyTo(d, eocd + 16);
+        int count = BitConverter.ToUInt16(d, eocd + 10);
+        int p = dir + by;
+        for (int i = 0; i < count; i++)
+        {
+            BitConverter.GetBytes(BitConverter.ToInt32(d, p + 42) + by).CopyTo(d, p + 42);
+            p += 46 + BitConverter.ToUInt16(d, p + 28) + BitConverter.ToUInt16(d, p + 30) + BitConverter.ToUInt16(d, p + 32);
+        }
+        return d;
+    }
+
+    [Fact]
+    public void A_pex_zipapp_reports_its_entry_point_and_distribution_count()
+    {
+        var info = Encoding.UTF8.GetBytes("{\"entry_point\":\"tool:main\",\"distributions\":{\"a-1.whl\":\"x\",\"b-2.whl\":\"y\"}}");
+        var app = Containers.Open(ContainerFixtures.Zip(("__main__.py", "pass\n"u8.ToArray()), ("PEX-INFO", info)), "tool.pex", AnalysisLimits.Default, default);
+        Assert.Contains("Built by pex; entry point tool:main; 2 bundled distributions.", app.Notes);
+    }
+
+    [Fact]
+    public void A_malformed_environment_file_is_named_as_invalid_JSON()
+    {
+        var app = Containers.Open(ContainerFixtures.Zip(("__main__.py", "pass\n"u8.ToArray()), ("environment.json", "{"u8.ToArray())), "tool.pyz", AnalysisLimits.Default, default);
+        Assert.Contains("shiv: the metadata file is not valid JSON.", app.Notes);
+    }
+
+    [Fact]
+    public void An_interpreter_line_without_a_minor_version_gives_no_version()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "pass\n"u8.ToArray()));
+        var app = Containers.Open([.. "#!/usr/bin/python3\n"u8.ToArray(), .. zip], "a.pyz", AnalysisLimits.Default, default);
+        Assert.Equal("Python zipapp", app.Kind);
+        Assert.DoesNotContain("Python 3", app.Notes[0]);
+    }
+
+    [Fact]
+    public void A_shebang_file_without_an_archive_after_it_is_no_zipapp()
+    {
+        var app = Containers.Open("#!/usr/bin/env python3\nprint(1)\n"u8.ToArray(), "a.pyz", AnalysisLimits.Default, default);
+        Assert.NotEqual("Python zipapp", app.Kind);
+    }
+
+    [Fact]
+    public void A_zip_without_a_root_main_is_no_zipapp()
+    {
+        var zip = ContainerFixtures.Zip(("pkg/__main__.py", "pass\n"u8.ToArray()));
+        Assert.NotEqual("Python zipapp", Containers.Open(zip, "a.zip", AnalysisLimits.Default, default).Kind);
+    }
+
+    [Fact]
     public void A_py2exe_program_saves_each_script_as_a_pyc_and_reads_the_library_zip_it_carries()
     {
         var scripts = PyMarshalWriter.Write(new PySequence('[', [

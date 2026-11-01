@@ -117,9 +117,10 @@ public static class Containers
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
         if (kind == "pyinstaller pyz") return Python.PyInstallerArchive.OpenPyz(data, name, allFiles, limits, ct);
+        if (kind is "text" or "data" && Python.FrozenPython.OpenZipApp(data, name, allFiles, limits, ct) is { } zipapp) return zipapp;
         if (kind == "python bytecode")
             return new ContainerContents("none", [], [$"A compiled Python module (.pyc, Python {Python.PyVersion.Label(Python.PyVersion.FromMagic(data)!.Value)}): code, not a container."]);
-        if (kind == "zip") return Python.FrozenPython.OpenLibraryZip(data, name, allFiles, limits, ct) ?? OpenZip(data, name, limits, ct, allFiles);
+        if (kind == "zip") return Python.FrozenPython.OpenZipApp(data, name, allFiles, limits, ct) ?? Python.FrozenPython.OpenLibraryZip(data, name, allFiles, limits, ct) ?? OpenZip(data, name, limits, ct, allFiles);
         if (kind == "jmod") return OpenZip(data[4..], name, limits, ct) with { Kind = "JMOD (Java module)" };
         if (kind == "wasm" && WebAssembly.WasmComponent.Looks(data))
         {

@@ -400,8 +400,79 @@ public static class FrozenPython
         return app;
     }
 
+    /// <summary>Where the zip of a zipapp starts: 0 for a plain zip, the line length after a "#!" line, or -1 when <paramref name="data"/> is neither.</summary>
+    private static int ZipStart(ReadOnlySpan<byte> data)
+    {
+        if (Blob.StartsWith(data, "PK\x03\x04"u8)) return 0;
+        if (!Blob.StartsWith(data, "#!"u8)) return -1;
+        int eol = data[..Math.Min(data.Length, 1024)].IndexOf((byte)'\n');
+        return eol > 0 && Blob.StartsWith(data[(eol + 1)..], "PK\x03\x04"u8) ? eol + 1 : -1;
+    }
+
+    private static readonly Regex Shebang = new(@"python(\d)(?:\.(\d{1,2}))?", RegexOptions.CultureInvariant);
+
+    private static bool HasMain(byte[] zip)
+    {
+        try
+        {
+            using var archive = new ZipArchive(new MemoryStream(zip, writable: false), ZipArchiveMode.Read);
+            // Opening the entry reads its local header, which a wrong offset layout fails.
+            if (archive.Entries.FirstOrDefault(e => e.FullName is "__main__.py" or "__main__.pyc") is not { } main) return false;
+            using var s = main.Open();
+            _ = s.ReadByte();
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException) { return false; }
+    }
+
+    /// <summary>Opens a zipapp (python -m zipapp, shiv, pex) as a container; null when <paramref name="data"/> is no zip with a root __main__.</summary>
+    public static ContainerContents? OpenZipApp(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
+        ReadZipApp(data, limits, ct)?.ToContainer(allFiles, limits, ct);
+
+    /// <summary>A zipapp: the interpreter its "#!" line names, the entry module and the packages it bundles; null when the zip has no root __main__.py or __main__.pyc.</summary>
+    public static FrozenApp? ReadZipApp(byte[] data, AnalysisLimits limits, CancellationToken ct)
+    {
+        int start = ZipStart(data);
+        if (start < 0) return null;
+        // Offsets are absolute when the zip was written after the line, relative when the two were joined.
+        var zip = data;
+        if (start > 0 && !HasMain(zip)) zip = data[start..];
+        if (!HasMain(zip)) return null;
+        var app = new FrozenApp("Python zipapp", "Python zipapp");
+        if (start > 0)
+        {
+            var line = Encoding.Latin1.GetString(data, 0, start).Trim();
+            app.Notes.Add($"Interpreter line: {line}.");
+            if (Shebang.Match(line) is { Success: true } m && m.Groups[2].Success) Version(app, (m.Groups[1].Value[0] - '0', int.Parse(m.Groups[2].Value)), "the interpreter line");
+        }
+        if (Library(app, zip, "", limits, ct, sources: true) is { } magic && PyVersion.FromMagic(magic) is { } v) Version(app, v, $".pyc magic {PyVersion.Magic(magic)}");
+        app.EntryScripts.Add("__main__");
+        for (int i = 0; i < app.Entries.Count; i++)
+            if (app.Entries[i] is { Path: "__main__.py" or "__main__.pyc" } main) app.Entries[i] = main with { Role = FrozenApp.Script };
+        foreach (var (file, tool) in new[] { ("PEX-INFO", "pex"), ("environment.json", "shiv") })
+            if (app.Entries.FirstOrDefault(e => e.Path == file) is { Load: not null } info) ZipAppInfo(app, tool, info.Load());
+        return app;
+    }
+
+    /// <summary>Notes the entry point and bundled distributions that a pex PEX-INFO or shiv environment.json names.</summary>
+    private static void ZipAppInfo(FrozenApp app, string tool, byte[]? json)
+    {
+        if (json == null) { app.Notes.Add($"{tool}: the metadata file is unreadable."); return; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            string? Text(string key) => root.TryGetProperty(key, out var e) && e.ValueKind == System.Text.Json.JsonValueKind.String && e.GetString() is { Length: > 0 } t ? t : null;
+            var entry = Text("entry_point") ?? Text("script");
+            int distributions = root.TryGetProperty("distributions", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.Object ? d.EnumerateObject().Count() : 0;
+            app.Notes.Add($"Built by {tool}{(entry != null ? $"; entry point {entry}" : "")}{(distributions > 0 ? $"; {distributions:N0} bundled distributions" : "")}.");
+            if (entry != null) app.EntryScripts.Add(entry);
+        }
+        catch (System.Text.Json.JsonException) { app.Notes.Add($"{tool}: the metadata file is not valid JSON."); }
+    }
+
     /// <summary>The files of a library zip as entries under <paramref name="prefix"/>; the first .pyc magic, or null.</summary>
-    private static byte[]? Library(FrozenApp app, byte[] data, string prefix, AnalysisLimits limits, CancellationToken ct)
+    private static byte[]? Library(FrozenApp app, byte[] data, string prefix, AnalysisLimits limits, CancellationToken ct, bool sources = false)
     {
         ZipArchive zip;
         // Left open: the entries' loaders read from it.
@@ -423,7 +494,8 @@ public static class FrozenPython
                 catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException) { return null; }
             }
             var module = FrozenApp.ModuleOf(e.FullName);
-            if (module != null && magic == null && Load() is { Length: >= 4 } head && PyVersion.FromMagic(head) != null) magic = head[..4];
+            if (module != null && e.FullName.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase) && magic == null && Load() is { Length: >= 4 } head && PyVersion.FromMagic(head) != null) magic = head[..4];
+            if (sources) module ??= FrozenApp.SourceOf(e.FullName);
             var role = module is { Package: true } ? FrozenApp.Package : module != null ? FrozenApp.Module : FrozenApp.BinaryRole(e.FullName);
             app.Entries.Add(new FrozenEntry(prefix + e.FullName, e.Length, role, Load));
         }
