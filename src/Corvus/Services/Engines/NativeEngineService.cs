@@ -615,13 +615,15 @@ public sealed class NativeEngineService : IDisposable
             // Set after Run, cleared once Opening holds the new task, so the
             // heartbeat never names a stale open.
             holder.Starting = true;
+            holder.OpenCancel?.Dispose();
+            var cancel = holder.OpenCancel = CancellationTokenSource.CreateLinkedTokenSource(native.Released);
             try
             {
                 // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
                 // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
                 holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
-                    ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, id, progress, holder.OpenedPdb))
-                    : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), native.Released);
+                    ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, id, progress, holder.OpenedPdb), cancel.Token)
+                    : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), cancel.Token);
             }
             finally { holder.Starting = false; }
             // Only an open whose analysis completed measures its rate: a partial
@@ -674,11 +676,11 @@ public sealed class NativeEngineService : IDisposable
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
     private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, OpenRun run, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, id, Recorded(run, progress), pdbPath));
+        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, id, Recorded(run, progress), pdbPath), native.Released);
 
     /// <summary>Opens a session on <paramref name="content"/> (the patched bytes when null), written to a private file named <paramref name="name"/>.</summary>
     private static Task<INativeDecompilerSession> OpenBytes(INativeDecompilerProvider provider, LoadedNative native, string name, byte[]? content,
-        NativeOpenOptions options)
+        NativeOpenOptions options, CancellationToken cancellationToken)
     {
         return Task.Run(async () =>
         {
@@ -688,17 +690,17 @@ public sealed class NativeEngineService : IDisposable
             var dir = Native.Providers.PrivateFolder.Temp($"{(content == null ? "patched" : "slice")}-{sha[..16]}-{Guid.NewGuid().ToString("N")[..8]}");
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, name);
-            await File.WriteAllBytesAsync(path, bytes, native.Released).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(false);
             try
             {
-                return await provider.OpenAsync(path, sha, options, native.Released).ConfigureAwait(false);
+                return await provider.OpenAsync(path, sha, options, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
                 try { Directory.Delete(dir, true); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
-        }, native.Released);
+        }, cancellationToken);
     }
 
     private async Task<INativeDecompilerSession> Wait(LoadedNative native, string id, OpenRun run, Task<INativeDecompilerSession> opening, CancellationToken ct)
@@ -714,7 +716,7 @@ public sealed class NativeEngineService : IDisposable
             var expected = run.Expected.Seconds;
             var minutes = Math.Max(1, (int)Math.Ceiling(expected / 60));
             var remaining = Math.Max(0, Math.Round(expected - seconds));
-            var retry = RetryFor(remaining);
+            var retry = Native.Providers.BackgroundRunner.RetryFor(remaining);
             // Once per task, so the end reaches a call that returned early; a later call finds it on the next reply.
             if (!ReferenceEquals(Interlocked.Exchange(ref run.Announced, opening), opening))
                 _ = opening.ContinueWith(done => NotifyEnd(native, id, run, done), TaskScheduler.Default);
@@ -725,8 +727,6 @@ public sealed class NativeEngineService : IDisposable
         }
     }
 
-    /// <summary>When to ask again: a quarter of the estimate left, between 30 s and 5 min.</summary>
-    internal static TimeSpan RetryFor(double remainingSeconds) => TimeSpan.FromSeconds(Math.Clamp(remainingSeconds / 4, 30, 300));
 
     /// <summary>The open limit in seconds; null when none is set.</summary>
     public double? OpenLimitSeconds => OpenTimeout == Timeout.InfiniteTimeSpan ? null : OpenTimeout.TotalSeconds;
@@ -744,8 +744,32 @@ public sealed class NativeEngineService : IDisposable
         var seconds = Math.Round((Now - run.Started).TotalSeconds);
         var name = $"{native.Id}: {id} analysis";
         _workspace.Notify(opening.IsCompletedSuccessfully
-            ? $"{name} {(opening.Result.AnalysisComplete ? "complete" : "partial")} in {seconds:0} s; next: list_functions image={native.Id} engine={id}"
-            : $"{name} {(opening.IsCanceled ? "cancelled" : $"failed ({FailureReason(opening)})")} in {seconds:0} s; next: get_engine_status image={native.Id} shows the state, engine={FallbackEngine} answers now");
+            ? $"{name} {(opening.Result.AnalysisComplete ? "complete" : "partial")} in {seconds:0} s; next: {EndNext(opening.Result.AnalysisComplete ? "complete" : "partial", native.Id, id)}"
+            : $"{name} {(opening.IsCanceled ? "cancelled" : $"failed ({FailureReason(opening)})")} in {seconds:0} s; next: {EndNext(opening.IsCanceled ? "cancelled" : "failed", native.Id, id)}"
+              + (opening.Exception?.InnerException is ToolError { Remediation: { Length: > 0 } fix } ? $"; {fix}" : ""));
+    }
+
+    /// <summary>The call a notice names for an analysis that ended as <paramref name="kind"/> (complete, partial, failed or cancelled).</summary>
+    public static string EndNext(string kind, string imageId, string engine) => kind switch
+    {
+        "complete" => $"list_functions image={imageId} engine={engine}",
+        "partial" => $"reanalyze_native image={imageId} engine={engine} completes it",
+        _ => $"get_engine_status image={imageId} shows the state, engine={FallbackEngine} answers now",
+    };
+
+    /// <summary>
+    /// Cancels the running open of engine <paramref name="id"/> on the image and waits for it to settle;
+    /// false when no open is running. The next engine call opens it again.
+    /// </summary>
+    public async Task<bool> CancelOpenAsync(LoadedNative native, string id, CancellationToken ct)
+    {
+        if (Existing(native, id) is not { Running: { } running } holder) return false;
+        // A concurrent re-open may dispose the source; the new open then needs no cancel.
+        try { holder.OpenCancel?.Cancel(); }
+        catch (ObjectDisposedException) { }
+        try { await running.WaitAsync(ct).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { }
+        return true;
     }
 
     /// <summary>The first line of why an open failed: the stall, the exit code or the error.</summary>
@@ -883,6 +907,8 @@ public sealed class NativeEngineService : IDisposable
         public OpenRun Run = new(), PatchedRun = new();
         /// <summary>True while the provider's open call runs, before <see cref="Opening"/> holds its task.</summary>
         public volatile bool Starting;
+        /// <summary>Ends the base open: cancelled by the image's release or by a cancel call.</summary>
+        public CancellationTokenSource? OpenCancel;
         /// <summary>Whether the PDB type load after the last open was timed.</summary>
         public int PdbTimed;
 
@@ -911,6 +937,7 @@ public sealed class NativeEngineService : IDisposable
         {
             Close(Opening);
             DisposePatched();
+            OpenCancel?.Dispose();
         }
     }
 }

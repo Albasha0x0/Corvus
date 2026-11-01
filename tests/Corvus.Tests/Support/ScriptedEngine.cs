@@ -28,6 +28,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public List<int> Batches { get; } = [];
     public List<NativeAnalyzerOption> Analyzers { get; } = [];
     public List<(IReadOnlyList<KeyValuePair<string, string>> Options, uint? Start, uint? End, double? Seconds)> Reanalyses { get; } = [];
+    /// <summary>When set, a reanalysis runs until it completes or is cancelled.</summary>
+    public TaskCompletionSource? ReanalysisGate { get; set; }
     public Func<NativeReanalysis> ReanalysisResult { get; set; } = () => new NativeReanalysis(true, 2, 3, TimeSpan.FromSeconds(1), []);
     public List<NativeFunctionCandidate> Candidates { get; } = [];
     public List<(IReadOnlyList<NativeMark> Marks, string Stamp)> MarkPushes { get; } = [];
@@ -79,8 +81,9 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         Texts[start] = string.Join("\n", lines);
     }
 
-    private sealed class Session(ScriptedEngine e) : INativeDecompilerSession, INativeEngineControl
+    private sealed class Session(ScriptedEngine e) : INativeDecompilerSession, INativeEngineControl, IBackgroundJobs
     {
+        public BackgroundRunner Jobs { get; } = new(() => "image.bin");
         private string? _marksStamp;
         public string ProviderId => e.Id;
         public string ImagePath => "";
@@ -171,7 +174,13 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
             CancellationToken cancellationToken = default)
         {
             e.Reanalyses.Add((options, start, end, seconds));
-            return Task.FromResult(e.ReanalysisResult());
+            return e.ReanalysisGate is { } gate ? Wait(gate.Task, cancellationToken) : Task.FromResult(e.ReanalysisResult());
+        }
+
+        private async Task<NativeReanalysis> Wait(Task gate, CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(cancellationToken);
+            return e.ReanalysisResult();
         }
 
         public Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) =>

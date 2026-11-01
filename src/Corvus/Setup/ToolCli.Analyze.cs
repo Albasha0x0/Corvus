@@ -18,8 +18,8 @@ internal static partial class ToolCli
     /// </summary>
     internal delegate Task<CallToolResult?> ToolCall(string tool, Dictionary<string, object?> arguments, CancellationToken cancellationToken);
 
-    // Runs reanalyze_native; --wait blocks until the first analysis or
-    // reanalysis ends.
+    // Runs reanalyze_native, which starts in the background; --wait blocks
+    // until the first analysis or reanalysis ends.
     private static async Task<int> AnalyzeAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.Positionals.Count != 1) throw new UsageException("analyze takes one image.");
@@ -28,12 +28,6 @@ internal static partial class ToolCli
         var arguments = a.ToolArguments(tool["inputSchema"], io.In);
         if (arguments.ContainsKey("image")) throw new UsageException("analyze takes the image as an argument, not image=.");
         arguments["image"] = image;
-        if (a.Wait)
-        {
-            if (arguments.TryGetValue("background", out var b) && !Equals(b, true) && b?.ToString() != "true")
-                throw new UsageException("--wait runs the job in the background; remove background=.");
-            arguments["background"] = true;
-        }
         var routed = RoutedSession(a, io);
         await using var session = routed == null ? await ToolSession.StartAsync(a.Server(oneShot: true), cancellationToken) : null;
         ToolCall call = (name, args, ct) => routed == null ? Invoke(session!, name, args, io, ct) : InvokeRemote(routed, name, args, io, ct);

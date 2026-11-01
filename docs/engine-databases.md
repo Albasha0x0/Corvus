@@ -41,7 +41,7 @@ A saved database is reused only when every part matches; otherwise a new one is 
 
 - An open analyzes until the engine finishes, exits, is cancelled or stalls (`CORVUS_ENGINE_ANALYSIS_STALL`). With `CORVUS_ENGINE_OPEN_TIMEOUT` set, the database is saved as it stands and marked partial at that limit; later opens reopen it as is.
 - A native tool's Engine line names the partial analysis and `reanalyze_native`; `get_engine_status` reports it.
-- `reanalyze_native` completes it (`background=true` returns at once). Nothing completes it unasked: that would hold the entry's lock, use the processor and change kept answers between calls.
+- `reanalyze_native` completes it; it starts in the background and `get_engine_status cancel=true` stops it. Nothing completes it unasked: that would hold the entry's lock, use the processor and change kept answers between calls.
 
 ## Invalidation
 

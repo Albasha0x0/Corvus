@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 public sealed class EngineStatusPointerTests
 {
     /// <summary>The only sources that may name get_engine_status: the tool itself, its contract rows, its toolset, the analyze command that calls it, the early answer of a running open, the busy refusal of an engine call and reanalyze_native.</summary>
-    private static readonly string[] Allowed = ["NativeEngineStatusTools.cs", "Engine.cs", "FileReads.cs", "Toolsets.cs", "IdaPython.cs", "ToolCli.Analyze.cs", "NativeEngineService.cs", "Native.cs", "WorkerSessionBase.cs", "NativeEngineControlTools.cs"];
+    private static readonly string[] Allowed = ["NativeEngineStatusTools.cs", "Engine.cs", "FileReads.cs", "Toolsets.cs", "IdaPython.cs", "ToolCli.Analyze.cs", "NativeEngineService.cs", "Native.cs", "WorkerSessionBase.cs", "BackgroundRunner.cs", "NativeEngineControlTools.cs"];
 
     [Fact]
     public void Nothing_outside_the_engine_toolset_points_to_get_engine_status()

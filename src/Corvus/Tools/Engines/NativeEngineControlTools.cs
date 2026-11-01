@@ -18,26 +18,20 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
 {
     public sealed record AnalyzerEntry(string Name, string Value, string Type);
 
-    [Description("A reanalysis run, or with analyzers=true the analyzer options (items).")]
+    [Description("A started reanalysis, or with analyzers=true the analyzer options (items).")]
     public sealed record ReanalysisReport(string Image, string Engine,
         string? Scope,
-        bool? Complete,
-        int? FunctionsBefore, int? FunctionsAfter,
         IReadOnlyList<string>? Options,
-        IReadOnlyList<string>? Warnings,
         IReadOnlyList<AnalyzerEntry>? Items,
         int? Offset,
-        int? Total)
-    {
-        [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
-    }
+        int? Total);
 
-    /// <summary>The workspace notice for a background reanalysis that ended, naming the next call.</summary>
-    internal static string BackgroundEndNotice(string file, string imageId, string engine, string result) =>
-        $"{file}: {engine} {result}; next: list_functions image={imageId} engine={engine}";
+    /// <summary>The workspace notice for a background reanalysis that ended: its outcome, then the next call that outcome calls for.</summary>
+    internal static string BackgroundEndNotice(string file, string imageId, string engine, string kind, string result, string? remediation = null) =>
+        $"{file}: {engine} {result}; next: {NativeEngineService.EndNext(kind, imageId, engine)}" + (remediation is { Length: > 0 } ? $"; {remediation}" : "");
 
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
-    [Description("Re-run IDA or Ghidra auto-analysis over an image or range and save; completes a cut-short analysis. analyzers=true lists the options.")]
+    [Description("Start IDA or Ghidra auto-analysis over an image or range in the background and save; completes a cut-short analysis. analyzers=true lists the options.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
@@ -45,10 +39,9 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("With analyzers: name filter.")] string? filter = null,
         [Description("name=value per analyzer option for this run (AF_FLIRT=false).")] string[]? options = null,
         [Description("full (Ghidra defaults) or a preset in analysis-presets.json.")] string? preset = null,
-        [Description("Run in the background; other engine calls conflict until done.")] bool background = false,
         [Description("Range start (default: whole image).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
-        [Description("Seconds; omit with background=true to run until done or stalled.")] int? timeoutSeconds = null,
+        [Description("Budget in seconds; omit to run until done or stalled. Other engine calls conflict until done.")] int? timeoutSeconds = null,
         [Description("With analyzers: rows to skip.")] int offset = 0,
         [Description("With analyzers: max rows.")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
@@ -56,9 +49,6 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
     {
         if (timeoutSeconds is < 1)
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is below 1.", "timeoutSeconds=600; what is left runs on the next reanalysis, or omit it to run until done");
-        if (!analyzers && !background && timeoutSeconds == null)
-            throw new ToolError(ErrorCode.InvalidArgument, "A foreground reanalysis needs timeoutSeconds; without one it holds the call until the analysis ends.",
-                "background=true runs until done or stalled; get_engine_status waitSeconds=60 waits for the end. Or timeoutSeconds=600");
         var nameFilter = NameFilter.Parse(filter);
         var pairs = new List<KeyValuePair<string, string>>();
         foreach (var o in options ?? [])
@@ -67,8 +57,8 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
             if (eq <= 0) throw new ToolError(ErrorCode.InvalidArgument, $"option '{o}' is not name=value.", "options=[\"AF_FLIRT=false\"]");
             pairs.Add(new(o[..eq].Trim(), o[(eq + 1)..].Trim()));
         }
-        if (analyzers && (pairs.Count > 0 || from != null || to != null || preset != null || background))
-            throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, preset, background, from or to.");
+        if (analyzers && (pairs.Count > 0 || from != null || to != null || preset != null))
+            throw new ToolError(ErrorCode.InvalidArgument, "analyzers=true lists the options; it takes no options, preset, from or to.");
         if (to != null && from == null) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         EngineChoice.Mode(engine, engines);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
@@ -91,7 +81,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                          (nameFilter?.Note("option name") ?? "");
             return ToolOutput.List(all.Skip(offset).ToList(), offset, limit, all.Count,
                 a => $"{a.Name} = {a.Value}  ({a.Type}){(string.IsNullOrWhiteSpace(a.Description) ? "" : "  " + Format.Clip(a.Description.ReplaceLineEndings(" "), 160))}",
-                page => new ReanalysisReport(native.Id, session.ProviderId, null, null, null, null, null, null,
+                page => new ReanalysisReport(native.Id, session.ProviderId, null, null,
                     [.. page.Select(a => new AnalyzerEntry(a.Name, a.Value, a.Type))], offset, all.Count), "option", header);
         }
 
@@ -99,38 +89,34 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
             pairs = [.. AnalysisPresets.Options(preset, session.ProviderId).Where(p => !pairs.Any(o => o.Key == p.Key)), .. pairs];
         var scope = start is { } a ? $"{NativeAddress.Va(native.Image, a)}-{NativeAddress.Va(native.Image, end ?? a + 1)}" : null;
         uint? stop = start is { } s ? end ?? s + 1 : null;
-        if (background)
+        if (session is not IBackgroundJobs { Jobs: var jobs }) throw new ToolError(ErrorCode.Unsupported, $"{session.ProviderId} has no reanalysis.", $"engine=ida or engine=ghidra; get_engine_status image={native.Id} lists the sessions");
+        var optionTexts = pairs.Count > 0 ? (IReadOnlyList<string>)[.. pairs.Select(p => $"{p.Key}={p.Value}")] : null;
+        var wait = $"get_engine_status image={native.Id} waitSeconds=60";
+        // A repeat of the running reanalysis joins it.
+        if (jobs.Job is { What: "reanalysis", Task.IsCompleted: false } running)
         {
-            if (session is not WorkerSessionBase worker) throw new ToolError(ErrorCode.Unsupported, $"{session.ProviderId} has no background reanalysis.", "omit background");
-            worker.StartBackground("reanalysis", timeoutSeconds is { } budget ? TimeSpan.FromSeconds(budget) : null, async () =>
-            {
-                var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, CancellationToken.None);
-                EngineControl.Advance(session);
-                return (done.Complete ? "complete" : "partial",
-                    $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after");
-            }, (image, result) =>
-            {
-                // The notice reaches the model on its next reply; Announce
-                // reaches subscribed clients only.
-                workspace.Notify(BackgroundEndNotice(image, native.Id, session.ProviderId, result));
-                subscriptions?.Announce($"{image}: {result}");
-            });
-            return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({(timeoutSeconds is { } secs ? $"{secs} s budget" : "no time limit")})\n" +
-                                     (pairs.Count > 0 ? $"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n" : "") +
-                                     $"get_engine_status image={native.Id} waitSeconds=60 waits for the end; other engine calls on this image get conflict with retryAfterMs until it ends.\n",
-                new ReanalysisReport(native.Id, session.ProviderId, scope, null, null, null, pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null,
-                    null, null, null, null));
+            var age = (DateTime.UtcNow - running.Started).TotalSeconds;
+            return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis already running ({age:0} s)\n{wait} waits for the end; cancel=true stops it.\n",
+                new ReanalysisReport(native.Id, session.ProviderId, scope, optionTexts, null, null, null));
         }
-        var r = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, cancellationToken);
-        EngineControl.Advance(session);
-        var sb = new StringBuilder($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"}; database saved\n");
-        sb.Append(r.Complete ? "Complete: the analysis queue ran empty.\n" : $"Partial: {(timeoutSeconds is { } budgetSeconds ? $"the {budgetSeconds} s budget ran out" : "the analysis queue did not run empty")}; run reanalyze_native image={native.Id} again to continue.\n");
-        sb.Append($"Functions: {r.FunctionsBefore:N0} before, {r.FunctionsAfter:N0} after ({r.FunctionsAfter - r.FunctionsBefore:+#;-#;0})\n");
-        if (pairs.Count > 0) sb.Append($"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n");
-        foreach (var w in r.Warnings) sb.Append("Warning: " + w + "\n");
-        sb.Append("Cached pseudocode of this image is discarded; list_functions engine=" + session.ProviderId + " shows the functions now.\n");
-        return ToolOutput.Report(sb.ToString(), new ReanalysisReport(native.Id, session.ProviderId, scope, r.Complete, r.FunctionsBefore, r.FunctionsAfter,
-            pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null, r.Warnings.Count > 0 ? r.Warnings : null, null, null, null)
-            { ElapsedSeconds = Math.Round(r.Elapsed.TotalSeconds, 1) });
+        jobs.Start("reanalysis", native.Id, timeoutSeconds is { } budget ? TimeSpan.FromSeconds(budget) : null, async job =>
+        {
+            var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, job);
+            EngineControl.Advance(session);
+            var warnings = done.Warnings.Count > 0 ? $"; {done.Warnings.Count} warning(s), first: {Format.Clip(done.Warnings[0], 160)}" : "";
+            return (done.Complete ? "complete" : "partial",
+                $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after{warnings}");
+        }, end =>
+        {
+            // The notice reaches the model on its next reply; Announce
+            // reaches subscribed clients only.
+            workspace.Notify(BackgroundEndNotice(end.File, native.Id, session.ProviderId, end.Kind, end.Text, end.Remediation));
+            subscriptions?.Announce($"{end.File}: {end.Text}");
+        });
+        var budgetText = timeoutSeconds is { } secs ? $"{secs} s budget" : "no time limit";
+        return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({budgetText})\n" +
+                                 (pairs.Count > 0 ? $"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n" : "") +
+                                 $"{wait} waits for the end; cancel=true stops it. Other engine calls on this image get conflict with retryAfterMs until it ends.\n",
+            new ReanalysisReport(native.Id, session.ProviderId, scope, optionTexts, null, null, null));
     });
 }

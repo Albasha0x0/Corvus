@@ -1,5 +1,5 @@
 {
-  "description": "A reanalysis run, or with analyzers=true the analyzer options (items).",
+  "description": "A started reanalysis, or with analyzers=true the analyzer options (items).",
   "type": "object",
   "properties": {
     "image": {
@@ -11,22 +11,7 @@
     "scope": {
       "type": "string"
     },
-    "complete": {
-      "type": "boolean"
-    },
-    "functionsBefore": {
-      "type": "integer"
-    },
-    "functionsAfter": {
-      "type": "integer"
-    },
     "options": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "warnings": {
       "type": "array",
       "items": {
         "type": "string"
@@ -73,6 +58,12 @@
       "type": "integer"
     },
     "notices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
       "type": "array",
       "items": {
         "type": "string"

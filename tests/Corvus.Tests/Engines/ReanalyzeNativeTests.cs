@@ -7,11 +7,13 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>reanalyze_native over a scripted engine: analyzer listing, per-run options and ranges, cached pseudocode dropped; worker replies parse.</summary>
+/// <summary>reanalyze_native over a scripted engine: analyzer listing, background runs with per-run options and ranges, cancel, end notices; worker replies parse.</summary>
 public sealed class ReanalyzeNativeTests : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly List<IDisposable> _owned = [];
+    private NativeEngineService _engines = null!;
+    private AssemblyWorkspace _workspace = null!;
 
     public void Dispose()
     {
@@ -30,9 +32,24 @@ public sealed class ReanalyzeNativeTests : IDisposable
         var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
+        (_engines, _workspace) = (engines, workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
         var pager = new OutputPager(options);
         return (new NativeEngineControlTools(workspace, engines), new NativeSearchDecompiledTools(workspace, engines, pager), engine, native);
+    }
+
+    /// <summary>Waits for the image's background job to end and its notice to be queued; returns the notices.</summary>
+    private async Task<List<string>> Ended(LoadedNative native)
+    {
+        var jobs = ((IBackgroundJobs)_engines.OpenSession(native)!).Jobs;
+        await jobs.Job!.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var notices = new List<string>();
+        for (var i = 0; i < 200 && notices.Count == 0; i++)
+        {
+            await Task.Delay(10);
+            notices.AddRange(_workspace.DrainNotices());
+        }
+        return notices;
     }
 
     [Fact]
@@ -53,16 +70,87 @@ public sealed class ReanalyzeNativeTests : IDisposable
     }
 
     [Fact]
-    public async Task A_foreground_run_without_timeoutSeconds_is_refused_naming_background_and_a_budget_above_3600_is_kept()
+    public async Task A_reanalysis_returns_before_a_slow_engine_ends_and_names_the_status_call()
     {
         var (control, _, engine, native) = Setup();
-        engine.ReanalysisResult = () => new NativeReanalysis(true, 10, 14, TimeSpan.FromSeconds(2), []);
-        var refused = await Assert.ThrowsAsync<ToolError>(() => control.ReanalyzeNative(native.Id));
-        Assert.Equal(ErrorCode.InvalidArgument, refused.Code);
-        Assert.Contains("background=true", refused.Remediation);
-        Assert.Empty(engine.Reanalyses);
-        await control.ReanalyzeNative(native.Id, timeoutSeconds: 7200);
-        Assert.Equal([7200.0], engine.Reanalyses.Select(r => r.Seconds));
+        engine.ReanalysisGate = new TaskCompletionSource();
+        var started = await control.ReanalyzeNative(native.Id);
+        Assert.Contains($"get_engine_status image={native.Id} waitSeconds=60", started);
+        Assert.Contains("no time limit", started);
+        var jobs = ((IBackgroundJobs)_engines.OpenSession(native)!).Jobs;
+        Assert.True(jobs.Running);
+        engine.ReanalysisGate.SetResult();
+        var notice = Assert.Single(await Ended(native));
+        Assert.Contains("complete", notice);
+        Assert.Contains($"next: list_functions image={native.Id}", notice);
+        Assert.Equal("complete", jobs.Kind);
+    }
+
+    [Fact]
+    public async Task A_repeated_reanalysis_joins_the_running_one()
+    {
+        var (control, _, engine, native) = Setup();
+        engine.ReanalysisGate = new TaskCompletionSource();
+        await control.ReanalyzeNative(native.Id);
+        var again = await control.ReanalyzeNative(native.Id);
+        Assert.Contains("already running", again);
+        Assert.Contains("cancel=true", again);
+        Assert.Single(engine.Reanalyses);
+        engine.ReanalysisGate.SetResult();
+        await Ended(native);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_reanalysis_through_the_status_call_leaves_the_engine_idle()
+    {
+        var (control, _, engine, native) = Setup();
+        engine.ReanalysisGate = new TaskCompletionSource();
+        await control.ReanalyzeNative(native.Id);
+        var status = new NativeEngineStatusTools(_workspace, _engines);
+        var text = await status.GetEngineStatus(native.Id, cancel: true);
+        Assert.Contains("cancelled: IDA reanalysis", text);
+        var jobs = ((IBackgroundJobs)_engines.OpenSession(native)!).Jobs;
+        Assert.False(jobs.Running);
+        Assert.Equal("cancelled", jobs.Kind);
+        var notice = Assert.Single(await Ended(native));
+        Assert.Contains("cancelled", notice);
+        Assert.Contains($"next: get_engine_status image={native.Id}", notice);
+        engine.ReanalysisGate = null;
+        await control.ReanalyzeNative(native.Id);
+        await Ended(native);
+        Assert.Equal("complete", jobs.Kind);
+    }
+
+    [Fact]
+    public async Task Cancelling_with_nothing_running_says_so_and_names_the_next_call()
+    {
+        var (control, _, _, native) = Setup();
+        await control.ReanalyzeNative(native.Id, analyzers: true);
+        var text = await new NativeEngineStatusTools(_workspace, _engines).GetEngineStatus(native.Id, cancel: true);
+        Assert.Contains("nothing to cancel", text);
+        Assert.Contains($"reanalyze_native image={native.Id}", text);
+    }
+
+    [Fact]
+    public void The_end_notice_names_the_next_call_by_outcome()
+    {
+        Assert.Equal("a.exe: ida reanalysis ended in 4 s: complete; next: list_functions image=img engine=ida",
+            NativeEngineControlTools.BackgroundEndNotice("a.exe", "img", "ida", "complete", "reanalysis ended in 4 s: complete"));
+        Assert.Equal("a.exe: ida reanalysis ended in 4 s: partial; next: reanalyze_native image=img engine=ida completes it",
+            NativeEngineControlTools.BackgroundEndNotice("a.exe", "img", "ida", "partial", "reanalysis ended in 4 s: partial"));
+        Assert.Equal("a.exe: ida reanalysis failed after 4 s: broke; next: get_engine_status image=img shows the state, engine=ours answers now; use engine=ghidra",
+            NativeEngineControlTools.BackgroundEndNotice("a.exe", "img", "ida", "failed", "reanalysis failed after 4 s: broke", "use engine=ghidra"));
+    }
+
+    [Fact]
+    public async Task A_failed_reanalysis_notice_carries_the_error_s_next_call()
+    {
+        var (control, _, engine, native) = Setup();
+        engine.ReanalysisResult = () => throw new ToolError(ErrorCode.Failed, "the engine refused", "use engine=ghidra");
+        await control.ReanalyzeNative(native.Id);
+        var notice = Assert.Single(await Ended(native));
+        Assert.Contains("failed", notice);
+        Assert.EndsWith("use engine=ghidra", notice);
     }
 
     [Fact]
@@ -72,20 +160,17 @@ public sealed class ReanalyzeNativeTests : IDisposable
         var first = await search.SearchDecompiled(native.Id, "return");
         Assert.True(engine.Decompiles == 1, $"{engine.Decompiles} decompiles; search answered: {first}");
         engine.ReanalysisResult = () => new NativeReanalysis(false, 10, 14, TimeSpan.FromSeconds(2), ["unknown analysis option 'Bogus'"]);
-        var (text, call) = await EngineMeta.Run(() => control.ReanalyzeNative(native.Id, options: ["AF_FLIRT=false", "Decompiler Parameter ID = true", "Bogus=1"],
-            from: "rva:0x1000", to: "rva:0x1100", timeoutSeconds: 30));
-        var report = Assert.IsType<NativeEngineControlTools.ReanalysisReport>(call.Record);
-        Assert.Equal((false, 10, 14, "0x140001000-0x140001100"), (report.Complete, report.FunctionsBefore, report.FunctionsAfter, report.Scope));
-        Assert.Equal(2.0, report.ElapsedSeconds);
-        Assert.DoesNotContain(" s; database saved", text); // the time taken is in _meta
+        var text = await control.ReanalyzeNative(native.Id, options: ["AF_FLIRT=false", "Decompiler Parameter ID = true", "Bogus=1"],
+            from: "rva:0x1000", to: "rva:0x1100", timeoutSeconds: 30);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => control.ReanalyzeNative(native.Id, timeoutSeconds: 0))).Code);
+        var notice = Assert.Single(await Ended(native));
         var run = Assert.Single(engine.Reanalyses);
         Assert.Equal([new("AF_FLIRT", "false"), new("Decompiler Parameter ID", "true"), new("Bogus", "1")], run.Options);
         Assert.Equal((0x1000u, 0x1100u, 30.0), (run.Start!.Value, run.End!.Value, run.Seconds));
-        Assert.Contains("reanalysis of 0x140001000-0x140001100", text);
-        Assert.Contains("Partial: the 30 s budget ran out; run reanalyze_native image=", text);
-        Assert.Contains("Functions: 10 before, 14 after (+4)", text);
-        Assert.Contains("Warning: unknown analysis option 'Bogus'", text);
+        Assert.Contains("reanalysis of 0x140001000-0x140001100 started in the background (30 s budget)", text);
+        Assert.Contains("Options for this run: AF_FLIRT=false", text);
+        Assert.Contains("partial, the budget ran out; functions 10 before, 14 after; 1 warning(s), first: unknown analysis option 'Bogus'", notice);
+        Assert.Contains($"next: reanalyze_native image={native.Id}", notice);
         await search.SearchDecompiled(native.Id, "return");
         Assert.Equal(2, engine.Decompiles); // the earlier pseudocode no longer counts
     }
@@ -94,9 +179,10 @@ public sealed class ReanalyzeNativeTests : IDisposable
     public async Task The_whole_image_by_default_and_bad_arguments_are_rejected()
     {
         var (control, _, engine, native) = Setup();
-        Assert.Contains("of the whole image", await control.ReanalyzeNative(native.Id, timeoutSeconds: 600));
+        Assert.Contains("of the whole image", await control.ReanalyzeNative(native.Id, timeoutSeconds: 7200));
+        await Ended(native);
         Assert.Null(engine.Reanalyses[0].Start);
-        Assert.Equal(600, engine.Reanalyses[0].Seconds);
+        Assert.Equal(7200, engine.Reanalyses[0].Seconds);
         foreach (var call in new Func<Task<string>>[]
                  {
                      () => control.ReanalyzeNative(native.Id, options: ["AF_FLIRT"]),

@@ -4,7 +4,7 @@ using static Corvus.Tests.ToolRealDataTests;
 
 namespace Corvus.Tests;
 
-/// <summary>reanalyze_native wait=false: returns at once, other engine calls get conflict with retryAfterMs, status shows the result.</summary>
+/// <summary>reanalyze_native: returns at once, other engine calls get conflict with retryAfterMs, status shows the result.</summary>
 [Trait("Speed", "Slow")]
 public sealed class BackgroundReanalysisTests(ITestOutputHelper output) : IDisposable
 {
@@ -24,7 +24,7 @@ public sealed class BackgroundReanalysisTests(ITestOutputHelper output) : IDispo
         var (_, functions) = await Call(c, "list_functions", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["limit"] = 1 });
         var function = functions.GetProperty("items")[0].GetProperty("address").GetString()!;
         var clock = Stopwatch.StartNew();
-        var (started, _) = await Call(c, "reanalyze_native", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["preset"] = "full", ["background"] = true });
+        var (started, _) = await Call(c, "reanalyze_native", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["preset"] = "full" });
         output.WriteLine($"{clock.Elapsed.TotalSeconds:0.0} s: {started}");
         PerfBudget.Time("engines/reanalyze-no-wait", clock.Elapsed, TimeSpan.FromSeconds(2), output);
         Assert.Contains("WindowsResourceReference=true", started);

@@ -144,9 +144,12 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
         clock.Restart();
         var run = await rig.Control.ReanalyzeNative(id, engine: engine, from: $"rva:0x{callee:X}", to: $"rva:0x{callee + 0x40:X}", timeoutSeconds: 120,
             options: [engine == "ida" ? "AF_FLIRT=false" : "Decompiler Parameter ID=false"]);
-        output.WriteLine($"{engine} reanalysis {clock.Elapsed.TotalSeconds:0.0} s:\n{run}");
-        Assert.Contains("Complete: the analysis queue ran empty.", run);
-        Assert.DoesNotContain("Warning:", run);
+        Assert.Contains("started in the background", run);
+        var ended = ((IBackgroundJobs)session).Jobs;
+        await ended.Job!.Task.WaitAsync(TimeSpan.FromMinutes(5));
+        output.WriteLine($"{engine} reanalysis {clock.Elapsed.TotalSeconds:0.0} s:\n{ended.Result}");
+        Assert.Equal("complete", ended.Kind);
+        Assert.DoesNotContain("warning(s)", ended.Result);
         Assert.Contains(engine == "ida" ? "AF_FLIRT = true" : "Decompiler Parameter ID = ", await rig.Control.ReanalyzeNative(id, engine: engine, analyzers: true));
     }
 

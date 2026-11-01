@@ -82,6 +82,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         [Description("Default auto: both.")] string? engine = null,
         [Description("Ghidra: all Error and Warning bookmarks (default 5).")] bool bookmarks = false,
         [Description("Seconds to wait, 0-600; returns at the first state change, at once if settled.")] int waitSeconds = 0,
+        [Description("Cancel the running open or background run; reports cancelled.")] bool cancel = false,
         CancellationToken cancellationToken = default)
     {
         if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No analysis engine is set up in this server.");
@@ -92,7 +93,23 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
         var states = engines.ImageSessions(native);
         string? waited = null;
-        if (waitSeconds > 0 && !Settled(states))
+        var stopped = new List<string>();
+        var uncancellable = new List<string>();
+        if (cancel)
+        {
+            foreach (var running in states.Where(e => wanted == null || e.Engine == wanted))
+            {
+                var name = NativeEngineService.DisplayName(running.Engine);
+                if (running.State == "opening")
+                {
+                    if (await engines.CancelOpenAsync(native, running.Engine, cancellationToken)) stopped.Add($"{name} open");
+                    else uncancellable.Add($"{name} open cannot be cancelled (patched copy); wait with waitSeconds=60");
+                }
+                else if (running.Session is IBackgroundJobs { Jobs: { Job: { } job } jobs } && await jobs.CancelAsync(cancellationToken)) stopped.Add($"{name} {job.What}");
+            }
+            states = engines.ImageSessions(native);
+        }
+        else if (waitSeconds > 0 && !Settled(states))
         {
             // The wait ends at the first change of an engine's state, and
             // before the call's deadline.
@@ -143,7 +160,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (status.Analysis == "partial") status = status with { Limitations = [.. status.Limitations ?? [], Limitations.Id(Limitation.AnalysisPartial)] };
             list.Add(status);
         }
-        return ToolOutput.With(Render(native, list, states, waited), new EngineStatusReport(native.Id, list));
+        return ToolOutput.With(Render(native, list, states, waited, cancel ? stopped : null, uncancellable), new EngineStatusReport(native.Id, list));
     }
 
     /// <summary>Time kept back from the call's deadline so the answer arrives in time.</summary>
@@ -151,10 +168,10 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
 
     /// <summary>True when no engine is opening and no background run is going: there is nothing to wait for.</summary>
     private static bool Settled(IReadOnlyList<NativeEngineService.ImageEngineStatus> states) =>
-        states.All(s => s.State != "opening" && (s.Session as WorkerSessionBase)?.BackgroundRunning != true);
+        states.All(s => s.State != "opening" && (s.Session as IBackgroundJobs)?.Jobs.Running != true);
 
     private static string Signature(IReadOnlyList<NativeEngineService.ImageEngineStatus> states) =>
-        string.Join('|', states.Select(s => $"{s.Engine}:{s.State}:{(s.Session as WorkerSessionBase)?.BackgroundRunning}"));
+        string.Join('|', states.Select(s => $"{s.Engine}:{s.State}:{(s.Session as IBackgroundJobs)?.Jobs.Running}"));
 
     private static async Task<EngineStatus> Describe(LoadedNative native, INativeDecompilerSession session, EngineStatus status, bool allBookmarks, CancellationToken ct)
     {
@@ -167,24 +184,43 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             Decompiler = session.DecompilerAvailable,
             Analysis = session.AnalysisComplete ? "complete" : "partial",
         };
+        if (session is IBackgroundJobs { Jobs: { Job: { } job } jobs })
+            status = status with
+            {
+                Job = new EngineJob(job.What, jobs.Running ? "running" : "ended", job.Started.ToString("o"), job.Budget?.TotalSeconds, jobs.Result) { Result = jobs.Kind },
+                RemainingSeconds = jobs.Running && job.Remaining(DateTime.UtcNow) is { } left ? Math.Round(left.TotalSeconds) : null,
+                Stage = jobs.Running
+                    ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} s" +
+                      (job.Budget is { } budget
+                          ? $" of {budget.TotalSeconds:0} s, {job.Percent(DateTime.UtcNow)}% of the budget, at most {job.Remaining(DateTime.UtcNow)!.Value.TotalSeconds:0} s left"
+                          : ", no time limit; it ends when the analysis finishes, stalls or is cancelled")
+                    : $"background {jobs.Result}",
+            };
         if (session is WorkerSessionBase worker)
         {
             status = status with { WorkerPid = worker.WorkerProcessId, UnsavedEdits = worker.UnsavedCount, ImportOverrides = worker.Overrides?.Text };
-            if (worker.Background is { } job)
-                status = status with
-                {
-                    Job = new EngineJob(job.What, worker.BackgroundRunning ? "running" : "ended", job.Started.ToString("o"), job.Budget?.TotalSeconds, worker.BackgroundResult) { Result = worker.BackgroundKind },
-                    RemainingSeconds = worker.BackgroundRunning && job.Remaining(DateTime.UtcNow) is { } left ? Math.Round(left.TotalSeconds) : null,
-                    Stage = worker.BackgroundRunning
-                        ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} s" +
-                          (job.Budget is { } budget
-                              ? $" of {budget.TotalSeconds:0} s, {job.Percent(DateTime.UtcNow)}% of the budget, at most {job.Remaining(DateTime.UtcNow)!.Value.TotalSeconds:0} s left"
-                              : ", no time limit; it ends when the analysis finishes, stalls or is cancelled")
-                        : $"background {worker.BackgroundResult}",
-                };
             // A running job holds the engine; ask it nothing more.
-            if (worker.BackgroundRunning) return status;
+            if (worker.Jobs.Running) return status;
+            try
+            {
+                // A request in flight is named, never queued behind.
+                using var _ = WorkerSessionBase.WithoutQueue();
+                return await Ask(session, status, allBookmarks, Va, ct);
+            }
+            catch (ToolError e) when (e.Code == ErrorCode.Conflict)
+            {
+                return Busy(status, e);
+            }
         }
+        return await Ask(session, status, allBookmarks, Va, ct);
+    }
+
+    /// <summary>The status of an engine whose request is in flight: the stage names the request and the next call.</summary>
+    internal static EngineStatus Busy(EngineStatus status, ToolError conflict) =>
+        status with { Stage = $"busy: {conflict.Message} {conflict.NextFor(null)}" };
+
+    private static async Task<EngineStatus> Ask(INativeDecompilerSession session, EngineStatus status, bool allBookmarks, Func<ulong, string> Va, CancellationToken ct)
+    {
         if (session is GhidraSession g)
         {
             status = status with { Database = g.ProjectDirectory, Warnings = g.Warnings, Language = g.Language, Functions = g.FunctionCount };
@@ -205,16 +241,20 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 Analysis = info.Analysis == "running" ? "running" : status.Analysis,
             };
         }
-        catch (ToolError e)
+        catch (ToolError e) when (e.Code != ErrorCode.Conflict)
         {
             status = status with { Error = $"{ToolError.CodeName(e.Code)}: {e.Message}" };
         }
         return status;
     }
 
-    private static string Render(LoadedNative native, List<EngineStatus> list, IReadOnlyList<NativeEngineService.ImageEngineStatus> states, string? waited)
+    private static string Render(LoadedNative native, List<EngineStatus> list, IReadOnlyList<NativeEngineService.ImageEngineStatus> states, string? waited, List<string>? stopped, List<string> uncancellable)
     {
         var sb = new StringBuilder($"Engine sessions of {native.Id}:\n");
+        foreach (var refusal in uncancellable) sb.AppendLine(refusal);
+        if (stopped != null && (stopped.Count > 0 || uncancellable.Count == 0))
+            sb.AppendLine(stopped.Count > 0 ? $"cancelled: {string.Join(", ", stopped)}; the next engine call opens or reanalyzes again"
+                                           : $"nothing to cancel: no open or background run is going; reanalyze_native image={native.Id} starts one");
         if (waited != null) sb.AppendLine(waited + "; call again to keep waiting");
         if (list.Count == 0) sb.AppendLine("  none: no engine is available");
         foreach (var s in list)
@@ -229,7 +269,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 case "opening":
                     sb.AppendLine($"{name}: opening ({s.Stage ?? "start"}, {s.Seconds:0.#} s" +
                                   (s.ExpectedSeconds > 0 ? $", expected {s.ExpectedSeconds:0} s ({states.FirstOrDefault(e => e.Engine == s.Engine)?.ExpectedBasis ?? "default rate"}), about {s.RemainingSeconds:0} s left" : "") + ")");
-                    sb.AppendLine($"  next: get_engine_status image={native.Id} waitSeconds=60 waits for the end; engine=ours answers now");
+                    sb.AppendLine($"  next: get_engine_status image={native.Id} waitSeconds=60 waits for the end; cancel=true stops it; engine=ours answers now");
                     if (s.OpenStages != null) sb.AppendLine($"  stages so far: {EngineOpenProfile.Describe(s.OpenStages)}");
                     continue;
                 case "failed":
@@ -243,7 +283,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             sb.AppendLine($"{name} {s.Version}: open, analysis {s.Analysis}" + (s.ReusedDatabase == true ? ", reused saved database" : ", analyzed in this session") +
                           $", opened in {s.OpenSeconds:0.#} s; profile {s.Profile}");
             if (s.OpenStages != null) sb.AppendLine($"  open stages: {EngineOpenProfile.Describe(s.OpenStages)}");
-            if (s.Stage?.StartsWith("background", StringComparison.Ordinal) == true) sb.AppendLine("  " + s.Stage);
+            if (s.Stage?.StartsWith("background", StringComparison.Ordinal) == true || s.Stage?.StartsWith("busy", StringComparison.Ordinal) == true) sb.AppendLine("  " + s.Stage);
             if (s.AnalysisProblems != null)
             {
                 sb.AppendLine($"  analysis problems (bookmarks): {s.AnalysisProblems}");

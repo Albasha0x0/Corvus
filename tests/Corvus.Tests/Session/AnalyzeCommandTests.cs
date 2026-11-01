@@ -33,7 +33,7 @@ public class AnalyzeCommandTests
 
         public Task<CallToolResult?> Call(string tool, Dictionary<string, object?> args, CancellationToken ct)
         {
-            Calls.Add(tool + (args.ContainsKey("analyzers") ? " analyzers" : args.ContainsKey("background") ? " background" : ""));
+            Calls.Add(tool + (args.ContainsKey("analyzers") ? " analyzers" : ""));
             return Task.FromResult<CallToolResult?>(replies[Math.Min(_next++, replies.Length - 1)](tool));
         }
     }
@@ -42,7 +42,7 @@ public class AnalyzeCommandTests
     {
         using var error = new StringWriter();
         var io = new CliIo(new StringWriter(), error, TextReader.Null);
-        var arguments = new Dictionary<string, object?> { ["image"] = "a", ["background"] = true };
+        var arguments = new Dictionary<string, object?> { ["image"] = "a" };
         if (engine != null) arguments["engine"] = engine;
         var code = await ToolCli.AnalyzeWaitAsync(script.Call, "a", arguments, CliArgs.Parse(["--wait"]), io, CancellationToken.None,
             TimeSpan.Zero, stallPolls);
@@ -91,7 +91,7 @@ public class AnalyzeCommandTests
             _ => Reply(Engine("open", ""","reusedDatabase":true""" + Job("ended", "partial", "reanalysis ended in 4 s: partial"))));
         var (code, error) = await Wait(script);
         Assert.Equal(ToolCli.Exit.Partial, code);
-        Assert.Equal(1, script.Calls.Count(c => c == "reanalyze_native background"));
+        Assert.Equal(1, script.Calls.Count(c => c == "reanalyze_native"));
         Assert.Contains("reanalysis ended in 4 s: partial", error);
     }
 
@@ -162,14 +162,6 @@ public class AnalyzeCommandTests
         var (code, _, error) = await ToolCliTests.Run("analyze", "a.exe", "image=b.exe");
         Assert.Equal(2, code);
         Assert.Contains("image=", error);
-    }
-
-    [Fact]
-    public async Task Wait_rejects_background_false()
-    {
-        var (code, _, error) = await ToolCliTests.Run("analyze", "a.exe", "--wait", "background=false");
-        Assert.Equal(2, code);
-        Assert.Contains("background=", error);
     }
 
     [Fact]

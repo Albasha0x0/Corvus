@@ -2118,6 +2118,7 @@ IDA and Ghidra sessions of a native image: state, running job, engine view. Star
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
 | `bookmarks` | boolean |  |  | Ghidra: all Error and Warning bookmarks (default 5). |
 | `waitSeconds` | integer |  | `0` | Seconds to wait, 0-600; returns at the first state change, at once if settled. |
+| `cancel` | boolean |  |  | Cancel the running open or background run; reports cancelled. |
 
 Structured output: `image`, `engines`.
 
@@ -2265,7 +2266,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Re-run IDA or Ghidra auto-analysis over an image or range and save; completes a cut-short analysis. analyzers=true lists the options.
+Start IDA or Ghidra auto-analysis over an image or range in the background and save; completes a cut-short analysis. analyzers=true lists the options.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2275,14 +2276,13 @@ Re-run IDA or Ghidra auto-analysis over an image or range and save; completes a 
 | `filter` | string |  |  | With analyzers: name filter. |
 | `options` | string[] |  |  | name=value per analyzer option for this run (AF_FLIRT=false). |
 | `preset` | string |  |  | full (Ghidra defaults) or a preset in analysis-presets.json. |
-| `background` | boolean |  |  | Run in the background; other engine calls conflict until done. |
 | `from` | string |  |  | Range start (default: whole image). |
 | `to` | string |  |  | Range end (exclusive). |
-| `timeoutSeconds` | integer |  |  | Seconds; omit with background=true to run until done or stalled. |
+| `timeoutSeconds` | integer |  |  | Budget in seconds; omit to run until done or stalled. Other engine calls conflict until done. |
 | `offset` | integer |  |  | With analyzers: rows to skip. |
 | `limit` | integer |  | `200` | With analyzers: max rows. |
 
-Structured output: `image`, `engine`, `scope`, `complete`, `functionsBefore`, `functionsAfter`, `options`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `engine`, `scope`, `options`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### set_native_operand
 

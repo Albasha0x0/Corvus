@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native.Providers;
+using Corvus.Tools;
 
 namespace Corvus.Tests;
 
@@ -225,10 +226,10 @@ public sealed class WorkerSessionBaseTests : IDisposable
         await using var s = await Open();
         var ended = new TaskCompletionSource<(string Result, bool Running)>();
         var raised = 0;
-        s.StartBackground("job-ok", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")), (_, result) =>
+        s.Jobs.Start("job-ok", "img", TimeSpan.FromSeconds(5), _ => Task.FromResult(("complete", "done")), end =>
         {
             Interlocked.Increment(ref raised);
-            ended.TrySetResult((result, s.BackgroundRunning));
+            ended.TrySetResult((end.Text, s.Jobs.Running));
         });
         var (result, running) = await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Contains("done", result);
@@ -240,12 +241,12 @@ public sealed class WorkerSessionBaseTests : IDisposable
     public async Task A_background_job_keeps_the_kind_it_returns_whatever_its_text()
     {
         await using var s = await Open();
-        var job = s.StartBackground("job-kind", TimeSpan.FromSeconds(5), () => Task.FromResult(("partial", "the budget ran out")));
+        var job = s.Jobs.Start("job-kind", "img", TimeSpan.FromSeconds(5), _ => Task.FromResult(("partial", "the budget ran out")));
         await job.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal("partial", s.BackgroundKind);
-        var other = s.StartBackground("job-kind2", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "partial words first")));
+        Assert.Equal("partial", s.Jobs.Kind);
+        var other = s.Jobs.Start("job-kind2", "img", TimeSpan.FromSeconds(5), _ => Task.FromResult(("complete", "partial words first")));
         await other.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal("complete", s.BackgroundKind);
+        Assert.Equal("complete", s.Jobs.Kind);
     }
 
     [Fact]
@@ -253,8 +254,8 @@ public sealed class WorkerSessionBaseTests : IDisposable
     {
         await using var s = await Open();
         var ended = new TaskCompletionSource<string>();
-        s.StartBackground("job-bad", TimeSpan.FromSeconds(5), () => throw new InvalidOperationException("broke"),
-            (_, result) => ended.TrySetResult(result));
+        s.Jobs.Start("job-bad", "img", TimeSpan.FromSeconds(5), _ => throw new InvalidOperationException("broke"),
+            end => ended.TrySetResult(end.Text));
         Assert.Contains("failed", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
@@ -263,15 +264,15 @@ public sealed class WorkerSessionBaseTests : IDisposable
     {
         await using var s = await Open();
         var threw = new TaskCompletionSource();
-        var job = s.StartBackground("job-throw", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")),
-            (_, _) =>
+        var job = s.Jobs.Start("job-throw", "img", TimeSpan.FromSeconds(5), _ => Task.FromResult(("complete", "done")),
+            _ =>
             {
                 threw.TrySetResult();
                 throw new InvalidOperationException("subscriber");
             });
         await job.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await threw.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Contains("done", s.BackgroundResult);
+        Assert.Contains("done", s.Jobs.Result);
         Assert.False(job.Task.IsFaulted);
     }
 
@@ -283,14 +284,87 @@ public sealed class WorkerSessionBaseTests : IDisposable
         var heardByFirst = 0;
         var firstEnded = new TaskCompletionSource();
         var secondEnded = new TaskCompletionSource();
-        first.StartBackground("job-one", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")), (_, _) =>
+        first.Jobs.Start("job-one", "img", TimeSpan.FromSeconds(5), _ => Task.FromResult(("complete", "done")), _ =>
         {
             Interlocked.Increment(ref heardByFirst);
             firstEnded.TrySetResult();
         });
-        second.StartBackground("job-two", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")), (_, _) => secondEnded.TrySetResult());
+        second.Jobs.Start("job-two", "img", TimeSpan.FromSeconds(5), _ => Task.FromResult(("complete", "done")), _ => secondEnded.TrySetResult());
         await Task.WhenAll(firstEnded.Task, secondEnded.Task).WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(1, heardByFirst);
+    }
+
+    [Fact]
+    public async Task A_cancelled_background_job_ends_as_cancelled_and_leaves_the_engine_idle()
+    {
+        await using var s = await Open();
+        var ended = new TaskCompletionSource<BackgroundEnd>();
+        s.Jobs.Start("job-hold", "img", null, token => HoldThenComplete(s, token), end => ended.TrySetResult(end));
+        Assert.True(SpinWait.SpinUntil(() => s.State().State == "busy", TimeSpan.FromSeconds(10)));
+        Assert.True(await s.Jobs.CancelAsync(default));
+        var end = await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("cancelled", end.Kind);
+        Assert.False(s.Jobs.Running);
+        Assert.Equal("cancelled", s.Jobs.Kind);
+        Assert.Equal("idle", s.State().State);
+        await s.CallAsync("get", Get("a"), default);
+        Assert.False(await s.Jobs.CancelAsync(default));
+    }
+
+    private static async Task<(string, string)> HoldThenComplete(TestSession s, CancellationToken token)
+    {
+        await s.CallAsync("hold", new JsonObject(), token);
+        return ("complete", "done");
+    }
+
+    [Fact]
+    public async Task A_failed_background_job_keeps_the_error_s_next_call_for_its_notice()
+    {
+        await using var s = await Open();
+        var ended = new TaskCompletionSource<BackgroundEnd>();
+        s.Jobs.Start("job-bad", "img", null, _ => throw new ToolError(ErrorCode.Failed, "refused", "use engine=ghidra"), end => ended.TrySetResult(end));
+        var end = await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(("failed", "use engine=ghidra"), (end.Kind, end.Remediation));
+    }
+
+    [Fact]
+    public async Task A_call_during_a_background_job_names_the_status_call_and_retries_by_the_budget()
+    {
+        await using var s = await Open();
+        var gate = new TaskCompletionSource();
+        s.Jobs.Start("reanalysis", "img", TimeSpan.FromSeconds(1000), async _ =>
+        {
+            await gate.Task;
+            return ("complete", "done");
+        });
+        var busy = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("get", Get("a"), default));
+        Assert.Equal(ErrorCode.Conflict, busy.Code);
+        Assert.Contains("get_engine_status image=img waitSeconds=60", busy.Remediation);
+        // A quarter of the 1000 s budget left.
+        Assert.InRange(busy.RetryAfter!.Value.TotalSeconds, 240, 250);
+        gate.SetResult();
+    }
+
+    [Fact]
+    public async Task A_session_status_read_names_the_running_request_without_waiting_for_the_gate()
+    {
+        await using var s = await Open();
+        var running = s.CallAsync("hold", new JsonObject(), default);
+        Assert.True(SpinWait.SpinUntil(() => s.State().State == "busy", TimeSpan.FromSeconds(10)));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        using (WorkerSessionBase.WithoutQueue())
+        {
+            var busy = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("get", Get("a"), default));
+            Assert.Equal(ErrorCode.Conflict, busy.Code);
+            Assert.Contains("'hold'", busy.Message);
+            var shown = NativeEngineStatusTools.Busy(new NativeEngineStatusTools.EngineStatus("test", "open", null, 0, false, null), busy);
+            Assert.StartsWith("busy: ", shown.Stage);
+            Assert.Contains("'hold'", shown.Stage);
+        }
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"{clock.Elapsed.TotalSeconds:0.0} s");
+        s.Current!.Release();
+        await running;
+        Assert.Equal("idle", s.State().State);
     }
 
     private sealed class TestSession(AnalysisCache cache, bool concurrent, int maxRestarts) : WorkerSessionBase(new NativeOpenOptions())

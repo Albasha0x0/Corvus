@@ -321,7 +321,7 @@ public sealed class EngineOpenProfileTests : IDisposable
     [InlineData(400, 100)]
     [InlineData(100000, 300)]
     public void The_retry_is_a_quarter_of_the_remaining_estimate_between_30_s_and_5_min(double remaining, int seconds) =>
-        Assert.Equal(TimeSpan.FromSeconds(seconds), NativeEngineService.RetryFor(remaining));
+        Assert.Equal(TimeSpan.FromSeconds(seconds), Corvus.Native.Providers.BackgroundRunner.RetryFor(remaining));
 
     [Fact]
     public async Task An_open_that_fails_after_the_early_answer_leaves_a_failed_notice_with_the_next_call()
@@ -342,11 +342,6 @@ public sealed class EngineOpenProfileTests : IDisposable
         var failed = Assert.Single(engines.ImageSessions(native), e => e.State == "failed");
         Assert.Equal("scripted open failure", failed.Error);
     }
-
-    [Fact]
-    public void A_background_reanalysis_notice_names_the_engine_result_and_next_call() =>
-        Assert.Equal("a.exe: ida reanalysis ended in 4 s: complete; next: list_functions image=img engine=ida",
-            NativeEngineControlTools.BackgroundEndNotice("a.exe", "img", "ida", "reanalysis ended in 4 s: complete"));
 
     [Fact]
     public async Task Engine_status_wait_ends_before_the_call_deadline_and_says_so()

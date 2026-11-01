@@ -56,7 +56,7 @@ public static class EngineUse
 /// <summary>One image in an engine worker: writes serialized, a dead worker restarted with the journal replayed, closed past <see cref="MaxRestarts"/> failures.</summary>
 /// <remarks>With <see cref="ConcurrentRequests"/> other requests run in parallel once the worker is up. A restart opens
 /// the saved database and replays the changes journaled since the last save; the limit counts consecutive failures.</remarks>
-internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDisposable, IDisposable
+internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDisposable, IDisposable, IBackgroundJobs
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
@@ -154,7 +154,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         int queued = Math.Max(0, Volatile.Read(ref _calls) - running.Count - (starting != null ? 1 : 0));
         return new EngineSessionState(ProviderId, ImagePath, WorkerProcessId, state, op, Math.Round(seconds, 1), stage, queued, UnsavedCount,
             Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase,
-            !BackgroundRunning && BackgroundResult is { } done ? (Note is { } n ? n + "; " : "") + "background " + done : Note)
+            !Jobs.Running && Jobs.Result is { } done ? (Note is { } n ? n + "; " : "") + "background " + done : Note)
         {
             Analysis = state == "opening" && OpenTime == TimeSpan.Zero ? "running" : this is INativeDecompilerSession { AnalysisComplete: false } ? "partial" : "complete",
         };
@@ -549,86 +549,33 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>An engine error with what the session knows added (a partial analysis); the error itself when there is nothing to add.</summary>
     protected virtual ToolError Explain(ToolError error) => error;
 
-    /// <summary>A job that runs with no caller waiting (reanalyze_native wait=false): its start and budget.</summary>
-    internal sealed record BackgroundJob(string What, DateTime Started, TimeSpan? Budget, Task Task)
-    {
-        /// <summary>Elapsed share of the budget, 0 to 99 while running; null without a budget.</summary>
-        // A zero budget counts as one second; 100 is left for an ended job.
-        internal int? Percent(DateTime now) =>
-            Budget is { } budget ? (int)Math.Clamp((now - Started).TotalSeconds / Math.Max(1, budget.TotalSeconds) * 100, 0, 99) : null;
+    // A status read asks the engine only when it is free; it never queues.
+    private static readonly AsyncLocal<bool> Unqueued = new();
 
-        /// <summary>Budget left, an upper bound on the wait; zero once it has passed; null without a budget.</summary>
-        internal TimeSpan? Remaining(DateTime now) =>
-            Budget is { } budget ? budget > now - Started ? budget - (now - Started) : TimeSpan.Zero : null;
+    /// <summary>The background job of this session, which holds the engine until it ends.</summary>
+    public BackgroundRunner Jobs => _jobs ??= new(() => Path.GetFileName(ImagePath));
+
+    private BackgroundRunner? _jobs;
+
+    /// <summary>Makes the requests of the current flow fail with conflict, naming the running request, instead of queuing behind the gate.</summary>
+    internal static IDisposable WithoutQueue()
+    {
+        var previous = Unqueued.Value;
+        Unqueued.Value = true;
+        return new RestoreQueue(previous);
     }
 
-    /// <summary>The running or last background job; <see cref="BackgroundResult"/> is its outcome once it ended.</summary>
-    internal BackgroundJob? Background { get; private set; }
-
-    internal string? BackgroundResult { get; private set; }
-
-    /// <summary>
-    /// How the last background job ended: complete, partial or failed; null
-    /// while it runs.
-    /// </summary>
-    internal string? BackgroundKind { get; private set; }
-
-    // The background job's own requests pass; other callers get conflict until it ends.
-    private static readonly AsyncLocal<bool> InBackground = new();
-
-    internal bool BackgroundRunning => Background is { Task.IsCompleted: false };
-
-    /// <summary>
-    /// Starts <paramref name="run"/> with no caller; conflict when one is already running.
-    /// <paramref name="run"/> returns the outcome kind (complete or partial) with its text.
-    /// <paramref name="ended"/> receives the image file name and the outcome text once the job ended; null keeps none.
-    /// </summary>
-    internal BackgroundJob StartBackground(string what, TimeSpan? budget, Func<Task<(string Kind, string Text)>> run, Action<string, string>? ended = null)
+    private sealed class RestoreQueue(bool previous) : IDisposable
     {
-        lock (_backgroundLock)
-        {
-            if (BackgroundRunning) throw Busy();
-            BackgroundResult = null;
-            BackgroundKind = null;
-            var started = DateTime.UtcNow;
-            var task = Task.Run(async () =>
-            {
-                InBackground.Value = true;
-                try
-                {
-                    var (kind, text) = await run().ConfigureAwait(false);
-                    BackgroundResult = $"{what} ended in {(DateTime.UtcNow - started).TotalSeconds:0} s: {text}";
-                    BackgroundKind = kind;
-                }
-                catch (Exception e)
-                {
-                    BackgroundResult = $"{what} failed after {(DateTime.UtcNow - started).TotalSeconds:0} s: {e.Message}";
-                    BackgroundKind = "failed";
-                }
-            });
-            // Raised once the task is complete, so a client told of the end sees the engine free.
-            if (ended != null)
-                _ = task.ContinueWith(_ =>
-                {
-                    // A failing subscriber must not fault the job.
-                    try { ended(Path.GetFileName(ImagePath), BackgroundResult!); }
-                    catch (Exception e) { Console.Error.WriteLine($"The end notice of the background {what} failed: {e.Message}"); }
-                }, TaskScheduler.Default);
-            return Background = new BackgroundJob(what, started, budget, task);
-        }
+        public void Dispose() => Unqueued.Value = previous;
     }
 
-    private readonly object _backgroundLock = new();
-
-    /// <summary>The error for a call made while a background job holds the engine: conflict, retry when it should have ended.</summary>
-    internal ToolError Busy()
+    /// <summary>The error for a status read that found the engine busy: the request it runs and for how long.</summary>
+    private ToolError BusyRequest()
     {
-        var job = Background!;
-        var elapsed = DateTime.UtcNow - job.Started;
-        var of = job.Budget is { } budget ? $" of {budget.TotalSeconds:0} s" : "";
-        return new ToolError(ErrorCode.Conflict, $"A {job.What} of {Path.GetFileName(ImagePath)} is running in the background ({elapsed.TotalSeconds:0}{of}).",
-            $"get_engine_status image={Path.GetFileName(ImagePath)} waitSeconds=60 waits for it to end")
-        { RetryAfter = TimeSpan.FromSeconds(Math.Clamp(((job.Budget ?? TimeSpan.MaxValue) - elapsed).TotalSeconds, 2, 30)), Retryable = true };
+        var first = _worker?.Running.FirstOrDefault();
+        var what = first == null ? "a request" : $"'{first.Op}' ({(DateTime.UtcNow - first.StartedUtc).TotalSeconds:0} s)";
+        return new ToolError(ErrorCode.Conflict, $"The engine is busy with {what}.", $"get_engine_status image={Path.GetFileName(ImagePath)} waitSeconds=60 waits for it to end");
     }
 
     /// <summary>Runs a batch that starts no item after <paramref name="budget"/> seconds, timed out one request limit later, so the item running at the budget gets a full request limit.</summary>
@@ -639,10 +586,14 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
         TimeSpan? timeout = null, TimeSpan? stall = null)
     {
-        if (!InBackground.Value && BackgroundRunning) throw Busy();
+        if (!BackgroundRunner.InJob && Jobs.Running) throw Jobs.Busy();
         EngineUse.Note(ProviderId);
         Interlocked.Increment(ref _calls);
-        try { await _gate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        try
+        {
+            if (!Unqueued.Value) await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            else if (!_gate.Wait(0, cancellationToken)) throw BusyRequest();
+        }
         catch
         {
             Interlocked.Decrement(ref _calls);
@@ -746,6 +697,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     public async Task CloseAsync(bool save = true, CancellationToken cancellationToken = default)
     {
+        // Cancel the job first, so it releases the gate the close waits for.
+        Jobs.Stop();
         // The running request fails; its gate release is still awaited below.
         if (!await _gate.WaitAsync(ShutdownGrace, cancellationToken).ConfigureAwait(false))
             KillWorker("close while busy");

@@ -11,8 +11,8 @@ public sealed class BackgroundJobProgressTests
 {
     private static readonly DateTime Start = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static WorkerSessionBase.BackgroundJob Job(double budgetSeconds) =>
-        new("reanalysis", Start, TimeSpan.FromSeconds(budgetSeconds), Task.CompletedTask);
+    private static BackgroundJob Job(double budgetSeconds) =>
+        new("reanalysis", "img", Start, TimeSpan.FromSeconds(budgetSeconds), Task.CompletedTask, new CancellationTokenSource());
 
     [Fact]
     public void Percent_is_the_elapsed_share_of_the_budget()
