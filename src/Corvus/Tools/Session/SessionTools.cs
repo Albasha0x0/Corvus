@@ -78,11 +78,11 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         IReadOnlyList<StatusSection> Sections);
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
-    [Description("Server version, program, client, catalog digest, loaded files, limits, capabilities with fixes and unusable tools. " +
+    [Description("Version, program, client, catalog digest, loaded files, limits, capabilities with fixes and unusable tools. " +
                  "expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
-        [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
-        [Description("Registered server path, compared with the running one.")] string? expectedExecutable = null,
+        [Description("Catalog digest to compare.")] string? expectedCatalogDigest = null,
+        [Description("Registered server path to compare.")] string? expectedExecutable = null,
         RequestContext<CallToolRequestParams> context = null!)
     {
         var server = context?.Server?.ServerOptions;

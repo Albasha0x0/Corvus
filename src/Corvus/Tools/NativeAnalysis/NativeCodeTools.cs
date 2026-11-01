@@ -32,25 +32,23 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         NativeEngineCode.Choose(mode.Mode, mode.Named, engines, native, index);
 
 
-    /// <summary>Loads the image if given by path, waits for its index, and resolves the address (names include functions).</summary>
-    private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context,
-        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    /// <summary>Index progress as call progress, reported as seconds waited.</summary>
+    internal static IProgress<CodeIndexProgress> IndexProgress(string image, IProgress<ProgressNotificationValue> progress)
     {
-        var native = await Task.Run(() =>
-        {
-            return Targets.Native(workspace, image);
-        }, ct);
-        // Progress is the seconds waited: phase counts restart at zero, and progress that goes backwards is not sent.
+        // Phase counts restart at zero, and progress must not go backwards.
         var waited = System.Diagnostics.Stopwatch.StartNew();
-        var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
-            progress.Report(new ProgressNotificationValue
-            {
-                Progress = (float)waited.Elapsed.TotalSeconds,
-                Message = $"indexing {native.Id}: {p.Phase}" + (p.Total > 0 ? $" {p.Done:N0}/{p.Total:N0}" : p.Done > 0 ? $" ({p.Done:N0} instructions)" : ""),
-            })), ct);
+        return new Progress<CodeIndexProgress>(p => progress.Report(new ProgressNotificationValue
+        {
+            Progress = (float)waited.Elapsed.TotalSeconds,
+            Message = $"indexing {image}: {p.Phase}" + (p.Total > 0 ? $" {p.Done:N0}/{p.Total:N0}" : p.Done > 0 ? $" ({p.Done:N0} instructions)" : ""),
+        }));
+    }
+
+    /// <summary>Notes once that the built-in analysis reads declared functions only.</summary>
+    private void NoteSupport(LoadedNative native, NativeCodeIndex index)
+    {
         if (index.Support == CodeSupport.DeclaredFunctionsOnly && index.SupportNote != null && _engine?.Serves(index) != true)
             workspace.Notify($"{native.Id}: {index.SupportNote}");
-        return (native, index);
     }
 
     internal static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, name =>
@@ -130,7 +128,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var mode = Mode(engine);
         if (Candidates(view))
             return await FunctionCandidates(image, mode, offset, limit, context, progress, cancellationToken);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         uint? Bound(string? text) => string.IsNullOrWhiteSpace(text) ? null : Address(index, text);
         // An end at or past the image's end (a VA or an RVA) means to the end.
         uint? End(string? text) => text?.Trim().StartsWith("0x", StringComparison.OrdinalIgnoreCase) == true && NativeAddress.Number(text) is { } n
@@ -196,7 +195,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     {
         var mode = Mode(engine);
         bool fold = RuntimeCollapse.Parse(collapse);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         int max = Math.Clamp(maxInstructions, 1, 200_000);
         var choice = Choose(mode, native, index);
         if (fold) RuntimeCollapse.RequireEngine(choice.External, native.Image is WasmImage, index.Image.Arch);
@@ -301,7 +301,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var mode = Mode(engine);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         var choice = Choose(mode, native, index);
         limit = ClampLimit(limit);
         if (choice.External)
@@ -372,7 +373,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         depth = Math.Clamp(depth, 1, 8);
         maxNodes = ClampLimit(maxNodes, 20_000);
         var mode = Mode(engine);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         var choice = Choose(mode, native, index);
         if (!choice.External && index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         uint at = Address(index, function);
@@ -477,7 +479,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         }
         var mode = Mode(engine);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         var choice = Choose(mode, native, index);
         IReadOnlyList<Native.Providers.EngineString> engineStrings = [];
         if (choice.External)

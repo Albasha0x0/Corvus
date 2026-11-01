@@ -39,7 +39,7 @@ public sealed class ArchitecturePolicyTests : IDisposable
         {
             () => tools.Disassemble(path, f), () => tools.GetCfg(path, f), () => tools.FindXrefs(path, f), () => tools.NativeCallTree(path, f),
             () => tools.InspectInstruction(path, f), () => tools.SearchInstructions(path, mnemonic: "nop"),
-            () => new NativeCallTools(workspace, code).GetCallArguments(path, f), () => new NativeTraceTools(workspace, code).TraceNativeValues(path, f),
+            () => new NativeCallTools(code).GetCallArguments(path, f), () => new NativeTraceTools(workspace, code).TraceNativeValues(path, f),
             () => new NativeVirtualCallTools(workspace, code).FindVirtualCalls(path), () => new NativeSimilarityTools(workspace, code).FindSimilarFunctions(path, f),
         };
         foreach (var call in refusals)

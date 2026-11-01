@@ -73,10 +73,19 @@ internal sealed class CachesStatus : IStatusSection
     public string Name => "caches";
     public int Order => 30;
 
+    /// <summary>Each native image's index state on one line; none without images.</summary>
+    internal static string IndexStates(NativeCodeService code, AssemblyWorkspace workspace)
+    {
+        var states = workspace.Read(() => workspace.Natives.Select(n => $"{n.Id} {code.StateOf(n).Text}").ToList());
+        return states.Count == 0 ? "none" : string.Join("; ", states);
+    }
+
     public IEnumerable<StatusField> Fields(IServiceProvider services)
     {
         var engines = services.GetService<NativeEngineService>();
         var code = services.GetService<NativeCodeService>();
+        if (code != null && services.GetService<AssemblyWorkspace>() is { } workspace)
+            yield return new("indexState", IndexStates(code, workspace));
         if (engines?.CacheStatus() is { } db)
             yield return new("engineDatabases", $"{StatusPaths.Short(db.Root)}: {Core.FolderTally.Text(db.Entries, db.Bytes, ResultsStatus.Megabytes)} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days; " +
                 $"this session {db.Evicted} evicted" + (db.LastError != null ? $"; last problem: {db.LastError}" : ""),

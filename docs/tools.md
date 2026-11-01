@@ -56,7 +56,7 @@ Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
 **Unload assembly** (destructive, idempotent)
 
-Remove an assembly (unsaved edits are discarded) or close a dump id.
+Remove an assembly, discarding unsaved edits, or close a dump id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -92,15 +92,16 @@ Structured output: `searchDirectories`, `suggested`.
 
 **List loaded assemblies** (read-only, idempotent)
 
-Loaded assemblies and native images with ids, versions, flags and unsaved edits, plus the reference search directories. With path: the assemblies or files inside a container, without extracting.
+Loaded assemblies and native images: ids, versions, flags, unsaved edits, index state. With path: the assemblies or files inside a container, without extracting.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string |  |  | Container file, Blazor or ClickOnce folder to list instead of the workspace. |
+| `path` | string |  |  | Container file, Blazor or ClickOnce folder to list. |
 | `filter` | string |  |  | Id, name or path substring (case-insensitive). |
 | `offset` | integer |  |  |  |
-| `limit` | integer |  | `100` | Rows per page (default 100). |
+| `limit` | integer |  | `100` | Rows per page. |
 | `maxTokens` | integer |  |  |  |
+| `waitSeconds` | integer |  | `0` | Seconds (0-600) to wait for indexes. |
 
 Structured output: `items`, `offset`, `total`, `searchDirectories`, `backgroundIndexing`, `container`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -108,12 +109,12 @@ Structured output: `items`, `offset`, `total`, `searchDirectories`, `backgroundI
 
 **Server status** (read-only, idempotent, open-world)
 
-Server version, program, client, catalog digest, loaded files, limits, capabilities with fixes and unusable tools. expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.
+Version, program, client, catalog digest, loaded files, limits, capabilities with fixes and unusable tools. expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `expectedCatalogDigest` | string |  |  | Catalog digest to compare (t92-0123456789ab.p5-01234567). |
-| `expectedExecutable` | string |  |  | Registered server path, compared with the running one. |
+| `expectedCatalogDigest` | string |  |  | Catalog digest to compare. |
+| `expectedExecutable` | string |  |  | Registered server path to compare. |
 
 Structured output: `server`, `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`, `sections`.
 

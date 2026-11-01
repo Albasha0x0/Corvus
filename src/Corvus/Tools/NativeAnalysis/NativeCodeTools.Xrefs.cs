@@ -48,7 +48,7 @@ public sealed partial class NativeCodeTools
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use to, from or both"),
         };
         bool metadata = kind?.Trim().ToLowerInvariant() == "metadata";
-        bool? code = kind?.Trim().ToLowerInvariant() switch
+        bool? codeOnly = kind?.Trim().ToLowerInvariant() switch
         {
             null or "" or "any" or "metadata" => null,
             "code" => true,
@@ -60,12 +60,13 @@ public sealed partial class NativeCodeTools
             throw new ToolError(ErrorCode.InvalidArgument, "Pass address or addresses (one of them).", "address=<one target>, or addresses=[...] for several");
         if (addresses?.Length > MaxXrefTargets)
             throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most {MaxXrefTargets} per call.", "split the addresses");
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         // Never "0 references" for code the built-in analysis cannot read.
         bool member = addresses is not { Length: > 0 } && FieldTarget(address!) is not null && !IsAddress(index, address!);
         if (!member && index.Support == CodeSupport.DeclaredFunctionsOnly && !Choose(mode, native, index).External) throw NativeEngineCode.Unsupported(index, engines);
         if (addresses is { Length: > 0 })
-            return await XrefsBatch(native, index, addresses, dir, code, Choose(mode, native, index), offset, limit, progress, cancellationToken);
+            return await XrefsBatch(native, index, addresses, dir, codeOnly, Choose(mode, native, index), offset, limit, progress, cancellationToken);
         if (FieldTarget(address!) is { } field && !IsAddress(index, address!))
         {
             if (dir != "to") throw new ToolError(ErrorCode.InvalidArgument, "A struct member has references to it only.", "use direction=to for Type::member");
@@ -82,15 +83,15 @@ public sealed partial class NativeCodeTools
         }
         var parts = new List<XrefPart>();
         // Call arguments only for the page: a kind filter moves rows, so it analyzes every row.
-        if (dir != "from") parts.Add(await XrefsTo(native, index, address!, choice, progress, cancellationToken, code == null ? (offset, limit) : (0, int.MaxValue)));
+        if (dir != "from") parts.Add(await XrefsTo(native, index, address!, choice, progress, cancellationToken, codeOnly == null ? (offset, limit) : (0, int.MaxValue)));
         if (dir != "to") parts.Add(await XrefsFrom(native, index, address!, choice, progress, cancellationToken));
-        var filtered = Filter(parts, code);
+        var filtered = Filter(parts, codeOnly);
         var rows = filtered.SelectMany(p => p.Rows).ToList();
-        var titles = string.Concat(filtered.Select(p => p.Title + (filtered.Count > 1 || code != null ? $"  {Plural(p.Rows.Count, "row")}" +
-                                                                                                      (code is { } c ? $", {(c ? "code" : "data")} only" : "") + "\n" : "")));
+        var titles = string.Concat(filtered.Select(p => p.Title + (filtered.Count > 1 || codeOnly != null ? $"  {Plural(p.Rows.Count, "row")}" +
+                                                                                                      (codeOnly is { } c ? $", {(c ? "code" : "data")} only" : "") + "\n" : "")));
         var external = choice.External ? "" : Coverage(index);
         // Format tables naming the address are not listed with the code and data references; the engines count them.
-        if (!choice.External && dir != "from" && code == null && TryAddress(index, address!) is { } target && MetadataRows(index.Image, target) is { Count: > 0 } extra)
+        if (!choice.External && dir != "from" && codeOnly == null && TryAddress(index, address!) is { } target && MetadataRows(index.Image, target) is { Count: > 0 } extra)
             titles += $"+{extra.Count} metadata reference{(extra.Count == 1 ? "" : "s")} (.pdata, CFG or export tables; kind=metadata lists them)\n";
         var boundTo = filtered.Select(p => p.BoundTo).FirstOrDefault(b => b != null);
         return ToolOutput.With(titles + choice.Line + "\n" + external + pager.PageRows(rows, offset, limit, "reference"),

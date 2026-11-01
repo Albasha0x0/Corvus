@@ -51,7 +51,8 @@ public sealed partial class NativeCodeTools
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var mode = Mode(engine);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         var choice = Choose(mode, native, index);
         EngineDataList? data = null;
         if (choice.External)

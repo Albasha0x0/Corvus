@@ -266,7 +266,7 @@ public class SystemVCallTests
         using var ws = new AssemblyWorkspace(options);
         var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
         var collector = Corvus.Mcp.ToolOutput.Collect();
-        await new NativeCallTools(ws, code).GetCallArguments(NativeFixtures.OsxX64DbgShim, callee: "dlsym");
+        await new NativeCallTools(code).GetCallArguments(NativeFixtures.OsxX64DbgShim, callee: "dlsym");
         var report = Assert.IsType<NativeCallTools.CallArgumentsReport>(collector.Value);
         Assert.True(report.Total > 0);
         Assert.Equal("calls to _dlsym", report.Scope);

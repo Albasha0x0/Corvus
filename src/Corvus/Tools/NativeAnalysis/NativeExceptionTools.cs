@@ -38,7 +38,7 @@ public sealed record ExceptionReport(string Image,
 
 /// <summary>Exception handling metadata of native functions: MSVC on PE, Itanium on ELF and Mach-O.</summary>
 [McpServerToolType]
-public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
+public sealed class NativeExceptionTools(NativeCodeService code, OutputPager pager)
 {
     private const int MaxIpStates = 64;
 
@@ -53,7 +53,8 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, index) = await Open(image, progress, cancellationToken);
+        var (native, index) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
+        CheckArch(native, index);
         if (index.Image.Format != ImageFormat.Pe)
         {
             var (itext, irecord) = Itanium(native.Id, index, address);
@@ -124,17 +125,10 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         return (handlers.DistinctBy(h => (h.Kind, h.Address, h.Detail)).ToList(), ranges);
     }
 
-    private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    private static void CheckArch(LoadedNative native, NativeCodeIndex index)
     {
-        var native = await Task.Run(() =>
-        {
-            return Targets.Native(workspace, image);
-        }, ct);
-        var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
         if (index.Image.Format == ImageFormat.Pe && index.Image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64))
             throw new ToolError(ErrorCode.Unsupported, $"Exception metadata of PE images is decoded for x86, x64 and ARM64; {native.Id} is {index.Image.Arch}.");
-        return (native, index);
     }
 
     /// <summary>ELF and Mach-O: the Itanium tables (FDE or compact unwind, personality, LSDA call sites) of one function or the image.</summary>

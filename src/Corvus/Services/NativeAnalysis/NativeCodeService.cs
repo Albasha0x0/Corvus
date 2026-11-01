@@ -5,7 +5,19 @@ using Corvus.Native.Code;
 
 namespace Corvus.Services;
 
-/// <summary>Builds each native image's code index once, in the background after load or on first use; unload or reload cancels a build.</summary>
+/// <summary>A native image's code index state: pending, building, ready or failed.</summary>
+public readonly record struct IndexState(string State, string? Phase = null, long Done = 0, long Total = 0, string? Error = null)
+{
+    /// <summary>One line for list_assemblies and server_status.</summary>
+    public string Text => State switch
+    {
+        "building" => $"building: {Phase}" + (Total > 0 ? $" {Done:N0}/{Total:N0}" : Done > 0 ? $" ({Done:N0} instructions)" : ""),
+        "failed" => $"failed: {Error}",
+        _ => State,
+    };
+}
+
+/// <summary>Builds each native image's code index once; unload or reload cancels a build.</summary>
 public sealed class NativeCodeService
 {
     private readonly ILogger<NativeCodeService>? _logger;
@@ -169,7 +181,73 @@ public sealed class NativeCodeService
     }
 
     /// <summary>The image's index, building it if needed; progress reports the build phase while the caller waits.</summary>
-    public async Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct)
+    public Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct) =>
+        Index(native, progress, ct, null, null);
+
+    /// <summary>
+    /// Resolves <paramref name="image"/> (loading a path) and returns its index.
+    /// Waits <paramref name="waitSeconds"/> at most, else until the build makes no
+    /// progress for <see cref="Deadlines.Soft"/>; then a retryable timeout names the phase.
+    /// </summary>
+    public async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<CodeIndexProgress>? progress, CancellationToken ct,
+        int? waitSeconds = null)
+    {
+        var native = await Task.Run(() => Targets.Native(_workspace, image), ct);
+        return (native, await Index(native, progress, ct, waitSeconds is { } s ? TimeSpan.FromSeconds(s) : null, Deadlines.Soft));
+    }
+
+    /// <summary>The index state of <paramref name="native"/>; pending when no build started.</summary>
+    public IndexState StateOf(LoadedNative native) =>
+        native.Analysis.TryGetValue(typeof(IndexHolder), out var h) ? ((IndexHolder)h).State : new IndexState("pending");
+
+    /// <summary>Callers waiting on the build of <paramref name="native"/> now.</summary>
+    internal int Waiting(LoadedNative native) =>
+        native.Analysis.TryGetValue(typeof(IndexHolder), out var h) ? Volatile.Read(ref ((IndexHolder)h).Waiters) : 0;
+
+    /// <summary>
+    /// Waits up to <paramref name="wait"/> for the builds under way of <paramref name="natives"/>.
+    /// Builds still running after it will announce their end.
+    /// </summary>
+    public async Task WaitBuilding(IEnumerable<LoadedNative> natives, TimeSpan wait, CancellationToken ct)
+    {
+        var running = natives.Where(n => StateOf(n).State == "building").Select(n => Holder(n)).ToList();
+        if (running.Count == 0) return;
+        if (wait > TimeSpan.Zero)
+        {
+            var all = Task.WhenAll(running.Select(h => h.Task!.ContinueWith(_ => { }, TaskScheduler.Default)));
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            await Task.WhenAny(all, Task.Delay(wait, stop.Token));
+            stop.Cancel();
+            ct.ThrowIfCancellationRequested();
+        }
+        foreach (var h in running)
+            if (!h.Task!.IsCompleted) h.Announce = true;
+    }
+
+    /// <summary>
+    /// Waits until <paramref name="build"/> ends; false when <paramref name="cap"/> passes
+    /// or <paramref name="stall"/> passes without progress. Cancellation throws.
+    /// </summary>
+    private static async Task<bool> Ended(Task build, IndexHolder holder, TimeSpan? cap, TimeSpan? stall, CancellationToken ct)
+    {
+        long started = Environment.TickCount64;
+        while (!build.IsCompleted)
+        {
+            long now = Environment.TickCount64;
+            var left = TimeSpan.FromDays(1);
+            if (cap is { } c) left = c - TimeSpan.FromMilliseconds(now - started);
+            if (stall is { } s) left = TimeSpan.FromTicks(Math.Min(left.Ticks, (s - TimeSpan.FromMilliseconds(now - Volatile.Read(ref holder.Touched))).Ticks));
+            if (left <= TimeSpan.Zero) return false;
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            bool done = await Task.WhenAny(build, Task.Delay(left, stop.Token)) == build;
+            stop.Cancel();
+            ct.ThrowIfCancellationRequested();
+            if (done) return true;
+        }
+        return true;
+    }
+
+    private async Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct, TimeSpan? cap, TimeSpan? stall)
     {
         var holder = Holder(native);
         // Boxed: written by the build thread.
@@ -177,9 +255,27 @@ public sealed class NativeCodeService
         Action<CodeIndexProgress> listener = p => { Volatile.Write(ref last, p); progress?.Report(p); };
         holder.Progress += listener;
         var build = holder.Start(_logger, this);
+        Interlocked.Increment(ref holder.Waiters);
+        bool counted = true;
+        void Leave()
+        {
+            if (counted) Interlocked.Decrement(ref holder.Waiters);
+            counted = false;
+        }
         using var heartbeat = progress == null || build.IsCompleted ? null
             : Heartbeat(() => Volatile.Read(ref last) as CodeIndexProgress?, progress, ProgressHeartbeat);
-        try { return await build.WaitAsync(ct); }
+        ToolError? running = null;
+        try
+        {
+            if ((cap != null || stall != null) && !build.IsCompleted && !await Ended(build, holder, cap, stall, ct))
+            {
+                // Announce and leave first, then check the end again, so no end is lost.
+                holder.Announce = true;
+                Leave();
+                if (!build.IsCompleted) throw running = Building(native, holder.State, cap, stall);
+            }
+            return await build.WaitAsync(ct);
+        }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // The build was cancelled because the image was unloaded, reloaded or patched by another call.
@@ -187,8 +283,24 @@ public sealed class NativeCodeService
             if (Volatile.Read(ref last) is CodeIndexProgress reached) gone.Partial = new { image = native.Id, indexPhase = reached.Phase, done = reached.Done, total = reached.Total };
             throw gone;
         }
-        finally { holder.Progress -= listener; }
+        catch (Exception ex) when (build.IsFaulted && ex != running && ex is not OperationCanceledException and not ToolError { Retryable: true })
+        {
+            throw new ToolError(ErrorCode.Failed, $"Indexing {native.Id} failed: {ex.Message}", $"reload_assembly assembly={native.Id} builds the index again");
+        }
+        finally
+        {
+            Leave();
+            holder.Progress -= listener;
+        }
     }
+
+    private static ToolError Building(LoadedNative native, IndexState state, TimeSpan? cap, TimeSpan? stall) =>
+        new(ErrorCode.Timeout, $"{native.Id} is still indexing {(cap is { } c ? $"after {c.TotalSeconds:0} s" : $"with no progress for {stall!.Value.TotalSeconds:0} s")} ({state.Text}); the build goes on in the background and a [workspace] notice reports its end.",
+            $"list_assemblies filter={native.Id} waitSeconds=60 waits for the end; repeat this call once it is ready")
+        {
+            Details = new { image = native.Id, indexState = state.State, phase = state.Phase, done = state.Done, total = state.Total },
+            RetryAfter = TimeSpan.FromSeconds(30),
+        };
 
     /// <summary>A one-off index over the image's pre-patch bytes, for patch migration; not cached in memory.</summary>
     public NativeCodeIndex IndexOfOriginal(LoadedNative native, CancellationToken ct)
@@ -212,7 +324,7 @@ public sealed class NativeCodeService
     {
         if (previous != null) native.Analysis[typeof(PriorIndex)] = new PriorIndex(previous);
         if (!_background) return;
-        try { Holder(native).Start(_logger, this); }
+        try { Holder(native).Start(_logger, this, retryFailed: true); }
         catch (ToolError) when (native.Released.IsCancellationRequested) { }
     }
 
@@ -286,17 +398,39 @@ public sealed class NativeCodeService
         private readonly CancellationTokenSource _cts = new();
         public Task<NativeCodeIndex>? Task { get; private set; }
 
+        /// <summary>Callers waiting on the build now.</summary>
+        public int Waiters;
+
+        public volatile bool Announce;
+
+        /// <summary>Environment.TickCount64 of the latest build progress.</summary>
+        public long Touched = Environment.TickCount64;
+        private object? _last;
+        private string? _failure;
+        private bool _transient;
+
+        public IndexState State => Task switch
+        {
+            null => new("pending"),
+            { IsCompletedSuccessfully: true } => new("ready"),
+            { IsFaulted: true } => new("failed", Error: _failure),
+            { IsCanceled: true } => new("pending"),
+            _ => _last is CodeIndexProgress p ? new("building", p.Phase, p.Done, p.Total) : new("building", "starting"),
+        };
+
         /// <summary>Progress of the build, for every caller waiting on it.</summary>
         public event Action<CodeIndexProgress>? Progress;
 
-        public Task<NativeCodeIndex> Start(ILogger? logger, NativeCodeService owner)
+        public Task<NativeCodeIndex> Start(ILogger? logger, NativeCodeService owner, bool retryFailed = false)
         {
             lock (this)
             {
-                // A failed build is retried on the next request; a cancelled one only while the image is still loaded.
-                if (Task is { } t && !(t.IsFaulted || t.IsCanceled && !_cts.IsCancellationRequested)) return t;
+                // A failure repeats until reload or patch unless transient.
+                // A cancelled build restarts only while the image is loaded.
+                if (Task is { } t && !(t.IsFaulted && (retryFailed || _transient) || t.IsCanceled && !_cts.IsCancellationRequested)) return t;
                 var ct = _cts.Token;
-                return Task = System.Threading.Tasks.Task.Run(() => owner.LoadOrBuild(native.Image, owner.BuildOptions(native, ct), p => Progress?.Invoke(p), ct,
+                Volatile.Write(ref Touched, Environment.TickCount64);
+                return Task = System.Threading.Tasks.Task.Run(() => owner.LoadOrBuild(native.Image, owner.BuildOptions(native, ct), p => { Volatile.Write(ref _last, p); Volatile.Write(ref Touched, Environment.TickCount64); Progress?.Invoke(p); }, ct,
                         index => owner.AddMetadataVirtualCalls(native, index, ct)), ct)
                     .ContinueWith(done =>
                     {
@@ -319,10 +453,27 @@ public sealed class NativeCodeService
                                     done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.Stats.Elapsed.TotalSeconds);
                         }
                         else if (done.Exception is { } ex)
-                            logger?.LogWarning(ex.GetBaseException(), "Indexing {Id} failed", native.Id);
+                        {
+                            var cause = ex.GetBaseException();
+                            _failure = cause.Message;
+                            // Reading the image or the saved index can fail once and
+                            // succeed on a repeat.
+                            _transient = cause is IOException or OutOfMemoryException or ToolError { Retryable: true };
+                            logger?.LogWarning(cause, "Indexing {Id} failed", native.Id);
+                        }
+                        Announced(owner, native, done);
                         return done;
                     }, TaskScheduler.Default).Unwrap();
             }
+        }
+
+        /// <summary>Announces the end of a build a caller left; none when a caller waits or the build was superseded.</summary>
+        private void Announced(NativeCodeService owner, LoadedNative image, Task<NativeCodeIndex> done)
+        {
+            if (!Announce || Volatile.Read(ref Waiters) > 0 || done.IsCanceled) return;
+            owner._workspace.Notify(done.IsCompletedSuccessfully
+                ? $"{image.Id} is indexed. Next: list_functions image={image.Id}"
+                : $"Indexing {image.Id} failed: {_failure}. Next: reload_assembly assembly={image.Id} builds the index again.");
         }
 
         public void Dispose()

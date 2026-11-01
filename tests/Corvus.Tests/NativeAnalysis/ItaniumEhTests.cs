@@ -206,7 +206,7 @@ public class ItaniumEhTests
         using var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new AnnotationStore(dir.File("ann")));
         var pager = new OutputPager(options);
-        var tools = new NativeExceptionTools(workspace, code, pager);
+        var tools = new NativeExceptionTools(code, pager);
         var path = NativeFixtures.LinuxX64Coverage;
         var summary = await tools.GetExceptionInfo(path);
         Assert.Contains("121 FDEs (.eh_frame); 21 functions with an LSDA", summary);

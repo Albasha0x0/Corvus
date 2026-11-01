@@ -45,7 +45,8 @@ public sealed partial class NativeCodeTools
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 2000);
         int budget = Math.Clamp(maxInstructions, 1, ScanState.MaxBudget);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         var choice = Choose(mode, native, index);
         if (!choice.External && index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
 

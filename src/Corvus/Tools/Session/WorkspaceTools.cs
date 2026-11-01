@@ -15,7 +15,7 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataService aot, IndexingService indexing, UnpackService unpacker,
     NativeLinkService? link = null, AotBuildLoader? aotBuild = null, NativeEngineService? engines = null, MinidumpService? dumps = null,
-    ServerOptions? options = null, Native.Providers.Worker.WorkerPool? workers = null)
+    ServerOptions? options = null, Native.Providers.Worker.WorkerPool? workers = null, NativeCodeService? code = null)
 {
     /// <summary>A list_assemblies row: a loaded image, or with path an entry inside the container; fields that do not apply are absent.</summary>
     public sealed record WorkspaceEntry(
@@ -31,6 +31,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
         [Description("ILMerge / ILRepack note.")] public string? Merged { get; init; }
         public IReadOnlyList<string>? UnsavedEdits { get; init; }
         public string? Machine { get; init; }
+        [Description("pending, building (phase), ready or failed (reason).")] public string? IndexState { get; init; }
         [Description("dll or exe, and the mixed-mode assembly a native view belongs to.")] public string? FileKind { get; init; }
         public long? Size { get; init; }
         public string? Sha256 { get; init; }
@@ -291,17 +292,22 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
     }
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceList))]
-    [Description("Loaded assemblies and native images with ids, versions, flags and unsaved edits, plus the reference search directories. " +
+    [Description("Loaded assemblies and native images: ids, versions, flags, unsaved edits, index state. " +
                  "With path: the assemblies or files inside a container, without extracting.")]
     public Task<string> ListAssemblies(
-        [Description("Container file, Blazor or ClickOnce folder to list instead of the workspace.")] string? path = null,
+        [Description("Container file, Blazor or ClickOnce folder to list.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Rows per page (default 100).")] int limit = 100,
+        [Description("Rows per page.")] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        [Description("Seconds (0-600) to wait for indexes.")] int waitSeconds = 0,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         offset = Math.Max(0, offset);
+        if (waitSeconds is < 0 or > 600) throw new ToolError(ErrorCode.InvalidArgument, $"waitSeconds {waitSeconds} is outside 0-600.", "waitSeconds=60");
+        if (code != null && path == null)
+            await code.WaitBuilding(workspace.Read(() => workspace.Natives.Where(n => filter == null || n.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList()),
+                TimeSpan.FromSeconds(waitSeconds), cancellationToken);
         limit = ClampLimit(limit, 1000);
         if (path != null)
         {
@@ -346,7 +352,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
                 if (index++ < offset || rows.Count >= limit) continue;
                 rows.Add(new WorkspaceEntry("native", n.Id, n.FilePath)
                 {
-                    Machine = n.Image.MachineName, FileKind = (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $", native view of {n.ManagedView.Id}" : ""),
+                    Machine = n.Image.MachineName, IndexState = code?.StateOf(n).Text, FileKind = (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $", native view of {n.ManagedView.Id}" : ""),
                     Size = n.Image.FileSize, Sha256 = n.Image.Sha256,
                     Slices = n.Image is Native.MachO.MachOFile { Slices.Count: > 0 } m ? [.. m.Slices.Select(x => x.Name)] : null,
                 });
@@ -355,6 +361,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
         });
         var (page, count, onlyAssemblies) = all;
         var head = $"Search directories: {(directories.Count == 0 ? "none" : string.Join("; ", directories))}\nBackground indexing: {indexing.Status}\n";
+        if (page.FirstOrDefault(r => r.IndexState?.StartsWith("building") == true) is { } building)
+            head += $"Next: list_assemblies filter={building.Id} waitSeconds=60 waits for the index\n";
         // A native image or a mix counts as images; .NET assemblies are PE images too.
         return ToolOutput.List(page, offset, limit, count, Row, rows => new WorkspaceList(rows, offset, count, directories, indexing.Status),
             onlyAssemblies ? "assembly" : "image", head);
@@ -364,13 +372,13 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
     {
         "assembly" => $"{e.Id}  {e.Version}, {e.Types} types" + (e.Dummy == true ? ", dummy" : "") + (e.ReadyToRun == true ? ", ReadyToRun" : "") +
                       (e.Merged != null ? ", merged" : "") + (e.UnsavedEdits is { Count: > 0 } u ? $", {Plural(u.Count, "unsaved edit")}" : "") + $"  {e.Path}",
-        "native" => $"{e.Id}  native {e.Machine} {e.FileKind}, {e.Size:N0} bytes" + (e.Slices != null ? $", slices {string.Join(", ", e.Slices)}" : "") + $"  {e.Path}",
+        "native" => $"{e.Id}  native {e.Machine} {e.FileKind}, {e.Size:N0} bytes" + (e.IndexState is { } st && st != "ready" ? $", index {st}" : "") + (e.Slices != null ? $", slices {string.Join(", ", e.Slices)}" : "") + $"  {e.Path}",
         "contained" => $"{e.Path}  {e.Name} {e.Version}, {e.Size:N0} bytes, {e.Origin}" + (e.ReadyToRun == true ? ", ReadyToRun" : "") + (e.Merged != null ? ", merged" : ""),
         _ => $"{e.Path}  {e.Size:N0} bytes" + (e.Detail != null ? $", {e.Detail}" : ""),
     };
 
     [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", UseStructuredContent = true, OutputSchemaType = typeof(UnloadChange))]
-    [Description("Remove an assembly (unsaved edits are discarded) or close a dump id.")]
+    [Description("Remove an assembly, discarding unsaved edits, or close a dump id.")]
     public Task<string> UnloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {

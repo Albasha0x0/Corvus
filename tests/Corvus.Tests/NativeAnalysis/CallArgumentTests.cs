@@ -752,7 +752,7 @@ public class CallArgumentTests(ITestOutputHelper output)
         var service = new Corvus.Services.NativeCodeService(env.Workspace, env.Options);
         var codeTools = new Corvus.Tools.NativeCodeTools(env.Workspace, service, env.Pager);
         var peTools = new Corvus.Tools.NativeTools(env.Workspace, env.Pager, service);
-        var callTools = new Corvus.Tools.NativeCallTools(env.Workspace, service);
+        var callTools = new Corvus.Tools.NativeCallTools(service);
 
         var collector = Corvus.Mcp.ToolOutput.Collect();
         var text = await callTools.GetCallArguments(kernel32, callee: "CreateFileW", limit: 5);

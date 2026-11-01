@@ -45,6 +45,10 @@
           "machine": {
             "type": "string"
           },
+          "indexState": {
+            "description": "pending, building (phase), ready or failed (reason).",
+            "type": "string"
+          },
           "fileKind": {
             "description": "dll or exe, and the mixed-mode assembly a native view belongs to.",
             "type": "string"

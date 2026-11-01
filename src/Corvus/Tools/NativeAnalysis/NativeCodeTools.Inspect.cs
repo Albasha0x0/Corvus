@@ -129,7 +129,8 @@ public sealed partial class NativeCodeTools
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var mode = Mode(engine);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await code.Open(image, IndexProgress(image, progress), cancellationToken);
+        NoteSupport(native, index);
         var rva = Address(index, address);
         int n = Math.Clamp(limit, 1, MaxInspectCount), skip = Math.Clamp(offset, 0, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;

@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 
 /// <summary>Call sites of native code with their recovered argument values.</summary>
 [McpServerToolType]
-public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null)
+public sealed class NativeCallTools(NativeCodeService code, NativeEngineService? engines = null)
 {
     [Description("One argument of a call.")]
     public sealed record CallArgumentRecord(
@@ -45,18 +45,13 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         IReadOnlyList<CallSiteRecord> Items, int Offset, int Total,
         [property: Description("Coverage notes: limits reached, what is not analyzed.")] IReadOnlyList<string> Notes);
 
-    private async Task<NativeCodeIndex> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    private async Task<(LoadedNative Native, NativeCodeIndex Index)> OpenCalls(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var native = await Task.Run(() =>
-        {
-            return Targets.Native(workspace, image);
-        }, ct);
-        var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
+        var (native, index) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), ct);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, null, "decompile_native reads the code through IDA or Ghidra");
         if (Sites(index) == null)
             throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86, x64, ARM64 and ARM32 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
-        return index;
+        return (native, index);
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
@@ -74,8 +69,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         if (string.IsNullOrWhiteSpace(address) && string.IsNullOrWhiteSpace(callee))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass address (a call or a function) or callee (an API or function name).");
-        var index = await Open(image, progress, cancellationToken);
-        var native = Targets.Native(workspace, image);
+        var (native, index) = await OpenCalls(image, progress, cancellationToken);
         var session = engines?.OpenSession(native);
         Func<uint, ApiSignature?>? prototype = session == null ? null : start => EnginePrototype(session, index, start, cancellationToken);
         return await Task.Run(() => Report(index, address, callee, offset, limit, cancellationToken, prototype), cancellationToken);

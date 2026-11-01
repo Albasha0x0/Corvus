@@ -27,19 +27,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         if (dryRun && await Task.Run(() => workspace.Read(() => workspace.FindNative(image)), ct) is { } native
             && code.Ready(native) == null && code.Provisional(native) is { } provisional)
             return (native, provisional, ProvisionalNote);
-        var (n, index) = await Open(image, progress, ct);
+        var (n, index) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), ct);
         return (n, index, "");
-    }
-
-    private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
-    {
-        var native = await Task.Run(() =>
-        {
-            return Targets.Native(workspace, image);
-        }, ct);
-        var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
-        return (native, index);
     }
 
     private static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, name =>
@@ -85,7 +74,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         if (show != null && items != null) throw new ToolError(ErrorCode.InvalidArgument, "showDecompile takes one address, not items.");
         if (show != null && dryRun) throw new ToolError(ErrorCode.InvalidArgument, "showDecompile shows the pseudocode after the rename, so it needs dryRun=false.", "pass dryRun=false with showDecompile");
         var list = BatchItems(items, address, name, "name");
-        var (native, index) = await Open(image, progress, cancellationToken);
+        var (native, index) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var results = new List<ItemResult>();
         var changes = new List<(uint Rva, string? Name)>();
         var used = edits.Annotations(native).Names().ToDictionary(n => n.Rva, n => n.Name);
@@ -257,7 +246,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var list = BatchItems(items, address, text, "text");
         var defaultScope = CommentScopes.Parse(scope);
-        var (native, index) = await Open(image, progress, cancellationToken);
+        var (native, index) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var plans = new List<CommentPlan>();
         var results = new List<ItemResult>();
         foreach (var item in list)
@@ -417,7 +406,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, index) = await Open(image, progress, cancellationToken);
+        var (native, index) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var fmt = AnnotationExport.ParseFormat(format);
         if (fmt == AnnotationExport.Format.ObjcHeader) return ObjcHeaderExport(native, outputPath, overwrite, cancellationToken);
         var ann = edits.Annotations(native);
@@ -567,7 +556,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var filter = NameFilter.Parse(search);
-        var (native, _) = await Open(image, progress, cancellationToken);
+        var (native, _) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var layers = edits.NameLayers(native);
         int from = Math.Max(0, offset), count = ToolSupport.ClampLimit(limit);
         List<NativeEditRow> rows;
@@ -633,7 +622,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, _) = await Open(image, progress, cancellationToken);
+        var (native, _) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var ids = string.IsNullOrWhiteSpace(editId) ? [null] : editId.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => (string?)t).ToList();
         var done = new List<NativeUndoResult>();
         var results = new List<ItemResult>();
@@ -703,7 +692,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         SaveTarget.RequireReplaceAllowed(replaceOriginal, options);
-        var (native, _) = await Open(image, progress, cancellationToken);
+        var (native, _) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var saved = edits.Write(native, outputPath, overwrite, stripSignature, replaceOriginal, versioned);
         journal?.Saved(native);
         var written = edits.Journal.Entries(native).Where(e => e.Patch != null).Select(e => new SavedEdit(e.Id, EditDigest.Of([PatchChange(native, e.Patch!)]))).ToList();

@@ -15,7 +15,7 @@ public class ExceptionInfoRecordTests
     {
         using var env = new Env();
         var code = new NativeCodeService(env.Workspace, env.Options);
-        var tools = new NativeExceptionTools(env.Workspace, code, env.Pager);
+        var tools = new NativeExceptionTools(code, env.Pager);
         var collector = ToolOutput.Collect();
         await tools.GetExceptionInfo(Kernel32);
         var summary = Assert.IsType<ExceptionReport>(collector.Value);
