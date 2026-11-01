@@ -225,10 +225,11 @@ file or its folder.
 | `CORVUS_EMULATOR` | [speakeasy](https://github.com/mandiant/speakeasy) 2.0.0b9 (report format 5) | `emulate_native engine=speakeasy` |
 | `CORVUS_DIE` | Detect It Easy `diec` | `summarize_build detectItEasy=true` |
 | `CORVUS_CLR32` | `Corvus.Clr32.exe` (`clr32/` beside the server) | decoding 32-bit .NET dumps |
-| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER`, `CORVUS_DART`, `CORVUS_FLUTTER`, `CORVUS_RCODESIGN`, `CORVUS_ARCHIVE_LISTER`, `CORVUS_LZFSE`, `CORVUS_ASSET_CATALOG_READER`, `CORVUS_ARK_DISASSEMBLER`, `CORVUS_PAK_TOOL`, `CORVUS_GAMEMAKER_TOOL` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft, Dart SDK, Flutter SDK, rcodesign, 7-Zip, lzfse, carfile-go, ark_disasm, repak, UndertaleModCli | test oracles only |
+| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER`, `CORVUS_DART`, `CORVUS_FLUTTER`, `CORVUS_RCODESIGN`, `CORVUS_ARCHIVE_LISTER`, `CORVUS_LZFSE`, `CORVUS_ASSET_CATALOG_READER`, `CORVUS_ARK_DISASSEMBLER`, `CORVUS_PAK_TOOL`, `CORVUS_GAMEMAKER_TOOL`, `CORVUS_QEMU_AARCH64` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft, Dart SDK, Flutter SDK, rcodesign, 7-Zip, lzfse, carfile-go, ark_disasm, repak, UndertaleModCli, qemu-aarch64 | test oracles only |
 
 - osv-scanner: download its databases first with `osv-scanner scan source --offline-vulnerabilities --download-offline-databases`.
   `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY` is passed on. Without offline databases, advisories are reported as not checked.
+- `CORVUS_QEMU_AARCH64` names `qemu-aarch64` (Linux host) or a wrapper script.
 - GuardDog: `pip install guarddog==3.2.0`. `threat-*` rules are noteworthy. It does not build on Windows.
 - capa: on compiled-metadata builds, from a freeze file of the calls the metadata names. With `category=capa`, labels of
   PE, ELF and .NET files with ATT&CK and MBC entries run in the worker host and are kept per file. Without capa, labels

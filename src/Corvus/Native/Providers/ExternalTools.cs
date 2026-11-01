@@ -239,8 +239,13 @@ public static partial class ExternalTools
         ["UndertaleModCli" + Exe], ["--version"], 0, "oracle for the data.win reader in tests", true,
         Ops(("dump", ["dump", "{file}", "-o", "{output}", "-s", "-t", "-c", "UMT_DUMP_ALL"])));
 
+    // Runs a static AArch64 Linux ELF in software, the reference without an
+    // ARM64 processor.
+    public static readonly ExternalTool QemuUser = new("qemu-aarch64", "qemu-aarch64, QEMU user mode (test oracle)", "CORVUS_QEMU_AARCH64", ExternalToolKind.Executable,
+        ["qemu-aarch64" + Exe], ["--version"], 0, "oracle for the AArch64 emulator in tests", true, Ops(("run", ["{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool, QemuUser];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
