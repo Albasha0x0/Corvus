@@ -40,6 +40,35 @@ public sealed class WorkerSandboxTests
     }
 
     [Fact]
+    public async Task A_sandboxed_worker_writes_the_cache_folder_its_environment_names()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var pool = Pool(sandbox: true);
+        Assert.True((await Run(pool, "fixture_sandbox")).GetProperty("cacheWritable").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("1", true)]
+    [InlineData("0", false)]
+    [InlineData("off", false)]
+    [InlineData(" false ", false)]
+    [InlineData("OFF", false)]
+    [InlineData("False", false)]
+    [InlineData("", true)]
+    public void The_sandbox_is_on_unless_the_variable_turns_it_off(string? value, bool expected) =>
+        Assert.Equal(expected, WorkerPool.SandboxOn(value));
+
+    [Fact]
+    public void An_unconfigured_pool_runs_the_files_worker_sandboxed_on_windows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        if (Environment.GetEnvironmentVariable(WorkerPool.SandboxVariable) is not null) return;
+        using var pool = new WorkerPool();
+        Assert.True(pool.Sandboxed);
+    }
+
+    [Fact]
     public async Task A_sandboxed_worker_reads_back_the_mitigation_policies()
     {
         if (!OperatingSystem.IsWindows()) return;

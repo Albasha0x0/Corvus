@@ -81,12 +81,18 @@ public static class WorkerHost
     private static Task<JsonNode?> Ping(JsonObject args, CancellationToken cancellationToken) =>
         Task.FromResult<JsonNode?>(new JsonObject { ["pid"] = Environment.ProcessId, ["echo"] = args["echo"]?.DeepClone() });
 
-    /// <summary>Windows: the integrity level and mitigation policies of this worker, and whether it can write the profile folder, HKCU and its temporary folder.</summary>
+    /// <summary>
+    /// Windows: the integrity level and mitigation policies of this worker,
+    /// and whether it can write the profile folder, HKCU, its temporary
+    /// folder and the folder LOCALAPPDATA names.
+    /// </summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static Task<JsonNode?> Sandbox(JsonObject args, CancellationToken cancellationToken)
     {
         var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "corvus-fixture-" + Guid.NewGuid().ToString("N"));
         var temp = Path.Combine(Path.GetTempPath(), "corvus-fixture-" + Guid.NewGuid().ToString("N"));
+        var cache = Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? Path.GetTempPath();
+        var cacheFile = Path.Combine(cache, "corvus-fixture-" + Guid.NewGuid().ToString("N"));
         var key = @"Software\Corvus-fixture-" + Guid.NewGuid().ToString("N");
         var (strict, extension, remote, lowLabel) = WindowsSandbox.ReadPolicies();
         var result = new JsonObject
@@ -98,6 +104,7 @@ public static class WorkerHost
             ["noLowLabelImages"] = lowLabel,
             ["profileWritable"] = Writes(() => File.WriteAllText(profile, "x"), profile),
             ["temporaryWritable"] = Writes(() => File.WriteAllText(temp, "x"), temp),
+            ["cacheWritable"] = Writes(() => { Directory.CreateDirectory(cache); File.WriteAllText(cacheFile, "x"); }, cacheFile),
             ["registryWritable"] = Writes(() =>
             {
                 using var created = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(key);

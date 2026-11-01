@@ -29,7 +29,11 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     /// <summary>0 turns every worker off: the file tools then read in the server.</summary>
     public const string EnableVariable = "CORVUS_WORKER_HOST";
 
-    /// <summary>1: the files worker runs sandboxed on Windows (restricted token, low integrity, mitigation policies, job limits); off by default.</summary>
+    /// <summary>
+    /// 0, false or off (any case): the files worker runs unsandboxed on Windows.
+    /// Otherwise it runs on a restricted token at low integrity, with
+    /// mitigation policies and job limits.
+    /// </summary>
     public const string SandboxVariable = "CORVUS_WORKER_SANDBOX";
 
     /// <summary>The kind of worker that reads untrusted files and so runs sandboxed.</summary>
@@ -83,9 +87,20 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
 
     public bool Enabled => _options.Enabled ?? Environment.GetEnvironmentVariable(EnableVariable)?.Trim() is not ("0" or "false" or "off");
 
-    /// <summary>True when the files worker starts sandboxed: Windows only, set by <see cref="SandboxVariable"/>.</summary>
+    /// <summary>
+    /// True when the files worker starts sandboxed: Windows only, on unless
+    /// <see cref="SandboxVariable"/> turns it off.
+    /// </summary>
     public bool Sandboxed => OperatingSystem.IsWindows()
-        && (_options.Sandbox ?? Environment.GetEnvironmentVariable(SandboxVariable)?.Trim() is "1" or "true" or "on");
+        && (_options.Sandbox ?? SandboxOn(Environment.GetEnvironmentVariable(SandboxVariable)));
+
+    /// <summary>
+    /// False for 0, false or off in any case; true for unset, empty or any
+    /// other value.
+    /// </summary>
+    internal static bool SandboxOn(string? value) =>
+        value?.Trim() is not { } v
+        || !(v is "0" || v.Equals("false", StringComparison.OrdinalIgnoreCase) || v.Equals("off", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The memory limit each worker gets, in bytes, or null for none.</summary>
     public long? MemoryLimitBytes => _options.MemoryLimitBytes is { } c
@@ -209,7 +224,20 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             {
                 // A low-integrity worker writes only under labelled folders, so its temporary files go to the scratch folder.
                 var scratch = WindowsSandbox.Scratch();
-                var variables = new Dictionary<string, string?>(start.Environment) { ["TEMP"] = scratch, ["TMP"] = scratch };
+                // Child tools cache under APPDATA, which a low-integrity token
+                // cannot write in the profile. The folders are created here and
+                // inherit the low label of the scratch folder.
+                var local = Path.Combine(scratch, "local");
+                var roaming = Path.Combine(scratch, "roaming");
+                Directory.CreateDirectory(local);
+                Directory.CreateDirectory(roaming);
+                var variables = new Dictionary<string, string?>(start.Environment)
+                {
+                    ["TEMP"] = scratch,
+                    ["TMP"] = scratch,
+                    ["LOCALAPPDATA"] = local,
+                    ["APPDATA"] = roaming,
+                };
                 start = start with { Sandbox = true, Environment = variables };
             }
             if (OperatingSystem.IsMacOS() && start.MemoryLimitBytes is { } bytes)

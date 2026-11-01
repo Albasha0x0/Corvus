@@ -24,7 +24,7 @@ public abstract class FileIsolationTestBase : IDisposable
     /// A pool whose workers also answer the fixture files. The worker start limit scales with the machine load, so a
     /// loaded run waits as long for the same start as a quiet one does.
     /// </summary>
-    private protected WorkerPool Pool(ChildProcessStart? start = null, long memoryLimitBytes = 0)
+    private protected WorkerPool Pool(ChildProcessStart? start = null, long memoryLimitBytes = 0, bool? sandbox = null)
     {
         _load = MachineLoad.Factor();
         var options = new WorkerPoolOptions();
@@ -32,6 +32,7 @@ public abstract class FileIsolationTestBase : IDisposable
         {
             Enabled = true,
             MemoryLimitBytes = memoryLimitBytes,
+            Sandbox = sandbox,
             Start = start ?? WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [WorkerHost.FixtureOpsVariable] = "1" } },
             StartTimeout = options.StartTimeout * _load,
         });
@@ -278,7 +279,9 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
             "export_project" => new() { ["assembly"] = package, ["outputDirectory"] = Path.Combine(_dir.Path, "project") },
             _ => new() { ["path"] = package },
         };
-        using var pool = Pool();
+        // A sandboxed worker cannot write the output folder, so a package export
+        // runs in the worker only unsandboxed.
+        using var pool = Pool(sandbox: tool == "export_project" ? false : null);
         using var shared = WorkerPool.UseShared(pool);
         await using var session = await Session(false);
         var failed = Whole(await Call(session, tool, arguments));
