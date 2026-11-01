@@ -275,8 +275,9 @@ public abstract class DeviceTests : IDisposable
         [Fact]
         public void A_pull_that_keeps_growing_outlasts_the_stall_window()
         {
-            // 12 bytes at 100 ms each take 1.2 s, past the 0.6 s window.
-            using var slow = FakeDevice.Configure(new FakeTool().On(@"pull /data/local/tmp/notes\.txt ", file: new byte[12], paceMs: 100), AndroidSamples.Apk());
+            // 12 bytes at 300 ms each take 3.6 s, past the 2 s window; the window
+            // also covers the program's exit after the last byte (macOS CI on 75c15090).
+            using var slow = FakeDevice.Configure(new FakeTool().On(@"pull /data/local/tmp/notes\.txt ", file: new byte[12], paceMs: 300), AndroidSamples.Apk());
             var file = DeviceWithStallWindow(slow).PullFile("/data/local/tmp/notes.txt", _dir.File("slow/notes.txt"), false, null, default);
             Assert.Equal(12, file.Size);
         }
@@ -294,7 +295,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         private DeviceService DeviceWithStallWindow(FakeTool tool) =>
-            new(new ServerOptions()) { Environment = tool.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit, StallWindow = TimeSpan.FromMilliseconds(600) };
+            new(new ServerOptions()) { Environment = tool.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit, StallWindow = TimeSpan.FromSeconds(2) };
 
         [Fact]
         public void Log_filters_and_parses_lines()

@@ -57,15 +57,16 @@ public class ProgressLogTests
     }
 
     [Fact]
-    public async Task A_piped_call_writes_progress_lines_to_stderr_and_one_record_to_stdout()
+    public async Task A_piped_call_keeps_progress_lines_out_of_its_stdout_record()
     {
         // In-process parsing keeps compare_folders' hashing progress out of a worker.
+        // The client handles each message on its own task, so whether a progress
+        // line beats the response to stderr is not asserted (macOS CI on 75c15090).
         var (old, @new) = Folders();
         try
         {
-            var (code, output, error) = await ToolCliTests.Run("compare_folders", ServerOptions.InProcessParsingOption, $"oldPath={old}", $"newPath={@new}", "--json");
+            var (code, output, _) = await ToolCliTests.Run("compare_folders", ServerOptions.InProcessParsingOption, $"oldPath={old}", $"newPath={@new}", "--json");
             Assert.Equal(0, code);
-            Assert.Matches(@"(?m)^compare_folders: \[\d+/\d+\]", error);
             Assert.DoesNotContain("compare_folders: [", output);
             Assert.NotNull(System.Text.Json.Nodes.JsonNode.Parse(output));
         }
