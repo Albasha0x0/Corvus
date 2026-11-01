@@ -430,13 +430,34 @@ internal static class Installation
             Directory.Delete(root);
     }
 
-    /// <summary>A cmd.exe command line that applies the plan once this process has exited and released its files.</summary>
-    public static string DeferredWindowsCommand(Removal plan)
+    /// <summary>
+    /// Returns a PowerShell script that applies the plan after process
+    /// <paramref name="pid"/> exits; each failed step is skipped.
+    /// </summary>
+    public static string DeferredWindowsScript(Removal plan, int pid)
     {
-        var steps = new List<string> { "ping -n 3 127.0.0.1 >nul" };
-        steps.AddRange(plan.Delete.Select(d => d.Link ? $"rmdir \"{d.Path}\" 2>nul" : $"rmdir /s /q \"{d.Path}\" 2>nul"));
-        if (plan.RootIfEmpty is { } root) steps.Add($"rmdir \"{root}\" 2>nul");
-        return string.Join(" & ", steps);
+        static string Q(string p) => "'" + p.Replace("'", "''") + "'";
+        // Directory.Delete on a link removes the link, not its target.
+        var steps = new List<string> { $"Wait-Process -Id {pid} -ErrorAction SilentlyContinue" };
+        steps.AddRange(plan.Delete.Select(d => d.Link
+            ? $"try {{ [IO.Directory]::Delete({Q(d.Path)}) }} catch {{ }}"
+            : $"try {{ [IO.Directory]::Delete({Q(d.Path)}, $true) }} catch {{ }}"));
+        if (plan.RootIfEmpty is { } root) steps.Add($"try {{ [IO.Directory]::Delete({Q(root)}) }} catch {{ }}");
+        return string.Join("; ", steps);
+    }
+
+    /// <summary>
+    /// Starts a hidden PowerShell that applies the plan once this process has
+    /// exited; best effort, a locked path is left in place.
+    /// </summary>
+    public static void DeferWindowsRemoval(Removal plan)
+    {
+        var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true };
+        start.ArgumentList.Add("-NoProfile");
+        start.ArgumentList.Add("-NonInteractive");
+        start.ArgumentList.Add("-Command");
+        start.ArgumentList.Add(DeferredWindowsScript(plan, Environment.ProcessId));
+        Process.Start(start)?.Dispose();
     }
 
     /// <summary>Removes the program and its PATH entry or link, keeping user data unless <paramref name="purgeData"/>; Windows deletes after exit.</summary>
@@ -452,7 +473,7 @@ internal static class Installation
             var path = Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User) ?? "";
             var kept = path.Split(';', StringSplitOptions.RemoveEmptyEntries).Where(p => !p.TrimEnd('\\').Equals(current, StringComparison.OrdinalIgnoreCase));
             Environment.SetEnvironmentVariable("Path", string.Join(';', kept), EnvironmentVariableTarget.User);
-            Process.Start(new ProcessStartInfo("cmd.exe", "/c " + DeferredWindowsCommand(plan)) { UseShellExecute = false, CreateNoWindow = true });
+            DeferWindowsRemoval(plan);
         }
         else
         {

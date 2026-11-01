@@ -42,7 +42,7 @@ internal static class LegacyInstall
         // This process runs from the old files: on Windows they are deleted once it exits.
         var plan = Plan(root);
         if (OperatingSystem.IsWindows())
-            Process.Start(new ProcessStartInfo("cmd.exe", "/c " + Installation.DeferredWindowsCommand(plan)) { UseShellExecute = false, CreateNoWindow = true });
+            Installation.DeferWindowsRemoval(plan);
         else Installation.Apply(plan);
         return code;
     }

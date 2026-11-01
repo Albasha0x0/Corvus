@@ -200,7 +200,7 @@ try {
     }
     Move-Item $staging $target
 
-    if (Test-Path $current) { cmd /c rmdir "$current" | Out-Null }
+    if (Test-Path $current) { [IO.Directory]::Delete($current) }
     cmd /c mklink /J "$current" "$target" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not create $current." }
     Get-ChildItem $versions -Directory | Where-Object { $_.FullName -ne $target } | ForEach-Object {

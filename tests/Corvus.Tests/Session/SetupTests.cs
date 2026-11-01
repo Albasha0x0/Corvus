@@ -470,14 +470,45 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void The_deferred_Windows_uninstall_removes_the_junction_without_following_it()
+    public void The_deferred_Windows_uninstall_waits_for_the_process_and_unlinks_the_junction()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "O'Brien", "Corvus");
+        var q = root.Replace("'", "''");
+        var cur = Path.Combine(q, "current");
+        var ver = Path.Combine(q, "versions");
+        var script = Installation.DeferredWindowsScript(Installation.PlanRemoval(root, root, purgeData: false), 42);
+        Assert.DoesNotContain("cmd", script);
+        Assert.Equal($"Wait-Process -Id 42 -ErrorAction SilentlyContinue; try {{ [IO.Directory]::Delete('{cur}') }} catch {{ }}; "
+            + $"try {{ [IO.Directory]::Delete('{ver}', $true) }} catch {{ }}; try {{ [IO.Directory]::Delete('{q}') }} catch {{ }}", script);
+        script = Installation.DeferredWindowsScript(Installation.PlanRemoval(root, root, purgeData: true), 42);
+        Assert.EndsWith($"try {{ [IO.Directory]::Delete('{q}', $true) }} catch {{ }}", script);
+    }
+
+    [Fact]
+    public void The_deferred_Windows_script_removes_the_junction_and_keeps_its_target()
     {
         if (!OperatingSystem.IsWindows()) return;
-        var root = @"C:\Users\u\AppData\Local\Corvus";
-        var command = Installation.DeferredWindowsCommand(Installation.PlanRemoval(root, root, purgeData: false));
-        Assert.Equal($"ping -n 3 127.0.0.1 >nul & rmdir \"{root}\\current\" 2>nul & rmdir /s /q \"{root}\\versions\" 2>nul & rmdir \"{root}\" 2>nul", command);
-        command = Installation.DeferredWindowsCommand(Installation.PlanRemoval(root, root, purgeData: true));
-        Assert.EndsWith($"rmdir \"{root}\\current\" 2>nul & rmdir /s /q \"{root}\" 2>nul", command);
+        var root = Path.Combine(Path.GetTempPath(), "corvus-deferred-" + Guid.NewGuid().ToString("N"), "Corvus");
+        var target = Path.Combine(Path.GetDirectoryName(root)!, "target");
+        Directory.CreateDirectory(Path.Combine(root, "versions", "1"));
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "keep.txt"), "x");
+        var link = Path.Combine(root, "current");
+        var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"") { CreateNoWindow = true, UseShellExecute = false })!;
+        mk.WaitForExit();
+        Assert.True(Directory.Exists(link));
+        var done = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c exit") { CreateNoWindow = true, UseShellExecute = false })!;
+        done.WaitForExit();
+        var script = Installation.DeferredWindowsScript(Installation.PlanRemoval(root, root, purgeData: true), done.Id);
+        var ps = new System.Diagnostics.ProcessStartInfo("powershell.exe") { CreateNoWindow = true, UseShellExecute = false };
+        foreach (var a in new[] { "-NoProfile", "-NonInteractive", "-Command", script }) ps.ArgumentList.Add(a);
+        using (var p = System.Diagnostics.Process.Start(ps)!) Assert.True(p.WaitForExit(60000));
+        try
+        {
+            Assert.False(Directory.Exists(root));
+            Assert.True(File.Exists(Path.Combine(target, "keep.txt")));
+        }
+        finally { Directory.Delete(Path.GetDirectoryName(root)!, true); }
     }
 
     [Fact]
