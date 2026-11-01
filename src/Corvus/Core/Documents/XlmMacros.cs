@@ -11,7 +11,7 @@ internal sealed record WorkbookSheet(string Name, string Type, string State);
 /// <summary>A formula cell of an Excel 4.0 macro sheet.</summary>
 internal sealed record XlmCell(string Sheet, string Cell, string Formula);
 
-/// <summary>Excel 4.0 (XLM) macros of an .xls or .xlsm: sheets, defined names and macro formulas decoded to text.</summary>
+/// <summary>Excel 4.0 (XLM) macros of an .xls, .xlsm or .xlsb: sheets, defined names and macro formulas decoded to text.</summary>
 internal sealed class XlmMacros
 {
     public List<WorkbookSheet> Sheets { get; } = [];
@@ -150,8 +150,12 @@ internal sealed class XlmMacros
 
     private static readonly string[] Binary = ["+", "-", "*", "/", "^", "&", "<", "<=", "=", ">=", ">", "<>", " ", ",", ":"];
 
-    /// <summary>A parsed formula (rgce) as text; a token it does not know ends it with "?".</summary>
-    public static string Formula(ReadOnlySpan<byte> f, bool biff8)
+    /// <summary>
+/// A parsed formula (rgce) as text; a token it does not know ends it with "?".
+/// <paramref name="biff12"/> selects the binary workbook encoding and is
+/// passed with <paramref name="biff8"/> true.
+/// </summary>
+    public static string Formula(ReadOnlySpan<byte> f, bool biff8, bool biff12 = false)
     {
         var stack = new Stack<string>();
         int i = 0;
@@ -164,6 +168,35 @@ internal sealed class XlmMacros
             int baseId = ptg < 0x20 ? ptg : (ptg & 0x1F) | 0x20;
             switch (baseId)
             {
+                case 0x17 when biff12:
+                {
+                    if (!Need(2)) return Done(stack, true);
+                    int chars = BinaryPrimitives.ReadUInt16LittleEndian(f[i..]);
+                    i += 2;
+                    if (!Need(chars * 2)) return Done(stack, true);
+                    stack.Push("\"" + Encoding.Unicode.GetString(f.Slice(i, chars * 2)).Replace("\"", "\"\"") + "\"");
+                    i += chars * 2;
+                    break;
+                }
+                case 0x20 when biff12: if (!Need(14)) return Done(stack, true); i += 14; stack.Push("{array}"); break;
+                case 0x23 when biff12: if (!Need(4)) return Done(stack, true); stack.Push("Name#" + BinaryPrimitives.ReadUInt32LittleEndian(f[i..])); i += 4; break;
+                case 0x24 or 0x2C when biff12:
+                    if (!Need(6)) return Done(stack, true);
+                    stack.Push(Ref12(f[i..]));
+                    i += 6;
+                    break;
+                case 0x25 or 0x2D when biff12:
+                    if (!Need(12)) return Done(stack, true);
+                    stack.Push(Area12(f[i..]));
+                    i += 12;
+                    break;
+                case 0x2A when biff12: if (!Need(6)) return Done(stack, true); i += 6; stack.Push("#REF!"); break;
+                case 0x2B when biff12: if (!Need(12)) return Done(stack, true); i += 12; stack.Push("#REF!"); break;
+                case 0x39 when biff12: if (!Need(6)) return Done(stack, true); stack.Push("NameX#" + BinaryPrimitives.ReadUInt32LittleEndian(f[(i + 2)..])); i += 6; break;
+                case 0x3A when biff12: if (!Need(8)) return Done(stack, true); stack.Push("!" + Ref12(f[(i + 2)..])); i += 8; break;
+                case 0x3B when biff12: if (!Need(14)) return Done(stack, true); stack.Push("!" + Area12(f[(i + 2)..])); i += 14; break;
+                case 0x3C when biff12: if (!Need(8)) return Done(stack, true); i += 8; stack.Push("#REF!"); break;
+                case 0x3D when biff12: if (!Need(14)) return Done(stack, true); i += 14; stack.Push("#REF!"); break;
                 case 0x01 or 0x02: if (!Need(4)) return Done(stack, true); i += 4; break;
                 case >= 0x03 and <= 0x11:
                     var right = Pop(); var left = Pop();
@@ -254,6 +287,13 @@ internal sealed class XlmMacros
         return Done(stack, false);
     }
 
+    private static string Ref12(ReadOnlySpan<byte> d) =>
+        Cell((int)BinaryPrimitives.ReadUInt32LittleEndian(d), BinaryPrimitives.ReadUInt16LittleEndian(d[4..]) & 0x3FFF);
+
+    private static string Area12(ReadOnlySpan<byte> d) =>
+        Cell((int)BinaryPrimitives.ReadUInt32LittleEndian(d), BinaryPrimitives.ReadUInt16LittleEndian(d[8..]) & 0x3FFF) + ":" +
+        Cell((int)BinaryPrimitives.ReadUInt32LittleEndian(d[4..]), BinaryPrimitives.ReadUInt16LittleEndian(d[10..]) & 0x3FFF);
+
     private static string Call(Stack<string> stack, string name, int args)
     {
         var list = new string[Math.Min(args, stack.Count)];
@@ -302,6 +342,7 @@ internal sealed class XlmMacros
     /// <summary>The macro sheets of an .xlsm / .xltm: workbook.xml for sheets and names, xl/macrosheets/*.xml for formulas.</summary>
     public static XlmMacros? FromOoxml(System.IO.Compression.ZipArchive zip, CancellationToken ct)
     {
+        if (zip.GetEntry("xl/workbook.bin") is { } binary) return FromXlsb(zip, binary, ct);
         var workbook = zip.GetEntry("xl/workbook.xml");
         var macroParts = zip.Entries.Where(e => e.FullName.StartsWith("xl/macrosheets/", StringComparison.OrdinalIgnoreCase) && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
         if (workbook == null && macroParts.Count == 0) return null;
@@ -340,9 +381,138 @@ internal sealed class XlmMacros
                 if (c.GetElementsByTagName("f") is { Count: > 0 } f) x.Cells.Add(new XlmCell(sheet, c.GetAttribute("r"), f[0]!.InnerText));
             }
         }
-        if (zip.Entries.Any(e => e.FullName.StartsWith("xl/macrosheets/", StringComparison.OrdinalIgnoreCase) && e.FullName.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)))
-            x.Notes.Add("binary macro sheets (.xlsb) are listed, not decoded");
         return x;
+    }
+
+    // BIFF12 record ids of the binary workbook and its sheets.
+    private const int BrtRowHdr = 0, BrtFmlaString = 8, BrtFmlaNum = 9, BrtFmlaBool = 10, BrtFmlaError = 11, BrtName = 39, BrtBundleSh = 156;
+
+    /// <summary>The macro sheets of an .xlsb: workbook.bin for sheets and names, xl/macrosheets/*.bin for formulas decoded from BIFF12 records.</summary>
+    private static XlmMacros FromXlsb(System.IO.Compression.ZipArchive zip, System.IO.Compression.ZipArchiveEntry book, CancellationToken ct)
+    {
+        var x = new XlmMacros();
+        var targets = Relationships(zip, "xl/_rels/workbook.bin.rels");
+        var parts = new List<(string Part, string Name)>();
+        int bundles = 0;
+        foreach (var (id, d) in Records12(Read12(book), ct))
+        {
+            if (id == BrtBundleSh && d.Length >= 12)
+            {
+                int at = 8;
+                var rid = WideString(d, ref at);
+                var name = WideString(d, ref at);
+                var target = targets.GetValueOrDefault(rid);
+                var macro = target != null && target.Contains("macrosheets/", StringComparison.OrdinalIgnoreCase);
+                var type = macro ? "macro sheet" : target != null && target.Contains("chartsheets/", StringComparison.OrdinalIgnoreCase) ? "chart" : "worksheet";
+                var state = BinaryPrimitives.ReadUInt32LittleEndian(d) switch { 0 => "visible", 1 => "hidden", 2 => "very hidden", _ => "unknown" };
+                x.Sheets.Add(new WorkbookSheet(name, type, state));
+                bundles++;
+                if (macro) parts.Add(("xl/" + target!.TrimStart('/').Replace("xl/", "", StringComparison.OrdinalIgnoreCase), name));
+            }
+            else if (id == BrtName && d.Length >= 13)
+            {
+                int at = 9;
+                var name = WideString(d, ref at);
+                if (name.StartsWith("_xlnm.", StringComparison.Ordinal)) name = name[6..];
+                var formula = ParsedFormula(d, ref at);
+                x.Names.Add($"Name {name}{((d[0] & 1) != 0 ? " (hidden)" : "")} = {formula}");
+            }
+        }
+        if (bundles == 0) x.Notes.Add("workbook.bin: no sheet records read");
+        // Macro sheet parts no sheet entry reaches are read too, named by file.
+        var listed = parts.Select(p => p.Part).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in zip.Entries)
+        {
+            if (!e.FullName.StartsWith("xl/macrosheets/", StringComparison.OrdinalIgnoreCase) || !e.FullName.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) || listed.Contains(e.FullName)) continue;
+            var file = Path.GetFileNameWithoutExtension(e.FullName);
+            x.Sheets.Add(new WorkbookSheet(file, "macro sheet", "visible"));
+            parts.Add((e.FullName, file));
+        }
+        foreach (var (part, sheet) in parts)
+        {
+            if (zip.GetEntry(part) is not { } entry) { x.Notes.Add($"macro sheet {sheet}: part {part} is missing"); continue; }
+            int row = 0;
+            foreach (var (id, d) in Records12(Read12(entry), ct))
+            {
+                if (id == BrtRowHdr && d.Length >= 4) { row = (int)BinaryPrimitives.ReadUInt32LittleEndian(d); continue; }
+                // Bytes before the grbit: a number, a flag or an error code.
+                int value = id switch { BrtFmlaNum => 8, BrtFmlaBool or BrtFmlaError => 1, _ => 0 };
+                if (id is not (BrtFmlaString or BrtFmlaNum or BrtFmlaBool or BrtFmlaError) || d.Length < 8 + value + 2) continue;
+                if (x.Cells.Count >= MaxCells) { x.Notes.Add($"stopped at {MaxCells:N0} formula cells"); return x; }
+                int col = (int)BinaryPrimitives.ReadUInt32LittleEndian(d);
+                int at = 8 + value;
+                if (id == BrtFmlaString) WideString(d, ref at);
+                at += 2;
+                x.Cells.Add(new XlmCell(sheet, Cell(row, col), ParsedFormula(d, ref at)));
+            }
+        }
+        return x;
+    }
+
+    private static byte[] Read12(System.IO.Compression.ZipArchiveEntry entry) => ReadPart(entry);
+
+    /// <summary>A part's bytes, counted as read; over 64 MiB is refused whatever its header declares.</summary>
+    internal static byte[] ReadPart(System.IO.Compression.ZipArchiveEntry entry)
+    {
+        const long Cap = 64 << 20;
+        if (entry.Length > Cap) throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is over 64 MiB.");
+        using var s = entry.Open();
+        using var ms = new MemoryStream();
+        var buf = new byte[81920];
+        int n;
+        while ((n = s.Read(buf, 0, buf.Length)) > 0)
+        {
+            if (ms.Length + n > Cap) throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is over 64 MiB.");
+            ms.Write(buf, 0, n);
+        }
+        return ms.ToArray();
+    }
+
+    // Record id: 1 or 2 bytes of 7 bits; length: 1 to 4 bytes of 7 bits.
+    // A record running past the end is truncated input, so the list ends.
+    private static IEnumerable<(int Id, byte[] Data)> Records12(byte[] b, CancellationToken ct)
+    {
+        int pos = 0, n = 0;
+        while (pos < b.Length)
+        {
+            if ((++n & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
+            int id = b[pos++];
+            if ((id & 0x80) != 0)
+            {
+                if (pos >= b.Length) yield break;
+                id = (id & 0x7F) | ((b[pos++] & 0x7F) << 7);
+            }
+            long len = 0;
+            for (int k = 0; k < 4; k++)
+            {
+                if (pos >= b.Length) yield break;
+                int v = b[pos++];
+                len |= (long)(v & 0x7F) << (7 * k);
+                if ((v & 0x80) == 0) break;
+            }
+            if (pos + len > b.Length) yield break;
+            yield return (id, b[pos..(pos + (int)len)]);
+            pos += (int)len;
+        }
+    }
+
+    private static string WideString(byte[] d, ref int at)
+    {
+        if (at + 4 > d.Length) { at = d.Length; return ""; }
+        long cch = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(at));
+        at += 4;
+        int bytes = (int)Math.Min(cch * 2, d.Length - at) & ~1;
+        var s = Encoding.Unicode.GetString(d, at, bytes);
+        at += bytes;
+        return s;
+    }
+
+    private static string ParsedFormula(byte[] d, ref int at)
+    {
+        if (at + 4 > d.Length) return "";
+        long cce = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(at));
+        at += 4;
+        return Formula(d.AsSpan(at, (int)Math.Min(cce, d.Length - at)), true, true);
     }
 
     internal static Dictionary<string, string> Relationships(System.IO.Compression.ZipArchive zip, string part)
@@ -357,8 +527,7 @@ internal sealed class XlmMacros
     /// <summary>An XML part read without DTDs or external entities, within 64 MiB.</summary>
     internal static XmlDocument Load(System.IO.Compression.ZipArchiveEntry entry)
     {
-        if (entry.Length > 64 << 20) throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is over 64 MiB.");
-        using var s = entry.Open();
+        using var s = new MemoryStream(ReadPart(entry));
         var doc = new XmlDocument { XmlResolver = null };
         try
         {

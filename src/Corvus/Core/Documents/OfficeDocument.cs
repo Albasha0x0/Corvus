@@ -262,7 +262,11 @@ internal sealed class OfficeDocument
             else if (lower.EndsWith(".rels", StringComparison.Ordinal))
                 ReadLinks(entry, prefix);
         }
-        if (zip.Entries.Any(e => e.FullName.StartsWith("xl/", StringComparison.Ordinal)) && XlmMacros.FromOoxml(zip, ct) is { HasMacroSheets: true } x) Xlm = x;
+        if (zip.Entries.Any(e => e.FullName.StartsWith("xl/", StringComparison.Ordinal)) && XlmMacros.FromOoxml(zip, ct) is { } x)
+        {
+            Notes.AddRange(x.Notes.Select(n => prefix + "Workbook: " + n));
+            if (x.HasMacroSheets) Xlm = x;
+        }
         OfficeFormulas.Read(zip, prefix, this, depth, ct);
     }
 

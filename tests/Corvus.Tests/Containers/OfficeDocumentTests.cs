@@ -310,6 +310,146 @@ public sealed class OfficeDocumentTests
         Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
     }
 
+    private static byte[] XlsbRec(int id, params byte[][] parts)
+    {
+        var body = parts.SelectMany(p => p).ToArray();
+        var head = id < 0x80 ? new[] { (byte)id } : new[] { (byte)(0x80 | id & 0x7F), (byte)(id >> 7) };
+        var len = new List<byte>();
+        int n = body.Length;
+        do { var v = (byte)(n & 0x7F); n >>= 7; len.Add(n > 0 ? (byte)(v | 0x80) : v); } while (n > 0);
+        return [.. head, .. len, .. body];
+    }
+
+    private static byte[] XlsbU32(int v) => BitConverter.GetBytes(v);
+
+    private static byte[] XlsbWide(string s) => [.. XlsbU32(s.Length), .. Encoding.Unicode.GetBytes(s)];
+
+    private const string XlsbNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+
+    private static string XlsbRels(string target) =>
+        $"<Relationships xmlns=\"{XlsbNs}\"><Relationship Id=\"rId1\" Type=\"x\" Target=\"{target}\"/></Relationships>";
+
+    private static byte[] XlsbBook(byte[]? name = null) =>
+        XlsbRec(156, XlsbU32(2), XlsbU32(1), XlsbWide("rId1"), XlsbWide("M"))
+            .Concat(name == null ? [] : XlsbRec(39, XlsbU32(0), [0], XlsbU32(-1), XlsbWide("_xlnm.Auto_Open"), XlsbU32(name.Length), name, XlsbU32(0))).ToArray();
+
+    private static byte[] XlsbPackage(byte[] book, byte[]? sheet, string rels)
+    {
+        var parts = new List<(string, byte[])> { ("xl/workbook.bin", book), ("xl/_rels/workbook.bin.rels", Encoding.UTF8.GetBytes(rels)) };
+        if (sheet != null) parts.Add(("xl/macrosheets/sheet1.bin", sheet));
+        return Ooxml(parts.ToArray());
+    }
+
+    private static OfficeFileView.Facts? XlsbView(byte[] book, byte[]? sheet, string? rels = null) =>
+        View(XlsbPackage(book, sheet, rels ?? XlsbRels("macrosheets/sheet1.bin")), "a.xlsb");
+
+    // The formula is EXEC("calc"): function 110 with one argument.
+    private static readonly byte[] XlsbExec = [0x17, 4, 0, .. Encoding.Unicode.GetBytes("calc"), 0x42, 1, 110, 0];
+
+    private static byte[] XlsbCell(int id, int valueBytes, byte[] formula) =>
+        XlsbRec(id, XlsbU32(0), XlsbU32(0), id == 8 ? XlsbWide("") : new byte[valueBytes], [0, 0], XlsbU32(formula.Length), formula, XlsbU32(0));
+
+    private static byte[] XlsbSheet(params byte[][] cells) => XlsbRec(0, XlsbU32(0)).Concat(cells.SelectMany(c => c)).ToArray();
+
+    [Fact]
+    public void An_xlsb_macro_sheet_is_decoded_from_its_binary_records()
+    {
+        // Formula A1 for the name; EXEC("calc") for the cell.
+        byte[] name = [0x24, 0, 0, 0, 0, 0, 0];
+        var f = XlsbView(XlsbBook(name), XlsbSheet(XlsbCell(8, 0, XlsbExec)))!;
+        Assert.Contains(f.Sheets!, s => s is { Name: "M", Type: "macro sheet", State: "very hidden" });
+        Assert.Equal(1, f.XlmFormulas);
+        Assert.Contains("Name Auto_Open = A1", f.DefinedNames!);
+        Assert.Contains(f.Findings, r => r is { Type: "AutoExec", Keyword: "Auto_Open" });
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
+    }
+
+    [Theory]
+    [InlineData(9, 8)]
+    [InlineData(10, 1)]
+    [InlineData(11, 1)]
+    public void An_xlsb_formula_cell_skips_its_cached_value_before_the_formula(int id, int value)
+    {
+        var f = XlsbView(XlsbBook(), XlsbSheet(XlsbCell(id, value, XlsbExec)))!;
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
+    }
+
+    [Fact]
+    public void An_xlsb_record_longer_than_127_bytes_is_read()
+    {
+        byte[] wide = [0x17, 100, 0, .. Encoding.Unicode.GetBytes(new string('a', 100)), 0x42, 1, 110, 0];
+        var f = XlsbView(XlsbBook(), XlsbSheet(XlsbCell(8, 0, wide)))!;
+        Assert.Equal(1, f.XlmFormulas);
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
+    }
+
+    [Fact]
+    public void A_truncated_xlsb_record_ends_the_list_without_failing()
+    {
+        var cell = XlsbCell(8, 0, XlsbExec);
+        var f = XlsbView(XlsbBook(), XlsbSheet(cell, cell[..^5]))!;
+        Assert.Equal(1, f.XlmFormulas);
+    }
+
+    [Fact]
+    public void A_missing_xlsb_macro_sheet_part_is_named()
+    {
+        var f = XlsbView(XlsbBook(), null)!;
+        Assert.Contains(f.Notes!, n => n.Contains("part xl/macrosheets/sheet1.bin is missing"));
+    }
+
+    [Fact]
+    public void An_xlsb_macro_sheet_without_a_relationship_is_still_read()
+    {
+        var f = XlsbView(XlsbBook(), XlsbSheet(XlsbCell(8, 0, XlsbExec)), $"<Relationships xmlns=\"{XlsbNs}\"/>")!;
+        Assert.Contains(f.Sheets!, s => s is { Name: "sheet1", Type: "macro sheet" });
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
+    }
+
+    [Fact]
+    public void An_xlsb_workbook_without_sheet_records_is_reported_as_unread()
+    {
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(Ooxml(("xl/workbook.bin", Array.Empty<byte>()))));
+        Assert.Contains(XlmMacros.FromOoxml(zip, default)!.Notes, n => n.Contains("no sheet records read"));
+    }
+
+    [Fact]
+    public void An_xlsb_hidden_name_and_a_truncated_formula_are_marked()
+    {
+        var book = XlsbRec(156, XlsbU32(0), XlsbU32(1), XlsbWide("rId1"), XlsbWide("M"))
+            .Concat(XlsbRec(39, XlsbU32(1), [0], XlsbU32(-1), XlsbWide("Hid"), XlsbU32(4), [0x24, 0, 0, 0], XlsbU32(0))).ToArray();
+        var f = XlsbView(book, null)!;
+        Assert.Contains(f.DefinedNames!, n => n.StartsWith("Name Hid (hidden) =") && n.EndsWith('?'));
+    }
+
+    [Fact]
+    public void An_xlsb_sheet_stops_at_the_formula_cell_limit()
+    {
+        var cell = XlsbCell(8, 0, XlsbExec);
+        var f = XlsbView(XlsbBook(), XlsbSheet(Enumerable.Repeat(cell, 20_001).ToArray()))!;
+        Assert.Equal(20_000, f.XlmFormulas);
+        Assert.Contains(f.Notes!, n => n.Contains("stopped at 20,000 formula cells"));
+    }
+
+    [Fact]
+    public void An_xlsb_read_honours_a_cancelled_token()
+    {
+        // A workbook part of 5,000 empty records, past the cancellation check interval.
+        var book = Enumerable.Repeat(XlsbRec(1), 5000).SelectMany(r => r).ToArray();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(Ooxml(("xl/workbook.bin", book))));
+        Assert.Throws<OperationCanceledException>(() => XlmMacros.FromOoxml(zip, cts.Token));
+    }
+
+    [Fact]
+    public void A_plain_xlsb_reports_no_macro_findings()
+    {
+        var book = XlsbRec(156, XlsbU32(0), XlsbU32(1), XlsbWide("rId1"), XlsbWide("S"));
+        var f = XlsbView(book, null, XlsbRels("worksheets/sheet1.bin"));
+        Assert.True(f == null || f.Findings.Count == 0);
+    }
+
     [Fact]
     public void A_powerpoint_97_presentation_reads_the_vba_storage_it_compresses()
     {
