@@ -7,6 +7,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
+[Collection(ProcessEnvironmentCollection.Name)]
 public class ResultFenceTests
 {
     private static ServerOptions On() => ServerOptions.Parse([ServerOptions.FenceFileTextOption, "--no-index", "--no-watch"]);
@@ -62,6 +63,17 @@ public class ResultFenceTests
     }
 
     [Fact]
+    public void Structured_content_is_kept_unfenced_beside_a_fenced_text_block()
+    {
+        var structured = JsonSerializer.SerializeToElement(new { name = "m" });
+        var result = Result("a");
+        result.StructuredContent = structured;
+        var fenced = ResultFence.Wrap(On(), "decompile_member", result);
+        Assert.Equal(structured.GetRawText(), fenced.StructuredContent!.Value.GetRawText());
+        Assert.StartsWith(ResultFence.Open, Text(fenced));
+    }
+
+    [Fact]
     public void The_instructions_name_both_markers_once()
     {
         var text = ResultFence.Append(On(), "base");
@@ -72,7 +84,10 @@ public class ResultFenceTests
     [Fact]
     public void Every_text_block_is_fenced_on_a_copy_and_the_input_is_kept()
     {
-        var result = new CallToolResult { Content = [new TextContentBlock { Text = "a" }, new TextContentBlock { Text = "b" }] };
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = "a" }, new TextContentBlock { Text = "b" }],
+        };
         var fenced = ResultFence.Wrap(On(), "decompile_member", result);
         Assert.NotSame(result, fenced);
         Assert.All(fenced.Content, b => Assert.StartsWith(ResultFence.Open, ((TextContentBlock)b).Text));
@@ -123,5 +138,29 @@ public class ResultFenceTests
         var failed = await CallFilter.Run(new CallToolRequestParams { Name = "decompile_member" }, null, on,
             _ => throw new ToolError(ErrorCode.NotFound, "no such type"), default);
         Assert.DoesNotContain("[file-text", Text(failed));
+    }
+
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("true", true)]
+    [InlineData("on", true)]
+    [InlineData("0", false)]
+    [InlineData("", false)]
+    [InlineData("false", false)]
+    public void The_environment_variable_sets_whether_the_fence_is_applied(string value, bool fenced)
+    {
+        var name = ServerOptions.FenceFileTextVariable;
+        var before = Environment.GetEnvironmentVariable(name);
+        try
+        {
+            Environment.SetEnvironmentVariable(name, value);
+            var options = ServerOptions.Parse(["--no-index", "--no-watch"]);
+            var text = Text(ResultFence.Wrap(options, "decompile_member", Result("x")));
+            Assert.Equal(fenced, text.StartsWith(ResultFence.Open));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, before);
+        }
     }
 }
