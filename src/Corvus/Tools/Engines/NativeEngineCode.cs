@@ -309,12 +309,23 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         return rvas.Select((rva, i) => XrefRows(index, functions, rva, all[i], choice)).ToList();
     }
 
+    /// <summary>Drops a read of an import slot at a site that also has a call or jump; other reads stay.</summary>
+    internal static IReadOnlyList<NativeXref> OnePerSite(IReadOnlyList<NativeXref> xrefs, IReadOnlySet<uint> importSlots)
+    {
+        // An engine reports a call or jump through an import slot also as a read of the slot.
+        var flow = xrefs.Where(x => x.Kind is NativeXrefKind.Call or NativeXrefKind.Jump).Select(x => x.FromRva).ToHashSet();
+        return flow.Count == 0 ? xrefs
+            : xrefs.Where(x => x.Kind != NativeXrefKind.Read || !flow.Contains(x.FromRva) || !importSlots.Contains(x.ToRva)).ToList();
+    }
+
+    private static HashSet<uint> ImportSlots(NativeCodeIndex index) => index.Image.Imports.Select(i => i.SlotRva).ToHashSet();
+
     private static (string Title, List<string> Rows, string Target) XrefRows(NativeCodeIndex index, Functions functions, uint rva, IReadOnlyList<NativeXref> xrefs,
         EngineChoice choice)
     {
         string Where(uint from, uint? function) => (function ?? functions.At(from)?.StartRva) is { } f && functions.ByStart.TryGetValue(f, out var info)
             ? $"{Name(index, f, info.Name)}+0x{from - f:X}" : "(no function)";
-        var rows = xrefs.Select(x => (From: x.FromRva, Row: $"{Va(index, x.FromRva)}  {x.Kind,-10} {Where(x.FromRva, x.FromFunctionRva)}")).ToList();
+        var rows = OnePerSite(xrefs, ImportSlots(index)).Select(x => (From: x.FromRva, Row: $"{Va(index, x.FromRva)}  {x.Kind,-10} {Where(x.FromRva, x.FromFunctionRva)}")).ToList();
         if (Decoded(index))
         {
             var seen = xrefs.Select(x => x.FromRva).ToHashSet();
@@ -338,7 +349,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         string Where(uint from, uint? function) => (function ?? functions.At(from)?.StartRva) is { } f && functions.ByStart.TryGetValue(f, out var info)
             ? $"{Name(index, f, info.Name)}+0x{from - f:X}" : "(no function)";
         string To(uint to) => Va(index, to) + ((functions.ByStart.TryGetValue(to, out var t) ? Name(index, to, t.Name) : index.NameAt(to)) is { } n ? $" ({n})" : "");
-        var rows = xrefs.Select(x => (From: x.FromRva, To: x.ToRva, Row: $"{Va(index, x.FromRva)}  {x.Kind,-10} {Where(x.FromRva, x.FromFunctionRva)}  -> {To(x.ToRva)}")).ToList();
+        var rows = OnePerSite(xrefs, ImportSlots(index)).Select(x => (From: x.FromRva, To: x.ToRva, Row: $"{Va(index, x.FromRva)}  {x.Kind,-10} {Where(x.FromRva, x.FromFunctionRva)}  -> {To(x.ToRva)}")).ToList();
         if (Decoded(index))
         {
             var seen = xrefs.Select(x => (x.FromRva, x.ToRva)).ToHashSet();
