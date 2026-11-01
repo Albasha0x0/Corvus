@@ -86,6 +86,9 @@
         "type": "string"
       }
     },
+    "transform": {
+      "type": "object"
+    },
     "limit": {
       "type": "integer"
     },

@@ -13,18 +13,30 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
     [Description("Extract a container and load its .NET assemblies: single-file bundles, Costura, .nupkg, .apk / .aab, zips, " +
-                 ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin.")]
+                 ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin. " +
+                 "algorithm: cipher dry run.")]
     public Task<string> UnpackContainer(
         [Description("Container file, Blazor or ClickOnce folder.")] string path,
-        [Description("New or empty directory, or an earlier extract of this file; default: temp.")] string? outputDirectory = null,
-        [Description("Extract without loading the assemblies; default: loaded, ids in loadedAs.")] bool extractOnly = false,
+        [Description("Empty directory or an earlier extract of this file; default: temp.")] string? outputDirectory = null,
+        [Description("Extract without loading; loaded ids are in loadedAs.")] bool extractOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
         [Description("TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with.")] string? keyLog = null,
         [Description("Password of encrypted zip, 7z, RAR, PDF, Office document; only it is tried.")] string? password = null,
+        [Description("aes-128 or blowfish.")] string? algorithm = null,
+        [Description("ecb (default) or cbc.")] string? mode = null,
+        [Description("JSON: key, iv, expected (hex), direction, padding, offset, length.")] string? parameterFile = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
+            if (algorithm == null && (mode != null || parameterFile != null))
+                throw new ToolError(ErrorCode.InvalidArgument, "mode and parameterFile apply to a dry run only.", "pass algorithm as aes-128 or blowfish, or omit mode and parameterFile");
+            if (algorithm != null)
+            {
+                if (outputDirectory != null || extractOnly || keyLog != null || password != null)
+                    throw new ToolError(ErrorCode.InvalidArgument, "algorithm runs a dry run that extracts nothing; outputDirectory, extractOnly, keyLog and password do not apply.", "omit those parameters, or omit algorithm to extract");
+                return await Task.Run(() => ContainerText.Transform(TransformVerifier.Run(path, algorithm, mode, parameterFile, cancellationToken)), cancellationToken);
+            }
             int step = 0;
             void Report(string message) => progress.Report(new ProgressNotificationValue { Progress = ++step, Message = message });
             // The worker writes the files; loading them stays here, where the workspace is.
@@ -44,7 +56,7 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
     public async Task<string> SearchContainer(
         [Description("Container or assembly file (absolute).")] string path,
         [Description("Name, substring or * ? wildcards; packet: display filter; feature: JS text; yara: rule file, folder or text.")] string query,
-        [Description("Restrict to this kind; omit for all members (events included).")] string? kind = null,
+        [Description("Kind to restrict to; omit: all members.")] string? kind = null,
         [Description(LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,

@@ -16,7 +16,7 @@ namespace Corvus.Tools;
 public sealed class MetadataNameTools(AssemblyWorkspace workspace, NativeCodeService code, AotNativeNames names, AotBuildLoader? aotBuild = null)
 {
     [McpServerTool(Name = "apply_metadata_names", Title = "Name native code from its metadata", UseStructuredContent = true, OutputSchemaType = typeof(MetadataNamesResult))]
-    [Description("Name the functions and data of an AOT binary (GameAssembly.dll, libil2cpp.so) as Ns_Type__Method from its dummy " +
+    [Description("Name the functions and data of an AOT binary as Ns_Type__Method from its dummy " +
                  "assemblies, script.json and stringliteral.json. User and PDB names win; names are saved per file hash and reapplied on load.")]
     public Task<string> ApplyMetadataNames(
         [Description(NativeTools.ImageDescription)] string image,

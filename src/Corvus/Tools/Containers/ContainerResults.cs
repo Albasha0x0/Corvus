@@ -53,6 +53,7 @@ public sealed record UnpackPage(string Source, string Container, string OutputDi
 {
     public UnpackService.NextCall? Next { get; init; }
     public IReadOnlyList<string>? Notes { get; init; }
+    public JsonObject? Transform { get; init; }
 }
 
 /// <summary>summarize_file: the overview, or for another view its facts as detail (guide topic containers).</summary>
@@ -247,6 +248,19 @@ internal static class ContainerText
         var kinds = notes.Skip(NoteCap).GroupBy(n => n.Contains(':') ? n[..n.IndexOf(':')] : n.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}");
         shown.Add($"{notes.Count - NoteCap} more not shown ({string.Join(", ", kinds.Take(5))}).");
         return shown;
+    }
+
+    public static string Transform(TransformVerifier.TransformRecord t)
+    {
+        var text = new StringBuilder(t.Direction == null
+            ? $"{t.Algorithm} {t.Mode}: no range ran.\n"
+            : $"{t.Algorithm} {t.Mode} {t.Direction}, padding {t.Padding}, offset {t.Offset:N0}, length {t.Length:N0}, output {t.OutputLength:N0} bytes.\n");
+        text.Append($"Vector: {t.Vector}. Validation: {t.Validation}.\n");
+        if (t.OutputSha256 != null) text.Append($"Output SHA-256: {t.OutputSha256}.\n");
+        foreach (var n in t.Notes ?? []) text.Append("Note: ").Append(n).Append('\n');
+        // The dry run shares the unpack result shape; the other fields are unset on purpose.
+        var record = new UnpackPage("", "transform", "", [], 0, 0) { Transform = System.Text.Json.JsonSerializer.SerializeToNode(t, ToolOutput.Json) as JsonObject };
+        return ToolOutput.Report(text.ToString().TrimEnd(), record);
     }
 
     public static string Unpack(UnpackService.UnpackReport r, int offset, int limit)

@@ -7,7 +7,7 @@ namespace Corvus.Tools;
 internal static class ToolSupport
 {
     public const string SymbolDescription =
-        "Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token.";
+        "Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name or token.";
 
     public const string SymbolOrNativeDescription =
         "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME|#ORD|ADDR).";
