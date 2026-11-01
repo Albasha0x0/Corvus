@@ -361,4 +361,53 @@ public sealed class TransformVerifierTests : IDisposable
         Assert.Contains($"Structure: container header 'FXCT', 2 entries, declared length {plain.Length - 8}.", output);
         Assert.Contains("\"structure\"", System.Text.Json.JsonSerializer.Serialize(record, Corvus.Mcp.ToolOutput.Json));
     }
+
+    // A blowfish-encrypted, padded payload behind the 0xFFFFFFFF length header.
+    private string BlockContainer(byte[] plain)
+    {
+        var padded = new byte[(plain.Length / 8 + 1) * 8];
+        plain.CopyTo(padded, 0);
+        Array.Fill(padded, (byte)(padded.Length - plain.Length), plain.Length, padded.Length - plain.Length);
+        using (var bf = new BlowfishCipher(Convert.FromHexString(BlowfishKey)))
+            for (int at = 0; at < padded.Length; at += 8) bf.EncryptBlock(padded.AsSpan(at, 8), padded.AsSpan(at, 8));
+        var file = new byte[8 + padded.Length];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(file, 0xFFFFFFFF);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(4), (uint)padded.Length);
+        padded.CopyTo(file, 8);
+        var path = _dir.File("payload.luae");
+        File.WriteAllBytes(path, file);
+        return path;
+    }
+
+    [Fact]
+    public void A_blowfish_payload_range_from_the_note_decodes_to_a_container_header()
+    {
+        var plain = ContainerPlain(700);
+        var path = BlockContainer(plain);
+        var contents = Containers.Open(File.ReadAllBytes(path), "payload.luae", AnalysisLimits.Default, default);
+        var note = Assert.Single(contents.Notes, n => n.Contains("offset 8, length "));
+        var length = long.Parse(System.Text.RegularExpressions.Regex.Match(note, @"length (\d+)").Groups[1].Value);
+        var record = TransformVerifier.Run(path, "blowfish", "ecb", Parameters(new { key = BlowfishKey, offset = 8, length }));
+        Assert.Equal($"container header 'FXCT', 2 entries, declared length {plain.Length - 8}", record.Structure);
+    }
+
+    [Fact]
+    public void A_block_container_note_names_the_payload_range_and_the_options()
+    {
+        var path = BlockContainer(ContainerPlain(700));
+        var contents = Containers.Open(File.ReadAllBytes(path), "payload.luae", AnalysisLimits.Default, default);
+        var length = (new FileInfo(path).Length - 8) / 16 * 16;
+        Assert.Contains(contents.Notes, n => n.Contains("algorithm blowfish or aes-128") && n.Contains($"offset 8, length {length}"));
+        Assert.Contains(contents.Notes, n => n.Contains("mode is ecb or cbc") && n.Contains("iv"));
+    }
+
+    [Fact]
+    public void A_truncated_block_container_note_rounds_the_range_to_whole_aes_blocks()
+    {
+        var path = BlockContainer(ContainerPlain(700));
+        var bytes = File.ReadAllBytes(path);
+        var cut = bytes.AsSpan(0, 8 + 24).ToArray();
+        var contents = Containers.Open(cut, "payload.luae", AnalysisLimits.Default, default);
+        Assert.Contains(contents.Notes, n => n.Contains("offset 8, length 16)"));
+    }
 }

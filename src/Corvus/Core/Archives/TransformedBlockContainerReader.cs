@@ -14,6 +14,9 @@ internal sealed class TransformedBlockContainerReader : IContainerReader
 
     private const int BlockSize = 8;
 
+    // Matches the range limit of the transform check.
+    private const long CheckRangeLimit = 64L << 20;
+
     private static readonly string[] Extensions = [".luae", ".jsone", ".pbe"];
 
     public string Kind => "transformed block container";
@@ -46,6 +49,14 @@ internal sealed class TransformedBlockContainerReader : IContainerReader
             notes.Add($"unpack_container on this file writes the {(partial ? "present " : "transformed ")}payload ({available:N0} bytes).");
         }
         notes.Insert(0, $"{blocks:N0} blocks of {BlockSize} bytes are transformed; the decoded content is unknown without the block transform.");
+        if (available > 0)
+        {
+            // The check needs whole 16-byte blocks for aes-128 and a bounded range.
+            long range = Math.Min(available, CheckRangeLimit);
+            if (range >= 16) range -= range % 16;
+            notes.Add($"unpack_container with algorithm blowfish or aes-128 and a parameterFile (key, offset {HeaderSize}, length {range}) tests a supplied key against the payload.");
+            notes.Add("In the parameterFile, mode is ecb or cbc (cbc takes iv); the length is at most 64 MB and a multiple of 16 for aes-128.");
+        }
         long trailing = data.Length - HeaderSize - available;
         if (trailing > 0) notes.Add($"{trailing:N0} bytes after the payload belong to no entry.");
         return new ContainerContents(Kind, items, notes) { Entries = entries };
