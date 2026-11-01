@@ -3539,4 +3539,41 @@ public sealed class PackageReviewTests : IDisposable
         }, 100);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
+
+    [Fact]
+    public void A_composer_scripts_entry_of_the_wrong_type_lists_no_script_and_keeps_the_package()
+    {
+        var r = Review(Zip("sample-odd-1.0.0.zip",
+            ("composer.json", U("""{"name":"sample/odd","scripts":{"post-install-cmd":7,"post-update-cmd":null,"pre-install-cmd":["echo ready"]}}"""))));
+        Assert.Equal(("composer", "sample/odd"), (r.Ecosystem, r.Name));
+        Assert.Contains(r.Scripts, s => s is { Name: "pre-install-cmd", AtInstall: true });
+        Assert.DoesNotContain(r.Scripts, s => s.Name is "post-install-cmd" or "post-update-cmd");
+        Assert.Single(r.Findings, f => f.Rule == "package/install-script");
+    }
+
+    [Fact]
+    public void An_empty_cpan_installer_is_listed_with_no_finding_above_info()
+    {
+        var r = Review(Tgz("Sample-Tool-1.02.tar.gz",
+            ("Sample-Tool-1.02/META.json", CpanMeta),
+            ("Sample-Tool-1.02/Makefile.PL", "")));
+        Assert.Contains(r.Scripts, s => s is { Name: "Makefile.PL", AtInstall: true });
+        Assert.All(r.Findings, f => Assert.Equal("info", f.Level));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(PackageReview))]
+    public void Fuzzed_composer_manifests_never_throw()
+    {
+        var seed = U("""{"name":"sample/tools","autoload":{"psr-4":{"Sample\\":"src/"}},"scripts":{"post-install-cmd":["Sample\Setup::run","echo ready"]}}""");
+        var folder = _dir.File("fuzz-composer");
+        Directory.CreateDirectory(Path.Combine(folder, "src"));
+        File.WriteAllText(Path.Combine(folder, "src", "Setup.php"), "<?php namespace Sample; class Setup { static function run() {} }");
+        var failures = FormatFuzz.Run(seed, b =>
+        {
+            File.WriteAllBytes(Path.Combine(folder, "composer.json"), b);
+            _ = PackageReview.Review(folder, default);
+        }, 100);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
 }
