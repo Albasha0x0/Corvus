@@ -321,6 +321,48 @@ internal static class DocumentFixtures
         return Compound([("EncryptionInfo", info.ToArray()), ("EncryptedPackage", encrypted)]);
     }
 
+    /// <summary>An OOXML package encrypted with standard RC4 CryptoAPI encryption (<paramref name="keyBits"/>-bit key, SHA-1, 512-byte blocks) under <paramref name="password"/>.</summary>
+    public static byte[] StandardRc4Encrypted(byte[] package, string password, int keyBits = 128)
+    {
+        var salt = Enumerable.Range(1, 16).Select(i => (byte)(i * 11)).ToArray();
+        var h = System.Security.Cryptography.SHA1.HashData([.. salt, .. Encoding.Unicode.GetBytes(password)]);
+        byte[] Key(int block)
+        {
+            var k = System.Security.Cryptography.SHA1.HashData([.. h, .. BitConverter.GetBytes(block)])[..(keyBits / 8)];
+            if (keyBits == 40) Array.Resize(ref k, 16);
+            return k;
+        }
+        byte[] Rc4(byte[] key, byte[] data)
+        {
+            var s = Enumerable.Range(0, 256).Select(i => (byte)i).ToArray();
+            for (int i = 0, j = 0; i < 256; i++) { j = (j + s[i] + key[i % key.Length]) & 0xFF; (s[i], s[j]) = (s[j], s[i]); }
+            var o = new byte[data.Length];
+            for (int k = 0, i = 0, j = 0; k < data.Length; k++)
+            {
+                i = (i + 1) & 0xFF; j = (j + s[i]) & 0xFF; (s[i], s[j]) = (s[j], s[i]);
+                o[k] = (byte)(data[k] ^ s[(s[i] + s[j]) & 0xFF]);
+            }
+            return o;
+        }
+        var verifier = Enumerable.Range(0, 16).Select(i => (byte)(90 + i)).ToArray();
+        var sealedVerifier = Rc4(Key(0), [.. verifier, .. System.Security.Cryptography.SHA1.HashData(verifier)]);
+        var csp = Encoding.Unicode.GetBytes("Microsoft Enhanced Cryptographic Provider v1.0 ");
+        var header = new MemoryStream();
+        foreach (var v in new uint[] { 0x04, 0, 0x6801, 0x8004, (uint)keyBits, 1, 0, 0 }) header.Write(BitConverter.GetBytes(v));
+        header.Write(csp);
+        var info = new MemoryStream();
+        info.Write(BitConverter.GetBytes((ushort)3)); info.Write(BitConverter.GetBytes((ushort)2)); info.Write(BitConverter.GetBytes(0x04u));
+        info.Write(BitConverter.GetBytes((uint)header.Length)); info.Write(header.ToArray());
+        info.Write(BitConverter.GetBytes(16u)); info.Write(salt);
+        info.Write(sealedVerifier.AsSpan(0, 16));
+        info.Write(BitConverter.GetBytes(20u)); info.Write(sealedVerifier.AsSpan(16, 20));
+        var encrypted = new byte[8 + package.Length];
+        BitConverter.GetBytes((long)package.Length).CopyTo(encrypted, 0);
+        for (int at = 0, block = 0; at < package.Length; at += 512, block++)
+            Rc4(Key(block), package[at..Math.Min(package.Length, at + 512)]).CopyTo(encrypted, 8 + at);
+        return Compound([("EncryptionInfo", info.ToArray()), ("EncryptedPackage", encrypted)]);
+    }
+
     /// <summary>An OOXML package encrypted with agile encryption (AES-256, SHA-512, 100 spins, MS-OFFCRYPTO 2.3.4.10) under <paramref name="password"/>.</summary>
     public static byte[] AgileEncrypted(byte[] package, string password)
     {

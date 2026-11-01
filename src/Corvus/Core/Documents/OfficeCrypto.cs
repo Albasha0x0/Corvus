@@ -5,7 +5,7 @@ using System.Xml;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>ECMA-376 standard and agile encryption, opened with the passwords olevba tries (Excel's and PowerPoint's defaults, five short numeric ones); any other leaves it encrypted.</summary>
+/// <summary>ECMA-376 standard (AES or RC4 CryptoAPI) and agile (AES) encryption, opened with the passwords olevba tries (Excel's and PowerPoint's defaults, five short numeric ones); any other leaves it encrypted.</summary>
 internal static class OfficeCrypto
 {
     public static readonly string[] Passwords = ["VelvetSweatshop", "/01Hannes Ruescher/01", "123", "1234", "12345", "123456", "4321"];
@@ -43,10 +43,12 @@ internal static class OfficeCrypto
         var header = info.AsSpan(12, headerSize);
         int keyBits = BinaryPrimitives.ReadInt32LittleEndian(header[16..]);
         int algId = BinaryPrimitives.ReadInt32LittleEndian(header[8..]);
-        if (algId is not (0x660E or 0x660F or 0x6610)) return (null, $"cipher 0x{algId:X4} is not AES");
+        bool rc4 = algId == 0x6801;
+        if (!rc4 && algId is not (0x660E or 0x660F or 0x6610)) return (null, $"cipher 0x{algId:X4} is not AES or RC4");
         var verifier = info.AsSpan(12 + headerSize);
         var salt = verifier.Slice(4, 16).ToArray();
         var encryptedVerifier = verifier.Slice(20, 16).ToArray();
+        if (rc4) return Rc4Package(salt, verifier[36..], encryptedVerifier, package, size, keyBits, password);
         var encryptedHash = verifier.Slice(40, 32).ToArray();
         byte[] h = SHA1.HashData([.. salt, .. Encoding.Unicode.GetBytes(password)]);
         Span<byte> buf = stackalloc byte[24];
@@ -68,6 +70,31 @@ internal static class OfficeCrypto
         int length = (package.Length - 8) / 16 * 16;
         var plain = aes.DecryptEcb(package.AsSpan(8, length), PaddingMode.None);
         return (plain[..(int)size], $"standard encryption, password {Named(password)}");
+    }
+
+    // RC4 CryptoAPI keys are per 512-byte block; a 40-bit key is padded to 128 bits.
+    private static (byte[]?, string) Rc4Package(byte[] salt, ReadOnlySpan<byte> hashPart, byte[] encryptedVerifier, byte[] package, long size, int keyBits, string password)
+    {
+        if (keyBits == 0) keyBits = 40;
+        if (keyBits is < 40 or > 128 || keyBits % 8 != 0) return (null, $"RC4 key size {keyBits} is out of range");
+        var h = SHA1.HashData([.. salt, .. Encoding.Unicode.GetBytes(password)]);
+        byte[] BlockKey(int block)
+        {
+            var k = SHA1.HashData([.. h, .. BitConverter.GetBytes(block)])[..(keyBits / 8)];
+            if (keyBits == 40) Array.Resize(ref k, 16);
+            return k;
+        }
+        // The verifier and its hash are one RC4 stream under the block 0 key.
+        // The hash size field (4 bytes) precedes the 20-byte hash.
+        var stream = PdfSecurity.Rc4(BlockKey(0), [.. encryptedVerifier, .. hashPart.Slice(4, 20).ToArray()]);
+        if (!SHA1.HashData(stream.AsSpan(0, 16)).AsSpan().SequenceEqual(stream.AsSpan(16, 20))) return (null, Wrong);
+        var plain = new byte[size];
+        for (int at = 0, block = 0; at < size; at += 512, block++)
+        {
+            int n = (int)Math.Min(512, size - at);
+            PdfSecurity.Rc4(BlockKey(block), package.AsSpan(8 + at, n).ToArray()).CopyTo(plain, at);
+        }
+        return (plain, $"standard encryption (RC4), password {Named(password)}");
     }
 
     private static readonly byte[] KeyValueBlock = [0x14, 0x6E, 0x0B, 0xE7, 0xAB, 0xAC, 0xD0, 0xD6];

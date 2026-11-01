@@ -152,7 +152,8 @@ internal sealed class PdfSecurity
         catch (CryptographicException) { return aes.DecryptCbc(data.AsSpan(16), data.AsSpan(0, 16), PaddingMode.None); }
     }
 
-    private static byte[] Rc4(byte[] key, byte[] data)
+    /// <summary>The RC4 stream of <paramref name="data"/> under <paramref name="key"/>; the same call encrypts and decrypts.</summary>
+    internal static byte[] Rc4(byte[] key, byte[] data)
     {
         var s = new byte[256];
         for (int i = 0; i < 256; i++) s[i] = (byte)i;

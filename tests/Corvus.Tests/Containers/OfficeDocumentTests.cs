@@ -258,6 +258,47 @@ public sealed class OfficeDocumentTests
             Assert.Contains(View(locked, "a.xlsx")!.Notes, n => n.Contains("not decrypted (the password did not decrypt it)", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(128)]
+    [InlineData(40)]
+    public void A_given_password_decrypts_an_rc4_package_across_blocks(int keyBits)
+    {
+        var xlsx = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()), ("xl/data.bin", Enumerable.Range(0, 3000).Select(i => (byte)(i * 31)).ToArray()));
+        using var _ = ContainerPassword.Enter("caller secret");
+        var locked = StandardRc4Encrypted(xlsx, "caller secret", keyBits);
+        var item = Containers.Open(locked, "a.xlsx", AnalysisLimits.Default, default).Items.Single(i => i.Name == "EncryptedPackage.zip");
+        Assert.Equal(xlsx, item.Bytes);
+        Assert.Contains(View(locked, "a.xlsx")!.Notes, n => n.Contains("standard encryption (RC4)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_wrong_password_leaves_an_rc4_package_not_decrypted()
+    {
+        var xlsx = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()));
+        var locked = StandardRc4Encrypted(xlsx, "caller secret");
+        using var _ = ContainerPassword.Enter("another secret");
+        var f = View(locked, "a.xlsx")!;
+        Assert.True(f.Encrypted);
+        Assert.Contains(f.Notes, n => n.Contains("not decrypted (the password did not decrypt it)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_missing_password_leaves_an_rc4_package_not_decrypted()
+    {
+        var xlsx = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()));
+        var f = View(StandardRc4Encrypted(xlsx, "caller secret"), "a.xlsx")!;
+        Assert.True(f.Encrypted);
+        Assert.Contains(f.Notes, n => n.Contains("other than the built-in and common ones", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_rc4_package_opens_with_a_built_in_password()
+    {
+        var xlsx = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()));
+        var f = View(StandardRc4Encrypted(xlsx, "VelvetSweatshop"), "a.xlsx")!;
+        Assert.Equal("Excel workbook (OOXML), encrypted", f.Format);
+    }
+
     [Fact]
     public void A_given_password_replaces_the_built_in_ones()
     {
