@@ -392,11 +392,17 @@ public class ToolOutputTests(ITestOutputHelper output)
             // Same size and write time, new bytes: the cached hash is reused.
             File.WriteAllBytes(path, [4, 3, 2, 1]);
             File.SetLastWriteTimeUtc(path, stamp);
+            stamp = File.GetLastWriteTimeUtc(path);
             Assert.Equal(first, Hash());
             // Same size, new write time: the cached hash must not be reused.
             File.SetLastWriteTimeUtc(path, stamp.AddSeconds(5));
+            stamp = File.GetLastWriteTimeUtc(path);
             Assert.NotEqual(first, Hash());
+            // New size, same write time: the cached hash must not be reused.
+            var stale = Hash();
             File.WriteAllBytes(path, [4, 3, 2, 1, 0]);
+            File.SetLastWriteTimeUtc(path, stamp);
+            Assert.NotEqual(stale, Hash());
             var expected = Convert.ToHexStringLower(
                 System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
             Assert.Equal(expected, Hash());
