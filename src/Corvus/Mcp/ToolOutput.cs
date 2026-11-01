@@ -71,6 +71,9 @@ public static partial class ToolOutput
     /// <summary>A warning in both parts (regex time-outs, incomplete input).</summary>
     public static void Warn(string text) => OutputCall.Current?.Warnings.Add(text);
 
+    /// <summary>An action line (next call, hint, dry-run remark) in both parts, as a line of the text and an entry of the record's notes.</summary>
+    public static void Note(string text) => OutputCall.Current?.Notes.Add(text);
+
     /// <summary>The result is not complete: <paramref name="status"/> is partial or unknown; limitations are from the closed vocabulary.</summary>
     public static void Coverage(string status, string reason, params string[] limitations) => OutputCall.Current?.Coverage = (status, reason, limitations);
 

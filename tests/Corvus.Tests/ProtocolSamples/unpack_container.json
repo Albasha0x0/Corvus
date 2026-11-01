@@ -62,6 +62,9 @@
     "limit": 5,
     "totalExact": true,
     "hasMore": true,
-    "nextOffset": 5
+    "nextOffset": 5,
+    "notes": [
+      "Next: read_result id=<id> pages this report."
+    ]
   }
 }

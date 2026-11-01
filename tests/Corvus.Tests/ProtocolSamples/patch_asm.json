@@ -21,6 +21,9 @@
       }
     ],
     "editIds": [],
-    "digest": "5746c3d3d6b0e71f"
+    "digest": "5746c3d3d6b0e71f",
+    "notes": [
+      "Dry run: would patch 1 byte(s) at 0x140001000:\nBefore:\n  140001000  C3                       ret\nAfter:\n  140001000  90                       nop"
+    ]
   }
 }

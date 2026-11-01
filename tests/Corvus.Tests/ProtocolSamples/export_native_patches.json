@@ -21,7 +21,8 @@
     "bytes": "<bytes>",
     "originalSha256": "<id>",
     "notes": [
-      "the image has no patches: the export is empty"
+      "the image has no patches: the export is empty",
+      "Note: the image has no patches: the export is empty"
     ]
   }
 }

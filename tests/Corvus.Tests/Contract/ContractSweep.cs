@@ -472,6 +472,9 @@ public static partial class ContractSweep
             return "(b) the text has [workspace] notices, the record has no notices";
         if (System.Text.RegularExpressions.Regex.IsMatch(text, @"(?m)^\[?(Incomplete|Partial)\b") && !Has("coverage") && !Has("warnings"))
             return "(c) the text says Incomplete or Partial, the record has no coverage or warnings";
+        if (record.ValueKind == JsonValueKind.Object && System.Text.Json.Nodes.JsonNode.Parse(record.GetRawText()) is System.Text.Json.Nodes.JsonObject node
+            && Corvus.Mcp.ToolOutput.ActionLines(text).FirstOrDefault(l => !Corvus.Mcp.ToolOutput.Carries(node, l)) is { } lost)
+            return $"(e) the text has the action line \"{Clip(lost)}\", the record states it in no field";
         if (Corvus.Mcp.ToolContract.Of(tool).Output is Corvus.Mcp.OutputClass.Code or Corvus.Mcp.OutputClass.Bytes && text.Length > 200 && record.GetRawText().Length < text.Length / 2 && !new[] { "code", "lines", "items", "hex", "bytes" }.Any(Has))
             return "(d) a code or bytes result without its body in the record";
         return null;

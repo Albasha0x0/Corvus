@@ -217,6 +217,11 @@ public static partial class ToolOutput
             text = text.TrimEnd('\n') + "\n" + string.Join("\n", call.Warnings.Select(w => "Warning: " + w)) + "\n";
             if (record != null) record["warnings"] = new JsonArray(call.Warnings.Select(w => (JsonNode)JsonValue.Create(w)!).ToArray());
         }
+        if (call.Notes.Count > 0)
+        {
+            text = text.TrimEnd('\n') + "\n" + string.Join("\n", call.Notes) + "\n";
+            if (record != null) AddNotes(record, call.Notes);
+        }
         if (call.Coverage == null && record != null && Stopped(record) is { } why) call.Coverage = ("partial", why, ["row-cap"]);
         if (call.Coverage is { } c)
         {
@@ -245,6 +250,89 @@ public static partial class ToolOutput
             record["engine"] ??= en.Engine;
             if (en.Note != null) record["engineNote"] ??= en.Note;
         }
+        if (record != null) LiftNotes(record, text, call.Notes);
+    }
+
+    /// <summary>Line starts that mark a line the reader acts on or must not miss.</summary>
+    private static readonly string[] ActionStarts =
+    [
+        "Next:", "Note:", "Notes:", "Hint:", "Dry run:", "Warning:",
+        "Incomplete:", "Partial:", "Skipped:",
+        "[More:", "[Cut", "[Partial:", "[Coverage unknown:", "[Unavailable:",
+        NoticePrefix,
+    ];
+
+    /// <summary>Text longer than this is scanned at its head and tail only, where tool-added lines sit.</summary>
+    private const int ScanEdge = 8192;
+
+    /// <summary>The action lines of <paramref name="text"/>: a marker at column 0 with the indented lines that continue it (row text is indented or escaped, so file text never starts one).</summary>
+    public static IEnumerable<string> ActionLines(string text)
+    {
+        if (text.Length > 2 * ScanEdge)
+        {
+            var head = text[..ScanEdge];
+            head = head[..(head.LastIndexOf('\n') + 1)];
+            var tail = text[^ScanEdge..];
+            tail = tail[(tail.IndexOf('\n') + 1)..];
+            foreach (var l in ActionLines(head).Concat(ActionLines(tail))) yield return l;
+            yield break;
+        }
+        var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            if (!ActionStarts.Any(s => line.StartsWith(s, StringComparison.Ordinal))) continue;
+            int end = i + 1;
+            // A dry-run block continues through its Before and After headers.
+            while (end < lines.Count && (lines[end].StartsWith("  ", StringComparison.Ordinal)
+                || (line.StartsWith("Dry run:", StringComparison.Ordinal) && lines[end] is "Before:" or "After:"))) end++;
+            yield return string.Join("\n", lines.Skip(i).Take(end - i));
+            i = end - 1;
+        }
+    }
+
+    /// <summary>Whether <paramref name="record"/> states <paramref name="line"/>: in a string value, or through the field its kind maps to.</summary>
+    public static bool Carries(JsonObject record, string line)
+    {
+        if (line.StartsWith("[More:", StringComparison.Ordinal) || line.StartsWith("[Cut", StringComparison.Ordinal))
+            return record["nextOffset"] is not null || record["resultId"] is not null;
+        if (line.StartsWith("[Partial:", StringComparison.Ordinal) || line.StartsWith("[Coverage unknown:", StringComparison.Ordinal) || line.StartsWith("[Unavailable:", StringComparison.Ordinal))
+            return record["coverage"] is not null;
+        if (line.StartsWith(NoticePrefix, StringComparison.Ordinal)) return record["notices"] is not null;
+        // The text lines carry a "Warning: " prefix the warnings entry does not.
+        var bare = line.StartsWith("Warning: ", StringComparison.Ordinal) ? line["Warning: ".Length..] : line;
+        return Strings(record).Any(s => s.Contains(bare, StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<string> Strings(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonValue v when v.TryGetValue<string>(out var s): yield return s; break;
+            case JsonObject o:
+                foreach (var (_, child) in o) foreach (var s in Strings(child)) yield return s;
+                break;
+            case JsonArray a:
+                foreach (var child in a) foreach (var s in Strings(child)) yield return s;
+                break;
+        }
+    }
+
+    /// <summary>The action lines the record does not state become its <c>notes</c>.</summary>
+    private static void LiftNotes(JsonObject record, string text, IReadOnlyCollection<string> added)
+    {
+        var missing = ActionLines(text).Where(l => !added.Contains(l) && !Carries(record, l)).Distinct(StringComparer.Ordinal).ToList();
+        if (missing.Count > 0) AddNotes(record, missing);
+    }
+
+    /// <summary>Appends to the record's string <c>notes</c>; a tool whose own notes has another shape takes them in <c>actionNotes</c>.</summary>
+    private static void AddNotes(JsonObject record, IEnumerable<string> lines)
+    {
+        var own = record["notes"] is null || record["notes"] is JsonArray a && a.All(n => n is JsonValue);
+        var key = own ? "notes" : "actionNotes";
+        var list = record[key] as JsonArray ?? new JsonArray();
+        foreach (var l in lines) list.Add(l);
+        record[key] = list;
     }
 
     /// <summary>Why a record says it stopped early (truncated, cut, incomplete, or a partial reason), else null.</summary>

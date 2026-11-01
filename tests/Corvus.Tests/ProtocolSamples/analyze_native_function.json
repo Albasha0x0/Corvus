@@ -152,6 +152,9 @@
         "strings": "available"
       }
     },
+    "notes": [
+      "Next:\n  disassemble image=sample-build-a.dll address=0x140001000\n  get_cfg image=sample-build-a.dll address=0x140001000\n  trace_native_values image=sample-build-a.dll address=0x140001000 argument=1 direction=forward\n  resolve_call_targets image=sample-build-a.dll address=0x140001000 scope=function\n  decompile_native image=sample-build-a.dll address=0x140001000"
+    ],
     "notices": [
       "loaded sample-build-a.dll from <fixtures>/sample-build-a.dll"
     ]

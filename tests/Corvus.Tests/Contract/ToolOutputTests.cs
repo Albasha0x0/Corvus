@@ -336,6 +336,98 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Equal("loaded Lab\\U000e0041.dll", Record(r).GetProperty("notices")[0].GetString());
     }
 
+    /// <summary>RT-315: a Note, Dry run or Next line of the text reaches the record's notes.</summary>
+    [Fact]
+    public async Task Action_lines_of_the_text_become_notes()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With("Dry run: would change 1 item.\nNote: the module has no strings.\n0 occurrences\n", Types(0, 0, 0)) }],
+        });
+        var notes = Record(r).GetProperty("notes").EnumerateArray().Select(n => n.GetString()).ToList();
+        Assert.Equal(["Dry run: would change 1 item.", "Note: the module has no strings."], notes);
+        Assert.Null(ContractSweep.Incomplete("search_strings", Text(r), Record(r)));
+    }
+
+    /// <summary>RT-315: ToolOutput.Note puts one line in the text and the notes list.</summary>
+    [Fact]
+    public async Task A_note_call_is_stated_once_in_the_text_and_in_the_record()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ =>
+        {
+            ToolOutput.Note("Next: call list_types.");
+            return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With("0 occurrences\n", Types(0, 0, 0)) }] };
+        });
+        Assert.Equal(1, Text(r).Split('\n').Count(l => l == "Next: call list_types."));
+        Assert.Equal("Next: call list_types.", Record(r).GetProperty("notes")[0].GetString());
+    }
+
+    /// <summary>RT-315: a Note line without a marker reaches both parts.</summary>
+    [Fact]
+    public async Task A_note_without_a_marker_is_in_the_text_and_the_record()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ =>
+        {
+            ToolOutput.Note("Would patch 3 items.");
+            return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With("0 occurrences\n", Types(0, 0, 0)) }] };
+        });
+        Assert.Equal(1, Text(r).Split('\n').Count(l => l == "Would patch 3 items."));
+        Assert.Equal(["Would patch 3 items."], Record(r).GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+    }
+
+    /// <summary>RT-315: an Incomplete line is stored as a warning only.</summary>
+    [Fact]
+    public async Task An_incomplete_line_adds_no_notes()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With("Incomplete: one string was skipped.\n0 occurrences\n", Types(0, 0, 0)) }],
+        });
+        Assert.False(Record(r).TryGetProperty("notes", out _));
+        Assert.Equal(1, Record(r).GetProperty("warnings").GetArrayLength());
+    }
+
+    /// <summary>RT-315: a dry-run header is lifted with its Before and After blocks.</summary>
+    [Fact]
+    public void A_dry_run_block_is_one_action_line_with_its_before_and_after()
+    {
+        var lines = ToolOutput.ActionLines("Dry run: would patch 1 byte:\nBefore:\n  nop\nAfter:\n  ret\nNothing recorded.\n").ToList();
+        Assert.Equal(["Dry run: would patch 1 byte:\nBefore:\n  nop\nAfter:\n  ret"], lines);
+    }
+
+    /// <summary>RT-315: a long body is scanned at its edges, not in the middle.</summary>
+    [Fact]
+    public void A_marker_inside_a_long_body_is_not_an_action_line()
+    {
+        var body = string.Concat(Enumerable.Repeat("code\n", 4_000));
+        Assert.Equal(["Next: call x."], ToolOutput.ActionLines("head\n" + body + "Note: inside\n" + body + "Next: call x.\n"));
+    }
+
+    /// <summary>RT-315: a tool whose notes is not a list of strings declares actionNotes.</summary>
+    [Fact]
+    public void A_tool_with_other_notes_declares_action_notes()
+    {
+        foreach (var file in Directory.GetFiles(Path.Combine(DocsTests.RepoRoot(), "docs", "schemas"), "*.json"))
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(file));
+            if (!doc.RootElement.TryGetProperty("properties", out var props) || !props.TryGetProperty("notes", out var notes)) continue;
+            if (notes.TryGetProperty("items", out var items) && items.GetProperty("type").GetString() == "string") continue;
+            Assert.True(props.TryGetProperty("actionNotes", out _), Path.GetFileName(file));
+        }
+    }
+
+    /// <summary>RT-315: the sweep check names an action line the record lacks.</summary>
+    [Fact]
+    public void A_lost_action_line_is_reported_by_the_sweep_check()
+    {
+        using var doc = JsonDocument.Parse("""{"total":0}""");
+        Assert.Contains("Note: x", ContractSweep.Incomplete("search_strings", "0 occurrences\nNote: x\n", doc.RootElement));
+    }
+
     /// <summary>S4.1 (c): an "Incomplete:" line of the tool's text reaches the record as a warning.</summary>
     [Fact]
     public async Task Incomplete_text_becomes_a_warning()

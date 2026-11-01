@@ -326,6 +326,12 @@
         "type": "string"
       }
     },
+    "actionNotes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "coverage": {
       "type": "object"
     },

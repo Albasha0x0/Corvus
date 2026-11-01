@@ -68,6 +68,9 @@ public static partial class ToolOutput
         }
         Add("notices", Strings());
         Add("warnings", Strings());
+        Add("notes", Strings());
+        // A tool whose own notes is not a list of strings keeps the action lines in actionNotes.
+        if (properties["notes"] is JsonObject own && own["items"]?["type"]?.GetValue<string>() != "string") Add("actionNotes", Strings());
         Add("coverage", Type("object"));
         Add("resultId", Type("string"));
     }

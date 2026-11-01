@@ -116,7 +116,7 @@ Version, program, client, catalog digest, loaded files, limits, capabilities wit
 | `expectedCatalogDigest` | string |  |  | Catalog digest to compare. |
 | `expectedExecutable` | string |  |  | Registered server path to compare. |
 
-Structured output: `server`, `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`, `sections`.
+Structured output: `server`, `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`, `sections`, `actionNotes`.
 
 ### read_result
 
@@ -149,7 +149,7 @@ Save loaded files, .NET edits, native patches, names, comments, notes and open d
 | `overwrite` | boolean |  |  | Replace the file if it exists. |
 | `include` | string |  |  | Comma list: edits, patches, annotations, notes, all (default). |
 
-Structured output: `outputPath`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`.
+Structured output: `outputPath`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`, `actionNotes`.
 
 ### load_session
 
@@ -513,7 +513,7 @@ Decompile an assembly into a C# project on disk; an .apk or .aab gives a Gradle 
 | `outputDirectory` | string | yes |  | Empty or new output directory. |
 | `overwrite` | boolean |  |  | Replace a previous export in outputDirectory. |
 
-Structured output: `applied`, `source`, `outputDirectory`, `files`, `projectFile`, `failedTypes`, `replaced`, `notes`, `renamedFiles`.
+Structured output: `applied`, `source`, `outputDirectory`, `files`, `projectFile`, `failedTypes`, `replaced`, `renamedFiles`.
 
 ### get_r2r_code
 
@@ -571,7 +571,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `overwrite` | boolean |  |  | Overwrite either file. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |
 
-Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`, `level`, `findings`, `findingTotal`, `ruleTable`.
+Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `level`, `findings`, `findingTotal`, `ruleTable`.
 
 ### survey_features
 
@@ -589,7 +589,7 @@ Capabilities by rules over calls, imports and strings; category= adds evidence. 
 | `waitSeconds` | integer |  | `0` | Seconds to wait for capa, 0-600. |
 | `cancel` | boolean |  |  | Stop the capa run. |
 
-Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`.
+Structured output: `assembly`, `methodsScanned`, `features`, `category`.
 
 ### extract_strings
 
@@ -608,7 +608,7 @@ Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literal
 | `maxAssetBytes` | integer |  |  | Asset bytes to read; at most 4 GiB (default). |
 | `timeLimit` | number |  |  | Seconds until the asset read stops. |
 
-Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResultId`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResultId`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### extract_embedded
 
@@ -629,7 +629,7 @@ Embedded content of an assembly, container or native PE (resources, byte arrays,
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### search_container
 
@@ -669,7 +669,7 @@ Extract a container, load its .NET assemblies: single-file bundles, Costura, .nu
 | `mode` | string |  |  | ecb (default) or cbc. |
 | `parameterFile` | string |  |  | JSON: key, iv, expected (hex), direction, padding, offset, length. |
 
-Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `transform`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `transform`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### summarize_build
 
@@ -1000,7 +1000,7 @@ Name the functions and data of an AOT binary as Ns_Type__Method from its dummy a
 | `assembly` | string |  |  | Dummy assemblies to use; omit for every loaded one with metadata. |
 | `clear` | boolean |  |  | Remove the metadata names and saved copy instead. |
 
-Structured output: `image`, `applied`, `assemblies`, `functions`, `labels`, `sharedFunctions`, `strings`, `metadataSlots`, `methodInfoSlots`, `userNamesKept`, `suffixed`, `misses`, `saved`, `removed`, `notes`.
+Structured output: `image`, `applied`, `assemblies`, `functions`, `labels`, `sharedFunctions`, `strings`, `metadataSlots`, `methodInfoSlots`, `userNamesKept`, `suffixed`, `misses`, `saved`, `removed`.
 
 ## native
 
@@ -1503,7 +1503,7 @@ Layout of a native type (fields, bases, enum values) from PDB, RTTI, metadata, O
 | `read` | boolean |  |  | Add the field values at address (with name or id: that type read there). |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `notes`, `readAddress`, `value`.
+Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `owner`, `ownerAddress`, `paths`, `offset`, `truncated`, `readAddress`, `value`.
 
 ### decompile_native
 
@@ -1572,7 +1572,7 @@ Emulate native code from an address: return value, registers and written strings
 | `engine` | string |  |  | auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program. Values: auto, ghidra, ours, speakeasy. |
 | `resume` | string |  |  | Run id from Next; address is ignored. |
 
-Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `nullPageWrites`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`, `notes`.
+Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `nullPageWrites`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`.
 
 ### verify_native_imports
 
@@ -2717,7 +2717,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `outputPath` | string |  |  | view=modules: new or empty image folder. |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### dump_stack
 

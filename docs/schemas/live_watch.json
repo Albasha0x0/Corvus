@@ -99,6 +99,12 @@
         "type": "string"
       }
     },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "coverage": {
       "type": "object"
     },

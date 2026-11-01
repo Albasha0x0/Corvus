@@ -90,6 +90,12 @@
         "type": "string"
       }
     },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "resultId": {
       "type": "string"
     }

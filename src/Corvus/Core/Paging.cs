@@ -56,6 +56,9 @@ public sealed class OutputCall
 
     public List<string> Warnings { get; } = [];
 
+    /// <summary>Action lines that fit no other record field (see <see cref="Corvus.Mcp.ToolOutput.Note"/>).</summary>
+    public List<string> Notes { get; } = [];
+
     public (string Status, string Reason, IReadOnlyList<string> Limitations)? Coverage { get; set; }
 
     /// <summary>The reader said it read all of its input; a scan tool's result is complete only then.</summary>

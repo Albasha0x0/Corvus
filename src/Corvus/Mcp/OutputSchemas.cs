@@ -13,7 +13,7 @@ public static class OutputSchemas
     public const int MaxDepth = 2;
 
     /// <summary>Optional fields every record may carry, declared once in docs/schemas/envelope.json; schemas allow further properties.</summary>
-    public static readonly IReadOnlyList<string> SharedEnvelope = ["notices", "warnings", "coverage", "resultId"];
+    public static readonly IReadOnlyList<string> SharedEnvelope = ["notices", "warnings", "notes", "coverage", "resultId"];
 
     private static readonly string[] Annotations = ["description", "title"];
 

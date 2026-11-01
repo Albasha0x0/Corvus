@@ -47,7 +47,9 @@
     "offset": 0,
     "hubs": [],
     "notes": [
-      "2 matches; the best 1 were followed (maxSeeds)"
+      "2 matches; the best 1 were followed (maxSeeds)",
+      "Note: 2 matches; the best 1 were followed (maxSeeds)",
+      "Next:\n  analyze_native_function image=sample-build-a.dll address=0x140001000"
     ],
     "totalChars": 409,
     "engine": "ours",
