@@ -12,14 +12,22 @@ public sealed record JsModule(string Id, string? Name, string Provenance, string
 public static class JsModules
 {
     /// <summary>Largest file parsed whole; larger ones report no modules.</summary>
-    public const int MaxParseBytes = 64 * 1024 * 1024;
+    public const int MaxParseChars = 64 * 1024 * 1024;
+
+    /// <summary>Refuses text over <see cref="MaxParseChars"/> with LimitExceeded, naming the views that read it unparsed.</summary>
+    public static void RequireParsable(string text, string name)
+    {
+        if (text.Length > MaxParseChars)
+            throw new ToolError(ErrorCode.LimitExceeded, $"{name} is {text.Length:N0} characters; bundles up to {MaxParseChars:N0} are parsed.",
+                "analyze_js view=summary, sources, source or position read it without parsing");
+    }
 
     /// <summary>The syntax tree, or null with the reason in <paramref name="notes"/> (over the budget, or a parse error).</summary>
     public static Acornima.Ast.Program? Parse(string text, List<string> notes)
     {
-        if (text.Length > MaxParseBytes)
+        if (text.Length > MaxParseChars)
         {
-            notes.Add($"not parsed: {text.Length:N0} characters, over the {MaxParseBytes:N0} parse budget");
+            notes.Add($"not parsed: {text.Length:N0} characters, over the {MaxParseChars:N0} parse budget");
             return null;
         }
         try
@@ -179,11 +187,12 @@ public static class JsModules
     /// <summary>The module table of the file at <paramref name="path"/>, from the recent cache when the file is unchanged.</summary>
     public static (List<JsModule> Modules, List<string> Notes) Of(string path, CancellationToken ct)
     {
-        var info = new FileInfo(InputFiles.RequireRegularFile(path, "JavaScript file"));
-        var key = (info.FullName, info.Exists ? info.Length : -1, info.Exists ? info.LastWriteTimeUtc : default);
+        var key = JsAnalysis.FileKey(path);
         lock (Recent)
             if (Recent.FirstOrDefault(r => r.Key == key) is { Modules: not null } hit) return (hit.Modules, hit.Notes);
-        var found = Find(System.Text.Encoding.UTF8.GetString(JsAnalysis.Read(path)), ct);
+        var text = System.Text.Encoding.UTF8.GetString(JsAnalysis.Read(path));
+        RequireParsable(text, Path.GetFileName(path));
+        var found = Find(text, ct);
         lock (Recent)
         {
             Recent.Insert(0, (key, found.Modules, found.Notes));

@@ -3044,18 +3044,18 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Read a JavaScript bundle, Hermes or Ark bytecode statically: modules, source map, endpoints, secrets and data flow. view=position maps to the original source.
+Read a JavaScript bundle, Hermes or Ark bytecode: modules, source map, endpoints, secrets and data flow.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | A .js, Hermes or Ark file, or a package. |
+| `path` | string | yes |  | A .js, Hermes or Ark file or package. |
 | `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, beautify, react, jsx, functions, decompile, disassemble, xrefs. |
-| `line` | integer |  |  | position, flow: 1-based generated line. |
+| `line` | integer |  |  | position (original source), flow: 1-based generated line. |
 | `column` | integer |  |  | See line. |
 | `source` | string |  |  | source: path or index; diff: old bundle. |
-| `query` | string |  |  | Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name. |
-| `limit` | integer |  |  | Most rows: flow 50, react 200. |
-| `offset` | integer |  |  |  |
+| `query` | string |  |  | Module id; search filter; function #id\|name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name. |
+| `limit` | integer |  |  | Rows: flow 50, react 200. |
+| `offset` | integer |  |  | Char offset; flow, origins: flow index. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `view`, `summary`, `position`, `modules`, `total`, `hermes`, `functions`, `endpoints`, `secrets`, `diff`, `runtime`, `flow`.

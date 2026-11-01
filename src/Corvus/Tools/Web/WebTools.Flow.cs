@@ -14,20 +14,27 @@ public sealed partial class WebTools
         if (string.IsNullOrWhiteSpace(query) && (line < 1 || column < 1))
             throw new ToolError(ErrorCode.InvalidArgument, $"view={view} needs query or line and column.",
                 "pass query=<name>, a quoted literal, sinks, sink:<kind> or module:<id>, or line and column of an expression");
-        var args = new FileWork.JsFlowArgs(path, line > 0 && column > 0 ? null : query!.Trim(), line, column, back, Math.Clamp(limit, 1, 500));
+        var args = new FileWork.JsFlowArgs(path, line > 0 && column > 0 ? null : query!.Trim(), line, column, back, Math.Clamp(limit, 1, 500), Math.Max(0, offset));
         var r = await FileIsolation.RunAsync(serverOptions, workers, FileWork.JsFlow, args, path, () => FileWork.JsFlowWith(args, cancellationToken), cancellationToken);
-        var sb = new StringBuilder();
-        sb.Append($"{view} of {r.Query}: {r.Seeds} seed(s), {r.Steps:N0} step(s); {r.Total} flow(s): {r.Sinks} to a sink, {r.Origins} from an origin, {r.Unknowns} unknown");
-        sb.AppendLine(r.Partial != null ? $"; partial: {r.Partial}" : "; complete");
-        int n = 0;
+        var blocks = new List<string>();
+        int n = args.Offset;
         foreach (var f in r.Flows)
         {
-            sb.AppendLine($"flow {++n} ({f.End}):");
+            var sb = new StringBuilder().AppendLine($"flow {++n} ({f.End}):");
             foreach (var s in f.Steps)
                 sb.AppendLine($"  {(back ? "<- " : "")}{s.Kind} {s.Text} at {s.Site}" + (s.Module != null ? $" [module {s.Module}]" : "") + (s.Original != null ? $" <- {s.Original}" : "") +
                               (s.Endpoint is { } e ? $"; endpoint {e.Verb} {e.Url} [{e.Client}]" : "") + (s.Link != null ? $"; {s.Link}" : ""));
+            blocks.Add(sb.ToString());
         }
-        if (r.Total > r.Flows.Count) sb.AppendLine($"{r.Total - r.Flows.Count} more flow(s): raise limit (up to 500) or narrow the query.");
-        return ToolOutput.With(pager.Page(sb.ToString().TrimEnd(), offset, maxTokens), new JsResult(view, Total: r.Total) { Flow = r });
+        int shown = blocks.Count == 0 ? 0 : Math.Max(1, pager.FitRows(blocks, 600, maxTokens));
+        var head = new StringBuilder($"{view} of {r.Query}: {r.Seeds} seed(s), {r.Steps:N0} step(s); {r.Total} flow(s): {r.Sinks} to a sink, {r.Origins} from an origin, {r.Unknowns} unknown");
+        head.AppendLine(r.Partial != null ? $"; partial: {r.Partial}" : "; complete");
+        if (r.Partial != null)
+            head.AppendLine($"Next: analyze_js path={path} view={view} query=module:<id> or sink:<kind> narrows the walk; line and column seed one expression.");
+        if (shown == 0 && r.Total > 0) head.AppendLine($"No flow at offset {args.Offset}: {r.Total} flow(s) in all.");
+        var text = head + string.Concat(blocks.Take(shown));
+        int next = args.Offset + shown;
+        if (next < r.Total) text += $"{r.Total - next} more flow(s): {OutputPager.More(next)}" + "\n";
+        return ToolOutput.With(text.TrimEnd(), new JsResult(view, Total: r.Total) { Flow = r with { Flows = r.Flows.Take(shown).ToList() } });
     }
 }

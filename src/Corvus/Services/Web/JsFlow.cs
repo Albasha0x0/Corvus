@@ -19,7 +19,7 @@ public sealed record JsFlowStep(string Kind, string Text, string Site)
 /// <summary>One flow from a seed to where it ends: a sink, an unknown, an origin (back) or a plain end.</summary>
 public sealed record JsFlowPath(string End, IReadOnlyList<JsFlowStep> Steps);
 
-/// <summary>analyze_js view=flow and view=origins: the flows of a query, their counts and whether a budget cut the walk short.</summary>
+/// <summary>analyze_js view=flow and view=origins: one page of the flows of a query (Total counts all), their counts and whether a budget cut the walk short.</summary>
 public sealed record JsFlowResult(string Query, int Seeds, int Steps, int Sinks, int Unknowns, int Origins, int Total, string? Partial,
     IReadOnlyList<JsFlowPath> Flows);
 
@@ -613,7 +613,7 @@ internal sealed class JsFlow
     private int _current = -1;
 
     /// <summary>Walks from the seeds of <paramref name="query"/> (or the expression at line:column) and returns the flows, sinks and origins first; the index serves any number of walks.</summary>
-    public JsFlowResult Run(string? query, int line, int column, bool back, int limit, Budget budget, CancellationToken ct)
+    public JsFlowResult Run(string? query, int line, int column, bool back, int limit, Budget budget, CancellationToken ct, int offset = 0)
     {
         _steps.Clear();
         _queue.Clear();
@@ -644,16 +644,16 @@ internal sealed class JsFlow
             if (back) Back(state); else Forward(state);
         }
         if (partial != null) partial += $"; {_queue.Count:N0} state(s) not followed";
-        return Result(query ?? $"{line}:{column}", seeds.Count, limit, partial);
+        return Result(query ?? $"{line}:{column}", seeds.Count, limit, offset, partial);
     }
 
-    private JsFlowResult Result(string query, int seeds, int limit, string? partial)
+    private JsFlowResult Result(string query, int seeds, int limit, int offset, string? partial)
     {
         var leaves = _steps.Select((s, i) => (s, i)).Where(x => x.s.End != null).ToList();
         int Rank(string end) => end switch { "sink" => 0, "origin" => 1, "unknown" => 2, _ => 3 };
         var ordered = leaves.OrderBy(x => Rank(x.s.End!)).ThenBy(x => x.i).ToList();
         var flows = new List<JsFlowPath>();
-        foreach (var (leaf, index) in ordered.Take(Math.Max(1, limit)))
+        foreach (var (leaf, index) in ordered.Skip(Math.Max(0, offset)).Take(Math.Max(1, limit)))
         {
             var chain = new List<JsFlowStep>();
             for (int i = index; i >= 0; i = _steps[i].From) chain.Add(Public(_steps[i]));

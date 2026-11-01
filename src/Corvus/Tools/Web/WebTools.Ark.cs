@@ -34,7 +34,7 @@ public sealed partial class WebTools
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("xrefs", Total: total));
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}' for Ark bytecode.", "pass view=summary, functions, disassemble, search or xrefs");
+                throw BytecodeView(view, "Ark bytecode", "summary, functions, disassemble, search or xrefs");
         }
     }
 }

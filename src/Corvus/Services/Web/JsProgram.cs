@@ -84,6 +84,9 @@ internal sealed class JsProgram
         "_interop_require_default", "_interop_require_wildcard", "__importWildcard", "_$$_REQUIRE",
     };
 
+    /// <summary>Held by a view for its whole read: the evaluator caches on shared nodes and a kept program serves concurrent views.</summary>
+    internal object Gate { get; } = new();
+
     public string Path { get; }
     public string Text { get; }
     public Acornima.Ast.Program Tree { get; }

@@ -23,23 +23,23 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Read a JavaScript bundle, Hermes or Ark bytecode statically: modules, source map, endpoints, secrets and data flow. " +
-                 "view=position maps to the original source.")]
+    [Description("Read a JavaScript bundle, Hermes or Ark bytecode statically: modules, source map, endpoints, secrets and data flow.")]
     public async Task<string> AnalyzeJs(
-        [Description("A .js, Hermes or Ark file, or a package.")] string path,
+        [Description("A .js, Hermes or Ark file or package.")] string path,
         [Description("View.")] string view = "summary",
-        [Description("position, flow: 1-based generated line.")] int? line = null,
+        [Description("position (original source), flow: 1-based generated line.")] int? line = null,
         [Description("See line.")] int? column = null,
         [Description("source: path or index; diff: old bundle.")] string? source = null,
-        [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name.")] string? query = null,
-        [Description("Most rows: flow 50, react 200.")] int? limit = null,
-        [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
+        [Description("Module id; search filter; function #id|name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name.")] string? query = null,
+        [Description("Rows: flow 50, react 200.")] int? limit = null,
+        [Description("Char offset; flow, origins: flow index.")] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (view.Trim().ToLowerInvariant() is not ("position" or "sources" or "source") && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens, cancellationToken);
-        if (ArkBundles.Applies(path)) return AnalyzeArk(path, view, query, offset, maxTokens, cancellationToken);
+        bool readsMap = view.Trim().ToLowerInvariant() is "position" or "sources" or "source";
+        if (!readsMap && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens, cancellationToken);
+        if (!readsMap && ArkBundles.Applies(path)) return AnalyzeArk(path, view, query, offset, maxTokens, cancellationToken);
         switch (view.Trim().ToLowerInvariant())
         {
             case "flow" or "origins":
@@ -74,8 +74,9 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=module needs query (the module id).", "pass query=<id> (view=modules lists them)");
                 var code = Encoding.UTF8.GetString(JsAnalysis.Read(path));
-                var m = JsModules.Of(path, cancellationToken).Modules.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
-                        ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
+                var (found, parseNotes) = JsModules.Of(path, cancellationToken);
+                var m = found.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
+                        ?? throw NoModule(query, path, parseNotes);
                 var head = $"// module {m.Id}{(m.Name != null && m.Name != m.Id ? " (" + m.Name + ")" : "")}, {m.Family}, bytes {m.Start}-{m.End}" +
                            (m.Requires.Count > 0 ? $"\n// requires: {string.Join(", ", m.Requires.Take(50))}" : "");
                 return ToolOutput.With(pager.Page(head + "\n" + code[m.Start..m.End], offset, maxTokens), new JsResult("module", Modules: [m]));
@@ -85,6 +86,7 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=search needs query.", "pass query=<text>");
                 var code = Encoding.UTF8.GetString(JsAnalysis.Read(path));
                 var notes = new List<string>();
+                JsModules.RequireParsable(code, Path.GetFileName(path));
                 if (JsModules.Parse(code, notes) is not { } script) throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} could not be searched: {string.Join("; ", notes)}");
                 SourceMap? map = null;
                 try { map = SourceMap.Locate(path, JsAnalysis.Read(path))?.Map; } catch (ToolError) { } catch (FormatException) { }
@@ -97,9 +99,9 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
             case "refs":
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=refs needs query (the module id).", "pass query=<id> (view=modules lists them)");
-                var all = JsModules.Of(path, cancellationToken).Modules;
+                var (all, parseNotes) = JsModules.Of(path, cancellationToken);
                 var target = all.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
-                             ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
+                             ?? throw NoModule(query, path, parseNotes);
                 var (requires, by) = JsSearch.Refs(all, target);
                 var text = $"module {target.Id}{(target.Name != null && target.Name != target.Id ? " (" + target.Name + ")" : "")}\n" +
                            $"requires ({requires.Count}): {(requires.Count > 0 ? string.Join(", ", requires) : "none")}\n" +
@@ -134,7 +136,7 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
                 var program = JsAnalysis.Program(path, cancellationToken);
                 var map = JsAnalysis.TryMap(path);
                 var found = new List<Corvus.Services.Analysis.Endpoints.CodeEndpoint>();
-                Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, found, cancellationToken);
+                lock (program.Gate) Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, found, cancellationToken);
                 var rows = found.Select(e => JsAnalysis.Endpoint(e, map)).Where(e => query == null || e.Url.Contains(query, StringComparison.OrdinalIgnoreCase) || e.Client.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
                 var text = $"{rows.Count} endpoint(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(e => e.Client.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
                            string.Join("\n", rows.Select(e => $"  {e.Verb} {e.Url}  [{e.Client}] {e.Site}" + (e.Module != null ? $" {e.Module}" : "") + (e.Original != null ? $"  <- {e.Original}" : ""))) +
@@ -155,7 +157,9 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
             }
             case "runtime":
             {
-                var r = JsRuntime.Read(JsAnalysis.Program(path, cancellationToken), cancellationToken);
+                var runtimeProgram = JsAnalysis.Program(path, cancellationToken);
+                JsRuntimeFacts r;
+                lock (runtimeProgram.Gate) r = JsRuntime.Read(runtimeProgram, cancellationToken);
                 var sb = new StringBuilder();
                 sb.AppendLine(r.Require != null ? $"Runtime require: {r.Require} (module table {r.ModuleTable ?? "?"})" : "No webpack runtime require function in this file.");
                 if (r.ChunkGlobals.Count > 0) sb.AppendLine("Chunk loading global: " + string.Join(", ", r.ChunkGlobals));
@@ -169,7 +173,9 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
             case "secrets":
             {
                 var program = JsAnalysis.Program(path, cancellationToken);
-                var rows = JsSecrets.Find(program, cancellationToken).Where(s => query == null || s.Kind.Contains(query, StringComparison.OrdinalIgnoreCase)
+                List<JsSecret> found;
+                lock (program.Gate) found = JsSecrets.Find(program, cancellationToken).ToList();
+                var rows = found.Where(s => query == null || s.Kind.Contains(query, StringComparison.OrdinalIgnoreCase)
                                                                           || s.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
                 var text = $"{rows.Count} key-like literal(s), values masked:\n" +
                            string.Join("\n", rows.Select(s => $"  {s.Kind}{(s.Name != null ? " " + s.Name : "")} = {s.Masked} ({s.Length} chars, {s.Entropy} bits/char) at {s.Line}:{s.Column}" +
@@ -210,7 +216,8 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
             case "react":
             {
                 var program = JsAnalysis.Program(path, cancellationToken);
-                var r = JsReact.Read(program, query, offset, limit ?? 200, cancellationToken);
+                var r = default(JsReactResult)!;
+                lock (program.Gate) r = JsReact.Read(program, query, offset, limit ?? 200, cancellationToken);
                 var sb = new StringBuilder();
                 sb.AppendLine($"React: {(r.Versions.Count > 0 ? string.Join(", ", r.Versions) : "version not found")}; {r.Total} component(s), {r.Attributed} of {r.Calls} element call(s) in them" + (r.Components.Count < r.Total ? $"; {offset}-{offset + r.Components.Count} shown" : ""));
                 foreach (var c in r.Components)
@@ -228,7 +235,9 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=jsx needs query= with a component name.", "list the names with view=react");
                 var program = JsAnalysis.Program(path, cancellationToken);
-                var text = JsReact.Jsx(program, query.Trim(), cancellationToken)
+                string? jsx;
+                lock (program.Gate) jsx = JsReact.Jsx(program, query.Trim(), cancellationToken);
+                var text = jsx
                            ?? throw new ToolError(ErrorCode.NotFound, $"no component named '{query.Trim()}' in {Path.GetFileName(path)}.", "list the names with view=react");
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("jsx"));
             }
@@ -236,6 +245,23 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
                 throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, beautify, react or jsx");
         }
     }
+
+    // Known views by input kind.
+    private static readonly HashSet<string> KnownViews = new(StringComparer.Ordinal)
+    {
+        "summary", "modules", "module", "search", "refs", "position", "sources", "source", "endpoints", "secrets", "diff", "runtime", "flow", "origins",
+        "beautify", "react", "jsx", "functions", "decompile", "disassemble", "xrefs",
+    };
+
+    // Unsupported for a known view, else InvalidArgument.
+    private static ToolError BytecodeView(string view, string kind, string views) =>
+        KnownViews.Contains(view.Trim().ToLowerInvariant())
+            ? new ToolError(ErrorCode.Unsupported, $"view={view.Trim()} reads JavaScript text, not {kind}.", $"analyze_js view=search or view=xrefs finds strings and their users in {kind}; it also reads view={views}")
+            : new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}' for {kind}.", $"pass view={views}");
+
+    // A module id that is not in the table; a table that is empty names why.
+    private static ToolError NoModule(string? query, string path, List<string> parseNotes) =>
+        new(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}" + (parseNotes.Count > 0 ? $" ({string.Join("; ", parseNotes)})" : "") + ".", "analyze_js view=modules lists them");
 
     // The character offset of line n (0-based) of s.
     private static int Nth(string s, int n)

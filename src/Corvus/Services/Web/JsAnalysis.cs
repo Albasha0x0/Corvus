@@ -98,12 +98,33 @@ public static class JsAnalysis
         return new JsSource(map.Sources[index], index, index < map.SourcesContent.Count ? map.SourcesContent[index] : null);
     }
 
-    /// <summary>The parsed file with its scopes, or a malformed-input error naming why it did not parse.</summary>
+    // Parsed programs of the last files read, so views of one bundle parse it once.
+    private static readonly List<((string Path, long Size, DateTime Written) Key, JsProgram Program)> Programs = [];
+
+    /// <summary>The path, size and write time that identify one state of the file at <paramref name="path"/>.</summary>
+    internal static (string Path, long Size, DateTime Written) FileKey(string path)
+    {
+        var info = new FileInfo(InputFiles.RequireRegularFile(path, "JavaScript file"));
+        return (info.FullName, info.Exists ? info.Length : -1, info.Exists ? info.LastWriteTimeUtc : default);
+    }
+
+    /// <summary>The parsed file with its scopes, from the recent cache when the file is unchanged; LimitExceeded over the parse limit, MalformedInput when it does not parse.</summary>
     internal static JsProgram Program(string path, CancellationToken ct)
     {
+        var key = FileKey(path);
+        lock (Programs)
+            if (Programs.FirstOrDefault(r => r.Key == key) is { Program: not null } hit) return hit.Program;
+        var text = Encoding.UTF8.GetString(Read(path));
+        JsModules.RequireParsable(text, Path.GetFileName(path));
         var notes = new List<string>();
-        return JsProgram.Build(Path.GetFileName(path), Encoding.UTF8.GetString(Read(path)), notes, ct)
-               ?? throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} could not be parsed: {string.Join("; ", notes)}");
+        var program = JsProgram.Build(Path.GetFileName(path), text, notes, ct)
+                      ?? throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} could not be parsed: {string.Join("; ", notes)}");
+        lock (Programs)
+        {
+            Programs.Insert(0, (key, program));
+            if (Programs.Count > 2) Programs.RemoveAt(Programs.Count - 1);
+        }
+        return program;
     }
 
     /// <summary>The original position of 1-based <paramref name="line"/>:<paramref name="column"/>, or null.</summary>

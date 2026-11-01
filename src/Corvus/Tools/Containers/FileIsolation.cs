@@ -190,10 +190,10 @@ public static class FileWork
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
-    /// <summary>The path, query or position, direction and limit of an analyze_js flow read.</summary>
-    public sealed record JsFlowArgs(string Path, string? Query, int Line, int Column, bool Back, int Limit);
+    /// <summary>The path, query or position, direction, limit and first flow of an analyze_js flow read.</summary>
+    public sealed record JsFlowArgs(string Path, string? Query, int Line, int Column, bool Back, int Limit, int Offset = 0);
 
-    /// <summary>analyze_js view=flow and view=origins over a path: the flows of a query, at most Limit; an unknown query is a NotFound error.</summary>
+    /// <summary>analyze_js view=flow and view=origins over a path: the flows of a query, Limit from flow Offset; an unknown query is a NotFound error.</summary>
     public static readonly FileOp<JsFlowArgs, Services.Web.JsFlowResult> JsFlow = new("js_flow", "analyze_js", (_, a, ct) => JsFlowWith(a, ct));
 
     /// <summary>The flows of <paramref name="a"/>, read in this process; throws OperationCanceledException when <paramref name="ct"/> is cancelled and NotFound for a query with no match.</summary>
@@ -201,7 +201,8 @@ public static class FileWork
     {
         var program = Services.Web.JsAnalysis.Program(a.Path, ct);
         var flow = new Services.Web.JsFlow(program, Services.Web.JsAnalysis.TryMap(a.Path), a.Path, ct);
-        return flow.Run(a.Query, a.Line, a.Column, a.Back, a.Limit, Services.Web.JsFlow.Budget.Default with { Time = TimeSpan.MaxValue }, ct);
+        lock (program.Gate)
+            return flow.Run(a.Query, a.Line, a.Column, a.Back, a.Limit, Services.Web.JsFlow.Budget.Default with { Time = TimeSpan.MaxValue }, ct, a.Offset);
     }
 
     public sealed record SearchArgs(string Path, string Query, string? Kind, int Limit, int Offset, string? Capture, bool Values);

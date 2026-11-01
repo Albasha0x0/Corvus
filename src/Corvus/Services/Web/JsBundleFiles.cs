@@ -42,7 +42,7 @@ internal static class JsBundleFiles
         catch (FormatException) { notes.Add("source map: inline data is not base64"); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { notes.Add("source map: " + ex.Message); }
         string? kind = null;
-        if (!IsMap(path) && data.Length <= JsModules.MaxParseBytes && Modules(data, path, map, items, notes, ct) is { } family) kind = $"{family} bundle";
+        if (!IsMap(path) && data.Length <= JsModules.MaxParseChars && Modules(data, path, map, items, notes, ct) is { } family) kind = $"{family} bundle";
         if (map is { Sources.Count: > 0 } && mapDirectory != null)
         {
             OriginalTree(map, mapDirectory, items, notes, ct);

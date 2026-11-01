@@ -55,8 +55,7 @@ public sealed partial class WebTools
                 return ToolOutput.With(text, new JsResult("refs", Modules: [module], Total: by));
             }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}' for Hermes bytecode.",
-                    "pass view=summary, functions, decompile, disassemble, modules, module, search, xrefs or refs (position, sources and source read its source map)");
+                throw BytecodeView(view, "Hermes bytecode", "summary, functions, decompile, disassemble, modules, module, search, xrefs or refs");
         }
     }
 }
