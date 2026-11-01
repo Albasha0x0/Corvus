@@ -25,7 +25,7 @@
           "type": "integer"
         },
         "script": {
-          "description": "complete, stopped at step N, or none.",
+          "description": "none, running step N, complete, stopped at step N or cancelled at step N.",
           "type": "string"
         },
         "lines": {
@@ -58,7 +58,7 @@
             "type": "string"
           },
           "partial": {
-            "description": "The line the console is still writing (a prompt, say).",
+            "description": "Still being written.",
             "type": "boolean"
           }
         },
@@ -99,7 +99,7 @@
             "type": "integer"
           },
           "script": {
-            "description": "complete, stopped at step N, or none.",
+            "description": "none, running step N, complete, stopped at step N or cancelled at step N.",
             "type": "string"
           },
           "lines": {
@@ -118,7 +118,7 @@
       }
     },
     "steps": {
-      "description": "start and status: each script step with its outcome.",
+      "description": "Each script step with its outcome.",
       "type": "array",
       "items": {
         "type": "object",
@@ -131,14 +131,14 @@
             "type": "string"
           },
           "outcome": {
-            "description": "done, stopped or not run.",
+            "description": "pending, running, done, stopped, cancelled or not run.",
             "type": "string"
           },
           "milliseconds": {
             "type": "integer"
           },
           "detail": {
-            "description": "Why the step stopped.",
+            "description": "Why it stopped.",
             "type": "string"
           }
         },
@@ -151,7 +151,7 @@
       }
     },
     "dropped": {
-      "description": "Lines the ring dropped before this page.",
+      "description": "Lines dropped before this page.",
       "type": "integer"
     },
     "notices": {

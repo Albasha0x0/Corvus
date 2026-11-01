@@ -14,41 +14,42 @@ public sealed partial class LiveSessionTools
 
     public sealed record LiveConsoleRow(long Sequence, [property: Description("UTC, ISO 8601.")] string Time, string Text)
     {
-        [Description("The line the console is still writing (a prompt, say).")]
+        [Description("Still being written.")]
         public bool Partial { get; init; }
     }
 
     public sealed record LiveConsoleStepRow(int Step, [property: Description("As written.")] string Line,
-        [property: Description("done, stopped or not run.")] string Outcome, long Milliseconds,
-        [property: Description("Why the step stopped.")] string? Detail);
+        [property: Description("pending, running, done, stopped, cancelled or not run.")] string Outcome, long Milliseconds,
+        [property: Description("Why it stopped.")] string? Detail);
 
     public sealed record LiveConsoleSummary(string Run, string Program, int ProcessId,
         [property: Description("The console host: the pseudoconsole (ConPTY) on Windows.")] string Host,
         [property: Description("running, exited or stopped.")] string State, int? ExitCode,
-        [property: Description("complete, stopped at step N, or none.")] string Script,
+        [property: Description("none, running step N, complete, stopped at step N or cancelled at step N.")] string Script,
         long Lines);
 
     public sealed record LiveConsolePage(LiveConsoleSummary? Run, IReadOnlyList<LiveConsoleRow> Items,
         [property: Description("Cursor for the next page; null at the end.")] string? Cursor,
         IReadOnlyList<LiveConsoleSummary> Runs)
     {
-        [Description("start and status: each script step with its outcome.")]
+        [Description("Each script step with its outcome.")]
         public IReadOnlyList<LiveConsoleStepRow>? Steps { get; init; }
-        [Description("Lines the ring dropped before this page.")]
+        [Description("Lines dropped before this page.")]
         public long Dropped { get; init; }
     }
 
     [McpServerTool(Name = "live_console", Title = "Scripted console run", UseStructuredContent = true, OutputSchemaType = typeof(LiveConsolePage))]
-    [Description("Run a program under a console host, driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.")]
+    [Description("Drive a program with a background script; status shows steps, transcript pages output.")]
     public Task<string> LiveConsole(
         [Description("What to do.")] string action = "list",
         [Description("start: program path.")] string? program = null,
-        [Description("start: program arguments.")] string[]? arguments = null,
+        [Description("start: arguments.")] string[]? arguments = null,
         [Description("start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \\r (Enter), \\n, \\t, \\e, \\xHH.")] string[]? script = null,
         [Description("Run id (con-1; omitted: the only one).")] string? run = null,
-        [Description("Seconds each wait step waits (1-300).")] int timeoutSeconds = 10,
-        [Description("transcript: cursor of an earlier page; default the oldest line kept.")] string? cursor = null,
+        [Description("Seconds per wait step (1-300).")] int timeoutSeconds = 10,
+        [Description("transcript: cursor of a page; default the oldest line.")] string? cursor = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description("status: seconds to wait for the script, 0-300.")] int waitSeconds = 0,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -65,11 +66,11 @@ public sealed partial class LiveSessionTools
                         throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is out of range.", "timeoutSeconds=1-300");
                     var steps = LiveSessionService.ParseConsoleScript(script ?? []);
                     var r = live.StartConsole(Scoped(spawn: true, program), arguments ?? []);
-                    var outcomes = await live.RunConsoleScriptAsync(r, steps, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken).ConfigureAwait(false);
+                    live.StartConsoleScript(r, steps, TimeSpan.FromSeconds(timeoutSeconds));
                     var text = new StringBuilder($"{r.Id} {Path.GetFileName(r.Program)} (pid {r.ProcessId}) in a {DefaultSize()} {r.Host}\n");
-                    ConsoleSteps(r, outcomes, text);
-                    text.AppendLine($"next: live_console action=transcript run={r.Id}");
-                    return ToolOutput.With(text.ToString(), new LiveConsolePage(ConsoleSummary(r), [], null, []) { Steps = StepRows(outcomes) });
+                    ConsoleSteps(r, r.Steps, text);
+                    text.AppendLine(ScriptNext(r, steps, timeoutSeconds));
+                    return ToolOutput.With(text.ToString(), new LiveConsolePage(ConsoleSummary(r), [], null, []) { Steps = StepRows(r.Steps) });
                 }
                 case "stop":
                 {
@@ -87,8 +88,14 @@ public sealed partial class LiveSessionTools
                 case "status":
                 {
                     var r = live.GetConsole(RequireConsole(run));
+                    if (waitSeconds is < 0 or > 300)
+                        throw new ToolError(ErrorCode.InvalidArgument, $"waitSeconds {waitSeconds} is outside 0-300.", "waitSeconds=30");
+                    if (waitSeconds > 0) await LiveSessionService.WaitScriptAsync(r, TimeSpan.FromSeconds(waitSeconds), cancellationToken).ConfigureAwait(false);
                     var text = new StringBuilder($"{r.Id} {Path.GetFileName(r.Program)} (pid {r.ProcessId}) in a {r.Columns}x{r.Rows} {r.Host}\n");
                     ConsoleSteps(r, r.Steps, text);
+                    text.AppendLine(r.IsScriptRunning
+                        ? $"next: live_console action=status run={r.Id} waitSeconds=30 waits for the script; action=stop ends it"
+                        : $"next: live_console action=transcript run={r.Id}");
                     return ToolOutput.With(text.ToString(), new LiveConsolePage(ConsoleSummary(r), [], null, []) { Steps = StepRows(r.Steps) });
                 }
                 case "transcript":
@@ -96,7 +103,19 @@ public sealed partial class LiveSessionTools
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, status or transcript");
             }
-        }, cancellationToken);
+        // Not started under the token: a cancel ends only the status wait.
+        });
+
+    /// <summary>The longest the script can run and the call that waits for it.</summary>
+    private static string ScriptNext(LiveConsoleRun r, IReadOnlyList<LiveConsoleStep> steps, int timeoutSeconds)
+    {
+        if (steps.Count == 0) return $"next: live_console action=transcript run={r.Id}";
+        var bound = steps.Count(s => s.Verb == "wait") * (double)timeoutSeconds + steps.Where(s => s.Verb == "delay").Sum(s => s.First) / 1000.0;
+        var wait = Math.Clamp((int)Math.Ceiling(bound), 1, 300);
+        var more = bound > wait ? "; repeat it while the script is running" : "";
+        return $"the script runs in the background, at most {bound:0.###} s (timeoutSeconds per wait step plus delays)\n" +
+               $"next: live_console action=status run={r.Id} waitSeconds={wait} waits for the script{more}; action=stop ends it";
+    }
 
     private static string DefaultSize() => $"{LiveSessionService.DefaultColumns}x{LiveSessionService.DefaultRows}";
 
@@ -115,8 +134,8 @@ public sealed partial class LiveSessionTools
         int width = outcomes.Count == 0 ? 0 : outcomes.Max(o => o.Step.Line.Length);
         foreach (var o in outcomes)
             text.AppendLine($"step {o.Step.Number,-3} {o.Step.Line.PadRight(width)}  " +
-                            (o.Outcome == "stopped" ? $"stopped: {o.Detail}" : o.Outcome == "done" && o.Step.Verb is "wait" or "delay" ? $"done  {o.Milliseconds:N0} ms" : o.Outcome));
-        var stop = outcomes.FirstOrDefault(o => o.Outcome == "stopped");
+                            (o.Outcome is "stopped" or "cancelled" ? $"{o.Outcome}: {o.Detail}" : o.Outcome == "done" && o.Step.Verb is "wait" or "delay" ? $"done  {o.Milliseconds:N0} ms" : o.Outcome));
+        var stop = outcomes.FirstOrDefault(o => o.Outcome is "stopped" or "cancelled");
         if (stop != null)
         {
             var tail = r.Tail(ConsoleTailLines);
@@ -125,8 +144,10 @@ public sealed partial class LiveSessionTools
         }
         var state = r.State == "running" ? "the program is running" : r.State == "stopped" ? "the run was stopped" : $"the program exited with code {r.ExitCode}";
         int notRun = outcomes.Count(o => o.Outcome == "not run");
+        var active = outcomes.FirstOrDefault(o => o.Outcome is "running" or "pending");
         text.AppendLine(outcomes.Count == 0 ? $"no script; {state}"
-            : stop != null ? $"script stopped at step {stop.Step.Number} of {outcomes.Count}{(notRun > 0 ? $", {ToolSupport.Plural(notRun, "step")} not run" : "")}; {state}"
+            : stop != null ? $"script {stop.Outcome} at step {stop.Step.Number} of {outcomes.Count}{(notRun > 0 ? $", {ToolSupport.Plural(notRun, "step")} not run" : "")}; {state}"
+            : active != null ? $"script running at step {active.Step.Number} of {outcomes.Count}; {state}"
             : $"script complete ({ToolSupport.Plural(outcomes.Count, "step")}); {state}");
     }
 

@@ -216,6 +216,9 @@ Watches record each call's arguments and return value without stopping the progr
 `live_console` runs a program under the pseudoconsole (ConPTY, 120x30) and drives it from a script. Needs `--allow-live-spawn`.
 
 - Steps, one per line or array element: `send <text>` (`\r` is Enter; `\n`, `\t`, `\e`, `\xHH`), `wait <text>` (`timeoutSeconds` each, default 10, range 1-300), `resize <columns> <rows>`, `delay <ms>`.
+- `action=start` returns the run id at once and runs the script in the background.
+- `action=status waitSeconds=30` waits for the script to end (0-300); `action=stop` cancels it.
+- A `[workspace]` notice names the next call when the script ends.
 - The first step that cannot complete stops the script with its reason and the console's last lines. The transcript is plain text with escape sequences removed; it pages with a cursor. A run keeps the latest 20,000 lines.
 - The program runs on after the script until it exits or `action=stop`; every run ends with the server. The script is kept for repeat runs.
 

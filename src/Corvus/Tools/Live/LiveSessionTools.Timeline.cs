@@ -48,11 +48,11 @@ public sealed partial class LiveSessionTools
     private sealed record TimelineDiffRow(int Index, bool InA, string Category, string Name);
 
     [McpServerTool(Name = "live_timeline", Title = "Activity trace of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveTimelinePage))]
-    [Description("Trace the files, registry keys, endpoints and child processes a session's program opens, with times; report counts each name, diff compares two traces.")]
+    [Description("Trace the files, registry keys, endpoints and child processes a program opens, with times; report counts names, diff compares traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
-        [Description("Run id (tl-1; omitted: the only one); list without it or a filter lists runs.")] string? run = null,
+        [Description("Run id; omitted: the only one; list without it or a filter lists runs.")] string? run = null,
         [Description("diff: the first timeline.")] string? a = null,
         [Description("diff: the second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,

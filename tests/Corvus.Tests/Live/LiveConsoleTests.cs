@@ -9,7 +9,8 @@ namespace Corvus.Tests;
 internal sealed class ScriptedConsoleHost : IConsoleHost
 {
     public string? Missing { get; init; }
-    public Func<string, string?>? Answer { get; init; }
+    public Func<string, string?>? Answer { get; set; }
+    public bool ResizeFails { get; set; }
     public Console? Last { get; private set; }
 
     public string Name => "scripted console";
@@ -36,7 +37,11 @@ internal sealed class ScriptedConsoleHost : IConsoleHost
             if (host.Answer?.Invoke(text) is { } answer) output(answer);
         }
 
-        public void Resize(int columns, int rows) => Size = (columns, rows);
+        public void Resize(int columns, int rows)
+        {
+            if (host.ResizeFails) throw new InvalidOperationException("resize refused");
+            Size = (columns, rows);
+        }
         public void Kill() => Exit(1);
         public void Dispose() => Kill();
     }
@@ -69,16 +74,17 @@ public sealed class LiveConsoleTests : IDisposable
         _dir.Dispose();
     }
 
-    /// <summary>Starts the run, shows the prompt, then moves the clock through the script's timers until it ends.</summary>
+    /// <summary>
+    /// Starts the run, shows the prompt, moves the clock through the script's
+    /// timers until it ends, and returns the run's status.
+    /// </summary>
     private async Task<string> Start(int timeoutSeconds, params string[] script)
     {
-        var call = _tools.LiveConsole("start", program: _program, script: script, timeoutSeconds: timeoutSeconds);
-        for (var waited = System.Diagnostics.Stopwatch.StartNew(); _host.Last == null && !call.IsCompleted && waited.Elapsed < TimeSpan.FromMinutes(1);)
-            await Task.Delay(5);
+        await _tools.LiveConsole("start", program: _program, script: script, timeoutSeconds: timeoutSeconds);
         // The prompt is shown before the clock moves, so a wait for it matches whether its timeout fired or not.
-        _host.Last?.Show("\x1b]0;prompt.exe\a\x1b[?25lname?\x1b[1C");
-        await _clock.RunUntilAsync(call);
-        return await call;
+        _host.Last!.Show("\x1b]0;prompt.exe\a\x1b[?25lname?\x1b[1C");
+        await _clock.RunUntilAsync(_service.GetConsole("con-1").ScriptDone);
+        return await _tools.LiveConsole("status", run: "con-1");
     }
 
     [Fact]
@@ -111,12 +117,101 @@ public sealed class LiveConsoleTests : IDisposable
         var status = await _tools.LiveConsole("status"); // the only run
         Assert.Matches(@"step 4\s+send x\s+not run", status);
         Assert.Contains("con-1 prompt.exe pid 4242: running, script stopped at step 3", await _tools.LiveConsole());
+        Assert.Contains(_workspace.DrainNotices(), n => n.StartsWith("con-1 script stopped at step 3"));
 
         // Stop leaves a run whose program has exited as it was.
         _host.Last.Exit(3);
         for (var waited = System.Diagnostics.Stopwatch.StartNew(); _service.GetConsole("con-1").State == "running" && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
         var stop = await _tools.LiveConsole("stop", run: "con-1");
         Assert.Contains("con-1 exited (exit code 3)", stop);
+    }
+
+    [Fact]
+    public async Task A_never_matching_wait_returns_from_start_in_under_a_second()
+    {
+        // Wall-clock bound: start must not wait for the 10 s step timeout.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var text = await _tools.LiveConsole("start", program: _program, script: ["wait goodbye"], timeoutSeconds: 10);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"start took {clock.Elapsed}");
+        Assert.Matches(@"step 1\s+wait goodbye\s+running", await _tools.LiveConsole("status"));
+        Assert.Contains("con-1 prompt.exe", text);
+        Assert.Contains("the script runs in the background, at most 10 s", text);
+        Assert.Contains("next: live_console action=status run=con-1 waitSeconds=10 waits for the script", text);
+    }
+
+    [Fact]
+    public async Task Status_with_waitSeconds_shows_the_waiting_step()
+    {
+        await _tools.LiveConsole("start", program: _program, script: ["send x", "wait goodbye", "send y"], timeoutSeconds: 10);
+        // The wait runs on the real clock; the script's own timers stay on the armed clock.
+        var status = await _tools.LiveConsole("status", waitSeconds: 1);
+        Assert.Matches(@"step 2\s+wait goodbye\s+running", status);
+        Assert.Matches(@"step 3\s+send y\s+pending", status);
+        Assert.Contains("script running at step 2 of 3", status);
+        Assert.Contains("next: live_console action=status run=con-1 waitSeconds=30", status);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("status", waitSeconds: 301))).Code);
+    }
+
+    [Fact]
+    public async Task Stop_cancels_a_waiting_script_and_a_notice_names_the_next_call()
+    {
+        await _tools.LiveConsole("start", program: _program, script: ["wait goodbye", "send y"], timeoutSeconds: 10);
+        await _tools.LiveConsole("stop", run: "con-1");
+        var status = await _tools.LiveConsole("status", run: "con-1");
+        Assert.Matches(@"step 1\s+wait goodbye\s+cancelled: ended by action=stop", status);
+        Assert.Matches(@"step 2\s+send y\s+not run", status);
+        Assert.Contains("con-1 prompt.exe pid 4242: stopped (1), script cancelled at step 1", await _tools.LiveConsole());
+        Assert.Contains(_workspace.DrainNotices(), n => n.StartsWith("con-1 script cancelled at step 1") && n.Contains("Next: live_console action=transcript run=con-1"));
+    }
+
+    [Fact]
+    public async Task A_resize_that_throws_stops_the_script_and_a_notice_names_the_step()
+    {
+        _host.ResizeFails = true;
+        var status = await Start(10, "resize 80 24", "send y");
+        Assert.Matches(@"step 1\s+resize 80 24\s+stopped: resize refused", status);
+        Assert.Matches(@"step 2\s+send y\s+not run", status);
+        Assert.Contains(_workspace.DrainNotices(), n => n.StartsWith("con-1 script stopped at step 1 (resize refused)"));
+    }
+
+    [Fact]
+    public async Task Stop_during_a_send_step_cancels_the_steps_after_it()
+    {
+        // The first input cancels the script, as action=stop does.
+        _host.Answer = _ =>
+        {
+            _service.GetConsole("con-1").CancelScript();
+            return null;
+        };
+        var status = await Start(10, "send a", "send b", "send c");
+        Assert.Matches(@"step 1\s+send a\s+done", status);
+        Assert.Matches(@"step 2\s+send b\s+cancelled", status);
+        Assert.Single(_host.Last!.Input);
+    }
+
+    [Fact]
+    public async Task A_completed_script_sends_a_complete_notice()
+    {
+        await Start(10, "send Ada\r");
+        Assert.Contains(_workspace.DrainNotices(), n => n.StartsWith("con-1 script complete (1 steps)"));
+    }
+
+    [Fact]
+    public async Task A_cancelled_status_call_ends_the_wait_and_the_script_keeps_running()
+    {
+        await _tools.LiveConsole("start", program: _program, script: ["wait goodbye"], timeoutSeconds: 10);
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var status = await _tools.LiveConsole("status", waitSeconds: 30, cancellationToken: cancel.Token);
+        Assert.Matches(@"step 1\s+wait goodbye\s+running", status);
+        Assert.False(_service.GetConsole("con-1").ScriptDone.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Status_with_waitSeconds_returns_at_once_for_a_run_without_a_script()
+    {
+        await _tools.LiveConsole("start", program: _program);
+        var status = await _tools.LiveConsole("status", waitSeconds: 300);
+        Assert.Contains("next: live_console action=transcript run=con-1", status);
     }
 
     [Fact]

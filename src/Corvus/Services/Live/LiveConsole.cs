@@ -12,7 +12,7 @@ public sealed record LiveConsoleLine(long Sequence, DateTime Time, string Text, 
 /// <summary>One step of a console script as written: send, wait, resize or delay, with its decoded text or numbers.</summary>
 public sealed record LiveConsoleStep(int Number, string Line, string Verb, string Text, int First, int Second);
 
-/// <summary>What a step did: done, stopped (with why) or not run.</summary>
+/// <summary>What a step did: pending, running, done, stopped or cancelled (with why), or not run.</summary>
 public sealed record LiveConsoleOutcome(LiveConsoleStep Step, string Outcome, long Milliseconds, string? Detail);
 
 /// <summary>A program run under a console host: its output as plain text lines in a bounded ring, and each script step's outcome.</summary>
@@ -26,6 +26,8 @@ public sealed class LiveConsoleRun
     private readonly StringBuilder _search = new();
     private readonly VirtualTerminalText _vt = new();
     private readonly List<LiveConsoleOutcome> _steps = [];
+    private readonly TaskCompletionSource _scriptDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private CancellationTokenSource? _scriptCancel;
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private DateTime _openTime;
     private long _sequence;
@@ -58,21 +60,68 @@ public sealed class LiveConsoleRun
 
     public IReadOnlyList<LiveConsoleOutcome> Steps { get { lock (_steps) return [.. _steps]; } }
 
-    /// <summary>complete, stopped at step N, or none.</summary>
+    /// <summary>Completes when the script ends; complete from the start without a script.</summary>
+    public Task ScriptDone => _scriptDone.Task;
+
+    /// <summary>none, running step N, complete, stopped at step N or cancelled at step N.</summary>
     public string Script
     {
         get
         {
             lock (_steps)
-                return _steps.Count == 0 ? "none"
-                    : _steps.FirstOrDefault(s => s.Outcome == "stopped") is { } stop ? $"stopped at step {stop.Step.Number}" : "complete";
+            {
+                if (_steps.Count == 0) return "none";
+                foreach (var verdict in new[] { "stopped", "cancelled" })
+                    if (_steps.FirstOrDefault(s => s.Outcome == verdict) is { } end) return $"{verdict} at step {end.Step.Number}";
+                return _steps.FirstOrDefault(s => s.Outcome is "running" or "pending") is { } next ? $"running step {next.Step.Number}" : "complete";
+            }
         }
+    }
+
+    /// <summary>Lists every step as pending and returns the token that cancels the script.</summary>
+    internal CancellationToken Plan(IReadOnlyList<LiveConsoleStep> steps)
+    {
+        lock (_steps)
+        {
+            _steps.AddRange(steps.Select(s => new LiveConsoleOutcome(s, "pending", 0, null)));
+            return (_scriptCancel = new CancellationTokenSource()).Token;
+        }
+    }
+
+    /// <summary>Marks the running step stopped with the reason and the later steps not run.</summary>
+    internal void FailScript(string reason)
+    {
+        lock (_steps)
+            for (int i = 0; i < _steps.Count; i++)
+            {
+                var o = _steps[i];
+                if (o.Outcome == "running") _steps[i] = o with { Outcome = "stopped", Detail = reason };
+                else if (o.Outcome == "pending") _steps[i] = o with { Outcome = "not run" };
+            }
     }
 
     internal void Record(LiveConsoleOutcome outcome)
     {
-        lock (_steps) _steps.Add(outcome);
+        lock (_steps) _steps[outcome.Step.Number - 1] = outcome;
     }
+
+    internal void EndScript()
+    {
+        _scriptDone.TrySetResult();
+        lock (_steps)
+        {
+            _scriptCancel?.Dispose();
+            _scriptCancel = null;
+        }
+    }
+
+    internal void CancelScript()
+    {
+        lock (_steps) _scriptCancel?.Cancel();
+    }
+
+    /// <summary>True while the script has a step that has not ended.</summary>
+    public bool IsScriptRunning => !_scriptDone.Task.IsCompleted;
 
     internal void Append(string output)
     {
@@ -252,7 +301,7 @@ public sealed partial class LiveSessionService
         return sb.ToString();
     }
 
-    /// <summary>Starts <paramref name="program"/> under the console host; the run keeps its output until the server exits.</summary>
+    /// <summary>Starts the program under the console host; the run keeps its output.</summary>
     public LiveConsoleRun StartConsole(string program, IReadOnlyList<string> arguments)
     {
         if (ConsoleHost.Unavailable() is { } missing) throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
@@ -268,50 +317,105 @@ public sealed partial class LiveSessionService
         return run;
     }
 
-    /// <summary>Runs the steps in order; the first that cannot complete stops the script, and the steps after it are not run.</summary>
-    public async Task<IReadOnlyList<LiveConsoleOutcome>> RunConsoleScriptAsync(LiveConsoleRun run, IReadOnlyList<LiveConsoleStep> steps, TimeSpan waitTimeout, CancellationToken ct)
+    /// <summary>
+    /// Runs the steps in the background and returns at once.
+    /// Each outcome is recorded as its step ends; one notice names the next call.
+    /// </summary>
+    public void StartConsoleScript(LiveConsoleRun run, IReadOnlyList<LiveConsoleStep> steps, TimeSpan waitTimeout)
     {
-        var outcomes = new List<LiveConsoleOutcome>();
+        if (steps.Count == 0)
+        {
+            run.EndScript();
+            return;
+        }
+        var ct = run.Plan(steps);
+        _ = Task.Run(async () =>
+        {
+            try { await RunConsoleScriptAsync(run, steps, waitTimeout, ct).ConfigureAwait(false); }
+            catch (Exception e)
+            {
+                run.FailScript(e.Message);
+            }
+            finally { run.EndScript(); }
+            workspace.Notify(ScriptNotice(run));
+        });
+    }
+
+    private static string ScriptNotice(LiveConsoleRun run)
+    {
+        var steps = run.Steps;
+        return steps.FirstOrDefault(o => o.Outcome is "stopped" or "cancelled") is { } end
+            ? $"{run.Id} script {end.Outcome} at step {end.Step.Number}{(end.Detail != null ? $" ({end.Detail})" : "")}. " +
+              $"Next: live_console action=transcript run={run.Id} shows the output; action=status run={run.Id} shows the steps."
+            : $"{run.Id} script complete ({steps.Count} steps). Next: live_console action=transcript run={run.Id}.";
+    }
+
+    /// <summary>
+    /// Runs the steps in order.
+    /// The first step that cannot complete stops the script, a cancel ends it,
+    /// and the steps after either are not run.
+    /// </summary>
+    private async Task RunConsoleScriptAsync(LiveConsoleRun run, IReadOnlyList<LiveConsoleStep> steps, TimeSpan waitTimeout, CancellationToken ct)
+    {
         string? stopped = null;
+        bool cancelled = false;
         foreach (var step in steps)
         {
-            if (stopped != null)
+            if (stopped != null || cancelled)
             {
-                outcomes.Add(new(step, "not run", 0, null));
+                run.Record(new(step, "not run", 0, null));
                 continue;
             }
+            if (ct.IsCancellationRequested)
+            {
+                cancelled = true;
+                run.Record(new(step, "cancelled", 0, "ended by action=stop"));
+                continue;
+            }
+            run.Record(new(step, "running", 0, null));
             long began = ConsoleTime.GetTimestamp();
             string? why = null;
-            switch (step.Verb)
+            try
             {
-                case "send":
-                    if (run.State != "running") why = Ended(run);
-                    else
-                        try { run.Process!.Write(step.Text); }
-                        catch (Exception e) when (e is IOException or InvalidOperationException or ObjectDisposedException) { why = $"the console did not take the input: {e.Message}"; }
-                    break;
-                case "wait":
-                    if (!await run.WaitForAsync(step.Text, waitTimeout, ConsoleTime, ct).ConfigureAwait(false))
-                        why = run.State != "running" ? $"{Ended(run)} before output containing \"{Visible(step.Text)}\""
-                            : $"no output containing \"{Visible(step.Text)}\" within {waitTimeout.TotalMilliseconds:N0} ms";
-                    break;
-                case "resize":
-                    if (run.State != "running") why = Ended(run);
-                    else
-                    {
-                        run.Process!.Resize(step.First, step.Second);
-                        (run.Columns, run.Rows) = (step.First, step.Second);
-                    }
-                    break;
-                case "delay":
-                    await Task.Delay(TimeSpan.FromMilliseconds(step.First), ConsoleTime, ct).ConfigureAwait(false);
-                    break;
+                switch (step.Verb)
+                {
+                    case "send":
+                        if (run.State != "running") why = Ended(run);
+                        else
+                            try { run.Process!.Write(step.Text); }
+                            catch (Exception e) when (e is IOException or InvalidOperationException or ObjectDisposedException) { why = $"the console did not take the input: {e.Message}"; }
+                        break;
+                    case "wait":
+                        if (!await run.WaitForAsync(step.Text, waitTimeout, ConsoleTime, ct).ConfigureAwait(false))
+                            why = run.State != "running" ? $"{Ended(run)} before output containing \"{Visible(step.Text)}\""
+                                : $"no output containing \"{Visible(step.Text)}\" within {waitTimeout.TotalMilliseconds:N0} ms";
+                        break;
+                    case "resize":
+                        if (run.State != "running") why = Ended(run);
+                        else
+                        {
+                            run.Process!.Resize(step.First, step.Second);
+                            (run.Columns, run.Rows) = (step.First, step.Second);
+                        }
+                        break;
+                    case "delay":
+                        await Task.Delay(TimeSpan.FromMilliseconds(step.First), ConsoleTime, ct).ConfigureAwait(false);
+                        break;
+                }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                cancelled = true;
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                why = e.Message;
+            }
+            var ms = (long)ConsoleTime.GetElapsedTime(began).TotalMilliseconds;
             stopped = why;
-            outcomes.Add(new(step, why == null ? "done" : "stopped", (long)ConsoleTime.GetElapsedTime(began).TotalMilliseconds, why));
+            run.Record(cancelled ? new(step, "cancelled", ms, "ended by action=stop")
+                : new(step, why == null ? "done" : "stopped", ms, why));
         }
-        foreach (var o in outcomes) run.Record(o);
-        return outcomes;
     }
 
     private static string Ended(LiveConsoleRun r) => r.State == "stopped" ? "the run was stopped" : $"the program exited with code {r.ExitCode}";
@@ -328,11 +432,21 @@ public sealed partial class LiveSessionService
     /// <summary>Ends the program; the transcript stays.</summary>
     public async Task StopConsoleAsync(LiveConsoleRun run)
     {
+        run.CancelScript();
         if (run.State != "running" || run.Process is not { } process) return;
         run.StopRequested = true;
         process.Kill();
         await Task.WhenAny(process.Exited, Task.Delay(TimeSpan.FromSeconds(8))).ConfigureAwait(false);
         if (process.Exited.IsCompletedSuccessfully) run.Finish(process.Exited.Result);
+        await Task.WhenAny(run.ScriptDone, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+    }
+
+    /// <summary>Waits up to the given time for the script to end; a cancelled call ends the wait only.</summary>
+    public static async Task WaitScriptAsync(LiveConsoleRun run, TimeSpan wait, CancellationToken ct)
+    {
+        try { await Task.WhenAny(run.ScriptDone, Task.Delay(wait, ct)).ConfigureAwait(false); }
+        // Cancel ends the wait only.
+        catch (OperationCanceledException) { }
     }
 
     /// <summary>Every program run under a console ends with the server (their jobs end them as well should the server be killed).</summary>
@@ -341,6 +455,7 @@ public sealed partial class LiveSessionService
         foreach (var run in _consoles.Values)
         {
             run.StopRequested = true;
+            run.CancelScript();
             run.Process?.Dispose();
         }
     }

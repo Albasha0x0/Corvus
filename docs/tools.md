@@ -2991,13 +2991,13 @@ Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, 
 
 **Activity trace of a session** (destructive, open-world)
 
-Trace the files, registry keys, endpoints and child processes a session's program opens, with times; report counts each name, diff compares two traces.
+Trace the files, registry keys, endpoints and child processes a program opens, with times; report counts names, diff compares traces.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Run id (tl-1; omitted: the only one); list without it or a filter lists runs. |
+| `run` | string |  |  | Run id; omitted: the only one; list without it or a filter lists runs. |
 | `a` | string |  |  | diff: the first timeline. |
 | `b` | string |  |  | diff: the second timeline. |
 | `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |
@@ -3012,18 +3012,19 @@ Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`, `diff`.
 
 **Scripted console run** (destructive, open-world)
 
-Run a program under a console host, driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.
+Drive a program with a background script; status shows steps, transcript pages output.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `action` | string |  | `list` | What to do. Values: start, stop, list, status, transcript. |
 | `program` | string |  |  | start: program path. |
-| `arguments` | string[] |  |  | start: program arguments. |
+| `arguments` | string[] |  |  | start: arguments. |
 | `script` | string[] |  |  | start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \r (Enter), \n, \t, \e, \xHH. |
 | `run` | string |  |  | Run id (con-1; omitted: the only one). |
-| `timeoutSeconds` | integer |  | `10` | Seconds each wait step waits (1-300). |
-| `cursor` | string |  |  | transcript: cursor of an earlier page; default the oldest line kept. |
+| `timeoutSeconds` | integer |  | `10` | Seconds per wait step (1-300). |
+| `cursor` | string |  |  | transcript: cursor of a page; default the oldest line. |
 | `limit` | integer |  | `100` |  |
+| `waitSeconds` | integer |  | `0` | status: seconds to wait for the script, 0-300. |
 
 Structured output: `run`, `items`, `cursor`, `runs`, `steps`, `dropped`.
 
