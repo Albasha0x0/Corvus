@@ -225,6 +225,18 @@ public class ErrorContractTests
         new ServiceCollection().AddSingleton(new ServerOptions()).AddSingleton(store).AddSingleton(workspace).BuildServiceProvider();
 
     [Fact]
+    public void An_error_result_carries_its_json_in_a_block_and_sets_no_structured_content()
+    {
+        var result = ErrorResult.From(new ToolError(ErrorCode.NotFound, "no type 'X'."), "get_type_info");
+        var human = ((TextContentBlock)result.Content[0]).Text;
+        Assert.Null(result.StructuredContent);
+        Assert.Equal(2, result.Content.Count);
+        Assert.StartsWith(ErrorResult.JsonMarker, ((TextContentBlock)result.Content[1]).Text);
+        Assert.Equal(1, human.Split("no type 'X'.").Length - 1);
+        Assert.Equal("not_found", JsonDocument.Parse(ErrorResult.JsonOf(result)!).RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task The_error_is_the_first_block_even_with_notices()
     {
         using var workspace = new AssemblyWorkspace();

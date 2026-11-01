@@ -13,6 +13,9 @@ namespace Corvus.Mcp;
 /// <summary>The MCP server host: services, catalog and request filters, with the transport chosen by the caller.</summary>
 public static class ServerHost
 {
+    /// <summary>How long a stopping host waits for in-flight calls; engine workers end when the host is disposed.</summary>
+    internal static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>Builds the host; <paramref name="transport"/> adds the transport (stdio for the server, streams in process).</summary>
     public static IHost Build(ServerOptions options, string instructions, Action<IMcpServerBuilder> transport)
     {
@@ -29,6 +32,8 @@ public static class ServerHost
         builder.Logging.SetMinimumLevel(options.LogLevel);
 
         AddServices(builder.Services, options);
+        // The host default is 30 s, which holds the process after stdin closes.
+        builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = ShutdownTimeout);
 
         var server = builder.Services
             .AddMcpServer(o =>

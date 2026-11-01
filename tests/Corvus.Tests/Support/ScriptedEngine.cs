@@ -62,6 +62,11 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     /// <summary>When set, the open fails with it after its stages.</summary>
     public Exception? LateOpenFailure { get; set; }
 
+    /// <summary>Set when an open observed its cancellation token.</summary>
+    public TaskCompletionSource OpenCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>Set when the provider was disposed, which ends a real engine's workers.</summary>
+    public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref Opens);
@@ -70,14 +75,22 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         foreach (var (stage, ms) in OpenStages)
         {
             options?.Progress?.Report(new NativeProviderProgress(stage, clock.Elapsed));
-            if (StageGates.TryGetValue(stage, out var gate)) await gate.Task.WaitAsync(cancellationToken);
-            else await Task.Delay(ms, cancellationToken);
+            try
+            {
+                if (StageGates.TryGetValue(stage, out var gate)) await gate.Task.WaitAsync(cancellationToken);
+                else await Task.Delay(ms, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                OpenCancelled.TrySetResult();
+                throw;
+            }
         }
         if (LateOpenFailure != null) throw LateOpenFailure;
         return new Session(this);
     }
 
-    public void Dispose() { }
+    public void Dispose() => Disposed.TrySetResult();
 
     /// <summary>Adds a function of <paramref name="size"/> bytes with pseudocode lines.</summary>
     public void Add(uint start, string name, params string[] lines) => Add(start, 0x10, name, NativeFunctionFlags.None, lines);

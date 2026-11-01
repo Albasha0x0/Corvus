@@ -876,6 +876,8 @@ public sealed class NativeEngineService : IDisposable
     public void Dispose()
     {
         lock (_recordGate) _disposed = true;
+        // Cancel running opens before closing providers, so each worker ends with the server.
+        foreach (var (_, set) in _holders) set.Dispose();
         foreach (var (_, provider) in _providers)
             if (provider.IsValueCreated) provider.Value.Dispose();
     }
@@ -948,9 +950,15 @@ public sealed class NativeEngineService : IDisposable
 
         public void Dispose()
         {
+            try { OpenCancel?.Cancel(); }
+            catch (ObjectDisposedException) { }
+            var cancel = OpenCancel;
+            var running = Running;
             Close(Opening);
             DisposePatched();
-            OpenCancel?.Dispose();
+            // The running open may still read its token; dispose the source once it settles.
+            if (running == null) cancel?.Dispose();
+            else running.ContinueWith(_ => cancel?.Dispose(), TaskScheduler.Default);
         }
     }
 }

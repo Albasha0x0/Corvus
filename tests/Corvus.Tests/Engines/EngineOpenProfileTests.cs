@@ -276,6 +276,12 @@ public sealed class EngineOpenProfileTests : IDisposable
 
     private (NativeEngineService Engines, LoadedNative Native, TaskCompletionSource Gate, AssemblyWorkspace Workspace) Rig(Exception? lateFailure = null)
     {
+        var (engines, native, gate, workspace, _) = RigWithEngine(lateFailure);
+        return (engines, native, gate, workspace);
+    }
+
+    private (NativeEngineService Engines, LoadedNative Native, TaskCompletionSource Gate, AssemblyWorkspace Workspace, ScriptedEngine Engine) RigWithEngine(Exception? lateFailure = null)
+    {
         var options = new ServerOptions { BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         var engine = new ScriptedEngine { LateOpenFailure = lateFailure };
@@ -286,12 +292,24 @@ public sealed class EngineOpenProfileTests : IDisposable
         _owned.Add(engines);
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
-        return (engines, native, gate, workspace);
+        return (engines, native, gate, workspace, engine);
     }
 
     private static async Task Settled(NativeEngineService engines, LoadedNative native)
     {
         for (int i = 0; i < 200 && engines.ImageSessions(native).Any(e => e.State == "opening"); i++) await Task.Delay(20);
+    }
+
+    // The open is held on a gate that never completes.
+    [Fact]
+    public async Task Disposing_the_service_cancels_an_open_and_ends_the_engine()
+    {
+        var (engines, native, _, _, engine) = RigWithEngine();
+        _ = engines.Session(native, null, null, default).ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+        for (int i = 0; i < 100 && engines.ImageSessions(native).Count == 0; i++) await Task.Delay(20);
+        engines.Dispose();
+        await engine.OpenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await engine.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     [Fact]

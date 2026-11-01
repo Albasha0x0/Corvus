@@ -39,5 +39,7 @@ ThreadPool.SetMinThreads(Math.Max(minWorkers, Environment.ProcessorCount * 2 + 8
 
 using var host = ServerHost.Build(options, ServerInstructions.Text,
     server => server.WithStreamServerTransport(StdioStreams.Input(), StdioStreams.Output(Console.OpenStandardOutput())));
-await host.RunAsync();
+// A host stop past ShutdownTimeout throws; disposal still ends the workers.
+try { await host.RunAsync(); }
+catch (OperationCanceledException) { Console.Error.WriteLine("corvus: stop exceeded the shutdown timeout."); }
 return 0;

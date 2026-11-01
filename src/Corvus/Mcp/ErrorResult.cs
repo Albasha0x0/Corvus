@@ -6,6 +6,7 @@ namespace Corvus.Mcp;
 
 /// <summary>Tool errors as call results: IsError=true, the error text ("Error (code[, retryable]) in tool: message\nNext: ..."), then <see cref="JsonMarker"/> and the error as one JSON line.</summary>
 // Not sent as structuredContent: some clients validate it against the success schema even on errors.
+// The JSON block is the only structured form of an error.
 internal static class ErrorResult
 {
     /// <summary>The start of the second text block; the rest of the block is the JSON object.</summary>
