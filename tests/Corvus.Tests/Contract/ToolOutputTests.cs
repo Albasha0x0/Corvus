@@ -380,6 +380,54 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_file_is_hashed_again_when_its_size_or_time_changes()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"corvus-prov-{Guid.NewGuid():N}.bin");
+        string Hash() => (string)ToolOutput.Input(path, null)!["sha256"]!;
+        try
+        {
+            File.WriteAllBytes(path, [1, 2, 3, 4]);
+            var stamp = File.GetLastWriteTimeUtc(path);
+            var first = Hash();
+            // Same size and write time, new bytes: the cached hash is reused.
+            File.WriteAllBytes(path, [4, 3, 2, 1]);
+            File.SetLastWriteTimeUtc(path, stamp);
+            Assert.Equal(first, Hash());
+            // Same size, new write time: the cached hash must not be reused.
+            File.SetLastWriteTimeUtc(path, stamp.AddSeconds(5));
+            Assert.NotEqual(first, Hash());
+            File.WriteAllBytes(path, [4, 3, 2, 1, 0]);
+            var expected = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+            Assert.Equal(expected, Hash());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task A_folder_argument_is_neither_hashed_nor_listed_as_an_input()
+    {
+        using var services = Services();
+        var folder = Path.Combine(Path.GetTempPath(), $"corvus-prov-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            Assert.Null(ToolOutput.Input(folder, null));
+            var r = await Call(services, "get_pe_info",
+                _ => new CallToolResult { Content = [new TextContentBlock { Text = "x" }] },
+                new() { ["path"] = folder });
+            Assert.Empty(r.Meta![ToolOutput.ProvenanceKey]!["input"]!.AsArray());
+        }
+        finally
+        {
+            Directory.Delete(folder);
+        }
+    }
+
+    [Fact]
     public async Task A_workspace_notice_leaves_the_result_hash_unchanged()
     {
         // A leftover unsaved-edit journal's one-time notice broke NotesTests' rerun check (2026-10-23).
