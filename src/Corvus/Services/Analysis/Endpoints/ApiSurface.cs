@@ -35,7 +35,7 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
             }
             return items;
         }
-        using var zip = ZipFile.OpenRead(source);
+        using var zip = OpenZip(source);
         var libraries = new HashSet<string>(StringComparer.Ordinal);
         foreach (var e in zip.Entries.OrderBy(e => e.FullName.Contains("/arm64-v8a/", StringComparison.Ordinal) ? 0 : 1).ThenBy(e => e.FullName, StringComparer.Ordinal))
         {
@@ -58,6 +58,13 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
             else if (NativeImageLoader.Detect(bytes) != NativeFileKind.Unknown) items.Add(new ContainerItem(name, Blob.Identify(bytes), "zip", bytes));
         }
         return items;
+    }
+
+    /// <summary>Opens <paramref name="path"/> as a zip; a damaged archive is a malformed-input error.</summary>
+    internal static ZipArchive OpenZip(string path)
+    {
+        try { return ZipFile.OpenRead(path); }
+        catch (InvalidDataException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)}: corrupt zip ({ex.Message})."); }
     }
 
     private const int MaxScripts = 400;

@@ -33,7 +33,7 @@ internal sealed class ProtobufFileView : IFileSummaryView
     {
         oversized = 0;
         bool any = false;
-        using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+        using var zip = ApiSurface.OpenZip(path);
         foreach (var e in zip.Entries)
         {
             ct.ThrowIfCancellationRequested();

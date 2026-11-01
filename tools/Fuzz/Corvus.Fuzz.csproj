@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SharpFuzz harnesses for the container readers and summarize_file views: run under afl-fuzz, reproduce a failing
+       input, reduce it to a fixture and replay the fixtures. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Corvus.Fuzz</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpFuzz" Version="2.3.0" />
+    <ProjectReference Include="..\..\src\Corvus\Corvus.csproj" />
+  </ItemGroup>
+
+</Project>
