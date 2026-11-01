@@ -187,7 +187,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     }
                     return Report(a, await live.AttachChildAsync(parent, pid, cancellationToken).ConfigureAwait(false));
                 case "status":
-                    var current = live.Get(RequireSession(session));
+                    // Status reads the idle limit without restarting it.
+                    var current = live.Get(RequireSession(session), use: false);
                     await live.RefreshModulesAsync(current, cancellationToken).ConfigureAwait(false);
                     return Report(a, current);
                 case "snapshot":
@@ -344,9 +345,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var text = new StringBuilder($"{s.Id} ({s.Backend}): {s.Program} pid {s.ProcessId}, {s.State}");
         if (s.Ended != null) text.Append($" ({s.Ended})");
         else if (s.Closed) text.Append($" (session closed ({s.CloseReason}))"); // the close is still ending the worker
+        if (!s.Closed && s.Ended == null) text.Append($"; closes after {s.IdleLimit.TotalMinutes:0.##} min unused, {Math.Max(0, s.IdleLeft.TotalMinutes):0.#} min left");
         if (s.State == "suspended") text.Append("; set stop points, then live_break action=continue starts it");
         if (s.HeldBy != null && s.State == "suspended") text.Append($" (held by {s.HeldBy.Id})");
         text.AppendLine();
+        foreach (var h in s.Held) text.AppendLine($"held: thread {h.Thread} at {h.Point}");
         List<LiveProcessRow>? children = null;
         if (s.ChildNames != null)
         {
@@ -373,14 +376,14 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
-    [Description("Set, list or clear stop points; continue resumes; wait returns the next stop with its stack.")]
+    [Description("Set, list or clear stop points; continue resumes; wait returns the oldest held stop with its stack.")]
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
         [Description("set: name, module!export, address or file:line.")] string? at = null,
         [Description("clear: stop point id.")] string? stopPoint = null,
         [Description("continue: thread id; default all.")] string? thread = null,
-        [Description("Wait for the next stop.")] bool wait = false,
+        [Description("Wait for a stop.")] bool wait = false,
         [Description("wait: seconds (1-300).")] int waitSeconds = 30,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
@@ -421,14 +424,20 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, set, clear or continue");
             }
             LiveStop? stop = null;
+            string? idleNext = null;
             var named = new List<EvidenceName>();
             if (wait)
             {
                 var held = await s.NextStopAsync(TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 300)), cancellationToken).ConfigureAwait(false);
                 if (held == null)
+                {
                     head.AppendLine(s.Ended is { } ended ? $"the program ended before a stop ({ended})"
                         : s.Closed ? "the session closed before a stop"
                         : $"no stop within {Math.Clamp(waitSeconds, 1, 300)} s; the session is {s.State}");
+                    if (s.Ended == null && !s.Closed)
+                        idleNext = Math.Clamp(waitSeconds, 1, 300) is var w and < 300 ? $"live_break session={s.Id} wait=true waitSeconds={Math.Min(300, w * 4)}"
+                            : $"live_break session={s.Id} wait=true waitSeconds=300; or live_events session={s.Id} reads what the program did";
+                }
                 else if (held.ScriptFrames != null) stop = ScriptStop(held, await live.ScriptFramesAsync(s, held, cancellationToken).ConfigureAwait(false), head);
                 else
                 {
@@ -439,7 +448,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (s.Device != null) await JavaFrames(s, held, head, cancellationToken).ConfigureAwait(false);
                 }
             }
-            var next = Dropped(s, head, watch: false, out var failedPoints);
+            var next = Dropped(s, head, watch: false, out var failedPoints) ?? idleNext;
             List<LiveStopPointState> points;
             lock (s.StopPoints) points = s.StopPoints.Values.OrderBy(p => int.Parse(p.Id[1..], CultureInfo.InvariantCulture)).ToList();
             List<LiveDeferred> deferredPoints;
@@ -448,6 +457,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {p.Script ?? $"{Hex(p.Address)} {p.At.Display}"}, {p.Hits} hit(s)");
             foreach (var d in deferredPoints) head.AppendLine($"  {d.Id} {d.Where}: {Until(d)}");
             foreach (var d in failedPoints) head.AppendLine($"  {d.Id} {d.Where}: failed ({d.Because}): {d.Reason}");
+            foreach (var h in s.Held) head.AppendLine($"  held: thread {h.Thread} at {h.Point}");
             if (next != null) head.AppendLine($"Next: {next}");
             named.AddRange(points.Select(p => p.At.Named).OfType<EvidenceName>());
             var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, p.Script != null ? null : Hex(p.Address), p.Hits) { Followed = p.Followed })

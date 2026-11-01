@@ -2877,7 +2877,7 @@ Structured output: `action`, `session`, `backend`, `program`, `processId`, `stat
 
 **Stop points in a session** (destructive, open-world)
 
-Set, list or clear stop points; continue resumes; wait returns the next stop with its stack.
+Set, list or clear stop points; continue resumes; wait returns the oldest held stop with its stack.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2886,7 +2886,7 @@ Set, list or clear stop points; continue resumes; wait returns the next stop wit
 | `at` | string |  |  | set: name, module!export, address or file:line. |
 | `stopPoint` | string |  |  | clear: stop point id. |
 | `thread` | string |  |  | continue: thread id; default all. |
-| `wait` | boolean |  |  | Wait for the next stop. |
+| `wait` | boolean |  |  | Wait for a stop. |
 | `waitSeconds` | integer |  | `30` | wait: seconds (1-300). |
 
 Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.

@@ -127,7 +127,10 @@ Requires Frida 17.24.3 to 17.24.x, from `pip install frida` or the pinned privat
 
 ### Lifetime and environment
 
-- A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30), or with the server. Each releases every held thread and ends a program the session started.
+- A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` unused (default 30; any call but `status` restarts it), or with the server.
+- `close` and the server's end release every held thread and end a program the session started; the idle limit releases held threads and detaches, and the program keeps running.
+- A stop and an exit each queue one notice naming `live_break session=<id> wait=true`; an idle close names `live_session action=attach program=<pid>`.
+- `live_break wait=true` returns the oldest held stop until it continues; `status` and the result list every held thread.
 - A started program runs in its own folder; its output arrives as `output` events. Its environment is minimal (`PATH`, `TEMP`, the user folders, `DOTNET_ROOT*`) plus `environment=["NAME=value"]`; other server variables, such as tokens, are not passed on.
 - It gets `DOTNET_EnableWriteXorExecute=0`. With W^X on, a stop point cannot write JIT-compiled code, so it is refused in an attached program or one started with W^X on.
 - Attach refuses the server's own process and those it runs under (the MCP client, its terminal, the editor): holding them would freeze the client.

@@ -34,7 +34,7 @@ Server options, environment variables and security switches. Setup: [installatio
 | `--allow-device-changes` | `CORVUS_ALLOW_DEVICE_CHANGES` | `install_android_package`, `uninstall_android_package`; other device tools only read |
 | `--trace-args` | `CORVUS_TRACE_ARGS` | argument values in the `--trace` file; secrets masked, best effort |
 | `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | file and dump reads in the server process, not a worker |
-| | `CORVUS_LIVE_MAX_MINUTES` | minutes a session stays open (default 30) |
+| | `CORVUS_LIVE_MAX_MINUTES` | minutes a session may sit unused before it closes (default 30) |
 
 - `--live-allow`: links are resolved first. List only folders that only you can write to.
 - `--allow-live-spawn` without `--live-allow` starts nothing; `--live-allow *` allows any program.

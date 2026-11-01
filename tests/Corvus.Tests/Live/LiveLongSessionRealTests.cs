@@ -126,10 +126,10 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         return (heap, self.WorkingSet64);
     }
 
-    // ---- the session deadline
+    // ---- the session idle limit
 
     [LiveTargetFact("win-x64")] public Task Deadline_closes_the_session_on_win_x64() => Deadline(LiveTarget.WinX64);
-    // The deadline is the server's own timer; the second Windows target runs at release strength.
+    // The idle limit is the server's own timer; the second Windows target runs at release strength.
     [LiveTargetFact("win-x86")] [Trait("Tier", "Release")] public Task Deadline_closes_the_session_on_win_x86() => Deadline(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Deadline_closes_the_session_on_win_arm64() => Deadline(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Deadline_closes_the_session_on_linux_x64() => Deadline(LiveTarget.LinuxX64);
@@ -160,16 +160,21 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         Output.WriteLine($"closed after {clock.Elapsed.TotalSeconds:F1} s");
         Assert.Contains($"pid {pid}, closed", status);
         Assert.InRange(clock.Elapsed.TotalSeconds, 55, 90);
-        Ended(pid);
+        // The idle limit detaches the program; it keeps running until ended here.
+        using (var program = Process.GetProcessById(pid))
+        {
+            Assert.False(program.HasExited, "the idle limit ended the program");
+            program.Kill();
+        }
         // The close's own event follows the state, once the session's worker has shut down.
         string exits = "";
-        for (int i = 0; i < 100 && !exits.Contains("session closed (deadline)"); i++)
+        for (int i = 0; i < 100 && !exits.Contains("session closed (idle)"); i++)
         {
             exits = await Events(server, "live-1", kind: "exit", log: false);
             await Task.Delay(100);
         }
-        Assert.Contains("session closed (deadline)", exits);
-        Assert.Contains("deadline", status);
+        Assert.Contains("session closed (idle)", exits);
+        Assert.Contains("idle", status);
     }
 
     // ---- two sessions at once

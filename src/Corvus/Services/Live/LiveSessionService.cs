@@ -99,7 +99,6 @@ public sealed class LiveSession
     private readonly Dictionary<long, LiveHeldStop> _held = [];
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private long _sequence;
-    private long _waited;
     private int _nextPoint;
     private int _nextWatch;
     private int _nextScript;
@@ -132,7 +131,30 @@ public sealed class LiveSession
     internal WorkerConnection Worker { get; }
     /// <summary>Unwinds stops from the stack bytes they carry (outside Windows); null where the architecture has no register file.</summary>
     internal LiveStackWalk? Stacks { get; set; }
-    internal Timer? Deadline { get; set; }
+    /// <summary>Closes the session after <see cref="IdleLimit"/> unused.</summary>
+    internal ITimer? Idle { get; set; }
+    /// <summary>How long the session may sit unused before it closes.</summary>
+    internal TimeSpan IdleLimit { get; set; }
+    internal TimeProvider Clock { get; set; } = TimeProvider.System;
+    /// <summary>When a tool call last used the session (UTC).</summary>
+    internal DateTimeOffset LastUsed { get; set; }
+    /// <summary>Queues a message for the agent's next reply; null in a session no workspace follows.</summary>
+    internal Action<string>? Notice { get; set; }
+    /// <summary>The time left before the idle limit closes the session.</summary>
+    public TimeSpan IdleLeft => LastUsed + IdleLimit - Clock.GetUtcNow();
+    /// <summary>Whether closing ends the program: a started one, unless idle closed it.</summary>
+    public bool EndsProgram => Spawned && CloseReason != IdleReason;
+    internal const string IdleReason = "idle";
+
+    /// <summary>Restarts the idle limit; a call that uses the session does this.</summary>
+    internal int Waits;
+
+    internal void Touch()
+    {
+        if (Idle == null || Closed) return;
+        LastUsed = Clock.GetUtcNow();
+        Idle.Change(IdleLimit, Timeout.InfiniteTimeSpan);
+    }
     /// <summary>Checks each second for a program whose exit is stuck in a module's shutdown.</summary>
     internal Timer? ExitCheck { get; set; }
     /// <summary>When the program's exit code was first seen set while its process had not yet ended.</summary>
@@ -252,7 +274,12 @@ public sealed class LiveSession
             var seq = ++_sequence;
             if (kind == "exception") Exceptions++;
             (kind == "call" ? _calls : _others).Add(new LiveRingEvent(seq, DateTime.UtcNow, kind, thread, address, text, source));
-            if (held != null && thread is { } t) _held[t] = held(seq);
+            if (held != null && thread is { } t)
+            {
+                var first = _held.Count == 0;
+                _held[t] = held(seq);
+                if (first) Notice?.Invoke($"{Id}: thread {t} stopped at {_held[t].Point}. Next: live_break session={Id} wait=true");
+            }
             Signal();
             return seq;
         }
@@ -265,6 +292,7 @@ public sealed class LiveSession
         {
             Add("exit", null, null, Ended!);
             _exitLogged = true;
+            if (!Closed) Notice?.Invoke($"{Id}: {Ended}. Next: live_break session={Id} wait=true");
         }
     }
 
@@ -277,6 +305,8 @@ public sealed class LiveSession
             CloseReason = reason;
             Add("exit", null, null, "session closed (" + reason + ")");
             Closed = true;
+            if (reason == IdleReason)
+                Notice?.Invoke($"{Id}: closed after {IdleLimit.TotalMinutes:0.##} min unused; pid {ProcessId} {(Spawned ? "keeps running, detached" : "was left detached")}. Next: live_session action=attach program={ProcessId}");
             return true;
         }
     }
@@ -310,8 +340,20 @@ public sealed class LiveSession
         }
     }
 
-    /// <summary>The oldest held stop no earlier wait returned, waiting up to <paramref name="wait"/> for one; null when none came.</summary>
+    /// <summary>The oldest held stop; waits up to <paramref name="wait"/> for one, null when none came.</summary>
     internal async Task<LiveHeldStop?> NextStopAsync(TimeSpan wait, CancellationToken ct)
+    {
+        // A wait in progress is use: the idle timer re-arms while Waits is above zero.
+        Interlocked.Increment(ref Waits);
+        try { return await NextStopCoreAsync(wait, ct).ConfigureAwait(false); }
+        finally
+        {
+            Interlocked.Decrement(ref Waits);
+            Touch();
+        }
+    }
+
+    private async Task<LiveHeldStop?> NextStopCoreAsync(TimeSpan wait, CancellationToken ct)
     {
         var until = DateTime.UtcNow + wait;
         while (true)
@@ -319,11 +361,7 @@ public sealed class LiveSession
             Task changed;
             lock (_gate)
             {
-                if (_held.Values.Where(h => h.Sequence > _waited).MinBy(h => h.Sequence) is { } next)
-                {
-                    _waited = next.Sequence;
-                    return next;
-                }
+                if (_held.Values.MinBy(h => h.Sequence) is { } oldest) return oldest;
                 if (Closed || Ended != null) return null;
                 changed = _changed.Task;
             }
@@ -449,14 +487,22 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// <summary>The backend new sessions start on.</summary>
     public ILiveBackend Backend { get; set; } = new FridaBackend { InstallPinned = options?.LiveInstallFrida == true };
 
+    /// <summary>Tests: the clock the idle limit runs on.</summary>
+    internal TimeProvider Time { get; set; } = TimeProvider.System;
+
     /// <summary>Tests: the 32-bit decoder this server's sessions use, in place of the process-wide CORVUS_CLR32.</summary>
     internal string? DecoderPath { get; set; }
 
+    /// <summary>The open sessions in id order; empty when none.</summary>
     public IReadOnlyList<LiveSession> Sessions => _sessions.Values.OrderBy(s => int.Parse(s.Id[5..], CultureInfo.InvariantCulture)).ToList();
 
-    public LiveSession Get(string id) =>
-        _sessions.TryGetValue(id?.Trim() ?? "", out var s) ? s
-            : throw new ToolError(ErrorCode.NotFound, $"No session '{id}'.", "live_session action=list shows the sessions; action=attach or spawn opens one");
+    /// <summary>The session named id; restarts its idle limit unless use is false; throws NotFound for an unknown id.</summary>
+    public LiveSession Get(string id, bool use = true)
+    {
+        var session = _sessions.TryGetValue(id?.Trim() ?? "", out var s) ? s : null;
+        if (session != null && use) session.Touch();
+        return session ?? throw new ToolError(ErrorCode.NotFound, $"No session '{id}'.", "live_session action=list shows the sessions; action=attach or spawn opens one");
+    }
 
     /// <summary>Whether <paramref name="text"/> is a session id (live-1) rather than a path, process name or dump id.</summary>
     public static bool IsSessionId(string? text) => System.Text.RegularExpressions.Regex.IsMatch(text?.Trim() ?? "", @"^live-\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -465,7 +511,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     public LiveSession Running(string id)
     {
         var session = Get(id);
-        if (session.Ended != null && !session.Closed || session.Closed && session.Spawned)
+        if (session.Ended != null && !session.Closed || session.Closed && session.EndsProgram)
             throw new ToolError(ErrorCode.NotFound, $"The program of session {session.Id} has ended ({session.Ended}).", "open_minidump reads a snapshot saved while it ran (live_session action=snapshot)");
         return session;
     }
@@ -621,13 +667,17 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return session;
     }
 
-    // Registers an open session, with its deadline and the watch for its worker ending.
+    // Registers an open session, with its idle limit and the watch for its worker ending.
     private void Track(LiveSession session)
     {
         var worker = session.Worker;
         _sessions[session.Id] = session;
         var minutes = int.TryParse(Environment.GetEnvironmentVariable(MaxMinutesVariable), out var n) && n > 0 ? n : 30;
-        session.Deadline = new Timer(_ => _ = CloseAsync(session, "deadline"), null, TimeSpan.FromMinutes(minutes), Timeout.InfiniteTimeSpan);
+        session.Clock = Time;
+        session.IdleLimit = TimeSpan.FromMinutes(minutes);
+        session.LastUsed = Time.GetUtcNow();
+        session.Notice = workspace.Notify;
+        session.Idle = Time.CreateTimer(_ => { if (session.Waits > 0) session.Touch(); else _ = CloseAsync(session, LiveSession.IdleReason); }, null, session.IdleLimit, Timeout.InfiniteTimeSpan);
         if (session.ProcessHandle != null) session.ExitCheck = new Timer(_ => CheckExit(session), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         _ = worker.Closed.ContinueWith(_ =>
         {
@@ -925,7 +975,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         // After close the exit is the session's doing (Frida ends a started program with its own code).
         session.Ended = session.CloseReason is { } why
-            ? $"{(session.Spawned ? "ended" : "detached")} when the session closed ({why})"
+            ? $"{(session.EndsProgram ? "ended" : "detached")} when the session closed ({why})"
             : "exited: " + reason + ExitText(session);
         // The exception event can be lost when the process dies at once; the exit code still names it.
         if (session is { Exceptions: 0, ExitCode: >= 0xC000_0000 and not StatusControlCExit and { } code } && Native.Dump.ExceptionCodes.Name(code) is { } exception)
@@ -1758,7 +1808,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     public async Task CloseAsync(LiveSession session, string reason)
     {
         if (!session.AddClose(reason)) return;
-        session.Deadline?.Dispose();
+        session.Idle?.Dispose();
         session.ExitCheck?.Dispose();
         await CloseChildrenAsync(session).ConfigureAwait(false);
         session.CompileCheck?.Dispose();
@@ -1769,7 +1819,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             try
             {
-                var r = await session.Worker.RequestAsync("close", new JsonObject { ["end"] = session.Spawned, ["keep_handed"] = true }, TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+                var r = await session.Worker.RequestAsync("close", new JsonObject { ["end"] = session.EndsProgram, ["keep_handed"] = true }, TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
                 kept = r.ValueKind == JsonValueKind.Object && r.TryGetProperty("kept", out var k) && k.GetInt32() > 0;
             }
             catch (ToolError) { }
@@ -1777,7 +1827,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (!kept)
         {
             if (session.Worker.IsAlive)
-                await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.EndsProgram }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
             session.Worker.Dispose();
         }
         await DropHandedAsync(session).ConfigureAwait(false);
@@ -1793,7 +1843,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             session.Clr = null;
         }
         finally { session.ClrOpen.Release(); }
-        session.Ended ??= $"{(session.Spawned ? "ended" : "detached")} when the session closed ({reason})";
+        session.Ended ??= $"{(session.EndsProgram ? "ended" : "detached")} when the session closed ({reason})";
     }
 
     public void Dispose()

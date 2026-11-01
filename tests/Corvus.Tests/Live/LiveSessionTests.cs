@@ -49,6 +49,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public string Arch { get; init; } = "x64";
     /// <summary>Runs before the reply to a resume, as when a resumed thread stops again before the worker answers.</summary>
     public Action? BeforeResumeReply { get; set; }
+    /// <summary>Whether the last close request asked the worker to end the program.</summary>
+    public bool? LastCloseEnd { get; private set; }
     /// <summary>Runs before the reply to a close, as while the worker still ends its session.</summary>
     public Action? BeforeCloseReply { get; set; }
     /// <summary>Child processes the program started: an attach by one of these ids reports that id.</summary>
@@ -198,6 +200,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             }
             case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "close":
+                LastCloseEnd = (bool?)args["end"];
                 BeforeCloseReply?.Invoke();
                 return null;
             case "resume_child":
@@ -368,6 +371,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         await _tools.LiveBreak("live-1", "continue");
         _backend.Hit("s1", 77, Base + 0x1010);
         Assert.Contains("thread 77 stopped at s1", await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10));
+        await _tools.LiveBreak("live-1", "continue", thread: "77");
         _backend.Hit("s1", 78, Base + 0x1010);
         Assert.Contains("thread 78 stopped at s1", await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10));
         var s = _service.Get("live-1");
