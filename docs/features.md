@@ -324,6 +324,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | squashfs, cramfs, ext2/3/4, FAT, JFFS2, UBI, UBIFS | every file and link |
 | uImage, FIT, Android boot, TRX | kernels, ramdisks, device trees |
 | `.deb`, `.a`, `.rpm`, AppImage, snap, apk v3, Flatpak | package facts and every file |
+| docker save archive, OCI image layout (tar) | entrypoint, environment, history; files and whiteouts per layer |
 | Office OLE documents | streams, VBA source, Excel 4.0 macros, OLE packages |
 | PDF | embedded files, JavaScript, XFA forms; streams with `allFiles` |
 | `.lnk` | appended data |

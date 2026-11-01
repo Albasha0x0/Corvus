@@ -153,6 +153,12 @@ internal sealed class ArchiveReader : IContainerReader
         }
         string[] paths = [.. entries.Select(e => e.Path), .. streamRecords];
         notes.AddRange(MemberNames.Notes(paths));
+        if (format == "tar" && stream.CanSeek && ContainerImage.Looks(entries) && ContainerImage.Read(stream, limits, ct) is { } image)
+        {
+            kind = image.Kind;
+            notes.InsertRange(0, image.Notes);
+            entries.AddRange(image.Entries);
+        }
         if (totalCut > 0) notes.Add(AnalysisLimits.Reached("total", $"{limits.MaxTotalBytes:N0}-byte", totalCut, totalFrom));
         if (countCut > 0) notes.Add(AnalysisLimits.Reached("item count", $"{limits.MaxItems:N0}-file", countCut));
         if (entries.Count > items.Count && !allFiles) notes.Add($"{entries.Count - items.Count} of {entries.Count} files not extracted (not binaries or packages; allFiles extracts every file).");
@@ -225,7 +231,7 @@ internal sealed class ArchiveReader : IContainerReader
     /// Whether the header checksum (POSIX ustar) holds: the byte sum with the
     /// checksum field read as spaces, signed or unsigned.
     /// </summary>
-    private static bool ChecksumHolds(byte[] h)
+    internal static bool ChecksumHolds(byte[] h)
     {
         long stored = 0;
         bool digits = false;
@@ -248,7 +254,7 @@ internal sealed class ArchiveReader : IContainerReader
     /// The size field: octal, or base-256 when its high bit is set (GNU); null
     /// when it is neither; throws <see cref="OverflowException"/> past 2^63.
     /// </summary>
-    private static long? Size(byte[] h)
+    internal static long? Size(byte[] h)
     {
         var field = h.AsSpan(124, 12);
         if ((field[0] & 0x80) != 0)
@@ -274,7 +280,7 @@ internal sealed class ArchiveReader : IContainerReader
     /// The header's path (ustar prefix and name), or "entry at 0x..." when it is
     /// empty.
     /// </summary>
-    private static string Name(byte[] h, long at)
+    internal static string Name(byte[] h, long at)
     {
         static string Field(ReadOnlySpan<byte> f) => Encoding.UTF8.GetString(f[..(f.IndexOf((byte)0) is var n and >= 0 ? n : f.Length)]);
         var name = Field(h.AsSpan(0, 100));
