@@ -46,6 +46,22 @@ public sealed class RtfObjectTests
         Assert.Contains(view.Findings!, f => f is { Rule: "office/ole-class", Level: "noteworthy" } && f.Evidence.StartsWith("Equation Editor 3.0", StringComparison.Ordinal));
     }
 
+    // The ProgID is the only class signal; the payload is four filler bytes.
+    [Fact]
+    public void An_rtf_object_with_the_htmlfile_progid_is_an_html_document()
+    {
+        var view = Inspect(Encoding.Latin1.GetBytes(Rtf("htmlfile", EmbeddedHeader("htmlfile", [1, 2, 3, 4]))))!;
+        Assert.Contains(view.Findings!, f => f is { Rule: "office/ole-class", Level: "noteworthy" } && f.Evidence == "HTML document: an embedded or linked HTML document object");
+    }
+
+    // The ProgID is the only class signal; the payload is four filler bytes.
+    [Fact]
+    public void An_rtf_object_with_a_forms_html_progid_is_an_html_form_control()
+    {
+        var view = Inspect(Encoding.Latin1.GetBytes(Rtf("Forms.HTML:Submit.1", EmbeddedHeader("Forms.HTML:Submit.1", [1, 2, 3, 4]))))!;
+        Assert.Contains(view.Findings!, f => f is { Rule: "office/ole-class", Level: "noteworthy" } && f.Evidence == "HTML form control: an embedded or linked HTML form control object");
+    }
+
     [Fact]
     public void A_plain_letter_reports_nothing()
     {
