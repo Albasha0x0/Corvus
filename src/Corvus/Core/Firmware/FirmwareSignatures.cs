@@ -141,7 +141,8 @@ internal static class FirmwareSignatures
         list.Add(S("Android backup", Arc, "ANDROID BACKUP\n", (w, at) => w.U8(at + 15) is >= (byte)'1' and <= (byte)'9' ? Found() : null));
 
         // Compressed streams.
-        list.Add(S("gzip compressed data", Comp, [0x1F, 0x8B, 0x08], (w, at) => (w.U8(at + 3) & 0xE0) == 0 && w.U8(at + 9) is <= 13 or 255
+        // OS byte: RFC 1952 lists 0-13 and 255; zlib 1.2.12 and later write 19 on macOS.
+        list.Add(S("gzip compressed data", Comp, [0x1F, 0x8B, 0x08], (w, at) => (w.U8(at + 3) & 0xE0) == 0 && w.U8(at + 9) is <= 13 or 19 or 255
             && Containers.GzipDecodes(w.Read(at, (int)Math.Min(w.Left(at), Containers.GzipProbeBytes)))
             ? Found((w.U8(at + 3) & 8) != 0 ? $"original name '{CString(w, at + 10, 64)}'" : null) : null));
         list.Add(S("bzip2 compressed data", Comp, "BZh", (w, at) => w.U8(at + 3) is >= (byte)'1' and <= (byte)'9' && w.Is(at + 4, [0x31, 0x41, 0x59, 0x26, 0x53, 0x59])
