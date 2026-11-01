@@ -11,6 +11,8 @@ namespace Corvus.Tests;
 
 public sealed class SideloadTests : IDisposable
 {
+    private enum ImportTables { Start, Delay, Both }
+
     private readonly TempDir _dir = new();
 
     public void Dispose() => _dir.Dispose();
@@ -24,42 +26,47 @@ public sealed class SideloadTests : IDisposable
         return b;
     }
 
-    /// <summary>An image importing each name, or delay-importing it.</summary>
-    private static byte[] Importer(string name, bool delay)
+    /// <summary>An image importing the name at start, delay-loading it, or both.</summary>
+    private static byte[] Importer(string name, ImportTables tables = ImportTables.Start)
     {
         var b = Basic(dll: false);
-        uint descriptor = 0;
-        b.Add(delay ? ".didat" : ".idata", rva =>
+        void Table(bool d)
         {
-            var blob = new PeBlob(rva);
-            descriptor = blob.Zero(delay ? 64 : 40);
-            uint dll = blob.Ascii(name);
-            blob.Align(2);
-            uint hint = blob.U16(1);
-            blob.Ascii("Run");
-            blob.Align(8);
-            uint thunks = blob.Ptr(true, hint);
-            blob.Ptr(true, 0);
-            uint iat = blob.Ptr(true, hint);
-            blob.Ptr(true, 0);
-            if (delay)
+            uint descriptor = 0;
+            b.Add(d ? ".didat" : ".idata", rva =>
             {
-                uint hmod = blob.U32(0);
-                blob.Patch32(descriptor, 1);
-                blob.Patch32(descriptor + 4, dll);
-                blob.Patch32(descriptor + 8, hmod);
-                blob.Patch32(descriptor + 12, iat);
-                blob.Patch32(descriptor + 16, thunks);
-            }
-            else
-            {
-                blob.Patch32(descriptor, thunks);
-                blob.Patch32(descriptor + 12, dll);
-                blob.Patch32(descriptor + 16, iat);
-            }
-            return blob.ToArray();
-        });
-        b.Directories[delay ? PeDirectory.DelayImport : PeDirectory.Import] = (descriptor, delay ? 64u : 40u);
+                var blob = new PeBlob(rva);
+                descriptor = blob.Zero(d ? 64 : 40);
+                uint dll = blob.Ascii(name);
+                blob.Align(2);
+                uint hint = blob.U16(1);
+                blob.Ascii("Run");
+                blob.Align(8);
+                uint thunks = blob.Ptr(true, hint);
+                blob.Ptr(true, 0);
+                uint iat = blob.Ptr(true, hint);
+                blob.Ptr(true, 0);
+                if (d)
+                {
+                    uint hmod = blob.U32(0);
+                    blob.Patch32(descriptor, 1);
+                    blob.Patch32(descriptor + 4, dll);
+                    blob.Patch32(descriptor + 8, hmod);
+                    blob.Patch32(descriptor + 12, iat);
+                    blob.Patch32(descriptor + 16, thunks);
+                }
+                else
+                {
+                    blob.Patch32(descriptor, thunks);
+                    blob.Patch32(descriptor + 12, dll);
+                    blob.Patch32(descriptor + 16, iat);
+                }
+                return blob.ToArray();
+            });
+            b.Directories[d ? PeDirectory.DelayImport : PeDirectory.Import] = (descriptor, d ? 64u : 40u);
+        }
+        if (tables != ImportTables.Delay) Table(false);
+        if (tables != ImportTables.Start) Table(true);
         return b.Build();
     }
 
@@ -131,7 +138,7 @@ public sealed class SideloadTests : IDisposable
     [Fact]
     public void A_signed_image_beside_an_unsigned_DLL_it_imports_gives_one_record()
     {
-        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll", delay: false))), ("plugin.dll", Library("plugin.dll"))));
+        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll"))), ("plugin.dll", Library("plugin.dll"))));
         Assert.Equal(("app.exe", "plugin.dll", "plugin.dll!Run", false), (hit.Image, hit.Dll, hit.Import, hit.Delay));
         var view = SideloadReview.View([hit], [])!;
         var finding = Assert.Single(view.Findings);
@@ -142,41 +149,79 @@ public sealed class SideloadTests : IDisposable
     [Fact]
     public void A_signed_DLL_beside_a_signed_image_gives_no_record()
     {
-        Assert.Empty(Scan(("app.exe", Signed(Importer("plugin.dll", delay: false))), ("plugin.dll", Signed(Library("plugin.dll")))));
+        Assert.Empty(Scan(("app.exe", Signed(Importer("plugin.dll"))), ("plugin.dll", Signed(Library("plugin.dll")))));
     }
 
     [Fact]
     public void An_unsigned_image_gives_no_record()
     {
-        Assert.Empty(Scan(("app.exe", Importer("plugin.dll", delay: false)), ("plugin.dll", Library("plugin.dll"))));
+        Assert.Empty(Scan(("app.exe", Importer("plugin.dll")), ("plugin.dll", Library("plugin.dll"))));
     }
 
     [Fact]
     public void A_KnownDLL_name_gives_no_record()
     {
         if (!OperatingSystem.IsWindows()) return;
-        Assert.Empty(Scan(("app.exe", Signed(Importer("kernel32.dll", delay: false))), ("kernel32.dll", Library("kernel32.dll"))));
+        Assert.Empty(Scan(("app.exe", Signed(Importer("kernel32.dll"))), ("kernel32.dll", Library("kernel32.dll"))));
     }
 
     [Fact]
     public void A_delay_imported_name_is_found_the_same_way()
     {
-        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll", delay: true))), ("plugin.dll", Library("plugin.dll"))));
+        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll", ImportTables.Delay))), ("plugin.dll", Library("plugin.dll"))));
         Assert.True(hit.Delay);
         Assert.Contains("delay-imports plugin.dll!Run", SideloadReview.Describe(hit));
     }
 
     [Fact]
+    public void A_name_in_both_import_tables_gives_one_record_with_the_start_load()
+    {
+        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll", ImportTables.Both))), ("plugin.dll", Library("plugin.dll"))));
+        Assert.False(hit.Delay);
+        Assert.Equal("plugin.dll!Run", hit.Import);
+    }
+
+    [Fact]
+    public void An_unknown_KnownDLLs_list_is_noted_and_reports_a_system_name()
+    {
+        File.WriteAllBytes(_dir.File("app.exe"), Signed(Importer("kernel32.dll")));
+        File.WriteAllBytes(_dir.File("kernel32.dll"), Library("kernel32.dll"));
+        var (hits, notes) = SideloadReview.Scan(SideloadReview.OfFolder(_dir.Path), null, default);
+        Assert.Single(hits);
+        Assert.Contains(notes, n => n.StartsWith("KnownDLLs is unknown"));
+    }
+
+    [WindowsFact]
+    public void A_catalog_signed_system_DLL_beside_a_signed_image_gives_no_record()
+    {
+        var known = SideloadReview.KnownDlls() ?? [];
+        var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var source = new[] { "dpapi.dll", "wintrust.dll", "mscoree.dll", "msxml6.dll" }
+            .Where(n => !known.Contains(n))
+            .Select(n => System.IO.Path.Combine(system, n))
+            .FirstOrDefault(f => File.Exists(f) && CatalogSignature.Verify(f, "Microsoft Corporation", out _) == null);
+        Assert.True(source != null, "No catalog-signed system DLL outside KnownDLLs was found on this host.");
+        var name = System.IO.Path.GetFileName(source);
+        File.Copy(source, _dir.File(name));
+        File.WriteAllBytes(_dir.File("app.exe"), Signed(Importer(name)));
+        Assert.DoesNotContain(SideloadReview.Scan(SideloadReview.OfFolder(_dir.Path), default).Hits, h => h.Dll == name);
+
+        // Control: an unsigned library under the same name is reported.
+        File.WriteAllBytes(_dir.File(name), Library(name));
+        Assert.Contains(SideloadReview.Scan(SideloadReview.OfFolder(_dir.Path), default).Hits, h => h.Dll == name);
+    }
+
+    [Fact]
     public void Forwarded_exports_to_the_system_copy_of_the_same_name_are_noted()
     {
-        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll", delay: false))), ("plugin.dll", Library("plugin.dll", "plugin.Real"))));
+        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll"))), ("plugin.dll", Library("plugin.dll", "plugin.Real"))));
         Assert.Equal(["plugin.dll, the system copy of the same name"], hit.Forwards);
     }
 
     [Fact]
     public void Forwarded_exports_to_a_renamed_copy_beside_the_DLL_are_noted()
     {
-        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll", delay: false))), ("plugin.dll", Library("plugin.dll", "plugin_orig.Run")),
+        var hit = Assert.Single(Scan(("app.exe", Signed(Importer("plugin.dll"))), ("plugin.dll", Library("plugin.dll", "plugin_orig.Run")),
             ("plugin_orig.dll", Library("plugin_orig.dll"))), h => h.Dll == "plugin.dll");
         Assert.Equal(["plugin_orig.dll, a renamed copy beside it"], hit.Forwards);
     }
@@ -184,7 +229,7 @@ public sealed class SideloadTests : IDisposable
     [Fact]
     public void A_folder_summary_and_an_archive_summary_carry_the_record()
     {
-        File.WriteAllBytes(_dir.File("app.exe"), Signed(Importer("plugin.dll", delay: false)));
+        File.WriteAllBytes(_dir.File("app.exe"), Signed(Importer("plugin.dll")));
         File.WriteAllBytes(_dir.File("plugin.dll"), Library("plugin.dll"));
         var service = new InspectionService(new AssemblyWorkspace());
         var folder = service.Summarize(null, _dir.Path, default, FileViewOptions.None);
@@ -205,7 +250,7 @@ public sealed class SideloadTests : IDisposable
     [Fact]
     public void Names_in_one_folder_that_differ_only_in_case_do_not_throw()
     {
-        var app = Signed(Importer("plugin.dll", delay: false));
+        var app = Signed(Importer("plugin.dll"));
         var dll = Library("plugin.dll");
         var (hits, _) = SideloadReview.Scan([new("a/app.exe", () => app, null), new("a/plugin.dll", () => dll, null), new("a/PLUGIN.DLL", () => dll, null)], default);
         Assert.Single(hits);
@@ -215,7 +260,7 @@ public sealed class SideloadTests : IDisposable
     [FuzzEntry(typeof(SideloadFileView))]
     public void Fuzzed_archives_never_throw_in_the_sideload_view()
     {
-        var seed = ApkTestSigner.Zip([("bin/app.exe", Signed(Importer("plugin.dll", delay: false))), ("bin/plugin.dll", Library("plugin.dll", "plugin.Real"))]);
+        var seed = ApkTestSigner.Zip([("bin/app.exe", Signed(Importer("plugin.dll"))), ("bin/plugin.dll", Library("plugin.dll", "plugin.Real"))]);
         var path = _dir.File("fuzz.zip");
         var failures = FormatFuzz.Run(seed, b =>
         {

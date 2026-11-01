@@ -34,10 +34,13 @@ internal static class SideloadReview
     }
 
     /// <summary>The hits among <paramref name="members"/> and notes naming what was not read; names in KnownDLLs are skipped.</summary>
-    public static (IReadOnlyList<SideloadHit> Hits, IReadOnlyList<string> Notes) Scan(IEnumerable<SideloadMember> members, CancellationToken ct)
+    public static (IReadOnlyList<SideloadHit> Hits, IReadOnlyList<string> Notes) Scan(IEnumerable<SideloadMember> members, CancellationToken ct) =>
+        Scan(members, KnownDlls(), ct);
+
+    // The KnownDLLs set is a parameter so a host where it cannot be read is testable anywhere.
+    internal static (IReadOnlyList<SideloadHit> Hits, IReadOnlyList<string> Notes) Scan(IEnumerable<SideloadMember> members, HashSet<string>? known, CancellationToken ct)
     {
         var notes = new List<string>();
-        var known = KnownDlls();
         if (known == null) notes.Add("KnownDLLs is unknown on this host: every import matching a DLL beside its importer is reported.");
         var images = members.Where(m => ImageExtensions.Contains(System.IO.Path.GetExtension(m.Path), StringComparer.OrdinalIgnoreCase)).ToList();
         if (images.Count > MaxImages)
@@ -67,7 +70,7 @@ internal static class SideloadReview
             foreach (var importer in folder)
             {
                 if (Load(importer) is not { Embedded: true } signed) continue;
-                foreach (var module in signed.Imports)
+                foreach (var module in OnePerModule(signed.Imports))
                 {
                     var name = module.Module;
                     if (ApiSetPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
@@ -80,6 +83,12 @@ internal static class SideloadReview
         }
         return (hits, notes);
     }
+
+    // A module in both import tables is one record, and it is a delay import
+    // only when no start-time import loads it.
+    private static IEnumerable<Import> OnePerModule(IReadOnlyList<Import> imports) =>
+        imports.GroupBy(i => i.Module, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderBy(i => i.Delay).First());
 
     /// <summary>A DLL with an embedded signature, or on disk in a Microsoft catalog (system DLLs are signed that way).</summary>
     private static bool IsSigned(Loaded dll) => dll.Embedded
@@ -112,7 +121,7 @@ internal static class SideloadReview
     // Microsoft Learn, "Dynamic-link library search order": a Windows
     // version lists its known DLLs in the KnownDLLs key read here.
     /// <summary>The names in the KnownDLLs key of this host; null off Windows or when the key cannot be read.</summary>
-    private static HashSet<string>? KnownDlls()
+    internal static HashSet<string>? KnownDlls()
     {
         if (!OperatingSystem.IsWindows()) return null;
         try
