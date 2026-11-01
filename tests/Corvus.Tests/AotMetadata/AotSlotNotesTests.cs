@@ -249,7 +249,24 @@ public sealed partial class AotFieldNotesTests
     }
 
     [Fact]
-    public void A_branch_target_drops_tracked_values()
+    public void A_backward_branch_target_drops_tracked_values()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(ecx, 25);
+            var join = a.CreateLabel();
+            a.Label(ref join);
+            a.call(Helper);
+            a.cmp(__byte_ptr[rsp + 0x20], 0);
+            a.jne(join);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_target_reached_only_by_a_forward_jump_keeps_the_values_at_the_jump()
     {
         var notes = SlotNotes(a =>
         {
@@ -261,6 +278,78 @@ public sealed partial class AotFieldNotesTests
             a.Label(ref join);
             a.call(Helper);
             a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Equal("BinaryReader::ReadBytes (slot 25)", Assert.Single(notes).Value);
+    }
+
+    private static void InitPrologue(Assembler a, Action<Assembler> initPath)
+    {
+        a.push(rbx);
+        a.sub(rsp, 0x20);
+        a.mov(rbx, rcx);
+        var join = a.CreateLabel();
+        a.cmp(__byte_ptr[rsp + 0x28], 0);
+        a.jne(join);
+        initPath(a);
+        a.Label(ref join);
+        a.mov(rax, __qword_ptr[rbx]);
+        a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+        a.add(rsp, 0x20); a.pop(rbx); a.ret();
+    }
+
+    [Fact]
+    public void A_receiver_in_a_preserved_register_survives_an_init_call_and_the_join()
+    {
+        var notes = SlotNotes(a => InitPrologue(a, p => p.call(0x180000000UL + 0x1060)));
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    [Fact]
+    public void A_join_where_one_predecessor_overwrote_the_receiver_has_no_note()
+    {
+        var notes = SlotNotes(a => InitPrologue(a, p => p.xor(ebx, ebx)));
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void Code_after_a_return_starts_from_the_state_at_the_branch_to_it()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.push(rbx);
+            a.sub(rsp, 0x20);
+            a.mov(rbx, rcx);
+            var join = a.CreateLabel();
+            a.cmp(__byte_ptr[rsp + 0x28], 0);
+            a.jne(join);
+            a.add(rsp, 0x20); a.pop(rbx); a.ret();
+            a.Label(ref join);
+            a.mov(rax, __qword_ptr[rbx]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x20); a.pop(rbx); a.ret();
+        });
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    [Fact]
+    public void Two_forward_branches_with_different_receivers_leave_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.push(rbx);
+            a.sub(rsp, 0x20);
+            a.mov(rbx, rcx);
+            var join = a.CreateLabel();
+            a.cmp(__byte_ptr[rsp + 0x28], 0);
+            a.jne(join);
+            a.mov(rbx, rdx);
+            a.cmp(__byte_ptr[rsp + 0x29], 0);
+            a.jne(join);
+            a.xor(ebx, ebx);
+            a.Label(ref join);
+            a.mov(rax, __qword_ptr[rbx]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x20); a.pop(rbx); a.ret();
         });
         Assert.Empty(notes);
     }

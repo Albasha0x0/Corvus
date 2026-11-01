@@ -79,19 +79,38 @@ public static class AotSlotNotes
 
         var state = new Dictionary<Register, Value>();
         if (Owner(applied.Image.MethodsAt(fn.Start)) is { } method) Entry(method, args, windows, state);
-        var targets = instructions
+        var branches = instructions
             .Where(i => i.FlowControl is FlowControl.ConditionalBranch or FlowControl.UnconditionalBranch
-                && i.Op0Kind == OpKind.NearBranch64)
-            .Select(i => i.NearBranchTarget).ToHashSet();
+                && i.Op0Kind == OpKind.NearBranch64).ToList();
+        var targets = branches.Select(i => i.NearBranchTarget).ToHashSet();
+        // A backward branch reaches its target with a state not yet seen.
+        var backward = branches
+            .Where(i => i.NearBranchTarget <= i.IP)
+            .Select(i => i.NearBranchTarget)
+            .ToHashSet();
+        var pending = new Dictionary<ulong, Dictionary<Register, Value>>();
         var info = new InstructionInfoFactory();
         bool blockStart = false;
         foreach (var ins in instructions)
         {
             ct.ThrowIfCancellationRequested();
-            // Code after a jump, return or trap is only reached by a branch.
-            if (blockStart || targets.Contains(ins.IP)) state.Clear();
+            // Join the fall-through state with the state of each branch to this
+            // address; code only a branch reaches starts from those states.
+            if (blockStart || targets.Contains(ins.IP))
+            {
+                bool seen = pending.Remove(ins.IP, out var arrived);
+                if (backward.Contains(ins.IP)) state.Clear();
+                else if (blockStart) state = arrived ?? [];
+                else if (seen) Intersect(state, arrived!);
+            }
             blockStart = ins.FlowControl is FlowControl.UnconditionalBranch or FlowControl.IndirectBranch
                 or FlowControl.Return or FlowControl.Exception;
+            if (ins.FlowControl is FlowControl.ConditionalBranch or FlowControl.UnconditionalBranch
+                && ins.Op0Kind == OpKind.NearBranch64 && ins.NearBranchTarget > ins.IP)
+            {
+                if (pending.TryGetValue(ins.NearBranchTarget, out var recorded)) Intersect(recorded, state);
+                else pending[ins.NearBranchTarget] = new Dictionary<Register, Value>(state);
+            }
             if (ins.FlowControl == FlowControl.Call)
             {
                 if (IsHelperCall(ins) && Helper((uint)(ins.NearBranchTarget - imageBase)) is { } h
@@ -116,6 +135,13 @@ public static class AotSlotNotes
             if (loaded != null) state[ins.Op0Register.GetFullRegister()] = loaded;
         }
         return notes;
+    }
+
+    // Mutates into: removes registers whose value differs or is missing in other.
+    private static void Intersect(Dictionary<Register, Value> into, Dictionary<Register, Value> other)
+    {
+        foreach (var r in into.Keys.ToList())
+            if (!other.TryGetValue(r, out var v) || !v.Equals(into[r])) into.Remove(r);
     }
 
     // The slot a call [class + offset] addresses when the base holds the class
