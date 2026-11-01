@@ -35,8 +35,10 @@ internal static class NativeEmbeddedContent
         foreach (int at in hits)
         {
             ct.ThrowIfCancellationRequested();
-            // Flags with reserved bits set and unknown OS bytes are not gzip headers.
-            if (at + 10 > image.Length || (image[at + 3] & 0xE0) != 0 || image[at + 9] > 13) continue;
+            // Reserved flag bits or an OS byte no writer uses is not a gzip header.
+            // RFC 1952 lists 0-13 and 255 (unknown, Go's default); zlib 1.2.12
+            // and later write 19 on macOS.
+            if (at + 10 > image.Length || (image[at + 3] & 0xE0) != 0 || image[at + 9] is > 13 and not (19 or 255)) continue;
             int length = Math.Min(image.Length - at, MaxStreamBytes);
             if (tried + length > MaxTriedBytes) { unread++; continue; }
             tried += length;

@@ -46,6 +46,21 @@ public sealed class NativeEmbeddedContentTests
         return string.Join(" ", new InspectionService(workspace).Summarize(null, path, ct).Highlights);
     }
 
+    // Regression: macOS CI missed every stream; zlib there writes OS byte 19.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(19)]
+    [InlineData(255)]
+    public void A_gzip_stream_is_named_whichever_operating_system_wrote_it(byte os)
+    {
+        var data = new byte[0x200 + 0x100];
+        var gzip = Gzip(500);
+        gzip[9] = os;
+        gzip.CopyTo(data, 0x100);
+        Assert.Contains("Compression stream: 1 gzip stream(s) at 0x", Summarize(data), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_gzip_stream_alone_is_named_in_the_overview()
     {
