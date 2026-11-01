@@ -4,6 +4,7 @@
 # Optional "timeout" (seconds); {"op": "cancel", "args": {"id": n}} stops request n.
 # A stopped request answers with what it has, marked {"partial": reason, "next": cursor}, or a timeout / cancelled error.
 # Unsolicited lines: {"event": "progress", "id": n, "op": ..., "elapsed": seconds}.
+# {"event": "checkpoint", "id": n, "op": ...} follows each partial-analysis save.
 # Anything IDA or Python prints goes to stderr: fd 1 is redirected there before idalib loads.
 # Addresses on the wire are RVAs relative to the database image base.
 import json
@@ -366,6 +367,10 @@ def op_open(args):
             raise WorkerError("invalid_argument", "IDA loaded the image with processor %s, not %s" % (got, wanted))
         if not reuse:
             setup_overrides(m, overrides, warnings)
+    # Stamp before the analysis so a checkpoint is accepted as this input's database.
+    sha = args.get("sha256") or ""
+    if sha and not reuse:
+        stamp_node(True).hashset_buf(INPUT_STAMP, sha)
     if not _state["auto"]:
         complete = True
     elif reuse and not m.ida_auto.auto_is_ok():
@@ -380,7 +385,6 @@ def op_open(args):
     if ftype not in (m.ida_ida.f_PE, m.ida_ida.f_ELF, m.ida_ida.f_MACHO) and not (raw and ftype == m.ida_ida.f_BIN):
         raise WorkerError("unsupported", "IDA loaded the file with a loader other than its PE, ELF or Mach-O loader (file type %d, processor %s)"
                           % (ftype, m.ida_ida.inf_get_procname()))
-    sha = args.get("sha256") or ""
     if reuse:
         rename_legacy_nodes()
     if reuse and sha:
@@ -403,8 +407,6 @@ def op_open(args):
             raise WorkerError("malformed_input", "the saved database %s was made from other input (%s, expected %s)"
                               % (idb, made_from or "no input stamp", sha))
     if not reuse:
-        if sha:
-            stamp_node(True).hashset_buf(INPUT_STAMP, sha)
         # IDA writes the packed .i64 only on save; persist the analysis now so a crash does not discard it.
         save_idb(m)
     result = info(m, reuse, time.time() - start)
@@ -413,10 +415,16 @@ def op_open(args):
     return result
 
 
-def analyze_within(m, seconds):
+# Seconds between database saves during an analysis; a killed worker loses at most this much.
+CHECKPOINT_SECONDS = 300
+
+
+def analyze_within(m, seconds, checkpoint=CHECKPOINT_SECONDS):
     # Runs auto_wait in steps within the budget; the rest stays queued for reanalyze_native. True: the queue ran empty.
+    # Save every `checkpoint` seconds and report the database partial.
     global _stage
     end = time.time() + float(seconds) if seconds else None
+    saved = time.time()
     m.ida_auto.enable_auto(True)
     try:
         while True:
@@ -424,6 +432,11 @@ def analyze_within(m, seconds):
                 m.ida_auto.auto_wait()
                 return True
             _stage = analysis_stage(m.ida_auto)
+            if not _connected and time.time() - saved >= checkpoint:
+                save_idb(m)
+                saved = time.time()
+                r = _current
+                send({"event": "checkpoint", "id": r.id if r else None, "op": r.op if r else None})
             if (end is not None and time.time() >= end) or cancelled():
                 if not m.ida_auto.auto_is_ok():
                     bound_auto_wait(m)

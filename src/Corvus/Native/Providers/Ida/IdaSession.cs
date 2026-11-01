@@ -163,9 +163,11 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         SetWorker(worker);
         // Heartbeats before the open is decided belong to the start, not to an analysis.
         string stage = "start";
+        // A checkpoint precedes the open result on stdout, so it never follows the final record.
         worker.EventReceived += e =>
         {
-            if (e.Name == "progress") Options.Progress?.Report(HeartbeatProgress(e.Body, Volatile.Read(ref stage), clock.Elapsed));
+            if (e.Name == "checkpoint") RecordAnalysis(false);
+            else if (e.Name == "progress") Options.Progress?.Report(HeartbeatProgress(e.Body, Volatile.Read(ref stage), clock.Elapsed));
         };
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
