@@ -39,6 +39,16 @@ public sealed class PackageReviewTests : IDisposable
 
 
     [Fact]
+    public void A_prepare_script_runs_at_install_in_a_source_archive_but_not_in_a_registry_package()
+    {
+        const string manifest = """{"name":"sample-lib","version":"1.0.0","scripts":{"prepare":"node build.js"}}""";
+        var source = Review(Zip("sample-lib-src.zip", ("package/package.json", U(manifest)), ("package/build.js", U("console.log(1);"))));
+        Assert.Contains(source.Scripts, s => s is { Name: "prepare", AtInstall: true });
+        var registry = Review(Tgz("sample-lib-1.0.0.tgz", ("package/package.json", manifest), ("package/build.js", "console.log(1);")));
+        Assert.Contains(registry.Scripts, s => s is { Name: "prepare", AtInstall: false });
+    }
+
+    [Fact]
     public void A_dependency_confusion_preinstall_that_sends_host_details_is_noteworthy()
     {
         var r = Review(Tgz("internal-auth-1.0.0.tgz",

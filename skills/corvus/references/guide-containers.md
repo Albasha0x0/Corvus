@@ -16,7 +16,7 @@ Files, containers and wrapped apps (nothing is executed).
 - search_container kind=dart lists a Flutter app's Dart URIs and identifiers.
 - unpack_container on a pcap reassembles TCP and writes HTTP responses and tls.json; keyLog (SSLKEYLOGFILE) decrypts TLS and QUIC.
 - summarize_file views for single formats: qlog, certificate, evtx, procmon, registry (table= a key path), pri, protobuf, flutter, wasm, assets.
-- summarize_file view=script peels PowerShell, batch, VBScript and JavaScript transformation layers without running them.
+- summarize_file view=script peels PowerShell, batch, VBScript and JavaScript layers and reads task definition and notebook shell commands, without running them.
 - summarize_file view=package reviews an npm, PyPI, RubyGems, NuGet, Composer, VS Code or browser extension package before install.
 - summarize_file of a folder or archive lists an unsigned DLL beside a signed image that imports it, outside KnownDLLs (view=sideload).
 - analyze_js: bundler signatures and source maps; view=position maps a minified line:column to the original.

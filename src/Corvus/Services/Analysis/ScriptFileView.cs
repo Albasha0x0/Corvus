@@ -7,10 +7,13 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=script: a script's transformation layers peeled to plain text by a bounded evaluator, paged by character offset; nothing runs.</summary>
+/// <summary>
+/// view=script: a script, task definition or notebook peeled to plain text,
+/// paged by character offset; nothing runs.
+/// </summary>
 internal sealed class ScriptFileView : IFileSummaryView
 {
-    private const int MaxText = 8 << 20, OverviewText = 2 << 20, Window = 24_000, LayerText = 2_000;
+    private const int MaxText = 8 << 20, OverviewText = 2 << 20, Window = 24_000, LayerText = 2_000, MaxBlocks = 64;
 
     public sealed record Layer(int Depth, string Language, string Via, int Chars,
         [property: Description("The layer's text as decoded, to its first 2,000 characters.")] string Text);
@@ -41,7 +44,12 @@ internal sealed class ScriptFileView : IFileSummaryView
         var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         ScriptReading reading;
         var payloads = new List<BlobPayload>();
-        if (ext is ".hta" or ".wsf" or ".html" or ".htm" or ".svg" or ".sct" or ".wsc" || ext == "" && Regex.IsMatch(text, @"<script\b[^>]*\blanguage\s*=", RegexOptions.IgnoreCase))
+        var parts = ext == ".ipynb" ? NotebookCells.Read(text) : ext is ".xml" or "" ? TaskDefinition.Read(text) : null;
+        if (parts != null)
+        {
+            reading = ReadParts(parts, ct, asked);
+        }
+        else if (ext is ".hta" or ".wsf" or ".html" or ".htm" or ".svg" or ".sct" or ".wsc" || ext == "" && Regex.IsMatch(text, @"<script\b[^>]*\blanguage\s*=", RegexOptions.IgnoreCase))
         {
             if (Blocks(text, out _) is not { Count: > 0 } blocks) return null;
             if (BlobPayloads.IsPage(file.Path)) payloads = BlobPayloads.Find(text, ct);
@@ -72,8 +80,9 @@ internal sealed class ScriptFileView : IFileSummaryView
             payloads.Count > 0 ? [.. payloads.Select(p => new Payload(p.Name, p.Kind, p.Size, p.Sha256))] : null);
         var findings = payloads.Select(p => new Finding(FindingLevel.Noteworthy, "page/blob-payload", "smuggling",
             $"builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it", p.Name, "page")).ToList();
-        findings.AddRange(FindingRules.FromLaunchers(Launchers.MatchAll(reading.Calls), "script"));
-        var highlights = Highlights(reading);
+        findings.AddRange(FindingRules.FromLaunchers(Launchers.MatchAll(parts == null ? reading.Calls : reading.Calls.Concat(parts.Commands)), "script"));
+        var highlights = parts == null ? Highlights(reading) : [$"{parts.Kind[..1].ToUpperInvariant()}{parts.Kind[1..]}: {parts.Commands.Count} command(s) found; view=script shows the plain text."];
+        if (parts != null && reading.Calls.Count > 0) highlights.Add("Commands worth reviewing: " + string.Join("; ", reading.Calls.Take(8)) + (reading.Calls.Count > 8 ? "; ..." : "") + ".");
         highlights.AddRange(payloads.Take(3).Select(p => $"Builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it; unpack_container carves it as {p.Name}."));
         return new FileView(facts, highlights) { Findings = findings, Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct) };
     }
@@ -151,6 +160,16 @@ internal sealed class ScriptFileView : IFileSummaryView
         return sb.ToString();
     }
 
+    private static ScriptReading ReadParts(SourceParts parts, CancellationToken ct, bool asked)
+    {
+        var notes = parts.Notes.ToList();
+        if (parts.Blocks.Count == 0) return new ScriptReading(parts.Kind, parts.Plain, [], 0, [], notes);
+        if (parts.Blocks.Count > MaxBlocks) notes.Add($"Peeled {MaxBlocks} of {parts.Blocks.Count} shell blocks; later commands are matched, not peeled.");
+        var r = ReadBlocks([.. parts.Blocks], ct, asked);
+        notes.AddRange(r.Notes);
+        return r with { Language = parts.Kind, Plain = parts.Plain + "# peeled\n" + r.Plain, Notes = notes };
+    }
+
     private static ScriptReading ReadBlocks(List<Block> blocks, CancellationToken ct, bool asked)
     {
         var plain = new StringBuilder();
@@ -161,7 +180,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         var copied = new List<ClipboardCommand>();
         int folded = 0;
         bool complete = true;
-        foreach (var b in blocks.Take(64))
+        foreach (var b in blocks.Take(MaxBlocks))
         {
             var r = ScriptReader.Read(b.Text, b.Language, ct, milliseconds: asked ? ScriptBudget.AskedBlockMilliseconds : ScriptBudget.BlockMilliseconds);
             plain.Append($"<script language=\"{b.Language}\">").Append(r.Plain).Append("</script>\n");
