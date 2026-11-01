@@ -210,6 +210,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             [Le(0x61707865), Le(0x3320646E), Le(0x3120646E), Le(0x79622D32), Le(0x79622D36), Le(0x6B206574)]),
         ["rc4-loop"] = new("RC4 state fill and swap loops (x86 and x64 code shape, heuristic)", true, [], Shape: Rc4Loops),
         ["aes-schedule-code"] = new("AES key schedule expansion without tables (x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: AesSchedules),
+        ["filter-loop-code"] = new("Constant array copy that retains elements above a threshold (x86 and x64 code shape, heuristic) [confidence=low]", true, [], Shape: FilterLoops),
         ["ecb-loop"] = new($"Possible block loop without chaining (x86 and x64 code shape, heuristic) [mode=ECB confidence={LoopConfidence(LoopMode.Ecb)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ecb)),
         ["cbc-loop"] = new($"Block loop with chaining (x86 and x64 code shape, heuristic) [mode=CBC confidence={LoopConfidence(LoopMode.Cbc)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Cbc)),
         ["ctr-loop"] = new($"Block loop with a counter and a keystream xor (x86 and x64 code shape, heuristic) [mode=CTR confidence={LoopConfidence(LoopMode.Ctr)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ctr)),
@@ -389,7 +390,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private static IEnumerable<(int At, int Length)> BlockLoops(byte[] b, int read, CancellationToken ct, LoopMode want) =>
         LoopScan(b, read, ct).Where(h => h.Mode == want).Select(h => (h.Step, h.Length));
 
-    private static IEnumerable<LoopHit> LoopScan(byte[] b, int read, CancellationToken ct)
+    // Backward jumps that close a body of 8 to 128 bytes: body start, jump end
+    // and jump position.
+    private static IEnumerable<(int Target, int End, int At)> Backedges(byte[] b, int read, CancellationToken ct)
     {
         const int MaxBody = 128;
         for (int i = 0; i + 6 <= read; i++)
@@ -401,6 +404,94 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             else if (b[i] == 0xE9 && b[i + 4] >= 0x80) { end = i + 5; target = end + BitConverter.ToInt32(b, i + 1); }
             else continue;
             if (target < 0 || end - target > MaxBody || end - target < 8) continue;
+            yield return (target, end, i);
+        }
+    }
+
+    // Yields a loop that loads an element of a constant array (a 32-bit
+    // displacement operand), compares the loaded register with an 8-bit
+    // immediate, skips a store on a short forward branch and steps an index.
+    // Limits: REX is the only prefix read; the threshold is not read.
+    private static IEnumerable<(int At, int Length)> FilterLoops(byte[] b, int read, CancellationToken ct)
+    {
+        foreach (var (target, end, i) in Backedges(b, read, ct))
+        {
+            int load = -1, cmp = -1, skip = -1, reg = 0;
+            bool store = false, step = false;
+            for (int j = target; j < i; j++)
+            {
+                if (load < 0)
+                {
+                    if (IsArrayLoad(b, j, i, out int loadEnd, out reg)) { load = j; j = loadEnd - 1; }
+                    continue;
+                }
+                if (cmp < 0)
+                {
+                    if (IsImmediateCompare(b, j, i, out int n) && (b[j] == 0x3C ? 0 : b[j + 1] & 7) == reg) { cmp = j; j += n - 1; }
+                    continue;
+                }
+                if (skip < 0)
+                {
+                    if (j != CmpEnd(b, cmp) || b[j] is < 0x70 or > 0x7F || j + 2 > i || b[j + 1] >= 0x80) break;
+                    skip = j + 2 + b[j + 1];
+                    j++;
+                    continue;
+                }
+                if (j < skip && b[j] is 0x88 or 0x89 && j + 2 <= i && (b[j + 1] & 0xC0) != 0xC0) store = true;
+                if (IsIndexStep(b, j, i)) step = true;
+            }
+            if (load >= 0 && cmp >= 0 && skip > cmp && skip <= i && store && step)
+                yield return (target, end - target);
+        }
+    }
+
+    // End offset of the compare that starts at the offset.
+    private static int CmpEnd(byte[] b, int at) => b[at] == 0x3C ? at + 2 : at + 3;
+
+    // Load from memory with a 32-bit displacement: mov r, m, or movzx. Returns
+    // the instruction end and the loaded register number (low 3 bits).
+    private static bool IsArrayLoad(byte[] b, int j, int limit, out int end, out int reg)
+    {
+        end = 0;
+        reg = 0;
+        int op = j;
+        if (b[op] is >= 0x40 and <= 0x4F && op + 1 < limit) op++;
+        int m;
+        if (b[op] is 0x8A or 0x8B) m = op + 1;
+        else if (b[op] == 0x0F && op + 1 < limit && b[op + 1] is 0xB6 or 0xB7) m = op + 2;
+        else return false;
+        if (m + 5 > limit) return false;
+        int mod = b[m] >> 6, rm = b[m] & 7;
+        bool disp32 = mod == 2 && rm != 4 || mod == 0 && rm == 5
+            || rm == 4 && (mod == 2 || mod == 0 && (b[m + 1] & 7) == 5);
+        if (!disp32) return false;
+        reg = (b[m] >> 3) & 7;
+        end = m + (rm == 4 ? 2 : 1) + 4;
+        return end <= limit;
+    }
+
+    // Compare of a register with an 8-bit immediate: 3C, 80 /7, 83 /7.
+    private static bool IsImmediateCompare(byte[] b, int j, int limit, out int length)
+    {
+        length = 0;
+        if (j + 2 <= limit && b[j] == 0x3C) { length = 2; return true; }
+        if (j + 3 <= limit && b[j] is 0x80 or 0x83 && (b[j + 1] & 0xF8) == 0xF8) { length = 3; return true; }
+        return false;
+    }
+
+    // Increment of a register (FF /0, or a one-byte inc that a compare or the
+    // jump follows, since 40-47 is a REX prefix on x64) or add of an
+    // immediate to one.
+    private static bool IsIndexStep(byte[] b, int j, int limit) =>
+        j + 2 <= limit && b[j] == 0xFF && (b[j + 1] & 0xF8) == 0xC0
+        || j + 3 <= limit && b[j] == 0x83 && (b[j + 1] & 0xF8) == 0xC0
+        || j + 6 <= limit && b[j] == 0x81 && (b[j + 1] & 0xF8) == 0xC0
+        || b[j] is >= 0x40 and <= 0x47 && (j + 1 == limit || j + 1 < limit && b[j + 1] is 0x80 or 0x81 or 0x83 or 0x39 or 0x3B or 0x3C or 0x3D);
+
+    private static IEnumerable<LoopHit> LoopScan(byte[] b, int read, CancellationToken ct)
+    {
+        foreach (var (target, end, i) in Backedges(b, read, ct))
+        {
             int step = -1, op = -1;
             for (int j = target; j < i; j++)
             {
@@ -713,7 +804,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     // Shape rules the attribution reads, with their confidence.
     private static readonly Dictionary<string, string> ShapeConfidence = new()
     {
-        ["hmac-pad-code"] = "medium", ["cmac-code"] = "low", ["poly1305-code"] = "medium", ["aes-schedule-code"] = "medium",
+        ["hmac-pad-code"] = "medium", ["cmac-code"] = "low", ["poly1305-code"] = "medium", ["aes-schedule-code"] = "medium", ["filter-loop-code"] = "low",
     };
 
     /// <summary>Section bytes read by a scan, and section bytes in the image.</summary>
@@ -816,7 +907,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:aes-schedule-code", "const:ecb-loop", "const:cbc-loop", "const:ctr-loop", "const:gcm-tag-code", "const:chacha-round", "const:salsa-round", "const:tea-round", "const:xxtea-round", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:aes-schedule-code", "const:filter-loop-code", "const:ecb-loop", "const:cbc-loop", "const:ctr-loop", "const:gcm-tag-code", "const:chacha-round", "const:salsa-round", "const:tea-round", "const:xxtea-round", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
         new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:hmac-pad-code", "const:cmac-code", "const:poly1305-code", "const:kdf"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:crc32c", "const:crc32c-poly", "const:crc64-poly", "const:adler32", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),

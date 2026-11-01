@@ -32,11 +32,11 @@ internal static partial class CryptoAttribution
     internal static void Notes(
         NativeCodeIndex index, NativeFunction f,
         Action<string?, string, string> add, CancellationToken ct, long scanLimit = CryptoConstantRules.ScanLimit,
-        Found? found = null)
+        Found? found = null, string? imageId = null)
     {
         var image = index.Image;
         var facts = CryptoConstantRules.Facts(index, ct, scanLimit);
-        ShapeNotes(index, f, facts, add);
+        ShapeNotes(index, f, facts, add, imageId);
         var tables = facts.Tables.Where(t => t.Cipher).ToList();
         if (tables.Count == 0)
         {
@@ -164,13 +164,24 @@ internal static partial class CryptoAttribution
         ["cmac-code"] = "CMAC subkey doubling (xor 0x87)",
         ["poly1305-code"] = "Poly1305 key clamp",
         ["aes-schedule-code"] = "key schedule expansion",
+        ["filter-loop-code"] = "threshold-filtered constant array copy (schedule input)",
     };
+
+    // Bytes of the zeroed buffer an emulated filter loop writes to.
+    private const int FilterBufferBytes = 256;
+
+    // The emulate_native call that shows what a filter loop copies into a
+    // zeroed buffer passed as the first argument.
+    private static string FilterNext(string imageId, NativeFunction fn, Func<uint, string> va) =>
+        $"next: emulate_native image={imageId} address={va(fn.Start)} " +
+        $"args=0x10000000 memory=va:0x10000000=zero:{FilterBufferBytes} " +
+        $"read=\"va:0x10000000 {FilterBufferBytes}\" shows the filtered table";
 
     // Notes for authentication and schedule shapes in the function or in a callee
     // up to two calls down, and the hash routines an HMAC shape calls.
     private static void ShapeNotes(
         NativeCodeIndex index, NativeFunction f, CryptoConstantRules.CryptoFacts facts,
-        Action<string?, string, string> add)
+        Action<string?, string, string> add, string? imageId)
     {
         if (facts.Shapes.Count == 0) return;
         var image = index.Image;
@@ -197,6 +208,7 @@ internal static partial class CryptoAttribution
         }
 
         var seen = new HashSet<uint>();
+        var filterNoted = new HashSet<uint>();
         var level = new List<(NativeFunction Fn, uint Site, int Depth)> { (f, 0, 0) };
         while (level.Count > 0)
         {
@@ -211,6 +223,9 @@ internal static partial class CryptoAttribution
                     add(Va(depth == 0 ? shape.Start : site),
                         $"crypto: {ShapeLabels[shape.Key]} {where} (confidence={shape.Confidence}; code shape)", "crypto");
                     if (shape.Key == "hmac-pad-code") HmacCalls(fn, shape);
+                    if (shape.Key == "filter-loop-code" && filterNoted.Add(fn.Start))
+                        add(Va(depth == 0 ? shape.Start : site),
+                            FilterNext(imageId ?? System.IO.Path.GetFileName(image.Path), fn, Va), "crypto");
                 }
                 if (depth < 2)
                     foreach (var c in index.Callees(fn))

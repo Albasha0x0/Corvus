@@ -16,12 +16,15 @@ public sealed class CryptoConstantTests : IDisposable
         return string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
     }
 
-    private async Task<string> SurveyBytes(InProcessServer server, byte[] image)
+    private async Task<string> SurveyBytes(InProcessServer server, byte[] image, string arch = "x64") =>
+        await Survey(server, new() { ["assembly"] = await LoadBytes(server, image, arch) });
+
+    private async Task<string> LoadBytes(InProcessServer server, byte[] image, string arch = "x64", string? baseAddress = null)
     {
         var fixture = _dir.File($"blob{Guid.NewGuid():N}.bin");
         File.WriteAllBytes(fixture, image);
-        var load = await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = fixture, ["format"] = "raw", ["arch"] = "x64" });
-        return await Survey(server, new() { ["assembly"] = load.StructuredContent!.Value.GetProperty("ids")[0].GetString() });
+        var load = await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = fixture, ["format"] = "raw", ["arch"] = arch, ["base"] = baseAddress });
+        return load.StructuredContent!.Value.GetProperty("ids")[0].GetString()!;
     }
 
     private static byte[] Le(params uint[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
@@ -291,6 +294,89 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.Contains("AES key schedule expansion without tables", ni);
         var soft = await SurveyBytes(server, [.. Pad(0x40), 0xD0, 0xE0, 0x34, 0x1B, .. Pad(0x40)]);
         Assert.Contains("AES key schedule expansion without tables", soft);
+    }
+
+    private static readonly byte[] DwordLoad = [0x8B, 0x04, 0x8D, 0, 0x10, 0, 0], ByteLoad = [0x0F, 0xB6, 0x81, 0, 0x10, 0, 0];
+    private static readonly byte[] IndexStep = [0xFF, 0xC1], PtrStep = [0x48, 0xFF, 0xC7];
+
+    private const string FilterRule = "Constant array copy that retains elements above a threshold";
+    private static readonly byte[] Compare = [0x83, 0xF8, 0x2F], Skip = [0x76, 0x02], DwordStore = [0x89, 0x07], Add4 = [0x83, 0xC7, 0x04];
+
+    private async Task<string> Filter(byte[] code, string arch = "x64")
+    {
+        await using var server = await InProcessServer.StartAsync();
+        return await SurveyBytes(server, [.. Pad(0x40), .. code, .. Pad(0x40)], arch);
+    }
+
+    [Fact]
+    public async Task A_dword_array_copy_that_skips_small_elements_is_a_filter_shape_without_its_threshold()
+    {
+        var text = await Filter(Loop(DwordLoad, Compare, Skip, DwordStore, IndexStep, Add4));
+        Assert.Contains(FilterRule, text);
+        Assert.DoesNotContain("0x2F", text);
+        Assert.DoesNotMatch(@"(?i)(2f|47)", text);
+    }
+
+    [Fact]
+    public async Task A_byte_array_copy_that_skips_small_elements_is_a_filter_shape()
+    {
+        Assert.Contains(FilterRule, await Filter(Loop(ByteLoad, [0x3C, 0x2B], Skip, [0x88, 0x07], IndexStep, PtrStep)));
+    }
+
+    // Table addresses 0x00403C10 and 0x0000F883 carry the compare opcode bytes.
+    [Fact]
+    public async Task A_table_address_with_compare_bytes_does_not_hide_the_filter_shape()
+    {
+        Assert.Contains(FilterRule, await Filter(Loop([0x8B, 0x04, 0x8D, 0x10, 0x3C, 0x40, 0], Compare, Skip, DwordStore, IndexStep, Add4)));
+        Assert.Contains(FilterRule, await Filter(Loop([0x8B, 0x04, 0x8D, 0x83, 0xF8, 0, 0], Compare, Skip, DwordStore, IndexStep, Add4)));
+    }
+
+    [Fact]
+    public async Task A_one_byte_increment_steps_the_index_of_an_x86_filter_loop()
+    {
+        Assert.Contains(FilterRule, await Filter(Loop(DwordLoad, Compare, Skip, DwordStore, [0x41]), "x86"));
+    }
+
+    [Fact]
+    public async Task An_array_copy_without_a_compare_is_not_a_filter_shape()
+    {
+        Assert.DoesNotContain(FilterRule, await Filter(Loop(DwordLoad, Skip, DwordStore, IndexStep, Add4)));
+    }
+
+    [Fact]
+    public async Task A_compare_without_a_skip_jump_is_not_a_filter_shape()
+    {
+        Assert.DoesNotContain(FilterRule, await Filter(Loop(DwordLoad, Compare, DwordStore, IndexStep, Add4)));
+    }
+
+    [Fact]
+    public async Task A_skip_over_no_store_is_not_a_filter_shape()
+    {
+        Assert.DoesNotContain(FilterRule, await Filter(Loop(DwordLoad, Compare, [0x76, 0x00], DwordStore, IndexStep, Add4)));
+    }
+
+    [Fact]
+    public async Task A_filter_loop_without_an_index_step_is_not_a_filter_shape()
+    {
+        Assert.DoesNotContain(FilterRule, await Filter(Loop(DwordLoad, Compare, Skip, DwordStore, [0x90, 0x90, 0x90])));
+    }
+
+    [Fact]
+    public async Task A_compare_of_another_register_than_the_loaded_one_is_not_a_filter_shape()
+    {
+        Assert.DoesNotContain(FilterRule, await Filter(Loop(DwordLoad, [0x83, 0xF9, 0x2F], Skip, DwordStore, IndexStep, Add4)));
+    }
+
+    [Fact]
+    public async Task Function_notes_name_the_filter_shape_and_the_emulation_that_shows_its_table()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var id = await LoadBytes(server, [.. Loop(DwordLoad, Compare, Skip, DwordStore, IndexStep, Add4), 0xC3, .. Pad(0x40)], baseAddress: "0x10000");
+        var r = await server.Client.CallToolAsync("analyze_native_function", new Dictionary<string, object?> { ["image"] = id, ["address"] = "0x10000", ["sections"] = "annotations" });
+        var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
+        NativeLinkTests.Has(text, "threshold-filtered constant array copy");
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Count(text, System.Text.RegularExpressions.Regex.Escape($"next: emulate_native image={id} address=0x10000 args=")));
+        Assert.Contains("read=\"va:0x10000000 256\"", text);
     }
 
     private async Task<string> Loops(byte[] body)
