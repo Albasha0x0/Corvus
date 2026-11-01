@@ -86,7 +86,7 @@ public static class DumpModuleExport
     private static string NameFor(DumpModule module, HashSet<string> used)
     {
         var name = module.FileName;
-        if (!InputFiles.IsPlainName(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.EndsWith('.') || name.EndsWith(' ')) name = "module.bin";
+        if (!InputFiles.IsPlainName(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.EndsWith('.') || name.EndsWith(' ') || SafeFile.IsReservedName(name)) name = "module.bin";
         if (used.Add(name)) return name;
         var unique = $"{Path.GetFileNameWithoutExtension(name)}-{module.Base:X}{Path.GetExtension(name)}";
         for (int n = 2; !used.Add(unique); n++) unique = $"{Path.GetFileNameWithoutExtension(name)}-{module.Base:X}-{n}{Path.GetExtension(name)}";
