@@ -5,6 +5,7 @@ using System.Text;
 using Corvus.Core;
 using Corvus.Services.Analysis;
 using Corvus.Services.Web.Packages;
+using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Tests;
 
@@ -3575,5 +3576,17 @@ public sealed class PackageReviewTests : IDisposable
             _ = PackageReview.Review(folder, default);
         }, 100);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+
+    [Fact]
+    public void An_unread_note_names_its_stop_cause_and_the_call_that_reads_the_script()
+    {
+        var steps = ScriptReader.Read("$a = 'x' + 'y'; iex ('Write-Host ' + $a)", "powershell", steps: 1);
+        var note = PackageReview.UnreadNote("a.ps1", steps);
+        Assert.Contains("the step limit", note);
+        Assert.Contains("findings from deeper layers are unknown", note);
+        Assert.Contains("summarize_file path=a.ps1 view=script", note);
+        Assert.Contains("a layer that could not be decoded", PackageReview.UnreadNote("a.ps1", steps with { StepsExhausted = false }));
+        Assert.Contains("the safety time cap", PackageReview.UnreadNote("a.ps1", steps with { TimedOut = true }));
     }
 }

@@ -193,7 +193,7 @@ public class RealWorldShapeTests : IDisposable
             try { bytes = File.ReadAllBytes(file); } catch (IOException) { continue; } catch (UnauthorizedAccessException) { continue; }
             var c = Certificates.Read(bytes);
             if (!c.Present || c.Timestamp == null || c.NotAfter > DateTime.UtcNow || c.DigestMatches != true) continue;
-            Assert.StartsWith("trusted on this machine (timestamped ", c.Chain);
+            Assert.StartsWith("trusted on this machine, Windows (timestamped ", c.Chain);
             return;
         }
     }

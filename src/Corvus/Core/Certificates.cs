@@ -225,6 +225,9 @@ public static class Certificates
         return ImageDigest(file.Length, (hash, at, n) => hash.AppendData(file, (int)at, (int)n), pe, offset, size, algorithm);
     }
 
+    /// <summary>Names the platform whose certificate store decides trust: "this machine, Windows", "this machine, Linux" or "this machine, macOS".</summary>
+    public static string TrustScope { get; } = "this machine, " + (OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "other OS");
+
     /// <summary>Null when the embedded signature is intact, chains to a root of <paramref name="organization"/> and is trusted here for code signing; else why not.</summary>
     public static string? VerifyPublisher(byte[] file, string organization) => VerifyPublisher(file, organization, out _);
 
@@ -262,7 +265,7 @@ public static class Certificates
             if (status.Contains(X509ChainStatusFlags.Revoked)) return "a certificate in the signer's chain is revoked";
             bool unknown = status.Remove(X509ChainStatusFlags.RevocationStatusUnknown) | status.Remove(X509ChainStatusFlags.OfflineRevocation);
             if (status.Count > 0)
-                return $"the signer's chain is not trusted on this machine ({string.Join(", ", status.Select(s => s.ToString()).Order(StringComparer.Ordinal))})";
+                return $"the signer's chain is not trusted on {TrustScope} ({string.Join(", ", status.Select(s => s.ToString()).Order(StringComparer.Ordinal))})";
             var root = chain.ChainElements[^1].Certificate;
             if (Organization(root) != organization) return $"the chain ends at '{root.Subject}', not a root of {organization}";
             if (unknown) note = offline ? "revocation not checked (CORVUS_OFFLINE=1 and no cached revocation data)" : "revocation not checked (no revocation data could be retrieved)";
@@ -309,10 +312,10 @@ public static class Certificates
             var path = string.Join(" <- ", chain.ChainElements.Select(e => e.Certificate.GetNameInfo(X509NameType.SimpleName, false)));
             if (trusted)
                 return timestamp is { } signed && cert.NotAfter.ToUniversalTime() < DateTime.UtcNow
-                    ? $"trusted on this machine (timestamped {signed:yyyy-MM-dd}, while the certificate was valid; it has expired since): {path}"
-                    : $"trusted on this machine: {path}";
+                    ? $"trusted on {TrustScope} (timestamped {signed:yyyy-MM-dd}, while the certificate was valid; it has expired since): {path}"
+                    : $"trusted on {TrustScope}: {path}";
             var problems = chain.ChainStatus.Select(s => s.Status.ToString()).Distinct();
-            return $"not trusted on this machine ({string.Join(", ", problems)}): {path}";
+            return $"not trusted on {TrustScope} ({string.Join(", ", problems)}): {path}";
         }
         catch (CryptographicException ex)
         {

@@ -13,6 +13,12 @@ public sealed record ScriptReading(string Language, string Plain, IReadOnlyList<
     /// <summary>False when the budget ran out or a layer could not be decoded.</summary>
     public bool Complete { get; init; } = true;
 
+    /// <summary>True when the time cap stopped the reading.</summary>
+    public bool TimedOut { get; init; }
+
+    /// <summary>True when the step limit stopped the reading.</summary>
+    public bool StepsExhausted { get; init; }
+
     /// <summary>The transformations undone besides layers (obfuscator.io string array, control-flow flattening, ...).</summary>
     public IReadOnlyList<string> Recovered { get; init; } = [];
 
@@ -41,8 +47,11 @@ internal sealed class ScriptBudget(long steps = ScriptBudget.DefaultSteps, int m
     /// <summary>Time cap of a reading asked for directly.</summary>
     public const int DefaultMilliseconds = 12_000;
 
-    /// <summary>Time cap of summarize_file's overview and of package review.</summary>
+    /// <summary>Time cap of summarize_file's overview.</summary>
     public const int OverviewMilliseconds = 4_500;
+
+    /// <summary>Safety cap of package review, which stops on steps so a finding does not depend on machine load.</summary>
+    public const int VerdictMilliseconds = 60_000;
 
     /// <summary>Time cap of one HTML script block in the overview.</summary>
     public const int BlockMilliseconds = 2_250;

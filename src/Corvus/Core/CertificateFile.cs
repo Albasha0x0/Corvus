@@ -483,7 +483,7 @@ public sealed class CertificateFile
             string? machine = checkMachine && Chains.Count < MaxMachineChecks ? Machine(start) : null;
             Chains.Add(new CertificateChain(path, end, problems, machine));
         }
-        if (checkMachine && Chains.Count > MaxMachineChecks) Notes.Add($"this machine's trust checked for the first {MaxMachineChecks} chains");
+        if (checkMachine && Chains.Count > MaxMachineChecks) Notes.Add($"{Core.Certificates.TrustScope} trust checked for the first {MaxMachineChecks} chains");
     }
 
     /// <summary>The platform's chain for a certificate with the file's certificates as intermediates: no downloads, no revocation, as of now.</summary>
@@ -498,8 +498,8 @@ public sealed class CertificateFile
             foreach (var p in _parsed) chain.ChainPolicy.ExtraStore.Add(X509CertificateLoader.LoadCertificate(p.Der));
             bool trusted = chain.Build(leaf);
             var root = chain.ChainElements.Count > 0 ? chain.ChainElements[^1].Certificate.GetNameInfo(X509NameType.SimpleName, false) : "?";
-            var verdict = trusted ? $"trusted, root {root}"
-                : $"not trusted ({string.Join(", ", chain.ChainStatus.Select(s => s.Status.ToString()).Distinct().Order(StringComparer.Ordinal))}), ends at {root}";
+            var verdict = trusted ? $"trusted on {Core.Certificates.TrustScope}, root {root}"
+                : $"not trusted on {Core.Certificates.TrustScope} ({string.Join(", ", chain.ChainStatus.Select(s => s.Status.ToString()).Distinct().Order(StringComparer.Ordinal))}), ends at {root}";
             foreach (var c in chain.ChainPolicy.ExtraStore) c.Dispose();
             foreach (var e in chain.ChainElements) e.Certificate.Dispose();
             return verdict;

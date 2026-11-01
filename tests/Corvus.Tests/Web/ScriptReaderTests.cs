@@ -279,4 +279,23 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
         var all = failures.SelectMany(f => f).ToList();
         Assert.True(all.Count == 0, string.Join("\n", all.Take(10)));
     }
+
+    [Fact]
+    public void A_reading_stopped_by_its_step_limit_is_partial_and_not_a_time_stop()
+    {
+        var r = ScriptReader.Read("$a = 'x' + 'y'; iex ('Write-Host ' + $a)", "powershell", steps: 1, milliseconds: ScriptBudget.VerdictMilliseconds);
+        Assert.False(r.Complete);
+        Assert.False(r.TimedOut);
+        Assert.True(r.StepsExhausted);
+    }
+
+    [Fact]
+    public void A_reading_stopped_by_its_time_cap_is_marked_timed_out()
+    {
+        var text = string.Concat(Enumerable.Repeat("$a = 'x' + 'y'; ", 20_000)) + "iex ('Write-Host ' + $a)";
+        var r = ScriptReader.Read(text, "powershell", milliseconds: -1);
+        Assert.False(r.Complete);
+        Assert.True(r.TimedOut);
+        Assert.False(r.StepsExhausted);
+    }
 }

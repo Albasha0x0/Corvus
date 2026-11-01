@@ -196,6 +196,16 @@ public sealed class CertificateFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void A_machine_trust_verdict_names_the_platform_whose_store_decided_it()
+    {
+        using var pki = new Pki();
+        var pem = Encoding.ASCII.GetBytes(pki.Root.ExportCertificatePem());
+        var verdict = Assert.Single(CertificateFile.Read(pem, checkMachine: true, default).Chains).ThisMachine;
+        Assert.StartsWith("not trusted on " + Certificates.TrustScope, verdict, StringComparison.Ordinal);
+        Assert.Matches("this machine, (Windows|Linux|macOS)", Certificates.TrustScope);
+    }
+
+    [Fact]
     public void The_overview_lists_the_view_and_its_highlights_only_for_certificate_files()
     {
         using var pki = new Pki();

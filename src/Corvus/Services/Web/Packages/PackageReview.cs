@@ -268,6 +268,13 @@ public static partial class PackageReview
         new("package/space-run", "transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
     ];
 
+    /// <summary>The not-read entry for a partial reading: the stop cause, what is unknown and the call that reads the script alone.</summary>
+    internal static string UnreadNote(string path, ScriptReading reading)
+    {
+        var cause = reading.TimedOut ? "the safety time cap" : reading.StepsExhausted ? "the step limit" : "a layer that could not be decoded";
+        return $"{path} (peeling and folding stopped at {cause}; findings from deeper layers are unknown; summarize_file path={path} view=script reads it alone)";
+    }
+
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
     /// <param name="notRead">Names a stopped peel or fold; null: unnamed.</param>
     internal static IEnumerable<PackageFinding> Scan(string path, string text, bool install, CancellationToken ct, bool entry = false, bool peel = true,
@@ -285,8 +292,9 @@ public static partial class PackageReview
             notRead?.Add($"{path} (over {MaxReadText >> 20} MiB: layers not peeled, strings not folded)");
         else if (transformedSigns || split)
         {
-            var reading = ScriptReader.Read(text, language!, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
-            if (!reading.Complete) notRead?.Add($"{path} (peeling and folding stopped at the time budget)");
+            var reading = ScriptReader.Read(text, language!, ct, milliseconds: ScriptBudget.VerdictMilliseconds);
+            if (!reading.Complete)
+                notRead?.Add(UnreadNote(path, reading));
             if (reading.Folded > 0) plain = text + "\n" + reading.Plain;
             // Decoded layers and obfuscator machinery count; ordinary eval does not.
             bool transformed = reading.Recovered.Any(r => r is "obfuscator.io string array" or "control-flow flattening")
