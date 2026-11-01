@@ -23,6 +23,13 @@ internal sealed class PdfReader : IContainerReader
             ArchiveItems.Take(items, entries, "JavaScript", $"JavaScript/object{s.Object}{(++n > 1 ? $"_{n}" : "")}.js", Encoding.UTF8.GetBytes(s.Code), true, limits, ref total);
         foreach (var (obj, xml) in doc.Xfa)
             ArchiveItems.Take(items, entries, "XFA form", $"XFA/object{obj}.xml", xml, true, limits, ref total);
+        var file = doc.File;
+        if (file.HeaderOffset > 0)
+            ArchiveItems.Take(items, entries, "data before header", "polyglot/before_header.bin",
+                data.AsSpan(0, checked((int)file.HeaderOffset)).ToArray(), true, limits, ref total);
+        if (file.AfterLastEof > 0)
+            ArchiveItems.Take(items, entries, "data after last EOF", "polyglot/after_last_eof.bin",
+                data.AsSpan(file.AfterLastEofAt).ToArray(), true, limits, ref total);
         if (allFiles)
             foreach (var o in doc.File.Current.Where(o => o.Stream != null))
             {

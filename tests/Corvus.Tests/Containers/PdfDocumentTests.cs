@@ -57,6 +57,44 @@ public sealed class PdfDocumentTests
         Assert.Equal(Script, Encoding.UTF8.GetString(c.Items.Single(i => i.Name == "JavaScript/object1.js").Bytes));
     }
 
+    private static ContainerContents OpenPdf(byte[] bytes) =>
+        Containers.Open(bytes, "a.pdf", AnalysisLimits.Default, default);
+
+    private static byte[]? Member(byte[] bytes, string name) =>
+        OpenPdf(bytes).Items.SingleOrDefault(i => i.Name == name)?.Bytes;
+
+    [Fact]
+    public void Data_before_the_header_comes_out_as_a_member()
+    {
+        var lead = "lead-bytes"u8.ToArray();
+        var bytes = OpenPdf([.. lead, .. Base().Build()]);
+        Assert.Equal(lead, bytes.Items.Single(i => i.Name == "polyglot/before_header.bin").Bytes);
+        Assert.DoesNotContain(bytes.Items, i => i.Name == "polyglot/after_last_eof.bin");
+    }
+
+    [Fact]
+    public void Data_after_the_last_eof_comes_out_as_a_member()
+    {
+        var tail = "tail-bytes"u8.ToArray();
+        var bytes = OpenPdf([.. Base().Build(), .. tail]);
+        Assert.Equal(tail, bytes.Items.Single(i => i.Name == "polyglot/after_last_eof.bin").Bytes);
+        Assert.DoesNotContain(bytes.Items, i => i.Name == "polyglot/before_header.bin");
+    }
+
+    [Fact]
+    public void Data_after_the_last_eof_keeps_its_leading_whitespace()
+    {
+        var tail = new byte[] { 0, 0x20, (byte)'x' };
+        Assert.Equal(tail, Member([.. Base().Build(), .. tail], "polyglot/after_last_eof.bin"));
+    }
+
+    [Fact]
+    public void A_plain_pdf_lists_no_polyglot_members()
+    {
+        Assert.DoesNotContain(OpenPdf(Base().Build()).Items,
+            i => i.Name.StartsWith("polyglot/", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_file_specification_inline_in_the_name_tree_names_its_file()
     {

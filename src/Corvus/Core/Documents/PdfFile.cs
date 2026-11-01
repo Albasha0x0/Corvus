@@ -18,6 +18,8 @@ internal sealed class PdfFile
     public int EofMarkers { get; private set; }
     /// <summary>Bytes after the last %%EOF (beyond trailing whitespace).</summary>
     public long AfterLastEof { get; private set; }
+    /// <summary>Offset after the last %%EOF and one line ending.</summary>
+    public int AfterLastEofAt { get; private set; }
     public List<string> Notes { get; } = [];
     public PdfSecurity? Security { get; private set; }
 
@@ -113,6 +115,11 @@ internal sealed class PdfFile
             int tail = last + 5;
             while (tail < _data.Length && PdfLexer.IsWhite(_data[tail])) tail++;
             AfterLastEof = _data.Length - tail;
+            // The member keeps leading whitespace of the data; only one line ending is skipped.
+            int at = last + 5;
+            if (at < _data.Length && _data[at] == 13) at++;
+            if (at < _data.Length && _data[at] == 10) at++;
+            AfterLastEofAt = at;
         }
     }
 
