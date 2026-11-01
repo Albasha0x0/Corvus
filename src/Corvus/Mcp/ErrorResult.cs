@@ -156,7 +156,7 @@ internal static class ErrorResult
             Text quoted from the analyzed file is escaped: a line of it that starts like a server marker (`Error (`, `Next:`,
             `[More:`, `[End:`, `[workspace]`,
             `Incomplete:`, `Partial:`, `Skipped:`, `Warning:`) gets `{{Format.MarkerEscape}}` in front, and invisible and control characters are written as `\uXXXX`.
-            A tag an agent harness reads as its own (`<system-reminder>`, `<function_calls>` and the like) gets `{{Format.TagEscape}}` after its `<`.
+            A tag an agent harness reads as its own (`<system-reminder>`, `<function_calls>` and the like) gets `{{Format.TagEscape}}` after its `<` or fullwidth `＜`.
 
             | Code | Meaning | Retryable | Default next step |
             |---|---|---|---|

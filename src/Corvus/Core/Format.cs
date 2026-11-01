@@ -296,13 +296,13 @@ public static partial class Format
     /// <summary>
     /// Invisible code points (see <see cref="IsInvisible(int)"/>) as \uXXXX, or
     /// \UXXXXXXXX above the BMP, and <see cref="TagEscape"/> after the "&lt;"
-    /// of each <see cref="IsHarnessTag"/> tag; a presentation selector after an
+    /// (or its fullwidth form) of each <see cref="IsHarnessTag"/> tag; a presentation selector after an
     /// emoji base is kept.
     /// </summary>
     public static string EscapeInvisible(string s) => EscapeTags(EscapeCodePoints(s));
 
     /// <summary>
-    /// Put after the "&lt;" or "&lt;/" of a tag an agent harness reads as its
+    /// Put after the "&lt;" or "&lt;/" (or their fullwidth forms) of a tag an agent harness reads as its
     /// own: the escaped form of U+2063, visible as text.
     /// </summary>
     public const string TagEscape = MarkerEscape;
@@ -311,15 +311,23 @@ public static partial class Format
     /// Whether <paramref name="s"/> holds a tag an agent harness reads as its
     /// own (system-reminder, function_calls and the like).
     /// </summary>
-    public static bool IsHarnessTag(string s) => s.Contains('<') && HarnessTag().IsMatch(s);
+    public static bool IsHarnessTag(string s) => HasOpener(s) && HarnessTag().IsMatch(s);
 
     // Tag names agent harnesses put around their own messages and tool calls; file
-    // text that holds one could pass for a harness message once printed.
-    [System.Text.RegularExpressions.GeneratedRegex(@"<(?=/?\s*(?:antml:[\w-]*|system[-_]?reminder|system|function[-_]?calls?|function[-_]?results?|invoke|parameter|tool[-_]?(?:use|result|call)s?|thinking|human|assistant|user|instructions|pasted[-_]?content|[\w-]*-message)(?:[\s/>]|$))(/?)",
+    // text that holds one could pass for a harness message once printed. The list
+    // is best effort: openers include fullwidth and small forms of "<", and
+    // "<|name|>" chat tokens match by shape.
+    [System.Text.RegularExpressions.GeneratedRegex(@"([<\uFF1C\uFE64])(?=[/／﹨]?\s*(?:\|[\w-]+\|?|antml:[\w-]*|system[-_]?reminder|system|function[-_]?calls?|function[-_]?results?|invoke|parameter|tool[-_]?(?:use|result|call)s?|thinking|human|assistant|user|instructions|pasted[-_]?content|[\w-]*-message)(?:[\s/>\uFF1E\uFE65]|$))([/\uFF0F\uFE68]?)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex HarnessTag();
 
-    private static string EscapeTags(string s) => s.Contains('<') ? HarnessTag().Replace(s, "<$1" + TagEscape) : s;
+    private static readonly string[] Openers = { "<", "\uFF1C", "\uFE64" };
+
+    private static readonly string[] Slashes = { "/", "\uFF0F", "\uFE68" };
+
+    private static bool HasOpener(string s) => s.AsSpan().IndexOfAny('<', '\uFF1C', '\uFE64') >= 0;
+
+    private static string EscapeTags(string s) => HasOpener(s) ? HarnessTag().Replace(s, "$1$2" + TagEscape) : s;
 
     /// <summary>
     /// <see cref="EscapeInvisible(string)"/> without the tag escape: only
@@ -362,7 +370,11 @@ public static partial class Format
     public static string UnescapeInvisible(string s)
     {
         if (!s.Contains("\\u", StringComparison.OrdinalIgnoreCase)) return s;
-        s = s.Replace("<" + TagEscape, "<", StringComparison.Ordinal).Replace("</" + TagEscape, "</", StringComparison.Ordinal);
+        foreach (var opener in Openers)
+        {
+            s = s.Replace(opener + TagEscape, opener, StringComparison.Ordinal);
+            foreach (var slash in Slashes) s = s.Replace(opener + slash + TagEscape, opener + slash, StringComparison.Ordinal);
+        }
         return System.Text.RegularExpressions.Regex.Replace(s, @"\\U([0-9a-fA-F]{8})|\\[uU]([0-9a-fA-F]{4})", m =>
         {
             long cp = Convert.ToInt64(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, 16);

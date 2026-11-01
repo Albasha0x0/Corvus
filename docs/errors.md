@@ -21,7 +21,7 @@ the response limit keeps its code; its message is cut and the full text is kept 
 Text quoted from the analyzed file is escaped: a line of it that starts like a server marker (`Error (`, `Next:`,
 `[More:`, `[End:`, `[workspace]`,
 `Incomplete:`, `Partial:`, `Skipped:`, `Warning:`) gets `\u2063` in front, and invisible and control characters are written as `\uXXXX`.
-A tag an agent harness reads as its own (`<system-reminder>`, `<function_calls>` and the like) gets `\u2063` after its `<`.
+A tag an agent harness reads as its own (`<system-reminder>`, `<function_calls>` and the like) gets `\u2063` after its `<` or fullwidth `＜`.
 
 | Code | Meaning | Retryable | Default next step |
 |---|---|---|---|

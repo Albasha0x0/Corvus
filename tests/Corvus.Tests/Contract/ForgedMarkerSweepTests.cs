@@ -167,6 +167,26 @@ public sealed class ForgedMarkerSweepTests : IDisposable
         Assert.Equal("Ev<system-reminder>il", Format.UnescapeInvisible(Format.EscapeInvisible("Ev<system-reminder>il")));
     }
 
+    [Fact]
+    public void Fullwidth_openers_and_chat_tokens_are_escaped_and_restored()
+    {
+        var text = "＜system_reminder＞ ﹤/tool_use> <|im_start|>system";
+        var escaped = Format.EscapeInvisible(text);
+        Assert.Equal("＜" + Format.TagEscape + "system_reminder＞ ﹤/" + Format.TagEscape + "tool_use> <" + Format.TagEscape + "|im_start|>system", escaped);
+        Assert.Equal(text, Format.UnescapeInvisible(escaped));
+        Assert.True(Format.IsHarnessTag(text));
+    }
+
+    [Fact]
+    public void Mixed_form_tags_are_escaped_and_loose_pipes_stay()
+    {
+        var mixed = "＜／system＞ <\uFF0Fsystem>";
+        Assert.NotEqual(mixed, Format.EscapeInvisible(mixed));
+        Assert.Equal(mixed, Format.UnescapeInvisible(Format.EscapeInvisible(mixed)));
+        Assert.Equal("a <| b x <|) <|", Format.EscapeInvisible("a <| b x <|) <|"));
+        Assert.Contains(Format.TagEscape, Format.EscapeInvisible("a <|b c"));
+    }
+
     /// <summary>Raw control and invisible characters, and lines from the file that start with a server marker.</summary>
     private static IEnumerable<string> Problems(string text)
     {
