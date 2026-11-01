@@ -276,7 +276,7 @@ public class NativeToolBoundsTests
         public Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NativeMemoryRun>>([.. runs.Where(r => r.Rva < rva + length && r.Rva + r.Bytes.Length > rva)]);
         public Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default) =>

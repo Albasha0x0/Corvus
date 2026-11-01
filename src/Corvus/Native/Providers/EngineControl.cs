@@ -49,8 +49,8 @@ public interface INativeEngineControl
 
     Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Reruns auto-analysis over the image or [start, end) within <paramref name="seconds"/>, with one-run <paramref name="options"/>, then saves.</summary>
-    Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+    /// <summary>Reruns auto-analysis over the image or [start, end) within <paramref name="seconds"/> (null: until it ends or stalls), with one-run <paramref name="options"/>, then saves.</summary>
+    Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
         CancellationToken cancellationToken = default);
 
     /// <summary>Runs of instructions outside every function, scanning at most <paramref name="maxInstructions"/>.</summary>
@@ -162,8 +162,11 @@ public static class EngineControl
         }
     }
 
-    /// <summary>A reanalysis may take the whole budget plus the save.</summary>
-    internal static TimeSpan ReanalysisTimeout(double seconds) => TimeSpan.FromSeconds(seconds + 300);
+    /// <summary>The analysis budget passed to a worker that has no limit.</summary>
+    internal static readonly TimeSpan UnlimitedBudget = TimeSpan.FromDays(7);
+
+    /// <summary>A reanalysis may take the whole budget plus the save; with no budget, only the stall check ends it.</summary>
+    internal static TimeSpan ReanalysisTimeout(double? seconds) => seconds is { } s ? TimeSpan.FromSeconds(s + 300) : Timeout.InfiniteTimeSpan;
 
     /// <summary>The verbs both engine workers answer the same way, keyed by the engine's name in errors.</summary>
     private abstract class WorkerControl(WorkerSessionBase session, string engine) : INativeEngineControl
@@ -171,7 +174,7 @@ public static class EngineControl
         public async Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) =>
             Analyzers(await session.CallAsync("analyzers", new JsonObject(), cancellationToken).ConfigureAwait(false));
 
-        public abstract Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public abstract Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
             CancellationToken cancellationToken = default);
 
         public async Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) =>
@@ -191,11 +194,11 @@ public static class EngineControl
 
     private sealed class IdaControl(IdaSession session) : WorkerControl(session, "IDA")
     {
-        public override async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public override async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
             CancellationToken cancellationToken = default)
         {
-            var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds));
-            var result = Reanalysis(await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds)).ConfigureAwait(false));
+            var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds ?? UnlimitedBudget.TotalSeconds));
+            var result = Reanalysis(await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds), stall: session.StallLimit).ConfigureAwait(false));
             session.Reanalyzed(result.Complete);
             return result;
         }
@@ -206,11 +209,11 @@ public static class EngineControl
     {
         public int DecompileLanes => session.DecompilerPool;
 
-        public override async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public override async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
             CancellationToken cancellationToken = default)
         {
-            var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds));
-            var r = await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds)).ConfigureAwait(false);
+            var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds ?? UnlimitedBudget.TotalSeconds));
+            var r = await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds), stall: session.StallLimit).ConfigureAwait(false);
             var result = Reanalysis(r);
             session.Reanalyzed(r.GetProperty("analysis_complete").GetBoolean(), result.FunctionsAfter);
             return result;

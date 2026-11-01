@@ -2274,7 +2274,7 @@ Re-run IDA or Ghidra auto-analysis over an image or range and save; completes a 
 | `background` | boolean |  |  | Run in the background; other engine calls conflict until done. |
 | `from` | string |  |  | Range start (default: whole image). |
 | `to` | string |  |  | Range end (exclusive). |
-| `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); the rest runs on the next run. |
+| `timeoutSeconds` | integer |  |  | Seconds; omit with background=true to run until done or stalled. |
 | `offset` | integer |  |  | With analyzers: rows to skip. |
 | `limit` | integer |  | `200` | With analyzers: max rows. |
 

@@ -270,20 +270,22 @@ public sealed record NativeOpenOptions
     public EngineOverrides? Overrides { get; init; }
     /// <summary>The image's PDB as located by the server (verified by GUID and age); the engine looks there first. Ignored with <see cref="SymbolMode.Off"/>.</summary>
     public string? PdbPath { get; init; }
-    /// <summary>Limit for engine start plus loading or auto-analysis.</summary>
-    public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromMinutes(20);
+    /// <summary>Limit for engine start plus loading or auto-analysis; <see cref="Timeout.InfiniteTimeSpan"/> (the default) sets none.</summary>
+    public TimeSpan OpenTimeout { get; init; } = Timeout.InfiniteTimeSpan;
     /// <summary>A first analysis's time limit; by default what <see cref="OpenTimeout"/> leaves after start and import, less time to save.</summary>
     internal TimeSpan? AnalysisBudget { get; init; }
-    /// <summary>A first analysis has no time limit and stops after this long with neither progress nor CPU use; null or non-positive keeps <see cref="OpenTimeout"/>.</summary>
-    public TimeSpan? AnalysisStall { get; init; }
-    /// <summary>The open request's limit and analysis budget after <paramref name="elapsed"/>; a stall limit lifts both and is returned.</summary>
+    /// <summary>An analysis stops after this long with neither progress nor CPU use (default 30 min); null or non-positive turns the check off.</summary>
+    public TimeSpan? AnalysisStall { get; init; } = TimeSpan.FromMinutes(30);
+    /// <summary>The stall window of an engine request, or null when the check is off.</summary>
+    internal TimeSpan? StallLimit => AnalysisStall > TimeSpan.Zero ? AnalysisStall : null;
+    /// <summary>The open request's limit, analysis budget and stall window after <paramref name="elapsed"/>.</summary>
     internal (TimeSpan Limit, TimeSpan Budget, TimeSpan? Stall) OpenWindow(TimeSpan elapsed)
     {
+        if (OpenTimeout == Timeout.InfiniteTimeSpan) return (Timeout.InfiniteTimeSpan, AnalysisBudget ?? EngineControl.UnlimitedBudget, StallLimit);
         var remaining = OpenTimeout - elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        if (AnalysisStall > TimeSpan.Zero) return (Timeout.InfiniteTimeSpan, AnalysisBudget ?? TimeSpan.FromDays(7), AnalysisStall);
-        // Without a stall limit, the analysis stops early enough to save inside the open's limit.
-        return (remaining, AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2)), null);
+        // The analysis stops early enough to save inside the open's limit.
+        return (remaining, AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2)), StallLimit);
     }
     /// <summary>Limit for each request after the open.</summary>
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromMinutes(2);

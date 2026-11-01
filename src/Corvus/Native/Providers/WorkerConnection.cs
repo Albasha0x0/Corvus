@@ -163,7 +163,7 @@ public sealed class WorkerConnection : IDisposable
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var waits = new List<Task> { _ready.Task, _closed.Task, Task.Delay(timeout, _options.Time, stop.Token) };
-        var wentIdle = idle is { } i && i < timeout ? IdleAsync(i, stop.Token) : null;
+        var wentIdle = idle is { } i && (timeout == Timeout.InfiniteTimeSpan || i < timeout) ? IdleAsync(i, stop.Token) : null;
         if (wentIdle != null) waits.Add(wentIdle);
         var done = await Task.WhenAny(waits).ConfigureAwait(false);
         stop.Cancel();
@@ -239,7 +239,7 @@ public sealed class WorkerConnection : IDisposable
 
     /// <summary>The next step after an engine request of <paramref name="op"/> ran out of time: the open's limit for opens, else the request's.</summary>
     internal static string TimeoutNext(string op) => op is "start" or "open" or "load_pdb" or "export_gzf"
-        ? $"Raise {ServerOptions.EngineOpenTimeoutVariable} (seconds for an engine's start and analysis) and call again."
+        ? $"Raise or unset {ServerOptions.EngineOpenTimeoutVariable} (the open limit in seconds) and call again."
         : $"Retry with a larger time limit (timeoutSeconds where the tool takes it, or {ServerOptions.EngineRequestTimeoutVariable}).";
 
     /// <summary>Sends one request and awaits its response; throws <see cref="ToolError"/>; stops after <paramref name="quiet"/> without progress, or after <paramref name="stallLimit"/> with neither progress nor CPU use (which replaces <paramref name="quiet"/>).</summary>
@@ -290,7 +290,7 @@ public sealed class WorkerConnection : IDisposable
                 : quiet != null && await wentQuiet.ConfigureAwait(false)
                     ? $"reported no progress on '{op}' for {Seconds(quiet.Value)}"
                     : $"did not finish '{op}' within {Seconds(timeout)}";
-            var next = stalled ? "The analysis made no progress; retry, or raise the stall limit." : _remediation(ErrorCode.Timeout, op);
+            var next = stalled ? "The analysis made no progress; retry, or raise the stall limit (CORVUS_ENGINE_ANALYSIS_STALL seconds, 0 turns it off)." : _remediation(ErrorCode.Timeout, op);
             // Read the worker at the timeout, before the cancel, so the state shows the request still running or lost.
             var activity = cancelled ? "" : Activity(id, write);
             var stall = cancelled ? "" : Stall();

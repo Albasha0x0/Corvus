@@ -59,7 +59,7 @@
                 "type": "string"
               },
               "budgetSeconds": {
-                "description": "Seconds the job may run (an open: the open limit or stall window).",
+                "description": "Seconds the job may run; null: no limit.",
                 "type": "number"
               },
               "outcome": {
@@ -74,8 +74,7 @@
             "required": [
               "what",
               "state",
-              "startedAt",
-              "budgetSeconds"
+              "startedAt"
             ]
           },
           "profile": {

@@ -52,7 +52,7 @@
 
 - Each engine request gets `CORVUS_ENGINE_REQUEST_TIMEOUT` seconds (default 120); `decompile_native` and
   `resolve_call_targets` take `timeoutSeconds`.
-- Start plus auto-analysis gets `CORVUS_ENGINE_OPEN_TIMEOUT` seconds (default 1200). `server_status` reports both.
+- Auto-analysis runs until the engine ends or stalls (`CORVUS_ENGINE_ANALYSIS_STALL`, default 1800 s); `CORVUS_ENGINE_OPEN_TIMEOUT` sets an absolute limit. `server_status` reports both.
 - A longer analysis is saved as it stands and marked partial; `reanalyze_native` completes it.
 - A request that runs out of time or is cancelled stops inside the worker, which keeps the database open. Scans return
   what they found, marked partial, with where to continue.

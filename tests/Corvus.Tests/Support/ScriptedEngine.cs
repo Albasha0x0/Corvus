@@ -27,7 +27,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     /// <summary>Functions asked per batch request, in order.</summary>
     public List<int> Batches { get; } = [];
     public List<NativeAnalyzerOption> Analyzers { get; } = [];
-    public List<(IReadOnlyList<KeyValuePair<string, string>> Options, uint? Start, uint? End, double Seconds)> Reanalyses { get; } = [];
+    public List<(IReadOnlyList<KeyValuePair<string, string>> Options, uint? Start, uint? End, double? Seconds)> Reanalyses { get; } = [];
     public Func<NativeReanalysis> ReanalysisResult { get; set; } = () => new NativeReanalysis(true, 2, 3, TimeSpan.FromSeconds(1), []);
     public List<NativeFunctionCandidate> Candidates { get; } = [];
     public List<(IReadOnlyList<NativeMark> Marks, string Stamp)> MarkPushes { get; } = [];
@@ -162,7 +162,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         public Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NativeAnalyzerOption>>(e.Analyzers);
 
-        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
             CancellationToken cancellationToken = default)
         {
             e.Reanalyses.Add((options, start, end, seconds));

@@ -468,7 +468,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         [Fact]
         public void Engine_time_limits_come_from_the_environment()
         {
-            Assert.Equal((120, 1200), (new ServerOptions().EngineRequestTimeoutSeconds, new ServerOptions().EngineOpenTimeoutSeconds));
+            Assert.Equal((120, null, 1800), (new ServerOptions().EngineRequestTimeoutSeconds, new ServerOptions().EngineOpenTimeoutSeconds, new ServerOptions().EngineAnalysisStallSeconds));
             var saved = (Environment.GetEnvironmentVariable(ServerOptions.EngineRequestTimeoutVariable), Environment.GetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable));
             try
             {
@@ -478,6 +478,10 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
                 Assert.Equal((45, 3600), (o.EngineRequestTimeoutSeconds, o.EngineOpenTimeoutSeconds));
                 using var engines = new NativeEngineService(new FakeProvider(available: true), null, options: o);
                 Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(3600)), (engines.RequestTimeout, engines.OpenTimeout));
+                Assert.Equal((TimeSpan.FromSeconds(3600), TimeSpan.FromSeconds(1800)), (engines.OpenTimeout, engines.AnalysisStall));
+                Assert.Contains("after 1800 s without progress, or at the open limit of 3600 s", engines.OpenLimitText);
+                Environment.SetEnvironmentVariable(ServerOptions.EngineAnalysisStallVariable, "0");
+                Assert.Equal(0, ServerOptions.Parse([]).EngineAnalysisStallSeconds);
                 Assert.Equal(EngineAnalysis.Full, o.EngineAnalysis);
                 Environment.SetEnvironmentVariable(ServerOptions.EngineAnalysisVariable, "None");
                 Assert.Equal(EngineAnalysis.None, ServerOptions.Parse([]).EngineAnalysis);
@@ -485,9 +489,53 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
             finally
             {
                 Environment.SetEnvironmentVariable(ServerOptions.EngineAnalysisVariable, null);
+                Environment.SetEnvironmentVariable(ServerOptions.EngineAnalysisStallVariable, null);
                 Environment.SetEnvironmentVariable(ServerOptions.EngineRequestTimeoutVariable, saved.Item1);
                 Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, saved.Item2);
             }
+        }
+
+        [Fact]
+        public void An_open_limit_below_the_stall_window_leaves_the_stall_window_out_of_the_text()
+        {
+            var saved = Environment.GetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable);
+            try
+            {
+                Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, "600");
+                using var engines = new NativeEngineService(new FakeProvider(available: true), null, options: ServerOptions.Parse([]));
+                Assert.Equal("ends when the engine finishes, is cancelled or exits, or at the open limit of 600 s", engines.OpenLimitText);
+            }
+            finally { Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, saved); }
+        }
+
+        [Theory]
+        [InlineData(ServerOptions.EngineOpenTimeoutVariable, "0", "unset: no limit")]
+        [InlineData(ServerOptions.EngineOpenTimeoutVariable, "soon", "positive number of seconds")]
+        [InlineData(ServerOptions.EngineAnalysisStallVariable, "-1", "0: no stall check")]
+        [InlineData(ServerOptions.EngineAnalysisStallVariable, "later", "0: no stall check")]
+        public void A_bad_engine_time_variable_is_named(string variable, string value, string expected)
+        {
+            var saved = Environment.GetEnvironmentVariable(variable);
+            try
+            {
+                Environment.SetEnvironmentVariable(variable, value);
+                var e = Assert.Throws<ArgumentException>(() => ServerOptions.Parse([]));
+                Assert.Contains(variable, e.Message);
+                Assert.Contains(expected, e.Message);
+            }
+            finally { Environment.SetEnvironmentVariable(variable, saved); }
+        }
+
+        [Fact]
+        public void An_unset_open_limit_leaves_the_open_unbounded()
+        {
+            var saved = Environment.GetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable);
+            try
+            {
+                Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, null);
+                Assert.Null(ServerOptions.Parse([]).EngineOpenTimeoutSeconds);
+            }
+            finally { Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, saved); }
         }
     }
 }

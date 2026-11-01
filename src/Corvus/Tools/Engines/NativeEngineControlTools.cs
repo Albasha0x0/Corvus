@@ -48,14 +48,17 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("Run in the background; other engine calls conflict until done.")] bool background = false,
         [Description("Range start (default: whole image).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
-        [Description("Seconds (1-3600); the rest runs on the next run.")] int timeoutSeconds = 600,
+        [Description("Seconds; omit with background=true to run until done or stalled.")] int? timeoutSeconds = null,
         [Description("With analyzers: rows to skip.")] int offset = 0,
         [Description("With analyzers: max rows.")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        if (timeoutSeconds is < 1 or > 3600)
-            throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is outside 1-3600.", "timeoutSeconds=600; what is left runs on the next reanalysis");
+        if (timeoutSeconds is < 1)
+            throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is below 1.", "timeoutSeconds=600; what is left runs on the next reanalysis, or omit it to run until done");
+        if (!analyzers && !background && timeoutSeconds == null)
+            throw new ToolError(ErrorCode.InvalidArgument, "A foreground reanalysis needs timeoutSeconds; without one it holds the call until the analysis ends.",
+                "background=true runs until done or stalled; get_engine_status waitSeconds=60 waits for the end. Or timeoutSeconds=600");
         var nameFilter = NameFilter.Parse(filter);
         var pairs = new List<KeyValuePair<string, string>>();
         foreach (var o in options ?? [])
@@ -99,7 +102,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         if (background)
         {
             if (session is not WorkerSessionBase worker) throw new ToolError(ErrorCode.Unsupported, $"{session.ProviderId} has no background reanalysis.", "omit background");
-            worker.StartBackground("reanalysis", TimeSpan.FromSeconds(timeoutSeconds), async () =>
+            worker.StartBackground("reanalysis", timeoutSeconds is { } budget ? TimeSpan.FromSeconds(budget) : null, async () =>
             {
                 var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, CancellationToken.None);
                 EngineControl.Advance(session);
@@ -112,16 +115,16 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                 workspace.Notify(BackgroundEndNotice(image, native.Id, session.ProviderId, result));
                 subscriptions?.Announce($"{image}: {result}");
             });
-            return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({timeoutSeconds} s budget)\n" +
+            return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({(timeoutSeconds is { } secs ? $"{secs} s budget" : "no time limit")})\n" +
                                      (pairs.Count > 0 ? $"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n" : "") +
-                                     "server_status shows the session busy, then the result; other engine calls on this image get conflict with retryAfterMs until it ends.\n",
+                                     $"get_engine_status image={native.Id} waitSeconds=60 waits for the end; other engine calls on this image get conflict with retryAfterMs until it ends.\n",
                 new ReanalysisReport(native.Id, session.ProviderId, scope, null, null, null, pairs.Count > 0 ? [.. pairs.Select(p => $"{p.Key}={p.Value}")] : null,
                     null, null, null, null));
         }
         var r = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, cancellationToken);
         EngineControl.Advance(session);
         var sb = new StringBuilder($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"}; database saved\n");
-        sb.Append(r.Complete ? "Complete: the analysis queue ran empty.\n" : $"Partial: the {timeoutSeconds} s budget ran out; run again to continue.\n");
+        sb.Append(r.Complete ? "Complete: the analysis queue ran empty.\n" : $"Partial: {(timeoutSeconds is { } budgetSeconds ? $"the {budgetSeconds} s budget ran out" : "the analysis queue did not run empty")}; run reanalyze_native image={native.Id} again to continue.\n");
         sb.Append($"Functions: {r.FunctionsBefore:N0} before, {r.FunctionsAfter:N0} after ({r.FunctionsAfter - r.FunctionsBefore:+#;-#;0})\n");
         if (pairs.Count > 0) sb.Append($"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n");
         foreach (var w in r.Warnings) sb.Append("Warning: " + w + "\n");

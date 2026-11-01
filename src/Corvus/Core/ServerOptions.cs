@@ -35,7 +35,7 @@ namespace Corvus.Core;
 ///   --client-timeout &lt;s&gt;  the client's per-call limit in seconds when raised from its default (CORVUS_CLIENT_TIMEOUT)
 /// The CORVUS_LOAD environment variable (';'-separated paths) is also honored; CORVUS_PREWARM sets --prewarm (CORVUS_IDA_PREWARM=1: ida); CORVUS_ENGINE sets --engine;
 /// CORVUS_CODE_INDEX_CACHE, CORVUS_CODE_INDEX_CACHE_MB and CORVUS_CODE_INDEX_CACHE_DAYS set the code index cache defaults; CORVUS_LOG_LEVEL sets --log-level;
-/// CORVUS_TOOLSETS sets --toolsets; CORVUS_ENGINE_REQUEST_TIMEOUT and CORVUS_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
+/// CORVUS_TOOLSETS sets --toolsets; CORVUS_ENGINE_REQUEST_TIMEOUT (seconds) bounds IDA and Ghidra requests, CORVUS_ENGINE_OPEN_TIMEOUT sets an open limit, CORVUS_ENGINE_ANALYSIS_STALL the stall window;
 /// CORVUS_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis; CORVUS_MAX_OUTPUT_TOKENS replaces the client's output ceiling.
 /// </remarks>
 public sealed class ServerOptions
@@ -203,13 +203,13 @@ public sealed class ServerOptions
 
     public const string EngineRequestTimeoutVariable = "CORVUS_ENGINE_REQUEST_TIMEOUT";
 
-    /// <summary>Seconds an engine gets to start and load or auto-analyze an image; default 1200.</summary>
-    public int EngineOpenTimeoutSeconds { get; set; } = 1200;
+    /// <summary>Seconds an engine gets to start and load or auto-analyze an image; null (the default) sets no limit.</summary>
+    public int? EngineOpenTimeoutSeconds { get; set; }
 
     public const string EngineOpenTimeoutVariable = "CORVUS_ENGINE_OPEN_TIMEOUT";
 
-    /// <summary>Seconds IDA's first analysis may report no progress and use under 1% of a core before it stops; null: the open limit applies instead.</summary>
-    public int? EngineAnalysisStallSeconds { get; set; }
+    /// <summary>Seconds an engine's analysis may report no progress and use under 1% of a core before it stops; default 1800, 0 turns the check off.</summary>
+    public int EngineAnalysisStallSeconds { get; set; } = 1800;
 
     public const string EngineAnalysisStallVariable = "CORVUS_ENGINE_ANALYSIS_STALL";
 
@@ -365,9 +365,11 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
-        o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
+        if (Environment.GetEnvironmentVariable(EngineOpenTimeoutVariable)?.Trim() is { Length: > 0 }) o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, 0, "unset: no limit");
         o.StallSeconds = Seconds(StallWindowVariable, o.StallSeconds);
-        if (Environment.GetEnvironmentVariable(EngineAnalysisStallVariable) is { Length: > 0 }) o.EngineAnalysisStallSeconds = Seconds(EngineAnalysisStallVariable, 0);
+        if (Environment.GetEnvironmentVariable(EngineAnalysisStallVariable)?.Trim() is { Length: > 0 } stallText)
+            o.EngineAnalysisStallSeconds = int.TryParse(stallText, out var stall) && stall >= 0 ? stall
+                : throw new ArgumentException($"{EngineAnalysisStallVariable} must be a number of seconds (0: no stall check), not '{stallText}'");
         if (Environment.GetEnvironmentVariable(MaxCallMinutesVariable)?.Trim() is { Length: > 0 } minutes)
             o.CallCeiling = int.TryParse(minutes, out var m) && m >= 0 ? m == 0 ? null : TimeSpan.FromMinutes(m)
                 : throw new ArgumentException($"{MaxCallMinutesVariable} must be a number of minutes (0: no ceiling), not '{minutes}'");
@@ -501,11 +503,11 @@ public sealed class ServerOptions
     }
 
     /// <summary>A positive number of seconds from <paramref name="variable"/>, or <paramref name="fallback"/> when it is unset.</summary>
-    private static int Seconds(string variable, int fallback)
+    private static int Seconds(string variable, int fallback, string? note = null)
     {
         var text = Environment.GetEnvironmentVariable(variable)?.Trim();
         if (string.IsNullOrEmpty(text)) return fallback;
-        return int.TryParse(text, out var s) && s > 0 ? s : throw new ArgumentException($"{variable} must be a positive number of seconds, not '{text}'");
+        return int.TryParse(text, out var s) && s > 0 ? s : throw new ArgumentException($"{variable} must be a positive number of seconds{(note == null ? "" : $" ({note})")}, not '{text}'");
     }
 
     private static LogLevel? ParseLogLevel(string text) => text.Trim().ToLowerInvariant() switch

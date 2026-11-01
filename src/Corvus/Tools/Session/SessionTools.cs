@@ -39,7 +39,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     }
 
     [Description("Seconds per engine request (CORVUS_ENGINE_REQUEST_TIMEOUT) and open (CORVUS_ENGINE_OPEN_TIMEOUT).")]
-    public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
+    public sealed record EngineLimits(int RequestSeconds, int? OpenSeconds);
 
     public sealed record ServerStatus(string Server, string Version,
         [property: Description("Version, plus +<commit> when known.")]

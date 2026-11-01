@@ -254,6 +254,18 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_busy_request_is_stopped_at_a_set_time_limit_beside_its_stall_limit()
+    {
+        var clock = new ArmedClock();
+        using var worker = new FakeWorkerProcess { Cpu = () => clock.Elapsed * 0.05 };
+        using var c = worker.Connect(new WorkerConnectionOptions { Time = clock });
+        var busy = c.RequestAsync("hold", null, TimeSpan.FromMinutes(20), default, stallLimit: TimeSpan.FromMinutes(10));
+        await clock.RunUntilAsync(busy, within: TimeSpan.FromMinutes(21));
+        var e = await Assert.ThrowsAsync<ToolError>(() => busy);
+        Assert.Contains("did not finish 'hold' within", e.Message);
+    }
+
+    [Fact]
     public async Task A_request_with_unreadable_CPU_time_is_stopped_after_its_stall_limit_without_progress()
     {
         var clock = new ArmedClock();
@@ -265,6 +277,21 @@ public class WorkerConnectionTests
         Assert.Contains("stalled on 'hold'", e.Message);
         Assert.Contains("no progress unit was reported", e.Message);
         Assert.Contains("raise the stall limit", e.Remediation!);
+    }
+
+    [Fact]
+    public async Task A_stalled_request_names_the_last_progress_unit()
+    {
+        var clock = new ArmedClock();
+        using var worker = new FakeWorkerProcess { Cpu = () => TimeSpan.Zero };
+        using var c = worker.Connect(new WorkerConnectionOptions { Time = clock });
+        var held = c.RequestAsync("hold", null, Timeout.InfiniteTimeSpan, default, stallLimit: TimeSpan.FromSeconds(1));
+        await clock.ArmedAsync();
+        worker.Emit(new JsonObject { ["event"] = "progress", ["id"] = 1L, ["stage"] = "function discovery" });
+        await Until(() => c.Running.FirstOrDefault()?.ProgressEvents == 1);
+        await clock.RunUntilAsync(held, within: TimeSpan.FromSeconds(3));
+        var e = await Assert.ThrowsAsync<ToolError>(() => held);
+        Assert.Contains("last progress: function discovery", e.Message);
     }
 
     [Fact]

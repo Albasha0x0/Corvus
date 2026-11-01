@@ -74,6 +74,9 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     protected NativeOpenOptions Options { get; } = options;
 
+    /// <summary>The stall window of this session's long analysis requests, or null when the check is off.</summary>
+    internal TimeSpan? StallLimit => Options.StallLimit;
+
     /// <summary>The import overrides the database was made with, for provenance.</summary>
     internal EngineOverrides? Overrides => Options.Overrides;
     /// <summary>The limit of a request on the current flow: the tool call's (<see cref="EngineRequestLimit"/>), else the session's.</summary>
@@ -533,19 +536,16 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     protected virtual ToolError Explain(ToolError error) => error;
 
     /// <summary>A job that runs with no caller waiting (reanalyze_native wait=false): its start and budget.</summary>
-    internal sealed record BackgroundJob(string What, DateTime Started, TimeSpan Budget, Task Task)
+    internal sealed record BackgroundJob(string What, DateTime Started, TimeSpan? Budget, Task Task)
     {
-        /// <summary>Elapsed share of the budget, 0 to 99 while running; the job reports no finer progress.</summary>
+        /// <summary>Elapsed share of the budget, 0 to 99 while running; null without a budget.</summary>
         // A zero budget counts as one second; 100 is left for an ended job.
-        internal int Percent(DateTime now)
-        {
-            var share = (now - Started).TotalSeconds / Math.Max(1, Budget.TotalSeconds) * 100;
-            return (int)Math.Clamp(share, 0, 99);
-        }
+        internal int? Percent(DateTime now) =>
+            Budget is { } budget ? (int)Math.Clamp((now - Started).TotalSeconds / Math.Max(1, budget.TotalSeconds) * 100, 0, 99) : null;
 
-        /// <summary>Budget left, an upper bound on the wait; zero once it has passed.</summary>
-        internal TimeSpan Remaining(DateTime now) =>
-            Budget > now - Started ? Budget - (now - Started) : TimeSpan.Zero;
+        /// <summary>Budget left, an upper bound on the wait; zero once it has passed; null without a budget.</summary>
+        internal TimeSpan? Remaining(DateTime now) =>
+            Budget is { } budget ? budget > now - Started ? budget - (now - Started) : TimeSpan.Zero : null;
     }
 
     /// <summary>The running or last background job; <see cref="BackgroundResult"/> is its outcome once it ended.</summary>
@@ -569,7 +569,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <paramref name="run"/> returns the outcome kind (complete or partial) with its text.
     /// <paramref name="ended"/> receives the image file name and the outcome text once the job ended; null keeps none.
     /// </summary>
-    internal BackgroundJob StartBackground(string what, TimeSpan budget, Func<Task<(string Kind, string Text)>> run, Action<string, string>? ended = null)
+    internal BackgroundJob StartBackground(string what, TimeSpan? budget, Func<Task<(string Kind, string Text)>> run, Action<string, string>? ended = null)
     {
         lock (_backgroundLock)
         {
@@ -611,9 +611,10 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     {
         var job = Background!;
         var elapsed = DateTime.UtcNow - job.Started;
-        return new ToolError(ErrorCode.Conflict, $"A {job.What} of {Path.GetFileName(ImagePath)} is running in the background ({elapsed.TotalSeconds:0} of {job.Budget.TotalSeconds:0} s).",
-            "server_status shows the engine session busy; retry after it ends")
-        { RetryAfter = TimeSpan.FromSeconds(Math.Clamp((job.Budget - elapsed).TotalSeconds, 2, 30)), Retryable = true };
+        var of = job.Budget is { } budget ? $" of {budget.TotalSeconds:0} s" : "";
+        return new ToolError(ErrorCode.Conflict, $"A {job.What} of {Path.GetFileName(ImagePath)} is running in the background ({elapsed.TotalSeconds:0}{of}).",
+            $"get_engine_status image={Path.GetFileName(ImagePath)} waitSeconds=60 waits for it to end")
+        { RetryAfter = TimeSpan.FromSeconds(Math.Clamp(((job.Budget ?? TimeSpan.MaxValue) - elapsed).TotalSeconds, 2, 30)), Retryable = true };
     }
 
     /// <summary>Runs a batch that starts no item after <paramref name="budget"/> seconds, timed out one request limit later, so the item running at the budget gets a full request limit.</summary>
@@ -622,7 +623,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     /// <summary>Runs one request, restarting the worker first when it is gone.</summary>
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null, TimeSpan? stall = null)
     {
         if (!InBackground.Value && BackgroundRunning) throw Busy();
         EngineUse.Note(ProviderId);
@@ -666,7 +667,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             try
             {
                 JsonElement result;
-                try { result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken).ConfigureAwait(false); }
+                try { result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken, stallLimit: stall).ConfigureAwait(false); }
                 catch when (changes)
                 {
                     // A change that failed part way leaves an unknown state.

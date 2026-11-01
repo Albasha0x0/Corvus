@@ -56,8 +56,8 @@ public sealed class NativeEngineService : IDisposable
         _workspace = workspace;
         DefaultMode = options?.Engine ?? EngineMode.Auto;
         RequestTimeout = TimeSpan.FromSeconds(options?.EngineRequestTimeoutSeconds ?? 120);
-        OpenTimeout = TimeSpan.FromSeconds(options?.EngineOpenTimeoutSeconds ?? 1200);
-        _analysisStall = options?.EngineAnalysisStallSeconds is { } stall ? TimeSpan.FromSeconds(stall) : null;
+        OpenTimeout = options?.EngineOpenTimeoutSeconds is { } open ? TimeSpan.FromSeconds(open) : Timeout.InfiniteTimeSpan;
+        AnalysisStall = TimeSpan.FromSeconds(options?.EngineAnalysisStallSeconds ?? new ServerOptions().EngineAnalysisStallSeconds);
         _analysis = options?.EngineAnalysis ?? EngineAnalysis.Full;
         _prewarm = options?.Prewarm;
         if (_prewarm != null && workspace != null) workspace.NativeLoaded += native => _ = PrewarmCore(native);
@@ -223,12 +223,15 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>The engine the native code tools use when a call names none.</summary>
     public EngineMode DefaultMode { get; }
 
-    /// <summary>Limit of each engine request (CORVUS_ENGINE_REQUEST_TIMEOUT) and of an engine's start and analysis (CORVUS_ENGINE_OPEN_TIMEOUT).</summary>
+    /// <summary>Limit of each engine request (CORVUS_ENGINE_REQUEST_TIMEOUT).</summary>
     public TimeSpan RequestTimeout { get; }
+
+    /// <summary>Limit of an engine's start and analysis (CORVUS_ENGINE_OPEN_TIMEOUT); <see cref="Timeout.InfiniteTimeSpan"/> sets none.</summary>
     public TimeSpan OpenTimeout { get; }
 
     private readonly EngineAnalysis _analysis;
-    private readonly TimeSpan? _analysisStall;
+    /// <summary>Window of no progress and idle CPU after which an analysis is stopped (CORVUS_ENGINE_ANALYSIS_STALL); zero turns the check off.</summary>
+    public TimeSpan AnalysisStall { get; }
 
     /// <summary>Engine answers kept across processes; null when switched off (<see cref="EngineOutputCache.MaxMegabytesVariable"/>=0).</summary>
     public EngineOutputCache? OutputCache => _outputCache.Value;
@@ -285,7 +288,7 @@ public sealed class NativeEngineService : IDisposable
             OutputCache = OutputCache,
             OutputIdentity = OutputIdentity(id) + ((native.Image as Native.RawCodeImage)?.Layout.Key is { } raw ? "|raw " + raw : "") +
                              (native.Overrides is { } ov ? "|" + ov.Key : ""),
-            Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, AnalysisStall = _analysisStall, Analysis = _analysis,
+            Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, AnalysisStall = AnalysisStall, Analysis = _analysis,
             Raw = (native.Image as Native.RawCodeImage)?.Layout,
             Overrides = native.Overrides,
             GhidraDatabase = native.EngineDatabase,
@@ -691,13 +694,14 @@ public sealed class NativeEngineService : IDisposable
         holder.ExpectedSeconds > 0 ? holder.ExpectedSeconds
             : EstimateMinutes(native.Image.Sections.Select(s => (s.IsExecutable, (long)s.MappedSize))) * 60.0;
 
-    /// <summary>The time an open may run: the stall check's window when it is set, else the open limit.</summary>
-    public TimeSpan OpenLimit => _analysisStall is { } stall && stall > TimeSpan.Zero ? stall : OpenTimeout;
+    /// <summary>The open limit in seconds; null when none is set.</summary>
+    public double? OpenLimitSeconds => OpenTimeout == Timeout.InfiniteTimeSpan ? null : OpenTimeout.TotalSeconds;
 
     /// <summary>What ends a running open, in words.</summary>
-    public string OpenLimitText => _analysisStall is { } stall && stall > TimeSpan.Zero
-        ? $"ends after {stall.TotalSeconds:0} s without progress"
-        : $"ends at the open limit of {OpenTimeout.TotalSeconds:0} s";
+    public string OpenLimitText =>
+        "ends when the engine finishes, is cancelled or exits"
+        + (AnalysisStall > TimeSpan.Zero && (OpenTimeout == Timeout.InfiniteTimeSpan || AnalysisStall < OpenTimeout) ? $", or after {AnalysisStall.TotalSeconds:0} s without progress" : "")
+        + (OpenLimitSeconds is { } limit ? $", or at the open limit of {limit:0} s" : "");
 
     /// <summary>Queues the workspace notice for an open whose early answer was given.</summary>
     private void NotifyEnd(LoadedNative native, string id, SessionHolder holder, Task<INativeDecompilerSession> opening)
@@ -707,8 +711,12 @@ public sealed class NativeEngineService : IDisposable
         var name = $"{native.Id}: {id} analysis";
         _workspace.Notify(opening.IsCompletedSuccessfully
             ? $"{name} {(opening.Result.AnalysisComplete ? "complete" : "partial")} in {seconds:0} s; next: list_functions image={native.Id} engine={id}"
-            : $"{name} {(opening.IsCanceled ? "cancelled" : "failed")} in {seconds:0} s; next: get_engine_status image={native.Id} shows the state, engine={FallbackEngine} answers now");
+            : $"{name} {(opening.IsCanceled ? "cancelled" : $"failed ({FailureReason(opening)})")} in {seconds:0} s; next: get_engine_status image={native.Id} shows the state, engine={FallbackEngine} answers now");
     }
+
+    /// <summary>The first line of why an open failed: the stall, the exit code or the error.</summary>
+    private static string FailureReason(Task opening) =>
+        Format.Clip((opening.Exception?.InnerException?.Message ?? "no reason reported").Split('\n')[0].Trim(), 200);
 
     /// <summary>The engine value that answers without waiting for an external engine.</summary>
     private const string FallbackEngine = "ours";

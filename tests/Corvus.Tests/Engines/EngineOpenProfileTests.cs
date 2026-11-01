@@ -239,7 +239,7 @@ public sealed class EngineOpenProfileTests : IDisposable
             var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
             Assert.Contains($"get_engine_status image={native.Id} waitSeconds=", error.Remediation);
             Assert.Contains("engine=ours", error.Remediation);
-            Assert.Contains("open limit of", error.Message);
+            Assert.Contains("ends when the engine finishes, is cancelled or exits, or after 1800 s without progress", error.Message);
             Assert.Equal(TimeSpan.FromSeconds(30), error.RetryAfter);
             Assert.Empty(workspace.DrainNotices());
         }
@@ -316,7 +316,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         Assert.True(row.RemainingSeconds > 0);
         var job = Assert.IsType<NativeEngineStatusTools.EngineJob>(row.Job);
         Assert.Equal(("open", "running"), (job.What, job.State));
-        Assert.Equal(engines.OpenLimit.TotalSeconds, job.BudgetSeconds);
+        Assert.Null(job.BudgetSeconds);
         Assert.Null(job.Outcome);
         Assert.True(DateTime.Parse(job.StartedAt).ToUniversalTime() > DateTime.UtcNow.AddMinutes(-5));
     }
@@ -344,7 +344,7 @@ public sealed class EngineOpenProfileTests : IDisposable
             notices.AddRange(workspace.DrainNotices());
         }
         var notice = Assert.Single(notices);
-        Assert.Contains("analysis failed in", notice);
+        Assert.Contains("analysis failed (scripted open failure) in", notice);
         Assert.Contains($"next: get_engine_status image={native.Id}", notice);
         var failed = Assert.Single(engines.ImageSessions(native), e => e.State == "failed");
         Assert.Equal("scripted open failure", failed.Error);

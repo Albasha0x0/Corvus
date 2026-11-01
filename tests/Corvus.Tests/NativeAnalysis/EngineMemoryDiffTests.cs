@@ -130,7 +130,7 @@ public sealed class EngineMemoryDiffTests
             Fixups is { } f ? Task.FromResult(f) : throw new ToolError(ErrorCode.Unsupported, "This engine does not list its fixups.");
 
         public Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double? seconds,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default) =>

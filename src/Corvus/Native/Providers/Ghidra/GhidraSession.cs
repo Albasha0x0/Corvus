@@ -566,7 +566,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         ArgumentNullException.ThrowIfNull(pdbPath);
         // A large PDB takes minutes: the open's limit, not a single request's.
         return WorkerRows.PdbLoad(await CallAsync("load_pdb", WorkerRows.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp),
-            ("trust_analysis", trustAnalysisLoad)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false));
+            ("trust_analysis", trustAnalysisLoad)), cancellationToken, saves: true, timeout: Options.OpenTimeout, stall: Options.StallLimit).ConfigureAwait(false));
     }
 
     /// <summary>A name Ghidra has from its loader or analysis (Function ID library names included); never one this server pushed.</summary>
@@ -662,7 +662,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     /// <summary>Saves the program and writes it to <paramref name="path"/> as a packed Ghidra archive (.gzf); returns the path and size.</summary>
     internal async Task<(string Path, long Bytes)> ExportPackedAsync(string path, CancellationToken cancellationToken = default)
     {
-        var r = await CallAsync("export_gzf", WorkerRows.Args(("path", path)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false);
+        var r = await CallAsync("export_gzf", WorkerRows.Args(("path", path)), cancellationToken, saves: true, timeout: Options.OpenTimeout, stall: Options.StallLimit).ConfigureAwait(false);
         return (r.GetProperty("path").GetString() ?? path, r.GetProperty("size").GetInt64());
     }
 

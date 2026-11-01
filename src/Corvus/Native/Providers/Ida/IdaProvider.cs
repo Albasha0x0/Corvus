@@ -94,6 +94,9 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     /// <summary>The install directory, or null when IDA is not available.</summary>
     internal string? InstallDirectory => Static().Ida?.Directory;
 
+    // Finding Python is not analysis: it keeps a limit when the open sets none.
+    private static readonly TimeSpan OpenProbeTimeout = TimeSpan.FromMinutes(20);
+
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static() => Static(PythonLocator.DefaultProbeTimeout, out _);
 
     /// <summary>The static checks; <paramref name="unanswered"/> when no Python answered within <paramref name="probeTimeout"/>.</summary>
@@ -170,7 +173,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         else
         {
             // An open finds its Python within its own time limit, not the status checks' 15 s.
-            var (result, ida, python) = Static(options.OpenTimeout, out var unanswered);
+            var (result, ida, python) = Static(options.OpenTimeout == Timeout.InfiniteTimeSpan ? OpenProbeTimeout : options.OpenTimeout, out var unanswered);
             if (!result.IsAvailable)
                 throw new ToolError(unanswered ? ErrorCode.Timeout : ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
             session = new IdaSession(this, ida!, python!, options);

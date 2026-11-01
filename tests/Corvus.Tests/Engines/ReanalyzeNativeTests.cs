@@ -53,6 +53,19 @@ public sealed class ReanalyzeNativeTests : IDisposable
     }
 
     [Fact]
+    public async Task A_foreground_run_without_timeoutSeconds_is_refused_naming_background_and_a_budget_above_3600_is_kept()
+    {
+        var (control, _, engine, native) = Setup();
+        engine.ReanalysisResult = () => new NativeReanalysis(true, 10, 14, TimeSpan.FromSeconds(2), []);
+        var refused = await Assert.ThrowsAsync<ToolError>(() => control.ReanalyzeNative(native.Id));
+        Assert.Equal(ErrorCode.InvalidArgument, refused.Code);
+        Assert.Contains("background=true", refused.Remediation);
+        Assert.Empty(engine.Reanalyses);
+        await control.ReanalyzeNative(native.Id, timeoutSeconds: 7200);
+        Assert.Equal([7200.0], engine.Reanalyses.Select(r => r.Seconds));
+    }
+
+    [Fact]
     public async Task A_run_passes_options_and_range_and_drops_cached_pseudocode()
     {
         var (control, search, engine, native) = Setup();
@@ -65,12 +78,12 @@ public sealed class ReanalyzeNativeTests : IDisposable
         Assert.Equal((false, 10, 14, "0x140001000-0x140001100"), (report.Complete, report.FunctionsBefore, report.FunctionsAfter, report.Scope));
         Assert.Equal(2.0, report.ElapsedSeconds);
         Assert.DoesNotContain(" s; database saved", text); // the time taken is in _meta
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => control.ReanalyzeNative(native.Id, timeoutSeconds: 3601))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => control.ReanalyzeNative(native.Id, timeoutSeconds: 0))).Code);
         var run = Assert.Single(engine.Reanalyses);
         Assert.Equal([new("AF_FLIRT", "false"), new("Decompiler Parameter ID", "true"), new("Bogus", "1")], run.Options);
         Assert.Equal((0x1000u, 0x1100u, 30.0), (run.Start!.Value, run.End!.Value, run.Seconds));
         Assert.Contains("reanalysis of 0x140001000-0x140001100", text);
-        Assert.Contains("Partial: the 30 s budget ran out; run again to continue.", text);
+        Assert.Contains("Partial: the 30 s budget ran out; run reanalyze_native image=", text);
         Assert.Contains("Functions: 10 before, 14 after (+4)", text);
         Assert.Contains("Warning: unknown analysis option 'Bogus'", text);
         await search.SearchDecompiled(native.Id, "return");
@@ -81,7 +94,7 @@ public sealed class ReanalyzeNativeTests : IDisposable
     public async Task The_whole_image_by_default_and_bad_arguments_are_rejected()
     {
         var (control, _, engine, native) = Setup();
-        Assert.Contains("of the whole image", await control.ReanalyzeNative(native.Id));
+        Assert.Contains("of the whole image", await control.ReanalyzeNative(native.Id, timeoutSeconds: 600));
         Assert.Null(engine.Reanalyses[0].Start);
         Assert.Equal(600, engine.Reanalyses[0].Seconds);
         foreach (var call in new Func<Task<string>>[]

@@ -238,9 +238,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         var worker = c.Connect(provider.Options.StartTimeout, new WorkerConnectionOptions { CancelGrace = provider.Options.CancelGrace });
         SetWorker(worker);
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
-        provider.CheckVersion(await worker.RequestAsync("hello", null, Options.OpenTimeout, cancellationToken).ConfigureAwait(false));
+        provider.CheckVersion(await worker.RequestAsync("hello", null, Options.OpenTimeout, cancellationToken, quiet: provider.Options.StartTimeout).ConfigureAwait(false));
         ReusedDatabase = true;
-        var info = await worker.RequestAsync("attach", IdaProvider.Args(("sha256", Entry!.Sha256)), Options.OpenTimeout, cancellationToken).ConfigureAwait(false);
+        var info = await worker.RequestAsync("attach", IdaProvider.Args(("sha256", Entry!.Sha256)), Options.OpenTimeout, cancellationToken, quiet: provider.Options.StartTimeout).ConfigureAwait(false);
         var loadedBase = info.GetProperty("imagebase").GetUInt64();
         if (loadedBase != _headerImageBase)
             throw new ToolError(ErrorCode.InvalidArgument,
@@ -563,7 +563,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         ArgumentNullException.ThrowIfNull(pdbPath);
         // A large PDB takes IDA a while: the open's limit, not a single request's.
         var r = await CallAsync("load_pdb", IdaProvider.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp), ("trust_analysis", trustAnalysisLoad)),
-            cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false);
+            cancellationToken, saves: true, timeout: Options.OpenTimeout, stall: Options.StallLimit).ConfigureAwait(false);
         return new PdbLoadResult(r.GetProperty("loaded").GetBoolean(), r.GetProperty("from_analysis").GetBoolean(), r.GetProperty("plugin").GetBoolean(),
             r.GetProperty("types_before").GetInt32(), r.GetProperty("types_after").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
     }

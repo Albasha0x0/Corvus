@@ -158,7 +158,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     /// <summary>Waits for a new worker's ready event; the start limit counts idle time only, <paramref name="cap"/> bounds the whole start.</summary>
     internal Task WaitStartedAsync(WorkerConnection worker, TimeSpan cap, CancellationToken cancellationToken) =>
-        worker.WaitReadyAsync(cap > _options.StartTimeout ? cap : _options.StartTimeout, cancellationToken, idle: _options.StartTimeout);
+        worker.WaitReadyAsync(cap == Timeout.InfiniteTimeSpan || cap > _options.StartTimeout ? cap : _options.StartTimeout, cancellationToken, idle: _options.StartTimeout);
 
     public async Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default)
     {
