@@ -182,7 +182,11 @@ internal static class DocumentFixtures
     }
 
     /// <summary>The streams of a VBA project under <paramref name="prefix"/> ("" for vbaProject.bin, "Macros/" in Word).</summary>
-    public static List<(string, byte[])> VbaStreams(string prefix, params (string Name, string Type, string Source)[] modules)
+    public static List<(string, byte[])> VbaStreams(string prefix, params (string Name, string Type, string Source)[] modules) =>
+        VbaStreams(prefix, null, modules);
+
+    /// <summary>As above, with a cache per module name (stored before the source) and the version; null keeps it purged.</summary>
+    public static List<(string, byte[])> VbaStreams(string prefix, (ushort Version, Dictionary<string, byte[]> Cache)? compiled, params (string Name, string Type, string Source)[] modules)
     {
         var dir = new MemoryStream();
         void Record(int id, byte[] data, int? size = null)
@@ -208,16 +212,16 @@ internal static class DocumentFixtures
             Record(0x0019, latin.GetBytes(name)); Record(0x0047, Encoding.Unicode.GetBytes(name));
             Record(0x001A, latin.GetBytes(name)); Record(0x0032, Encoding.Unicode.GetBytes(name));
             Record(0x001C, []); Record(0x0048, []);
-            Record(0x0031, U32(0)); Record(0x001E, U32(0)); Record(0x002C, U16(0xFFFF));
+            Record(0x0031, U32((uint)(compiled?.Cache.GetValueOrDefault(name)?.Length ?? 0))); Record(0x001E, U32(0)); Record(0x002C, U16(0xFFFF));
             Record(type == "standard" ? 0x0021 : 0x0022, []);
             Record(0x002B, []);
-            streams.Add((prefix + "VBA/" + name, Compress(latin.GetBytes($"Attribute VB_Name = \"{name}\"\r\n" + source))));
+            streams.Add((prefix + "VBA/" + name, [.. compiled?.Cache.GetValueOrDefault(name) ?? [], .. Compress(latin.GetBytes($"Attribute VB_Name = \"{name}\"\r\n" + source))]));
             project.Append(type switch { "document" => $"Document={name}/&H00000000", "class" => $"Class={name}", _ => $"Module={name}" }).Append("\r\n");
         }
         Record(0x0010, []);
         project.Append("Name=\"Project\"\r\n");
         streams.Add((prefix + "VBA/dir", Compress(dir.ToArray())));
-        streams.Add((prefix + "VBA/_VBA_PROJECT", [0xCC, 0x61, 0xFF, 0xFF, 0x00, 0x00, 0x00]));
+        streams.Add((prefix + "VBA/_VBA_PROJECT", compiled is { } c ? [0xCC, 0x61, (byte)c.Version, (byte)(c.Version >> 8), 0x00, 0x00, 0x00, 0x01, 0x02] : [0xCC, 0x61, 0xFF, 0xFF, 0x00, 0x00, 0x00]));
         streams.Add((prefix + "PROJECT", latin.GetBytes(project.ToString())));
         return streams;
     }

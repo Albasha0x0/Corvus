@@ -7,9 +7,12 @@ namespace Corvus.Services.Analysis;
 internal sealed class OfficeFileView : IFileSummaryView
 {
     public sealed record Module(string Name, string Type, string Stream, int Lines, bool SourceMissing,
-        [property: System.ComponentModel.Description("The module source with constants folded and layers peeled; absent when the reader changed nothing.")] string? Plain = null);
+        [property: System.ComponentModel.Description("The module source with constants folded and layers peeled; absent when the reader changed nothing.")] string? Plain = null,
+        [property: System.ComponentModel.Description("Compiled code against the source strings: purged, strings_match, differs or unverified. Opcodes are not compared.")] string CompiledCode = "unverified",
+        [property: System.ComponentModel.Description("Basis or reason of compiledCode; for differs and unverified, read the module source with view=office.")] string? CompiledNote = null);
 
-    public sealed record Project(string Storage, string? Name, int CodePage, IReadOnlyList<Module> Modules, IReadOnlyList<string> References);
+    public sealed record Project(string Storage, string? Name, int CodePage, IReadOnlyList<Module> Modules, IReadOnlyList<string> References,
+        [property: System.ComponentModel.Description("The version recorded in _VBA_PROJECT as 0xNNNN; absent when the stream is unreadable.")] string? Version = null);
 
     public sealed record EmbeddedFile(string Path, string Name, string? SourcePath, long Size, string Kind, string Sha256);
 
@@ -36,7 +39,7 @@ internal sealed class OfficeFileView : IFileSummaryView
         var kept = new System.Runtime.CompilerServices.StrongBox<int>();
         var facts = new Facts(doc.Format, doc.Encrypted,
             [.. doc.Projects.Select(p => new Project(p.Storage, p.ProjectName, p.CodePage,
-                [.. p.Modules.Select(m => new Module(m.Name, m.Type, m.Stream, m.Source.Length == 0 ? 0 : m.Source.Count(c => c == '\n') + 1, m.SourceMissing, Peel(m.Source, budget, kept, ct)))], p.References))],
+                [.. p.Modules.Select(m => new Module(m.Name, m.Type, m.Stream, m.Source.Length == 0 ? 0 : m.Source.Count(c => c == '\n') + 1, m.SourceMissing, Peel(m.Source, budget, kept, ct), m.CompiledCode, m.CompiledNote))], p.References, p.Version))],
             doc.Findings, doc.Xlm?.Sheets, doc.Xlm?.Names, doc.Xlm?.Cells.Count,
             [.. doc.Objects.Select(o => new EmbeddedFile(o.Path, o.Name, o.SourcePath, o.Bytes.Length, Blob.Identify(o.Bytes), Blob.Sha256(o.Bytes)))],
             doc.Links, doc.Notes);

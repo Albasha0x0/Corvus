@@ -104,6 +104,110 @@ public sealed class OfficeDocumentTests
         Assert.Contains(c.Items, i => i.Name == "VBA/ThisDocument.cls");
     }
 
+    private const string RunSource = "Sub AutoOpen()\r\n  Shell \"calc.exe\"\r\n  MsgBox \"hello world\"\r\nEnd Sub\r\n";
+
+    private static OfficeFileView.Facts Compiled(string source, string cached, ushort version = 0x0097, Func<List<(string, byte[])>, List<(string, byte[])>>? edit = null)
+    {
+        var cache = new Dictionary<string, byte[]> { ["Module1"] = Encoding.Latin1.GetBytes("\x01\x02" + cached + "\x03") };
+        var streams = VbaStreams("Macros/", (version, cache), ("Module1", "standard", source));
+        if (edit != null) streams = edit(streams);
+        return View(Compound([("WordDocument", new byte[600]), .. streams]))!;
+    }
+
+    private static void AssertState(OfficeFileView.Facts f, string state, bool finding)
+    {
+        Assert.Equal(state, Assert.Single(f.Projects[0].Modules).CompiledCode);
+        Assert.Equal(finding, f.Findings.Any(r => r.Keyword == "VBA compiled code differs from source"));
+    }
+
+    [Fact]
+    public void A_module_whose_source_strings_are_in_its_compiled_code_matches_by_strings()
+    {
+        var f = Compiled(RunSource, "calc.exe hello world");
+        Assert.Equal("0x0097", Assert.Single(f.Projects).Version);
+        AssertState(f, "strings_match", false);
+        Assert.Contains("opcodes are not compared", f.Projects[0].Modules[0].CompiledNote, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_module_whose_source_strings_are_not_in_its_compiled_code_differs()
+    {
+        var f = Compiled(RunSource, "benign text only");
+        AssertState(f, "differs", true);
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Location: "VBA/Module1" } && r.Description.Contains("2 of 2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_project_written_without_a_compiled_cache_is_purged_and_not_a_finding()
+    {
+        var f = View(WordDocument())!;
+        Assert.All(f.Projects[0].Modules, m => Assert.Equal("purged", m.CompiledCode));
+        Assert.Equal("0xFFFF", f.Projects[0].Version);
+        Assert.DoesNotContain(f.Findings, r => r.Keyword == "VBA compiled code differs from source");
+    }
+
+    [Fact]
+    public void A_module_with_no_source_string_to_compare_is_unverified()
+    {
+        AssertState(Compiled("Sub AutoOpen()\r\n  x = 1\r\nEnd Sub\r\n", "anything"), "unverified", false);
+    }
+
+    [Fact]
+    public void A_missing_project_stream_leaves_the_comparison_unverified()
+    {
+        var f = Compiled(RunSource, "benign", edit: s => [.. s.Where(x => !x.Item1.EndsWith("_VBA_PROJECT", StringComparison.Ordinal))]);
+        AssertState(f, "unverified", false);
+        Assert.Contains("project stream", f.Projects[0].Modules[0].CompiledNote, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_project_stream_without_its_signature_leaves_the_comparison_unverified()
+    {
+        var f = Compiled(RunSource, "benign", edit: s => [.. s.Select(x => x.Item1.EndsWith("_VBA_PROJECT", StringComparison.Ordinal) ? (x.Item1, new byte[] { 1, 2, 3 }) : x)]);
+        AssertState(f, "unverified", false);
+    }
+
+    [Fact]
+    public void A_missing_module_stream_leaves_the_comparison_unverified()
+    {
+        var f = Compiled(RunSource, "benign", edit: s => [.. s.Where(x => !x.Item1.EndsWith("VBA/Module1", StringComparison.Ordinal))]);
+        AssertState(f, "unverified", false);
+        Assert.Equal("module stream not found", f.Projects[0].Modules[0].CompiledNote);
+    }
+
+    [Fact]
+    public void A_text_offset_past_the_module_stream_leaves_the_comparison_unverified()
+    {
+        var f = Compiled(RunSource, "benign", edit: s => [.. s.Select(x => x.Item1.EndsWith("VBA/Module1", StringComparison.Ordinal) ? (x.Item1, new byte[] { 1, 2 }) : x)]);
+        AssertState(f, "unverified", false);
+    }
+
+    [Fact]
+    public void A_version_of_0xFFFF_with_cache_bytes_is_purged()
+    {
+        AssertState(Compiled(RunSource, "benign", version: 0xFFFF), "purged", false);
+    }
+
+    [Fact]
+    public void A_doubled_quote_in_a_source_string_is_matched_as_one_quote()
+    {
+        AssertState(Compiled("Sub AutoOpen()\r\n  s = \"say \"\"hi\"\" now\"\r\nEnd Sub\r\n", "say \"hi\" now"), "strings_match", false);
+    }
+
+    [Fact]
+    public void A_string_in_a_conditional_compilation_block_is_not_compared()
+    {
+        var src = "Sub AutoOpen()\r\n  MsgBox \"hello world\"\r\n#If Win64 Then\r\n  MsgBox \"only on win64\"\r\n#End If\r\nEnd Sub\r\n";
+        AssertState(Compiled(src, "hello world"), "strings_match", false);
+    }
+
+    [Fact]
+    public void A_string_after_a_colon_and_Rem_is_not_compared()
+    {
+        var src = "Sub AutoOpen()\r\n  MsgBox \"hello world\": Rem \"not code\"\r\nEnd Sub\r\n";
+        AssertState(Compiled(src, "hello world"), "strings_match", false);
+    }
+
     [Fact]
     public void A_package_encrypted_with_excels_built_in_password_is_decrypted_and_read()
     {

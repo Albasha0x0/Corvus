@@ -4,14 +4,40 @@ using System.Text;
 namespace Corvus.Core.Documents;
 
 /// <summary>One VBA module: its stream, kind (standard, class, form or document) and source text.</summary>
-internal sealed record VbaModule(string Name, string Stream, string Type, string Source, bool SourceMissing);
+internal sealed record VbaModule(string Name, string Stream, string Type, string Source, bool SourceMissing)
+{
+    /// <summary>The compiled-code cache compared with the source, one of <see cref="VbaCompiledState"/>.</summary>
+    public string CompiledCode { get; init; } = VbaCompiledState.Unverified;
 
-/// <summary>A VBA project (MS-OVBA) and its module sources; p-code is not read, so source replaced after compiling is not detected.</summary>
+    /// <summary>The basis or reason of <see cref="CompiledCode"/>; null when purged.</summary>
+    public string? CompiledNote { get; init; }
+}
+
+/// <summary>The states of a module's compiled-code comparison.</summary>
+internal static class VbaCompiledState
+{
+    /// <summary>The project holds no compiled code for the module.</summary>
+    public const string Purged = "purged";
+
+    /// <summary>Every source string is found in the compiled code; opcodes are not compared.</summary>
+    public const string StringsMatch = "strings_match";
+
+    /// <summary>Source strings are absent from the compiled code.</summary>
+    public const string Differs = "differs";
+
+    /// <summary>The comparison could not be made; the note names the reason.</summary>
+    public const string Unverified = "unverified";
+}
+
+/// <summary>A VBA project (MS-OVBA), its module sources and, per module, the compiled-code comparison.</summary>
 internal sealed class VbaProject
 {
     public required string Storage { get; set; }
     public string? ProjectName { get; init; }
     public int CodePage { get; init; }
+
+    /// <summary>The version in _VBA_PROJECT as 0xNNNN; null when absent or unreadable.</summary>
+    public string? Version { get; init; }
     public required IReadOnlyList<VbaModule> Modules { get; init; }
     public required IReadOnlyList<string> References { get; init; }
     public required IReadOnlyList<string> Notes { get; init; }
@@ -32,6 +58,7 @@ internal sealed class VbaProject
         int codePage = 1252;
         Encoding enc = Encoding.Latin1;
 
+        var projectCache = ReadProjectStream(cf, root, max);
         string? name = null, nameUnicode = null, stream = null, streamUnicode = null, type = null;
         uint offset = 0;
         void EndModule()
@@ -42,15 +69,21 @@ internal sealed class VbaProject
             var entry = cf.Find(root + "VBA/" + streamName);
             string source = "";
             bool missing = false;
-            if (entry == null) notes.Add($"module {moduleName}: stream VBA/{streamName} not found");
+            byte[]? cache = null;
+            string? problem = null;
+            if (entry == null) { notes.Add($"module {moduleName}: stream VBA/{streamName} not found"); problem = "module stream not found"; }
             else
             {
                 var data = cf.Read(entry, max);
+                if (entry.Size > max) problem = LimitNote(max);
+                else if (offset <= data.Length) cache = data[..(int)offset];
+                else problem = "text offset past the module stream";
                 if (offset > data.Length) { notes.Add($"module {moduleName}: text offset {offset} past the stream ({data.Length} bytes)"); missing = true; }
                 else if (Decompress(data.AsSpan((int)offset), max) is { } text) source = enc.GetString(text);
                 else { notes.Add($"module {moduleName}: no MS-OVBA compressed source at its text offset"); missing = true; }
             }
-            modules.Add(new VbaModule(moduleName, "VBA/" + streamName, type ?? "standard", source, missing));
+            var (state, detail) = Compare(cache, problem, projectCache, source, missing, enc);
+            modules.Add(new VbaModule(moduleName, "VBA/" + streamName, type ?? "standard", source, missing) { CompiledCode = state, CompiledNote = detail });
             name = nameUnicode = stream = streamUnicode = type = null;
             offset = 0;
         }
@@ -106,7 +139,75 @@ internal sealed class VbaProject
             for (int i = 0; i < modules.Count; i++)
                 if (kinds.TryGetValue(modules[i].Name, out var kind)) modules[i] = modules[i] with { Type = kind };
         }
-        return new VbaProject { Storage = root, ProjectName = project, CodePage = codePage, Modules = modules, References = references, Notes = notes };
+        return new VbaProject { Storage = root, ProjectName = project, CodePage = codePage, Version = projectCache.Version, Modules = modules, References = references, Notes = notes };
+    }
+
+    private sealed record ProjectStream(string? Version, bool HasCache, string? Problem);
+
+    private static string LimitNote(long max) => $"stream exceeds the {max >> 20} MiB part limit, which no parameter raises; read the module source with view=office";
+
+    // _VBA_PROJECT holds 0x61CC, the version, 0x00 and a reserved word, then the cache.
+    private static ProjectStream ReadProjectStream(CompoundFile cf, string root, long max)
+    {
+        if (cf.Find(root + "VBA/_VBA_PROJECT") is not { } entry) return new(null, false, "project stream missing or unreadable");
+        var data = cf.Read(entry, max);
+        if (data.Length < 7 || BinaryPrimitives.ReadUInt16LittleEndian(data) != 0x61CC) return new(null, false, "project stream missing or unreadable");
+        int version = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(2));
+        // A version of 0xFFFF or no bytes after the header marks a purged project.
+        return new($"0x{version:X4}", version != 0xFFFF && data.Length > 7, entry.Size > max ? LimitNote(max) : null);
+    }
+
+    // Source strings absent from the cache stored before the source mean the source was replaced.
+    private static (string State, string? Detail) Compare(byte[]? cache, string? problem, ProjectStream project, string source, bool sourceMissing, Encoding enc)
+    {
+        if (project.Problem != null) return (VbaCompiledState.Unverified, project.Problem);
+        if (problem != null) return (VbaCompiledState.Unverified, problem);
+        if (cache == null || cache.Length == 0 || !project.HasCache) return (VbaCompiledState.Purged, null);
+        if (sourceMissing) return (VbaCompiledState.Unverified, "compiled code present, source unreadable");
+        var literals = Literals(source, enc);
+        if (literals.Count == 0) return (VbaCompiledState.Unverified, "no source string to compare");
+        int absent = literals.Count(l => cache.AsSpan().IndexOf(l) < 0);
+        return absent == 0
+            ? (VbaCompiledState.StringsMatch, $"{literals.Count} source string(s) found in the compiled code; opcodes are not compared")
+            : (VbaCompiledState.Differs, $"{absent} of {literals.Count} source string(s) not in the compiled code");
+    }
+
+    // Distinct literals of 3 or more characters; attributes, declarations, comments and #If blocks are skipped.
+    private static List<byte[]> Literals(string source, Encoding enc)
+    {
+        var found = new List<byte[]>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        int conditional = 0;
+        foreach (var raw in source.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("#If ", StringComparison.OrdinalIgnoreCase)) { conditional++; continue; }
+            if (line.StartsWith("#End If", StringComparison.OrdinalIgnoreCase)) { if (conditional > 0) conditional--; continue; }
+            if (conditional > 0) continue;
+            if (line.StartsWith("Attribute ", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Rem ", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("Declare ", StringComparison.OrdinalIgnoreCase)) continue;
+            var text = new StringBuilder();
+            bool inString = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (!inString)
+                {
+                    if (c == '\'') break;
+                    if (c == ':' && line.AsSpan(i + 1).TrimStart().StartsWith("Rem ", StringComparison.OrdinalIgnoreCase)) break;
+                    if (c == '"') { inString = true; text.Clear(); }
+                }
+                else if (c == '"')
+                {
+                    if (i + 1 < line.Length && line[i + 1] == '"') { text.Append('"'); i++; continue; }
+                    inString = false;
+                    var value = text.ToString();
+                    if (value.Length >= 3 && seen.Add(value)) found.Add(enc.GetBytes(value));
+                }
+                else text.Append(c);
+            }
+        }
+        return found;
     }
 
     private static Encoding EncodingOf(int cp)

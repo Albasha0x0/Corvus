@@ -326,5 +326,7 @@ internal sealed class OfficeDocument
         }
         foreach (var m in Projects.SelectMany(p => p.Modules).Where(m => m.SourceMissing))
             Findings.Add(new MacroFinding("Suspicious", "VBA source missing", $"module {m.Name} has no readable source text at its offset (removed or damaged)") { Location = m.Stream });
+        foreach (var m in Projects.SelectMany(p => p.Modules).Where(m => m.CompiledCode == VbaCompiledState.Differs))
+            Findings.Add(new MacroFinding("Suspicious", "VBA compiled code differs from source", $"module {m.Name}: {m.CompiledNote}; the compiled code can differ from the source shown (read the module source with view=office)") { Location = m.Stream });
     }
 }
