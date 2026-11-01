@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using Corvus.Core;
 using Corvus.Core.Archives;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
@@ -175,6 +176,68 @@ public sealed class AppendedArchiveTests
 
         Assert.ThrowsAny<OperationCanceledException>(() =>
             Containers.Open(image, "image.bin", AnalysisLimits.Default, cts.Token, allFiles: true));
+    }
+
+    [Fact]
+    public void A_streamed_image_of_two_zips_names_the_end_records_it_did_not_list()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"corvus-{Guid.NewGuid():N}.bin");
+        File.WriteAllBytes(path, [.. Zip(("a.txt", "1")), .. Zip(("b.txt", "2"))]);
+        try
+        {
+            var input = FileInput.Open(path, streamAbove: 16);
+            var managed = UnpackService.Managed(input, "sha", AnalysisLimits.Default, CancellationToken.None);
+
+            Assert.True(input.Streamed);
+            Assert.Contains(managed.Notes, n => n.StartsWith("2 zip end records in a streamed file"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_streamed_single_zip_adds_no_end_record_note()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"corvus-{Guid.NewGuid():N}.bin");
+        File.WriteAllBytes(path, Zip(("a.txt", "1")));
+        try
+        {
+            var managed = UnpackService.Managed(
+                FileInput.Open(path, streamAbove: 16), "sha", AnalysisLimits.Default, CancellationToken.None);
+
+            Assert.DoesNotContain(managed.Notes, n => n.Contains("end records"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_streamed_zip_holding_a_stored_zip_reports_records_not_archives()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"corvus-{Guid.NewGuid():N}.bin");
+        File.WriteAllBytes(path, ZipWithStoredZip());
+        try
+        {
+            var managed = UnpackService.Managed(
+                FileInput.Open(path, streamAbove: 16), "sha", AnalysisLimits.Default, CancellationToken.None);
+
+            Assert.Contains(managed.Notes, n => n.StartsWith("2 zip end records") && n.Contains("the first at offset"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(0)]
+    public void An_end_record_split_across_a_window_boundary_is_counted_once(int cut)
+    {
+        // The signature starts 2 bytes before the 1 MiB window ends (or at its start).
+        const int Window = 1 << 20;
+        var data = new byte[Window + 64];
+        "PK\x05\x06"u8.CopyTo(data.AsSpan(Window - 2 - 2 + cut));
+
+        var (count, first) = AppendedArchive.CountEndRecords(() => new MemoryStream(data), CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Equal(Window - 4 + cut, first);
     }
 
     private static byte[] SevenZipThenZip()

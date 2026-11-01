@@ -33,6 +33,38 @@ internal static class AppendedArchive
         return parts;
     }
 
+    private static ReadOnlySpan<byte> EndRecord => "PK\x05\x06"u8;
+
+    /// <summary>Returns the zip end record count and the first one's offset (-1 when none),
+    /// scanned in 1 MiB windows; stored entries can add false records.</summary>
+    internal static (int Count, long First) CountEndRecords(Func<Stream> open, CancellationToken ct)
+    {
+        const int Window = 1 << 20;
+        using var s = open();
+        var buffer = new byte[Window + 3];
+        int count = 0, carry = 0;
+        long first = -1, consumed = 0;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            int read = s.Read(buffer, carry, Window);
+            if (read <= 0) return (count, first);
+            int length = carry + read;
+            // Offset of buffer[0] in the stream.
+            long origin = consumed - carry;
+            for (int at = buffer.AsSpan(0, length).IndexOf(EndRecord); at >= 0;)
+            {
+                if (count++ == 0) first = origin + at;
+                int next = buffer.AsSpan(at + 4, length - at - 4).IndexOf(EndRecord);
+                at = next < 0 ? -1 : at + 4 + next;
+            }
+            consumed += read;
+            // Keep the last 3 bytes so a signature split across windows is seen once.
+            carry = Math.Min(3, length);
+            Buffer.BlockCopy(buffer, length - carry, buffer, 0, carry);
+        }
+    }
+
     private static List<int> SevenZipEnds(byte[] data)
     {
         if (data.Length < 32) return [];
@@ -50,7 +82,7 @@ internal static class AppendedArchive
     private static List<int> ZipEnds(byte[] data)
     {
         var candidates = new List<(int End, int Directory, uint Offset)>();
-        foreach (int p in Blob.FindAll(data, "PK"u8, data.Length))
+        foreach (int p in Blob.FindAll(data, EndRecord, data.Length))
         {
             if (p + 22 > data.Length) continue;
             int end = p + 22 + BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 20));
@@ -149,7 +181,7 @@ internal static class AppendedArchive
     {
         partial = false;
         var gaps = new List<(int, int)>();
-        int eocd = data.AsSpan().LastIndexOf("PK\x05\x06"u8);
+        int eocd = data.AsSpan().LastIndexOf(EndRecord);
         if (eocd < 0 || eocd + 22 > data.Length) return gaps;
         int count = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(eocd + 10));
         long size = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(eocd + 12));

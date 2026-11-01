@@ -363,7 +363,15 @@ public static class Containers
                 entries = zip.Entries;
             }
             catch (InvalidDataException) { s.Dispose(); return null; }
-            using (zip) return ReadZipEntries(ZipReaders(entries, null, limits), limits, ct);
+            using (zip)
+            {
+                var streamed = ReadZipEntries(ZipReaders(entries, null, limits), limits, ct);
+                // A second pass over the stream; it only reports, the listing stays the last archive.
+                if (Archives.AppendedArchive.CountEndRecords(open, ct) is { Count: > 1 } ends)
+                    streamed.Notes.Add($"{ends.Count} zip end records in a streamed file, the first at offset {ends.First}: " +
+                        $"only the last archive is listed; archives laid end to end are listed in files under {Corvus.Services.Analysis.FileInput.StreamAbove >> 20} MiB.");
+                return streamed;
+            }
         }
         if (ReaderFor(head, name) is { } reader)
         {
