@@ -632,7 +632,10 @@ public sealed class NativeEngineService : IDisposable
             {
                 if (!opened.IsCompletedSuccessfully || !opened.Result.AnalysisComplete) return;
                 var analysis = run.Profile.Stages(0).Where(st => st.Stage == "analysis").Sum(st => st.Seconds);
-                Estimates.RecordOpen(id, run.CodeBytes, analysis, (Now - run.Started).TotalSeconds);
+                lock (_recordGate)
+                {
+                    if (!_disposed) Estimates.RecordOpen(id, run.CodeBytes, analysis, (Now - run.Started).TotalSeconds);
+                }
             }, TaskScheduler.Default);
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
             if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
@@ -707,6 +710,8 @@ public sealed class NativeEngineService : IDisposable
     {
         try { return await opening.WaitAsync(EstimateAfter, Clock, ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
+        // An open that ended as the wait timed out returns its result.
+        catch (TimeoutException) when (opening.IsCompleted) { return await opening.ConfigureAwait(false); }
         // The estimate comes after a short wait or at the call's deadline; the open goes on and a later call picks it up.
         catch (Exception ex) when ((ex is TimeoutException || (ex is OperationCanceledException && ct.IsCancellationRequested))
             && !opening.IsCompleted && !native.Released.IsCancellationRequested)
@@ -864,8 +869,13 @@ public sealed class NativeEngineService : IDisposable
     public INativeDecompilerSession? OpenSession(LoadedNative native, string? id = null) =>
         ImageSessions(native).FirstOrDefault(s => s.State == "open" && (id == null || s.Engine == id))?.Session;
 
+    // A disposed service writes nothing: an open ending later keeps no rate.
+    private readonly object _recordGate = new();
+    private bool _disposed;
+
     public void Dispose()
     {
+        lock (_recordGate) _disposed = true;
         foreach (var (_, provider) in _providers)
             if (provider.IsValueCreated) provider.Value.Dispose();
     }
