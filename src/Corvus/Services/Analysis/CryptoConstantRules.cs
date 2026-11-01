@@ -985,7 +985,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                     if (locations.Count < Evidence.MaxLocations)
                     {
                         var note = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, []);
-                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (note is null ? "" : $" ({note})"));
+                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.LabelFunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (note is null ? "" : $" ({note})"));
                     }
                 }
             var found = new List<(Pattern Pattern, uint Start, uint End)>();
@@ -1014,7 +1014,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                 {
                     int at = (int)(rva - section.Rva);
                     var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, pattern.Bytes);
-                    locations.Add($"{constant.Algorithm}{(constant.Version ? VersionAfter(bytes, at, pattern.Bytes.Length) : "")} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})") + (constant.Weak ? " (weak evidence)" : "") + (constant.CodeOnly || constant.Version || constant.Weak ? "" : Users(index, rva, pattern.Bytes.Length)));
+                    locations.Add($"{constant.Algorithm}{(constant.Version ? VersionAfter(bytes, at, pattern.Bytes.Length) : "")} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.LabelFunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})") + (constant.Weak ? " (weak evidence)" : "") + (constant.CodeOnly || constant.Version || constant.Weak ? "" : Users(index, rva, pattern.Bytes.Length)));
                 }
             }
         }

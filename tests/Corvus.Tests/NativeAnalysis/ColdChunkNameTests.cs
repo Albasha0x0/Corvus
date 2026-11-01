@@ -35,6 +35,15 @@ public sealed class ColdChunkNameTests
         Assert.Single(report.Items);
     }
 
+    [Fact]
+    public void A_survey_label_before_the_entry_falls_back_to_the_address()
+    {
+        // Code at Code + 5 precedes the entry of the function at Code + 0x10.
+        var index = NativeCodeIndex.Build(ColdChunkImage());
+        Assert.Null(index.LabelFunctionAt(Code + 5));
+        Assert.Equal(Code + 0x10, index.LabelFunctionAt(Code + 0x12)?.Start);
+    }
+
     // 0x00 cold: mov eax, 1; ret    0x10 main: test ecx, ecx; jz cold; xor eax, eax; ret
     private static CodeTestImage ColdChunkImage()
     {

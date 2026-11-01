@@ -123,7 +123,7 @@ internal sealed class ContainerHeaderRules : ISurveyRuleProvider
                     ct.ThrowIfCancellationRequested();
                     if (owned.Any(o => hit >= o.Start && hit < o.Start + o.Length)) continue;
                     total++;
-                    var loader = index.FunctionAt(hit);
+                    var loader = index.LabelFunctionAt(hit);
                     if (loader is not null) loaders.TryAdd(loader.Start, loader);
                     if (references.Count < MaxReferences)
                         references.Add(loader is { } f

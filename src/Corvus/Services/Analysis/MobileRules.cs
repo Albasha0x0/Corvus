@@ -306,7 +306,7 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
         var image = index.Image;
         var found = new List<string>();
         int count = 0;
-        string Where(uint rva) => index.FunctionAt(rva) is { } f ? $"{Format.Within(index.NameAt(f.Start) ?? f.Name, f.Start, rva)} @{NativeAddress.Va(image, rva)}" : $"@{NativeAddress.Va(image, rva)}";
+        string Where(uint rva) => index.LabelFunctionAt(rva) is { } f ? $"{Format.Within(index.NameAt(f.Start) ?? f.Name, f.Start, rva)} @{NativeAddress.Va(image, rva)}" : $"@{NativeAddress.Va(image, rva)}";
         void Refs(ObjcReference r, string what)
         {
             var sites = index.RefsTo((uint)(r.Va - image.ImageBase), 1000);
@@ -359,7 +359,7 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
         {
             if (imp.Name == null || !Match(imp.Name) || !seen.Add(imp.Name)) continue;
             var callers = index.Callers(imp);
-            var first = callers.Count > 0 && index.FunctionAt(callers[0].From) is { } f ? $", first in {index.NameAt(f.Start) ?? f.Name}" : "";
+            var first = callers.Count > 0 && index.LabelFunctionAt(callers[0].From) is { } f ? $", first in {index.NameAt(f.Start) ?? f.Name}" : "";
             count += Math.Max(1, callers.Count);
             if (found.Count < Evidence.MaxLocations) found.Add($"import {imp.Module}!{imp.Name} ({callers.Count} call sites{first})");
         }

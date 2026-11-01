@@ -231,6 +231,9 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return null;
     }
 
+    /// <summary>Returns the function containing <paramref name="rva"/>, or null when rva precedes its entry.</summary>
+    public NativeFunction? LabelFunctionAt(uint rva) => FunctionAt(rva) is { } f && rva >= f.Start ? f : null;
+
     /// <summary>Code ranges (start, exclusive end) of a function, sorted.</summary>
     public IEnumerable<(uint Start, uint End)> Ranges(NativeFunction f)
     {
