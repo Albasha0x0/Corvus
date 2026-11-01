@@ -34,7 +34,7 @@
           "type": "integer"
         },
         "unread": {
-          "description": "No read of the runtime succeeded: unseen methods are unknown.",
+          "description": "Runtime never read: unseen methods are unknown.",
           "type": "boolean"
         }
       },
@@ -55,7 +55,7 @@
         "type": "object",
         "properties": {
           "address": {
-            "description": "Function start (VA).",
+            "description": "Function VA.",
             "type": "string"
           },
           "name": {
@@ -81,7 +81,7 @@
       "type": "integer"
     },
     "total": {
-      "description": "Absent with format=dot (offset counts characters).",
+      "description": "Absent with format=dot.",
       "type": "integer"
     },
     "runs": {
@@ -119,7 +119,7 @@
             "type": "integer"
           },
           "unread": {
-            "description": "No read of the runtime succeeded: unseen methods are unknown.",
+            "description": "Runtime never read: unseen methods are unknown.",
             "type": "boolean"
           }
         },
@@ -208,7 +208,7 @@
               "type": "integer"
             },
             "unread": {
-              "description": "No read of the runtime succeeded: unseen methods are unknown.",
+              "description": "Runtime never read: unseen methods are unknown.",
               "type": "boolean"
             }
           },

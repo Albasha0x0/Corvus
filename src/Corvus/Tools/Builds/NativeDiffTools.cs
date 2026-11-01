@@ -593,7 +593,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("Copy names, comments and engine types from the old build to the new one through the function match, as undoable " +
                  "edits. Never replaces the new build's user annotations.")]
     public Task<string> MigrateNativeNames(
-        [Description("Older build (image id or path), or a static library (.lib, .a) or object file (COFF, ELF): its functions name the starts holding their bytes.")] string oldImage,
+        [Description("Older build (image id or path), static library (.lib, .a) or object file (COFF, ELF): its functions name the starts holding their bytes.")] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Weakest match tier accepted: 1 (names, identical bytes) to 5 (all).")] int minTier = 5,

@@ -60,6 +60,67 @@ public sealed class LiveCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_coverage_report_is_saved_as_json_to_a_new_path()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        var path = Path.Combine(Path.GetTempPath(), $"cov-{Guid.NewGuid():N}.json");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            var text = await _tools.LiveCoverage(action: "report", run: "cov-1", outputPath: path);
+            Assert.Contains("saved: ", text);
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal("cov-1", json.RootElement.GetProperty("run").GetProperty("run").GetString());
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task A_coverage_diff_is_saved_as_json_to_a_new_path()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        var path = Path.Combine(Path.GetTempPath(), $"cov-{Guid.NewGuid():N}.json");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            var text = await _tools.LiveCoverage(action: "diff", run: "cov-1", other: "cov-2", outputPath: path);
+            Assert.Contains("saved: ", text);
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal("cov-1", json.RootElement.GetProperty("run").GetProperty("run").GetString());
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task An_output_path_on_a_start_is_refused_with_the_actions_that_save()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        var error = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", outputPath: "unused.json"));
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+        Assert.Contains("report and diff", error.Remediation);
+    }
+
+    [Fact]
+    public async Task An_existing_output_path_is_refused()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        var path = Path.Combine(Path.GetTempPath(), $"cov-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "keep");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            var error = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", outputPath: path));
+            Assert.Equal(ErrorCode.Conflict, error.Code);
+            Assert.Equal("keep", File.ReadAllText(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public async Task Stops_at_function_starts_are_counted_resumed_and_cleared_at_the_hit_limit()
     {
         await _tools.LiveSession("attach", program: "99994242");

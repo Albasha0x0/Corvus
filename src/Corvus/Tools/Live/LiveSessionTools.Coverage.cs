@@ -13,7 +13,7 @@ namespace Corvus.Tools;
 public sealed partial class LiveSessionTools
 {
     public sealed record LiveCoverageRow(
-        [property: Description("Function start (VA).")] string Address,
+        [property: Description("Function VA.")] string Address,
         string Name,
         [property: Description("Stops counted; at the hit limit, a lower bound.")] long Hits,
         bool Ran);
@@ -24,12 +24,12 @@ public sealed partial class LiveSessionTools
     {
         [Description("Functions refused; reasons in the text.")]
         public int Unplaced { get; init; }
-        [Description("No read of the runtime succeeded: unseen methods are unknown.")]
+        [Description("Runtime never read: unseen methods are unknown.")]
         public bool Unread { get; init; }
     }
 
     public sealed record LiveCoverageReport(LiveCoverageSummary? Run, IReadOnlyList<LiveCoverageRow> Items, int Offset,
-        [property: Description("Absent with format=dot (offset counts characters).")] int? Total, IReadOnlyList<LiveCoverageSummary> Runs)
+        [property: Description("Absent with format=dot.")] int? Total, IReadOnlyList<LiveCoverageSummary> Runs)
     {
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
         [Description("format=dot: a page of the call graph (Graphviz DOT).")]
@@ -46,24 +46,26 @@ public sealed partial class LiveSessionTools
         int OnlyInRunTotal, int OnlyInOtherTotal, int InBoth, int InNeither);
 
     [McpServerTool(Name = "live_coverage", Title = "Code coverage of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveCoverageReport))]
-    [Description("Collect code coverage in a session: which functions of an image ran and how often; diff compares two runs.")]
+    [Description("Collect code coverage in a session: which functions ran and how often; diff compares runs.")]
     public Task<string> LiveCoverage(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
-        [Description("Run id (cov-1; omitted: the only run); diff: the first run.")] string? run = null,
-        [Description("diff: the run compared with.")] string? other = null,
-        [Description("Only function names containing this; start: module!part for another module.")] string? match = null,
-        [Description("start: stops per function before its point is cleared.")] int hitLimit = 100,
+        [Description("Run id (cov-1; omitted: the only run).")] string? run = null,
+        [Description("diff: second run.")] string? other = null,
+        [Description("Names containing this; start: module!part for another module.")] string? match = null,
+        [Description("start: stops per function before it is cleared.")] int hitLimit = 100,
         [Description("report: ran, missed or all.")] string show = "ran",
         [Description("report: text, or dot (call graph; offset counts characters).")] string format = "text",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description("Save this page as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
             Require(spawn: false);
             var a = action.Trim().ToLowerInvariant();
             limit = ToolSupport.ClampLimit(limit, 1_000);
+            if (a is not ("report" or "diff")) RefuseOutput(outputPath, "report and diff");
             switch (a)
             {
                 case "start":
@@ -78,7 +80,8 @@ public sealed partial class LiveSessionTools
                                (r.DetachFunctions > 0 ? $"{ToolSupport.Plural(r.DetachFunctions, "function")} reached from TLS callbacks or the DLL entry point left out: they run at process exit, after the other threads end\n" : "") +
                                string.Concat(r.Unplaced.Values.Select(x => x.Split('\n')[0]).GroupBy(x => x).Select(g => $"{ToolSupport.Plural(g.Count(), "function")} left out: {g.Key}\n")) +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
-                               $"next: live_coverage action=report run={r.Id}\n";
+                               $"next: live_coverage action=report run={r.Id}\n" +
+                               $"{r.Id} is kept until the server exits\n";
                     return ToolOutput.With(text, new LiveCoverageReport(Summary(r), [], 0, 0, []));
                 }
                 case "stop":
@@ -98,10 +101,10 @@ public sealed partial class LiveSessionTools
                     return ToolOutput.With(text, new LiveCoverageReport(null, [], 0, 0, listed.Select(Summary).ToList()));
                 }
                 case "report":
-                    return await CoverageReport(live.GetCoverage(RequireRun(run, session)), match, show, format, offset, limit, cancellationToken).ConfigureAwait(false);
+                    return Export(await CoverageReport(live.GetCoverage(RequireRun(run, session)), match, show, format, offset, limit, cancellationToken).ConfigureAwait(false), outputPath);
                 case "diff":
-                    return CoverageDiff(live.GetCoverage(RequireRun(run, session)),
-                        live.GetCoverage(string.IsNullOrWhiteSpace(other) ? throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs other.", "other=<the second run id>") : other), limit);
+                    return Export(CoverageDiff(live.GetCoverage(RequireRun(run, session)),
+                        live.GetCoverage(string.IsNullOrWhiteSpace(other) ? throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs other.", "other=<the second run id>") : other), limit), outputPath);
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, report or diff");
             }

@@ -55,7 +55,7 @@
             "type": "string"
           },
           "name": {
-            "description": "As the OS reports it: a path, registry key or value, endpoint or program.",
+            "description": "Path, key, endpoint or program.",
             "type": "string"
           },
           "processId": {
@@ -71,7 +71,7 @@
       }
     },
     "cursor": {
-      "description": "Cursor for the next page; null at the end.",
+      "description": "Next page cursor; null at the end.",
       "type": "string"
     },
     "runs": {
@@ -115,7 +115,7 @@
       }
     },
     "dropped": {
-      "description": "Entries the ring dropped before this page.",
+      "description": "Entries dropped before this page.",
       "type": "integer"
     },
     "names": {
@@ -189,7 +189,7 @@
           ]
         },
         "onlyA": {
-          "description": "This page's pairs recorded in a and not in b.",
+          "description": "This page's pairs only in a.",
           "type": "array",
           "items": {
             "type": "object",
@@ -208,7 +208,7 @@
           }
         },
         "onlyB": {
-          "description": "This page's pairs recorded in b and not in a.",
+          "description": "This page's pairs only in b.",
           "type": "array",
           "items": {
             "$ref": "#/properties/diff/properties/onlyA/items"

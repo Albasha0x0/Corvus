@@ -846,7 +846,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string Quote(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"";
 
     [McpServerTool(Name = "live_events", Title = "Session events", UseStructuredContent = true, OutputSchemaType = typeof(LiveEventPage))]
-    [Description("Page session events with a cursor and filters; waitSeconds waits for the next.")]
+    [Description("Page session events by cursor and filter; waitSeconds waits for the next.")]
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
         [Description("Cursor of an earlier page; default oldest kept.")] string? cursor = null,
@@ -856,6 +856,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description("Seconds to wait for an event, 1-300; 0 returns at once.")] int waitSeconds = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        [Description("Save this page as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -874,6 +875,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad waitSeconds {waitSeconds}.", "waitSeconds=1..300, or 0 to return at once");
             var threadId = ThreadId(thread);
             var bound = Math.Min(waitSeconds, 300);
+            // Checked before the wait, which consumes events a refused call would lose.
+            RefuseExisting(outputPath);
             if (bound > 0)
                 await s.WaitEventAsync(start, k, threadId, source, TimeSpan.FromSeconds(bound), cancellationToken).ConfigureAwait(false);
             var again = $"{(k != null ? " kind=" + k : "")}{(threadId != null ? " thread=" + thread!.Trim() : "")}{(source != null ? " from=" + source : "")}{(bound > 0 ? " waitSeconds=" + bound : "")}";
@@ -913,10 +916,39 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 var dropped = (int)Math.Min(int.MaxValue, calls + others);
                 return (page.ToString(), new LiveEventPage(s.Id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
             }
-            return FitPage(rows.Count, Render);
+            return Export(FitPage(rows.Count, Render), outputPath);
         }, cancellationToken);
 
     private static readonly string[] EventKinds = ["stop", "call", "script", "exception", "module", "thread", "child", "output", "error", "exit"];
+
+    /// <summary>
+    /// Saves the call's page record as JSON at <paramref name="outputPath"/>
+    /// and appends the path to <paramref name="text"/>; a null path returns
+    /// the text; an existing file is a Conflict; no structured result is
+    /// Unsupported.
+    /// </summary>
+    private static string Export(string text, string? outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath)) return text;
+        RefuseExisting(outputPath);
+        var record = OutputCall.Current?.Record ?? throw new ToolError(ErrorCode.Unsupported, "This call has no structured result to save.", "repeat without outputPath");
+        var json = System.Text.Json.JsonSerializer.SerializeToNode(record, record.GetType(), ToolOutput.Json)!.ToJsonString(ToolOutput.Wire);
+        return text + $"saved: {SafeFile.WriteAllText(outputPath, json, overwrite: false)} (this page only)\n";
+    }
+
+    /// <summary>Throws a Conflict that names a new path when <paramref name="outputPath"/> exists; null or blank passes.</summary>
+    private static void RefuseExisting(string? outputPath)
+    {
+        if (!string.IsNullOrWhiteSpace(outputPath) && File.Exists(SafeFile.Output(outputPath)))
+            throw new ToolError(ErrorCode.Conflict, $"{outputPath} exists.", "outputPath=<a new path>");
+    }
+
+    /// <summary>Refuses outputPath on an action that saves nothing; the Next line names the actions that do.</summary>
+    private static void RefuseOutput(string? outputPath, string actions)
+    {
+        if (!string.IsNullOrWhiteSpace(outputPath))
+            throw new ToolError(ErrorCode.InvalidArgument, "outputPath saves a page only.", $"outputPath applies to {actions}; repeat without it");
+    }
 
     /// <summary>A cursor page cut to the output budget by rows before its cursor is set, so no rows are skipped; at least one row is kept.</summary>
     private static string FitPage(int count, Func<int, (string Text, object Record)> render)

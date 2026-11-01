@@ -12,7 +12,7 @@ public sealed class DeviceTools(DeviceService devices)
     private const string SerialDescription = "Device serial; omit if one device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
-    [Description("Android devices and emulators adb sees, with serial, state and model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.")]
+    [Description("Android devices and emulators adb sees: serial, state, model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.")]
     public Task<AndroidDeviceList> ListAndroidDevices(CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 

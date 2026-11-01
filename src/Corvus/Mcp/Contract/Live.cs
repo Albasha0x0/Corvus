@@ -17,7 +17,8 @@ public static partial class ToolEffects
         ["live_break"] = Changes(destructive: true, idempotent: false, openWorld: true),
         ["live_watch"] = Changes(destructive: true, idempotent: false, openWorld: true),
         ["live_read"] = Reads(openWorld: true),
-        ["live_events"] = Reads(openWorld: true),
+        // Writes a JSON page only with outputPath.
+        ["live_events"] = Changes(destructive: false, idempotent: false, openWorld: true),
         // A user script runs inside the observed program and may change it; also gated by --live-scripting.
         ["live_script"] = Changes(destructive: true, idempotent: false, openWorld: true),
         // Coverage stop points are written into the program's code.
@@ -60,7 +61,7 @@ public sealed partial record ToolContract
         ["live_break"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
         ["live_watch"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
         ["live_read"] = Row(O.Bytes, L.Interactive),
-        ["live_events"] = Row(O.List, L.Instant, sort: "event sequence"),
+        ["live_events"] = Row(O.List, L.Instant, sort: "event sequence", noDryRun: "writes only with outputPath"),
         ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live and --live-scripting"),
         ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
         ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),

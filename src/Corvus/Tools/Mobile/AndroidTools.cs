@@ -191,7 +191,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "get_dex_class", Title = "DEX class", UseStructuredContent = true, OutputSchemaType = typeof(DexClassPage))]
-    [Description("One DEX class: superclass, interfaces, signature, inner classes, Kotlin @Metadata and annotations, then its fields and methods, paged.")]
+    [Description("One DEX class: superclass, interfaces, signature, inner classes, Kotlin @Metadata, annotations, fields and methods, paged.")]
     public Task<string> GetDexClass(
         [Description(CodeDescription)] string path,
         [Description("Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner.")] string @class,

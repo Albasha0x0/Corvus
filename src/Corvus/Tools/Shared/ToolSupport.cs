@@ -10,17 +10,17 @@ internal static class ToolSupport
         "Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name or token.";
 
     public const string SymbolOrNativeDescription =
-        "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME|#ORD|ADDR).";
+        "Type or member (Ns.Type::Method(int), name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME|#ORD|ADDR).";
 
     public const string AssemblyFilterDescription =
-        "Assembly id, name or path; omit: all.";
+        "Assembly id, name, path; omit: all.";
 
-    public const string AssemblyDescription = "Assembly id, name or path.";
+    public const string AssemblyDescription = "Assembly id, name, path.";
 
     /// <summary>Offset of a list tool, in rows; the agent passes the previous page's nextOffset.</summary>
     public const string RowOffsetDescription = "Rows to skip.";
     /// <summary>Offset of a text tool, in characters.</summary>
-    public const string CharOffsetDescription = "Character offset (a page's nextOffset).";
+    public const string CharOffsetDescription = "Character offset (nextOffset).";
     public const string MaxTokensDescription = "Page size in tokens.";
     /// <summary>Limit of a list tool, in rows; the token budget can cut the page further.</summary>
     public const string LimitDescription = "Max rows.";

@@ -13,7 +13,7 @@ public sealed partial class LiveSessionTools
     public sealed record LiveTimelineRow(long Sequence,
         [property: Description("UTC, ISO 8601.")] string Time,
         [property: Description("file, registry, network or process.")] string Category,
-        [property: Description("As the OS reports it: a path, registry key or value, endpoint or program.")] string Name)
+        [property: Description("Path, key, endpoint or program.")] string Name)
     {
         public int? ProcessId { get; init; }
     }
@@ -26,10 +26,10 @@ public sealed partial class LiveSessionTools
         long Entries);
 
     public sealed record LiveTimelinePage(LiveTimelineSummary? Run, IReadOnlyList<LiveTimelineRow> Items,
-        [property: Description("Cursor for the next page; null at the end.")] string? Cursor,
+        [property: Description("Next page cursor; null at the end.")] string? Cursor,
         IReadOnlyList<LiveTimelineSummary> Runs)
     {
-        [Description("Entries the ring dropped before this page.")]
+        [Description("Entries dropped before this page.")]
         public long Dropped { get; init; }
         [Description("action=report: each name with its count and first time.")]
         public IReadOnlyList<LiveTimelineName>? Names { get; init; }
@@ -40,26 +40,27 @@ public sealed partial class LiveSessionTools
     public sealed record LiveTimelinePair(string Category, string Name);
 
     public sealed record LiveTimelineDiff([property: Description("Timeline b; Run is timeline a.")] LiveTimelineSummary Other,
-        [property: Description("This page's pairs recorded in a and not in b.")] IReadOnlyList<LiveTimelinePair> OnlyA,
-        [property: Description("This page's pairs recorded in b and not in a.")] IReadOnlyList<LiveTimelinePair> OnlyB,
+        [property: Description("This page's pairs only in a.")] IReadOnlyList<LiveTimelinePair> OnlyA,
+        [property: Description("This page's pairs only in b.")] IReadOnlyList<LiveTimelinePair> OnlyB,
         int OnlyATotal, int OnlyBTotal, int Common);
 
     /// <summary>A row of the diff's one paged list: the pairs only in a, then those only in b.</summary>
     private sealed record TimelineDiffRow(int Index, bool InA, string Category, string Name);
 
     [McpServerTool(Name = "live_timeline", Title = "Activity trace of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveTimelinePage))]
-    [Description("Trace the files, registry keys, endpoints and child processes a program opens, with times; report counts names, diff compares traces.")]
+    [Description("Trace the files, registry keys, endpoints and child processes a program opens; report counts names, diff compares traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
-        [Description("Run id; omitted: the only one; list without it or a filter lists runs.")] string? run = null,
-        [Description("diff: the first timeline.")] string? a = null,
-        [Description("diff: the second timeline.")] string? b = null,
+        [Description("Run id (tl-1; omitted: the only one); list without it or a filter lists runs.")] string? run = null,
+        [Description("diff: first timeline.")] string? a = null,
+        [Description("diff: second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,
-        [Description("Only names containing this.")] string? match = null,
+        [Description("Names containing this.")] string? match = null,
         [Description("list: cursor of an earlier page; default the oldest entry kept.")] string? cursor = null,
         [Description(ToolSupport.RowOffsetDescription + " (report).")] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description("Save this page as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -68,6 +69,7 @@ public sealed partial class LiveSessionTools
             limit = ToolSupport.ClampLimit(limit, 1_000);
             var c = Category(category);
             var m = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
+            if (act is not ("list" or "report" or "diff")) RefuseOutput(outputPath, "list, report and diff");
             switch (act)
             {
                 case "start":
@@ -76,7 +78,8 @@ public sealed partial class LiveSessionTools
                     var r = live.StartTimeline(s);
                     var text = $"{r.Id} tracing {s.Id} ({Path.GetFileName(r.Program)}, pid {r.ProcessId}) through {r.Source}: files, registry keys, endpoints and child processes\n" +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
-                               $"next: live_timeline action=list run={r.Id}\n";
+                               $"next: live_timeline action=list run={r.Id}\n" +
+                               $"{r.Id} is kept until the server exits\n";
                     return ToolOutput.With(text, new LiveTimelinePage(TimelineSummary(r), [], null, []));
                 }
                 case "stop":
@@ -87,6 +90,7 @@ public sealed partial class LiveSessionTools
                 }
                 case "list" when string.IsNullOrWhiteSpace(run) && c == null && m == null && string.IsNullOrWhiteSpace(cursor):
                 {
+                    RefuseOutput(outputPath, "a list of one run's entries (run=...)");
                     var runs = live.TimelineRuns.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase))
                         .Select(TimelineSummary).ToList();
                     var text = runs.Count == 0 ? "No timelines.\n"
@@ -94,9 +98,9 @@ public sealed partial class LiveSessionTools
                     return ToolOutput.With(text, new LiveTimelinePage(null, [], null, runs));
                 }
                 case "list":
-                    return TimelinePage(live.GetTimeline(RequireTimeline(run, session)), c, m, cursor, limit);
+                    return Export(TimelinePage(live.GetTimeline(RequireTimeline(run, session)), c, m, cursor, limit), outputPath);
                 case "report":
-                    return TimelineReport(live.GetTimeline(RequireTimeline(run, session)), c, m, offset, limit);
+                    return Export(TimelineReport(live.GetTimeline(RequireTimeline(run, session)), c, m, offset, limit), outputPath);
                 case "diff":
                 {
                     if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
@@ -104,7 +108,7 @@ public sealed partial class LiveSessionTools
                     var (ra, rb) = (live.GetTimeline(a), live.GetTimeline(b));
                     if (ReferenceEquals(ra, rb))
                         throw new ToolError(ErrorCode.InvalidArgument, $"a and b are both {ra.Id}.", "pass two different timelines");
-                    return TimelineDiff(ra, rb, c, m, offset, limit);
+                    return Export(TimelineDiff(ra, rb, c, m, offset, limit), outputPath);
                 }
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, report or diff");

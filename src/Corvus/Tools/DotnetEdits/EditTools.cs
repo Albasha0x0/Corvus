@@ -150,7 +150,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "diff_edits", Title = "Diff edits (before/after C#)", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Unified diff of the decompiled C# of each member the edits (or one edit) touched, before and after; review before save_assembly.")]
+    [Description("Unified diff of the decompiled C# of each member the edits (or one edit) touched; review before save_assembly.")]
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this edit (list_edits number).")] int? number = null,

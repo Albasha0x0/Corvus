@@ -61,6 +61,49 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_timeline_page_is_saved_as_json_to_a_new_path()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveTimeline("live-1", "start");
+        _source.Send("file", @"C:\data\orders.txt");
+        var path = Path.Combine(Path.GetTempPath(), $"tl-{Guid.NewGuid():N}.json");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            var text = await _tools.LiveTimeline(action: "list", run: "tl-1", outputPath: path);
+            Assert.Contains("saved: ", text);
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal(@"C:\data\orders.txt", json.RootElement.GetProperty("items")[0].GetProperty("name").GetString());
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task A_timeline_report_is_saved_as_json_to_a_new_path()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveTimeline("live-1", "start");
+        _source.Send("file", @"C:\data\orders.txt");
+        var path = Path.Combine(Path.GetTempPath(), $"tl-{Guid.NewGuid():N}.json");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            await _tools.LiveTimeline(action: "report", run: "tl-1", outputPath: path);
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal(1, json.RootElement.GetProperty("names").GetArrayLength());
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task An_output_path_on_a_timeline_start_is_refused()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        var error = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveTimeline("live-1", "start", outputPath: "unused.json"));
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+    }
+
+    [Fact]
     public async Task Entries_page_with_a_cursor_and_the_report_counts_each_name()
     {
         await _tools.LiveSession("attach", program: "99994242");

@@ -72,7 +72,9 @@ public partial class ToolObligationsTests
                 || ToolAvailability.WindowsOnly.Contains(name) || ToolAvailability.SessionTools.Contains(name)
                 || ParameterDomains.Table.TryGetValue(name, out var p) && p.ContainsKey("engine");
             if (runsProgram && !e.OpenWorld) violations.Add($"{name}: runs a program or reads another process, so openWorld");
-            if (ToolAvailability.SessionTools.Contains(name) && !e.ReadOnly && !e.Destructive) violations.Add($"{name}: changes a running program, so destructive");
+            // A session tool whose only write is its own output file leaves the program unchanged.
+            bool writesOnlyFiles = ContractSweep.FileWritersByFamily.Values.Any(f => f.ContainsKey(name));
+            if (ToolAvailability.SessionTools.Contains(name) && !e.ReadOnly && !e.Destructive && !writesOnlyFiles) violations.Add($"{name}: changes a running program, so destructive");
         }
         foreach (var name in new[] { "summarize_file", "survey_features" })
             if (!ToolEffects.Of(name).OpenWorld) violations.Add($"{name}: reaches the network or runs capa, so openWorld");

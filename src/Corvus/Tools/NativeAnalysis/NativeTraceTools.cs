@@ -81,7 +81,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("More nodes follow (call again with offset).")] bool Truncated,
         IReadOnlyList<string> Notes);
 
-    private const string LocationHelp = "a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) " +
+    private const string LocationHelp = "a register (rdx, xmm1, x1, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) " +
                                         "or result (the call's return)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
@@ -90,7 +90,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, call, function start (with argument) or writable global: " + NativeTools.AddressDescription)] string address,
-        [Description("The value at address: a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return).")] string? location = null,
+        [Description("The value at address: a register (rdx, xmm1, x1, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return).")] string? location = null,
         [Description("Argument of the call or parameter of the function at address: 1-based or API name.")]
         string? argument = null,
         [Description("backward (default): values reaching it; forward: its uses.")] string? direction = null,

@@ -46,6 +46,26 @@ public sealed class LiveEventWaitTests : IDisposable
     }
 
     [Fact]
+    public async Task An_event_page_is_saved_as_json_and_an_existing_path_is_refused_before_the_wait()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        _service.Get("live-1").Add("output", null, null, "ready");
+        var path = Path.Combine(Path.GetTempPath(), $"ev-{Guid.NewGuid():N}.json");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            Assert.Contains("saved: ", await _tools.LiveEvents("live-1", kind: "output", outputPath: path));
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal("live-1", json.RootElement.GetProperty("session").GetString());
+            var clock = Stopwatch.StartNew();
+            var error = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", kind: "exit", waitSeconds: 60, outputPath: path));
+            Assert.Equal(ErrorCode.Conflict, error.Code);
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public async Task Waiting_for_events_past_the_bound_names_the_next_call()
     {
         await _tools.LiveSession("attach", program: "99994242");
