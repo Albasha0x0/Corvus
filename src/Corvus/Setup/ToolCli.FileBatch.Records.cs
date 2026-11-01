@@ -130,7 +130,7 @@ internal static partial class ToolCli
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            (section, var timedOut) = await Step(run.Session!, MembersStep, arguments, run.Io, run.Deadline, run.Cancellation, run.StepSeconds);
+            (section, var timedOut) = await Step(run.Session!, MembersStep, arguments, run.Io, run.Deadline, run.Cancellation, run.StepSeconds, run.Limits["timeSeconds"]);
             run.TimedOut |= timedOut;
         }
         catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)

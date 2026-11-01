@@ -153,7 +153,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - Locations are paths relative to the current folder; `partialFingerprints` holds the finding `key`.
   - Results past 25,000 or a 10 MB gzip are cut, weakest levels first; `runs[0].properties.cut` and a run notification name the cut.
 - `--jsonl` in place of `--json` writes one record per line, files and members alike, no envelope; `--out <file>` instead of stdout.
-- `--time-limit <seconds>`: the whole run (default 120, at most 86400).
+- `--time-limit <seconds>`: the whole run (default 600, at most 86400).
 - `--step-timeout <seconds>`: one step (above 0, at most 86400); the step is a `timeout` section and the run goes on.
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit members=N`: files `--recurse` reads under the folder (default 10000).

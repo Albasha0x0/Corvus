@@ -57,7 +57,7 @@ internal static partial class ToolCli
         {
             ["path"] = path, ["save"] = true, ["outputDirectory"] = Path.Combine(folder, "embedded"), ["limit"] = (int)run.Limits["embeddedItems"],
         };
-        var (section, timedOut) = await Step(run.Session!, EmbeddedStep, arguments, run.Io, run.Deadline, run.Cancellation, run.StepSeconds);
+        var (section, timedOut) = await Step(run.Session!, EmbeddedStep, arguments, run.Io, run.Deadline, run.Cancellation, run.StepSeconds, run.Limits["timeSeconds"]);
         run.TimedOut |= timedOut;
         foreach (var item in section["result"]?["items"] as JsonArray ?? [])
         {

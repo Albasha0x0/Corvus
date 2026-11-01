@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Corvus.Core;
 using Corvus.Setup;
 using ModelContextProtocol.Protocol;
 
@@ -63,6 +64,12 @@ public class StepTimeoutTests
         return null;
     }
 
+    private static Task<CallToolResult?> EndRunThenStall(CancellationTokenSource deadline, CancellationToken ct)
+    {
+        deadline.Cancel();
+        return Stall(ct);
+    }
+
     [Fact]
     public async Task A_stalled_first_call_gives_a_timeout_section_and_leaves_the_run_going()
     {
@@ -86,9 +93,9 @@ public class StepTimeoutTests
     [Fact]
     public async Task The_whole_run_deadline_wins_over_a_step_limit_that_expires_with_it()
     {
-        using var deadline = new CancellationTokenSource(50);
+        using var deadline = new CancellationTokenSource();
         int calls = 0;
-        var (section, timedOut) = await ToolCli.Step((_, _, ct) => ++calls == 1 ? Page(true, 2, "a") : Stall(ct), Strings,
+        var (section, timedOut) = await ToolCli.Step((_, _, ct) => ++calls == 1 ? Page(true, 2, "a") : EndRunThenStall(deadline, ct), Strings,
             new() { ["limit"] = 10 }, deadline.Token, CancellationToken.None, 0.05);
         Assert.Equal("timeout", (string?)section["status"]);
         Assert.True(timedOut);
@@ -106,5 +113,36 @@ public class StepTimeoutTests
         Assert.Equal(ToolCli.Exit.Timeout, exit);
         Assert.Contains("Step 2 of 3 (search_strings) timed out", io.Error.ToString());
         Assert.Equal("timeout", (string?)JsonNode.Parse(io.Out.ToString()!)!["error"]!["code"]);
+    }
+
+    [Fact]
+    public void A_refused_step_record_is_an_error_with_the_step_and_no_content()
+    {
+        var record = ToolCli.RefusedStepRecord(2, "list_types", ToolCli.StepState(ToolCli.Exit.Usage), 7);
+        Assert.Equal(2, (int)record["step"]!);
+        Assert.Equal("list_types", (string?)record["tool"]);
+        Assert.True((bool)record["isError"]!);
+        Assert.Null(record["text"]);
+        Assert.Null(record["structured"]);
+        Assert.Equal("invalid_argument", (string?)record["error"]!["code"]);
+        Assert.Contains("corvus help", (string?)record["error"]!["message"]);
+    }
+
+    [Fact]
+    public async Task A_step_timeout_section_names_the_option_and_the_step()
+    {
+        var (section, _) = await ToolCli.Step((_, _, ct) => Stall(ct), Strings,
+            new() { ["limit"] = 10 }, CancellationToken.None, CancellationToken.None, 0.05);
+        var reason = (string?)section["reason"];
+        Assert.Contains("--step-timeout", reason);
+        Assert.Contains(Strings.Name, reason);
+        Assert.Contains("raise --step-timeout", reason);
+    }
+
+    [Fact]
+    public void A_limit_at_its_maximum_is_not_offered_for_raising()
+    {
+        Assert.Equal("--time-limit is at its maximum of 86400 s.", ToolCli.Raise("--time-limit", 86400));
+        Assert.DoesNotContain("raise", ToolCli.Raise("--step-timeout", 86400));
     }
 }

@@ -82,6 +82,23 @@ internal static partial class ToolCli
         return new BatchStep(NameOf(tool), args);
     }
 
+    /// <summary>The --json record of a step that got no result: an invalid_argument error with no text or structured content.</summary>
+    internal static JsonObject RefusedStepRecord(int step, string tool, string state, long elapsedMs) => new()
+    {
+        ["step"] = step,
+        ["tool"] = tool,
+        ["isError"] = true,
+        ["state"] = state,
+        ["text"] = null,
+        ["structured"] = null,
+        ["error"] = new JsonObject
+        {
+            ["code"] = "invalid_argument",
+            ["message"] = $"{tool} was refused with a protocol error; run corvus help to list the tool names.",
+        },
+        ["elapsedMs"] = elapsedMs,
+    };
+
     /// <summary>
     /// Runs the steps in one session; returns the first failed step's exit
     /// code, or 2 if only --keep-going skipped lines, else 0.
@@ -134,7 +151,15 @@ internal static partial class ToolCli
             var elapsedMs = Math.Max(1, (long)Math.Ceiling(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds));
             int code = result is null ? Exit.Usage : result.IsError == true ? ExitCode(Split(result).Error) : Exit.Ok;
             if (result != null && step.Tool == "compare_folders" && result.IsError != true && Structured(result) is JsonObject comparison) comparisons.Add(comparison);
-            if (result != null)
+            if (result == null)
+            {
+                if (a.Json)
+                {
+                    var failure = RefusedStepRecord(i + 1, step.Tool, StepState(code), elapsedMs);
+                    io.Out.WriteLine(failure.ToJsonString(Compact));
+                }
+            }
+            else
             {
                 var (output, notices, error) = Split(result);
                 foreach (var notice in notices) io.Error.WriteLine(notice);

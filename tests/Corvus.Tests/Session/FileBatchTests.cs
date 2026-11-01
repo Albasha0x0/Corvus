@@ -319,11 +319,26 @@ public class FileBatchTests
         using var dir = new TempDir();
         var file = Path.Combine(dir.Path, "plain.bin");
         File.WriteAllBytes(file, new byte[64]);
+        // The limit expires before or during the first step; both reasons name the step.
         var (code, document, _) = await Batch("--file", file, "--time-limit", "0.001");
         Assert.Equal(124, code);
         Assert.False((bool)document!["complete"]!);
         Assert.Equal("timeout", (string?)Section(document, "summary")["status"]);
         Assert.Equal("not_applicable", (string?)Section(document, "yara")["status"]);
+    }
+
+    [Fact]
+    public async Task A_timeout_section_names_the_time_limit_option_and_the_step()
+    {
+        using var dir = new TempDir();
+        var file = Path.Combine(dir.Path, "plain.bin");
+        File.WriteAllBytes(file, new byte[64]);
+        // The limit expires before or during the first step; both reasons name the step.
+        var (code, document, _) = await Batch("--file", file, "--time-limit", "0.001");
+        Assert.Equal(124, code);
+        var reason = (string?)Section(document!, "summary")["reason"];
+        Assert.Contains("--time-limit", reason);
+        Assert.Contains("summary", reason);
     }
 
     [YaraFact]
