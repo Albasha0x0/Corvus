@@ -1,3 +1,4 @@
+using Corvus.Native;
 using Corvus.Tools;
 
 namespace Corvus.Tests;
@@ -28,5 +29,14 @@ public sealed class NearestExportTests
     public void A_distant_export_is_not_reported_as_a_name()
     {
         Assert.Null(NativeTools.NearestExportLine(0x1000, 0x1000 + 0x447DF0, "Foo"));
+    }
+
+    [Fact]
+    public void The_structured_export_is_absent_past_the_reach()
+    {
+        // The export field named an export 0x447D40 bytes away (commit cecffe395 bounded only the text line).
+        NativeExport[] exports = [new("Foo", 1, 0x1000, null)];
+        Assert.Equal("Foo", NativeTools.NearestExport(exports, 0x1010)!.Name);
+        Assert.Null(NativeTools.NearestExport(exports, 0x1000 + 0x447D40));
     }
 }

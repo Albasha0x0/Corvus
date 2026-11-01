@@ -368,6 +368,10 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>Largest distance in bytes at which an export is still named.</summary>
     internal const uint NearestExportReach = 0x1000;
 
+    /// <summary>Returns the export within the reach before the address, or null.</summary>
+    internal static NativeExport? NearestExport(IEnumerable<NativeExport> exports, uint rva) =>
+        exports.Where(e => e.ForwardedTo == null && e.Rva <= rva).MaxBy(e => e.Rva) is { } e && rva - e.Rva <= NearestExportReach ? e : null;
+
     /// <summary>Returns the export line for an address, or null past the reach.</summary>
     internal static string? NearestExportLine(uint exportRva, uint rva, string name) =>
         exportRva == rva ? $"  export {name}"
@@ -457,7 +461,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (link != null) foreach (var line in link.DescribeManaged(native, rva)) sb.AppendLine("  " + line);
         if (link != null && link.ImportersOf(native, rva, cancellationToken) is { Count: > 0 } importers)
             sb.AppendLine($"  imported by {string.Join(", ", importers.GroupBy(i => i.Importer.Id).Select(g => $"{g.Key} ({string.Join(", ", g.Select(i => NativeCodeIndex.ImportName(i.Import)).Distinct())})"))}; find_xrefs lists the call sites");
-        var export = pe.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva).MaxBy(e => e.Rva);
+        var export = NearestExport(pe.Exports, rva);
         if (export != null && NearestExportLine(export.Rva, rva, export.Name ?? "#" + export.Ordinal) is { } exportLine) sb.AppendLine(exportLine);
         var function = FindRuntimeFunction(pe, rva);
         if (function != null) sb.AppendLine($"  inside the unwind range 0x{pe.ImageBase + function.BeginRva:X}-0x{pe.ImageBase + function.EndRva:X}");
