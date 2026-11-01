@@ -42,12 +42,12 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> NativeEditTools() => new(StringComparer.Ordinal)
     {
-        ["rename_native"] = Row(O.Edit, L.Interactive, lean: true, core: true, dryRun: true),
-        ["comment_native"] = Row(O.Edit, L.Interactive, lean: true, core: true, dryRun: true),
-        ["export_native_annotations"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
+        ["rename_native"] = Row(O.Edit, L.Interactive, lean: true, core: true, dryRun: true, state: ToolState.Names),
+        ["comment_native"] = Row(O.Edit, L.Interactive, lean: true, core: true, dryRun: true, state: ToolState.Names),
+        ["export_native_annotations"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file", state: ToolState.Names),
         ["patch_bytes"] = Row(O.Edit, L.Interactive, core: true, dryRun: true),
         ["patch_asm"] = Row(O.Edit, L.Interactive, core: true, dryRun: true),
-        ["list_native_edits"] = Row(O.List, L.Instant, core: true, sort: "edit order"),
+        ["list_native_edits"] = Row(O.List, L.Instant, core: true, sort: "edit order", state: ToolState.Names),
         ["undo_native_edit"] = Row(O.Edit, L.Instant, lean: true, core: true, noDryRun: "is itself the revert of one recorded edit"),
         ["save_native"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "writes only the patched copy; the original's .bak is made once"),
         ["export_native_patches"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),

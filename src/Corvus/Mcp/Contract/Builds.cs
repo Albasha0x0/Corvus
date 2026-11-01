@@ -64,7 +64,7 @@ public sealed partial record ToolContract
         ["map_address_between_builds"] = Row(O.Report, L.Instant),
         ["make_code_pattern"] = Row(O.Report, L.Instant),
         ["search_code_pattern"] = Row(O.List, L.Instant, sort: "image, address"),
-        ["migrate_native_names"] = Row(O.Edit, L.Long, dryRun: true),
+        ["migrate_native_names"] = Row(O.Edit, L.Long, dryRun: true, state: ToolState.Names),
         ["migrate_native_patches"] = Row(O.Edit, L.Long, dryRun: true),
         ["update_to_new_build"] = Row(O.Report, L.Long, dryRun: true),
     };

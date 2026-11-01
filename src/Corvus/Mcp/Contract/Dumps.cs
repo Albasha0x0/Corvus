@@ -45,6 +45,6 @@ public sealed partial record ToolContract
         ["dump_object"] = Row(O.Report, L.Instant),
         ["read_dump_memory"] = Row(O.Bytes, L.Instant),
         ["symbolize_stack_text"] = Row(O.List, L.Interactive, sort: "input frame order"),
-        ["bucket_minidumps"] = Row(O.List, L.Interactive, sort: "count descending, last time descending, signature"),
+        ["bucket_minidumps"] = Row(O.List, L.Interactive, sort: "count descending, last time descending, signature", state: ToolState.Cache),
     };
 }

@@ -57,18 +57,18 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> EngineTools() => new(StringComparer.Ordinal)
     {
-        ["get_engine_status"] = Row(O.Report, L.Instant),
-        ["set_native_type"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it"),
-        ["set_native_local"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it"),
-        ["set_native_stack_var"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it"),
-        ["get_native_frame"] = Row(O.Report, L.Engine),
-        ["declare_native_types"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it"),
-        ["list_native_types"] = Row(O.List, L.Engine, sort: "engine order (sort= changes it)"),
-        ["define_native"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it"),
-        ["reanalyze_native"] = Row(O.Edit, L.Long, noDryRun: "the native edit journal undoes it"),
-        ["set_native_operand"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it"),
-        ["ida_python"] = Row(O.Report, L.Long, noDryRun: "runs arbitrary code; off unless --ida-scripting"),
-        ["ghidra_script"] = Row(O.Report, L.Long, noDryRun: "runs arbitrary code; off unless --ghidra-scripting"),
-        ["export_engine_database"] = Row(O.Edit, L.Long, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
+        ["get_engine_status"] = Row(O.Report, L.Instant, state: ToolState.Engine),
+        ["set_native_type"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["set_native_local"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["set_native_stack_var"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["get_native_frame"] = Row(O.Report, L.Engine, state: ToolState.Engine),
+        ["declare_native_types"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["list_native_types"] = Row(O.List, L.Engine, sort: "engine order (sort= changes it)", state: ToolState.Engine),
+        ["define_native"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["reanalyze_native"] = Row(O.Edit, L.Long, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["set_native_operand"] = Row(O.Edit, L.Engine, noDryRun: "the native edit journal undoes it", state: ToolState.Engine),
+        ["ida_python"] = Row(O.Report, L.Long, noDryRun: "runs arbitrary code; off unless --ida-scripting", state: ToolState.Engine),
+        ["ghidra_script"] = Row(O.Report, L.Long, noDryRun: "runs arbitrary code; off unless --ghidra-scripting", state: ToolState.Engine),
+        ["export_engine_database"] = Row(O.Edit, L.Long, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file", state: ToolState.Engine),
     };
 }

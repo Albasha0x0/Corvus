@@ -31,8 +31,8 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> NotesTools() => new(StringComparer.Ordinal)
     {
-        ["record_note"] = Row(O.Edit, L.Instant, lean: true, noDryRun: "only adds a note; update_note status=dropped retires it"),
-        ["update_note"] = Row(O.Edit, L.Instant, noDryRun: "guarded by the note's revision; the previous text stays in its history"),
-        ["list_notes"] = Row(O.List, L.Instant, lean: true, sort: "updated descending, id"),
+        ["record_note"] = Row(O.Edit, L.Instant, lean: true, noDryRun: "only adds a note; update_note status=dropped retires it", state: ToolState.Notes),
+        ["update_note"] = Row(O.Edit, L.Instant, noDryRun: "guarded by the note's revision; the previous text stays in its history", state: ToolState.Notes),
+        ["list_notes"] = Row(O.List, L.Instant, lean: true, sort: "updated descending, id", state: ToolState.Notes),
     };
 }

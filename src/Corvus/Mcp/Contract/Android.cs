@@ -71,7 +71,7 @@ public sealed partial record ToolContract
         ["list_dex_classes"] = Row(O.List, L.Instant, sort: "class descriptor"),
         ["get_dex_class"] = Row(O.Code, L.Instant),
         ["disassemble_dex"] = Row(O.Code, L.Instant),
-        ["decompile_java"] = Row(O.Code, L.Long),
+        ["decompile_java"] = Row(O.Code, L.Long, state: ToolState.Cache),
         ["search_dex"] = Row(O.List, L.Interactive, sort: "code order"),
         ["find_dex_references"] = Row(O.List, L.Interactive, sort: "source, offset"),
         ["map_java_dotnet"] = Row(O.List, L.Interactive, sort: "discovery order"),

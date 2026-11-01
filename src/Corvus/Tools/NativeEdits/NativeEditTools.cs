@@ -557,6 +557,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             rows = [.. edits.Journal.Entries(native).Select(e => Row(native, e))];
             header = $"{native.Id}: native edits in the order made (undo_native_edit editId=...)\n" +
+                     SavedMarks(native, rows.Count) +
                      (layers.Count > 0 ? "Names (priority user > pdb > nativeaot > metadata > objc > swift > dart > napi > ida > ghidra > discovered):\n" + string.Concat(layers.Select(l => $"  {l}\n")) : "");
         }
         else
@@ -569,6 +570,14 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             r => r.EditId != null ? $"{r.EditId}  {r.Kind,-10} {r.Address ?? "",-18} {r.Text}" : $"{r.Address}  {r.Source,-9} {r.Kind,-7}  {r.Text}",
             page => new NativeEditList(native.Id, page, rows.Count, layers) { Offset = from }, filter == null ? "edit" : "hit", header);
     });
+
+    // The journal holds this process's edits only.
+    // Saved names and comments of every session are listed by search.
+    private string SavedMarks(LoadedNative native, int journaled)
+    {
+        int saved = NoteMarks.Search(native, code, NameFilter.Parse("*")!).Count(m => m.Source == "user");
+        return saved <= journaled ? "" : $"{saved} saved name(s) and comment(s) in all sessions, {journaled} in this journal: search=\"*\" lists them.\n";
+    }
 
     private static NativeEditRow Row(LoadedNative native, NativeJournalEntry e)
     {

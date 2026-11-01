@@ -32,10 +32,10 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> AotTools() => new(StringComparer.Ordinal)
     {
-        ["get_method_addresses"] = Row(O.Report, L.Instant, lean: true, core: true),
-        ["find_method_by_address"] = Row(O.List, L.Instant, core: true, sort: "image, address"),
+        ["get_method_addresses"] = Row(O.Report, L.Instant, lean: true, core: true, state: ToolState.Names),
+        ["find_method_by_address"] = Row(O.List, L.Instant, core: true, sort: "image, address", state: ToolState.Names),
         ["export_method_symbols"] = Row(O.Edit, L.Long, core: true, noDryRun: "overwrite=false refuses existing files"),
         ["generate_cpp_binding"] = Row(O.Code, L.Interactive, core: true),
-        ["apply_metadata_names"] = Row(O.Edit, L.Long, core: true, noDryRun: "clear=true removes the names it applied"),
+        ["apply_metadata_names"] = Row(O.Edit, L.Long, core: true, noDryRun: "clear=true removes the names it applied", state: ToolState.Names),
     };
 }

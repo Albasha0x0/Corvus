@@ -61,10 +61,10 @@ public sealed partial record ToolContract
         ["live_break"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
         ["live_watch"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
         ["live_read"] = Row(O.Bytes, L.Interactive),
-        ["live_events"] = Row(O.List, L.Instant, sort: "event sequence", noDryRun: "writes only with outputPath"),
+        ["live_events"] = Row(O.List, L.Instant, sort: "event sequence", noDryRun: "writes only with outputPath", state: ToolState.Live),
         ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live and --live-scripting"),
-        ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
-        ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
-        ["live_console"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live and --allow-live-spawn"),
+        ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live", state: ToolState.Live),
+        ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live", state: ToolState.Live),
+        ["live_console"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live and --allow-live-spawn", state: ToolState.Live),
     };
 }
