@@ -29,31 +29,50 @@ internal static class ReadResultView
     /// <summary>Characters of a matching line shown by a search; the offset reaches the rest.</summary>
     private const int MaxMatchChars = 500;
 
-    public static string Body(KeptResult kept, string? format) => (format?.Trim().ToLowerInvariant() ?? "text") switch
+    /// <summary>Returns the body in a format; timesketch throws NotFound when it has no events.</summary>
+    /// <param name="note">Counts of a format=timesketch projection; null for the other formats.</param>
+    public static string Body(KeptResult kept, string? format, out string? note)
     {
-        "" or "text" => kept.Text,
-        "json" => kept.Record ?? throw NoRecord(kept),
-        "jsonl" => JsonLines(kept.Record ?? throw NoRecord(kept)),
-        var other => throw new ToolError(ErrorCode.InvalidArgument, $"format must be text, json or jsonl, not '{other}'.", "pass format=text, json or jsonl"),
-    };
+        note = null;
+        switch (format?.Trim().ToLowerInvariant() ?? "text")
+        {
+            case "" or "text": return kept.Text;
+            case "json": return kept.Record ?? throw NoRecord(kept);
+            case "jsonl": return JsonLines(kept.Record ?? throw NoRecord(kept));
+            case "timesketch":
+                var t = TimesketchJsonl.From(kept.Info.Tool, kept.Record ?? throw NoRecord(kept));
+                if (t.Events == 0)
+                    throw new ToolError(ErrorCode.NotFound, $"{kept.Id} ({kept.Info.Tool}): no UTC timestamps in {t.Items} item(s)" +
+                        (t.Skipped > 0 ? $"; {t.Skipped} time value(s) without a zone or out of range were skipped." : "."), $"read_result id={kept.Id} format=json shows the fields");
+                note = $"{t.Events} event(s) from {t.Items} item(s)" + (t.Skipped > 0 ? $", {t.Skipped} time value(s) skipped (no zone or out of range)" : "");
+                return t.Lines;
+            case var other:
+                throw new ToolError(ErrorCode.InvalidArgument, $"format must be text, json, jsonl or timesketch, not '{other}'.", "pass format=text, json, jsonl or timesketch");
+        }
+    }
 
     private static ToolError NoRecord(KeptResult kept) =>
         new(ErrorCode.InvalidArgument, $"{kept.Id} ({kept.Info.Tool}) was kept as text only; it has no structured record.", "pass format=text");
 
-    /// <summary>One compact line per item: the root array, else the items array, else the largest array, else the record itself.</summary>
+    /// <summary>One compact line per item (see <see cref="Items"/>).</summary>
     internal static string JsonLines(string record)
     {
         using var doc = JsonDocument.Parse(record);
-        var root = doc.RootElement;
+        var sb = new StringBuilder();
+        foreach (var item in Items(doc.RootElement))
+            sb.Append(item.GetRawText().Contains('\n') ? JsonSerializer.Serialize(item) : item.GetRawText()).Append('\n');
+        return sb.ToString();
+    }
+
+    /// <summary>The items of a record: the root array, else the items array, else the largest array, else the record itself.</summary>
+    internal static IEnumerable<JsonElement> Items(JsonElement root)
+    {
         JsonElement? items = root.ValueKind == JsonValueKind.Array ? root : null;
         if (items == null && root.ValueKind == JsonValueKind.Object)
             items = root.TryGetProperty("items", out var i) && i.ValueKind == JsonValueKind.Array ? i
                 : root.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.Array).OrderByDescending(p => p.Value.GetArrayLength())
                     .Select(p => (JsonElement?)p.Value).FirstOrDefault();
-        var sb = new StringBuilder();
-        foreach (var item in items?.EnumerateArray() ?? Enumerable.Repeat(root, 1))
-            sb.Append(item.GetRawText().Contains('\n') ? JsonSerializer.Serialize(item) : item.GetRawText()).Append('\n');
-        return sb.ToString();
+        return items?.EnumerateArray() ?? Enumerable.Repeat(root, 1);
     }
 
     /// <summary>The text from <paramref name="offset"/> that fits <paramref name="tokens"/>, cut at a line end when one fits, with a [More:]/[End:] footer.</summary>

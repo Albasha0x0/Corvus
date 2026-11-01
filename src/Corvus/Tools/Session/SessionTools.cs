@@ -275,7 +275,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [Description("Character offset (nextOffset).")] int offset = 0,
         [Description("Page size in tokens (default 6000).")] int? maxTokens = null,
         [Description("Only lines containing this text (/regex/ for a pattern), with offsets.")] string? query = null,
-        [Description("text; json: the structured record; jsonl: its items, one per line.")] string format = "text",
+        [Description("text; json: the structured record; jsonl: its items, one per line; timesketch: Timesketch events, one per UTC timestamp.")] string format = "text",
         [Description("Write the whole result to this file; returns path, bytes, SHA-256.")] string? outputPath = null,
         [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description("format=verify: compare with this, not a re-run: " + EvidenceInput.ReferenceDescription + ".")] string? against = null,
@@ -330,17 +330,17 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         if (offset < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {offset}.", "pass a nextOffset from an earlier page");
         if (maxTokens is < 1) throw new ToolError(ErrorCode.InvalidArgument, $"maxTokens must be 1 or more, not {maxTokens}.", "omit maxTokens for the default page");
         var kept = results.Read(id);
-        var body = ReadResultView.Body(kept, format);
+        var body = ReadResultView.Body(kept, format, out var note);
         if (!string.IsNullOrWhiteSpace(outputPath))
         {
             if (query != null) throw new ToolError(ErrorCode.InvalidArgument, "query and outputPath cannot be combined.", "write the whole result, then search the file; or drop outputPath");
             var bytes = System.Text.Encoding.UTF8.GetBytes(body);
             var path = SafeFile.WriteAllBytes(outputPath, bytes, overwrite);
             var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
-            return ToolOutput.With($"Wrote {kept.Id} ({kept.Info.Tool}, {format}) to {path}: {bytes.Length:N0} bytes, SHA-256 {sha}.",
+            return ToolOutput.With($"Wrote {kept.Id} ({kept.Info.Tool}, {format}) to {path}: {bytes.Length:N0} bytes, SHA-256 {sha}.{(note == null ? "" : $" {note}.")}",
                 new ReadResultRecord(kept.Id, kept.Info.Tool, body.Length) { Path = path, Bytes = bytes.Length, Sha256 = sha });
         }
-        var header = $"[{kept.Id}: {kept.Info.Tool} result, {format}, {body.Length:N0} chars]\n";
+        var header = $"[{kept.Id}: {kept.Info.Tool} result, {format}, {body.Length:N0} chars{(note == null ? "" : $"; {note}")}]\n";
         // Inside a call the page leaves room for its header and for the record carrying the same page.
         long budget = OutputCall.Budgeted is { } call ? call.Tokens * 85 / 100 - 60 : maxTokens ?? ReadResultTokens;
         var record = new ReadResultRecord(kept.Id, kept.Info.Tool, body.Length) { Offset = offset };

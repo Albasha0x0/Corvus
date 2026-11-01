@@ -130,7 +130,7 @@ Page, search or save a kept result (r-..., kept 7 days). format=evidence bundles
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  | Page size in tokens (default 6000). |
 | `query` | string |  |  | Only lines containing this text (/regex/ for a pattern), with offsets. |
-| `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl, evidence, verify. |
+| `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line; timesketch: Timesketch events, one per UTC timestamp. Values: text, json, jsonl, timesketch, evidence, verify. |
 | `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes, SHA-256. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 | `against` | string |  |  | format=verify: compare with this, not a re-run: a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...). |

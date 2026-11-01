@@ -230,6 +230,71 @@ public sealed class ResultStoreTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.ReadKept(textOnly, format: "json")).Code);
     }
 
+    [Fact]
+    public void Read_result_writes_one_timesketch_event_per_zoned_timestamp()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var id = store.Keep("text", Origin("list_resources"), record:
+            """{"items":[{"name":"a.bin","size":3,"created":"2024-01-02T03:04:05Z","modified":"2024-01-02T05:04:05+02:00","seen":"2024-01-02T03:04:05"},{"name":"b.bin"}]}""");
+        var tools = Tools(store);
+        var path = _dir.File("t.jsonl");
+        var answer = tools.ReadKept(id, format: "timesketch", outputPath: path);
+        Assert.Contains("2 event(s) from 2 item(s), 1 time value(s) skipped", answer);
+        var lines = File.ReadAllLines(path);
+        Assert.Equal(2, lines.Length);
+        var first = JsonDocument.Parse(lines[0]).RootElement;
+        Assert.Equal("2024-01-02T03:04:05.000000+00:00", first.GetProperty("datetime").GetString());
+        Assert.Equal("created", first.GetProperty("timestamp_desc").GetString());
+        Assert.Equal("created: a.bin", first.GetProperty("message").GetString());
+        Assert.Equal("corvus:list_resources", first.GetProperty("data_type").GetString());
+        Assert.Equal(3, first.GetProperty("size").GetInt32());
+        Assert.False(first.TryGetProperty("seen", out _));
+        Assert.Equal("2024-01-02T03:04:05.000000+00:00", JsonDocument.Parse(lines[1]).RootElement.GetProperty("datetime").GetString());
+    }
+
+    [Fact]
+    public void Read_result_timesketch_page_reports_skipped_time_values()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var id = store.Keep("text", Origin(), record: """{"items":[{"name":"a","t":"2024-01-02T03:04:05Z","u":"2024-01-02T03:04:05"}]}""");
+        Assert.Contains("1 time value(s) skipped", Tools(store).ReadKept(id, format: "timesketch"));
+    }
+
+    [Fact]
+    public void Read_result_timesketch_skips_pre_epoch_and_malformed_and_keeps_fractions()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var id = store.Keep("text", Origin(), record: """
+            {"items":[{"name":"a","a":"1970-01-01T00:30:00+01:00","b":"2024-13-45T00:00:00Z","c":"1960-01-01T00:00:00Z","d":"2024-01-02T03:04:05.25Z","datetime":"x","message":"y"}]}
+            """);
+        var path = _dir.File("p.jsonl");
+        Assert.Contains("1 event(s) from 1 item(s), 3 time value(s) skipped", Tools(store).ReadKept(id, format: "timesketch", outputPath: path));
+        var e = JsonDocument.Parse(File.ReadAllLines(path).Single()).RootElement;
+        Assert.Equal("2024-01-02T03:04:05.250000+00:00", e.GetProperty("datetime").GetString());
+        Assert.Equal("d: a", e.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public void Read_result_timesketch_refusal_names_skipped_values()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var id = store.Keep("text", Origin(), record: """{"items":[{"name":"a","t":"2024-01-02T03:04:05"}]}""");
+        var e = Assert.Throws<ToolError>(() => Tools(store).ReadKept(id, format: "timesketch"));
+        Assert.Contains("; 1 time value(s) without a zone or out of range were skipped.", e.Message);
+    }
+
+    [Fact]
+    public void Read_result_timesketch_names_a_result_without_timestamps()
+    {
+        var store = new ResultStore(ResultCacheOptions.MemoryOnly);
+        var id = store.Keep("text", Origin(), record: """{"items":[{"name":"a"},{"name":"b"}]}""");
+        var e = Assert.Throws<ToolError>(() => Tools(store).ReadKept(id, format: "timesketch"));
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+        Assert.Contains("no UTC timestamps in 2 item(s)", e.Message);
+        var textOnly = store.Keep("plain", Origin());
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Tools(store).ReadKept(textOnly, format: "timesketch")).Code);
+    }
+
     /// <summary>uninstall keeps the default results folder (and names it) unless --purge-data, which removes it.</summary>
     [Fact]
     public void Uninstall_purge_removes_kept_results()
