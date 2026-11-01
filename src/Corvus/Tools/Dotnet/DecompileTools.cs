@@ -194,8 +194,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     [McpServerTool(Name = "export_project", Title = "Export C# project", UseStructuredContent = true, OutputSchemaType = typeof(ExportOutcome))]
-    [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources); an .apk or .aab gives " +
-                 "a Gradle project. Written whole or not at all.")]
+    [Description("Decompile an assembly into a C# project on disk; an .apk or .aab gives a Gradle project. " +
+                 "Written whole or not at all; a repeat joins a running export.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
@@ -203,32 +203,150 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        // The call's token also ends at its deadline; the export stops only when the client cancels, else it finishes in the background.
+        // The call's token also ends at its deadline, which ends this wait only.
+        // The export stops when the client cancels, it ends or it stalls.
         var stop = OutputCall.Current is { } call ? call.ClientCancel : cancellationToken;
-        int answered = 0, done = 0, total = 0;
+        var key = ExportKey(assembly, outputDirectory);
+        var joins = CallJoin.For(options ?? Detached);
+        var runs = RunsOf(joins);
+        var started = new ExportRun();
+        int answered = 0;
         void Progress(int d, int t, string status)
         {
-            (done, total) = (d, t);
+            started.Rule?.Progress($"{d} of {t} units ({status})");
+            (started.Done, started.Total) = (d, t);
             if (Volatile.Read(ref answered) == 0) Report(progress, d, t, status);
         }
         bool package = android != null && Services.Mobile.AndroidProjectExport.IsPackagePath(assembly) && File.Exists(assembly.Trim());
-        var job = Task.Run(() => package ? ExportPackage(assembly.Trim(), outputDirectory, overwrite, Progress, stop)
-            : Task.FromResult(ExportAssembly(assembly, outputDirectory, overwrite, Progress, stop)), CancellationToken.None);
-        var deadline = new TaskCompletionSource();
-        using (cancellationToken.Register(() => deadline.TrySetResult()))
-            if (await Task.WhenAny(job, deadline.Task) == job || stop.IsCancellationRequested) return Render(await job);
-        Volatile.Write(ref answered, 1);
-        if (options != null) LeftoverWork.For(options).Track(job);
-        _ = job.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted);
-        throw new ToolError(ErrorCode.Timeout, $"The export of {assembly} is still running at the call's deadline ({done} of {total} units done); " +
-            $"it continues in the background and {SafeFile.FullPath(outputDirectory)} appears only when complete.",
-            "list the output directory later; if it does not appear, export again (overwrite=true replaces a finished export)")
+        var joined = joins.Run(key, token =>
         {
-            Partial = new { done, total, outputDirectory = SafeFile.FullPath(outputDirectory) },
-            Details = new { stillRunning = true, partial = true },
-            RetryAfter = LeftoverWork.RetryAfter,
-        };
+            runs[key] = started;
+            return Job(runs, key, started, package, assembly, outputDirectory, overwrite, Progress, token);
+        }, stop, r => r);
+        var run = joined.WasRunning && runs.TryGetValue(key, out var existing) ? existing : started;
+        Interlocked.Increment(ref run.Waiting);
+        bool left = false, delivered = false;
+        try
+        {
+            var deadline = new TaskCompletionSource();
+            using (cancellationToken.Register(() => deadline.TrySetResult()))
+                if (await Task.WhenAny(joined.Result, deadline.Task) == joined.Result || stop.IsCancellationRequested)
+                {
+                    delivered = true;
+                    // A caller that takes the end is its report: mark it before
+                    // leaving the wait, so no notice follows.
+                    if (joined.Result.IsCompleted) Interlocked.Exchange(ref run.Notified, 1);
+                    return Render(await joined.Result);
+                }
+            Volatile.Write(ref answered, 1);
+            // Leave the wait first, then register, so an end in between still finds this caller gone.
+            left = true;
+            Interlocked.Decrement(ref run.Waiting);
+            _ = joined.Work.ContinueWith(t => NotifyEnd(run, assembly, outputDirectory, (Task<ExportOutcome>)t),
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            var (done, total) = (run.Done, run.Total);
+            throw new ToolError(ErrorCode.Timeout, $"The export of {assembly} is still running ({done} of {total} units done); " +
+                $"it continues in the background and {SafeFile.FullPath(outputDirectory)} appears only when complete.",
+                "repeat the same call to wait; a [workspace] notice reports its end")
+            {
+                Partial = new { done, total, outputDirectory = SafeFile.FullPath(outputDirectory) },
+                Details = new { stillRunning = true, partial = true },
+                RetryAfter = LeftoverWork.RetryAfter,
+                Retryable = true,
+            };
+        }
+        finally
+        {
+            if (!left)
+            {
+                Interlocked.Decrement(ref run.Waiting);
+                // A caller that detached without a result leaves an ended run unannounced otherwise.
+                if (!delivered && joined.Work.IsCompleted) NotifyEnd(run, assembly, outputDirectory, (Task<ExportOutcome>)joined.Work);
+            }
+        }
     });
+
+    private static readonly ServerOptions Detached = new();
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CallJoin, System.Collections.Concurrent.ConcurrentDictionary<string, ExportRun>> RunTables = new();
+
+    private static string ExportKey(string assembly, string outputDirectory) => $"export_project:{assembly.Trim()}|{SafeFile.FullPath(outputDirectory)}";
+
+    /// <summary>Callers waiting on the running export of the assembly to the folder; 0 when none runs.</summary>
+    internal int WaitingOn(string assembly, string outputDirectory) =>
+        RunsOf(CallJoin.For(options ?? Detached)).TryGetValue(ExportKey(assembly, outputDirectory), out var run) ? Volatile.Read(ref run.Waiting) : 0;
+
+    /// <summary>Running exports by join key for one join table, for the units done and the waiting callers.</summary>
+    private static System.Collections.Concurrent.ConcurrentDictionary<string, ExportRun> RunsOf(CallJoin joins) =>
+        RunTables.GetValue(joins, _ => new(StringComparer.Ordinal));
+
+    /// <summary>The clock of the stall check.</summary>
+    internal TimeProvider Clock { get; init; } = TimeProvider.System;
+
+    /// <summary>The server's processor time; null when unreadable.</summary>
+    internal Func<TimeSpan?> ProcessCpu { get; init; } = () =>
+    {
+        try { using var self = System.Diagnostics.Process.GetCurrentProcess(); return self.TotalProcessorTime; }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
+    };
+
+    private sealed class ExportRun
+    {
+        public StallRule? Rule;
+        public int Done, Total, Waiting, Notified;
+    }
+
+    // An export in this process ends on completion, cancel, error or a stall;
+    // one in a file worker is watched by the worker's own stall rule.
+    private async Task<ExportOutcome> Job(System.Collections.Concurrent.ConcurrentDictionary<string, ExportRun> runs, string key, ExportRun run, bool package, string assembly, string outputDirectory, bool overwrite,
+        Action<int, int, string> progress, CancellationToken token)
+    {
+        var inWorker = package && FileIsolation.PoolFor(options, workers) is { Sandboxed: false };
+        using var halt = CancellationTokenSource.CreateLinkedTokenSource(token);
+        StallRule? rule = null;
+        ITimer? timer = null;
+        if (!inWorker)
+        {
+            var window = options is { } o ? TimeSpan.FromSeconds(o.StallSeconds) : ServerOptions.StallWindow();
+            var watched = rule = run.Rule = new StallRule(window, Clock);
+            var poll = window / 8;
+            timer = Clock.CreateTimer(_ => { if (watched.Stalled(ProcessCpu())) halt.Cancel(); }, null, poll, poll);
+        }
+        try
+        {
+            var stopToken = halt.Token;
+            return await Task.Run(() => package ? ExportPackage(assembly.Trim(), outputDirectory, overwrite, progress, stopToken)
+                : Task.FromResult(ExportAssembly(assembly, outputDirectory, overwrite, progress, stopToken)), CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (rule != null && !token.IsCancellationRequested)
+        {
+            throw new ToolError(ErrorCode.Timeout,
+                $"{StallRule.MessagePrefix}export_project': no progress and under 1% of the server's processor time for {rule.Window.TotalSeconds:0.###} s ({rule.LastUnitText}); nothing was kept.",
+                $"repeat the same call to export again, or raise {ServerOptions.StallWindowVariable} (seconds without progress)")
+            { Partial = new { done = run.Done, total = run.Total }, Retryable = true };
+        }
+        finally
+        {
+            timer?.Dispose();
+            runs.TryRemove(new KeyValuePair<string, ExportRun>(key, run));
+        }
+    }
+
+    /// <summary>The first line of a failed job's message, or a fixed text when it reported none.</summary>
+    private static string Reason(Task job) => (job.Exception?.GetBaseException().Message ?? "no reason reported").Split('\n')[0].Trim();
+
+    /// <summary>Queues the end of an export once; none while a caller still waits and gets the result.</summary>
+    private void NotifyEnd(ExportRun run, string assembly, string outputDirectory, Task<ExportOutcome> job)
+    {
+        if (Volatile.Read(ref run.Waiting) > 0 || Interlocked.Exchange(ref run.Notified, 1) != 0) return;
+        var dir = SafeFile.FullPath(outputDirectory);
+        workspace.Notify(job.Status switch
+        {
+            TaskStatus.RanToCompletion => $"export_project of {assembly} finished: {job.Result.Files} files in {dir}. Next: build {job.Result.ProjectFile ?? dir}, or repeat the call with overwrite=true to export again.",
+            TaskStatus.Canceled => $"export_project of {assembly} was cancelled; nothing was kept. Next: repeat the same call to export again.",
+            _ => $"export_project of {assembly} failed ({Format.Clip(Reason(job), 200)}). Next: fix the cause and repeat the same call (overwrite=true replaces a finished export).",
+        });
+    }
 
     private ExportOutcome ExportAssembly(string assembly, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)
     {

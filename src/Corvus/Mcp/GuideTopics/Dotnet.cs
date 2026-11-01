@@ -21,7 +21,7 @@ public static partial class Guide
         - ReadyToRun: get_r2r_code shows a method's precompiled code; find_r2r_method maps a native address to its method.
         - Mixed-mode C++/CLI assemblies load as .NET plus a native view.
         - export_project writes a buildable C# project into an empty directory (overwrite=true replaces an export).
-        - Past the client deadline export_project returns a partial and finishes in the background.
+        - Past the client deadline export_project answers running; repeat the same call to wait.
         - get_assembly_info names malformed metadata by stream, table, row, token and file offset.
         """;
 }

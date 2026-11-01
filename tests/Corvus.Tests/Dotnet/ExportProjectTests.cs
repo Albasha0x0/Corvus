@@ -173,4 +173,175 @@ public sealed class ExportProjectTests
         while (!File.Exists(Path.Combine(output, ExportDirectory.Marker)) && watch.Elapsed < TimeSpan.FromSeconds(60)) await Task.Delay(50);
         Assert.NotEmpty(Directory.GetFiles(output, "*.cs", SearchOption.AllDirectories));
     }
+
+    [Fact]
+    public async Task An_export_runs_past_ten_times_the_call_timeout()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        // The old limit was ten times this value,
+        // so a zero timeout ended every export at once.
+        env.Options.TimeoutSeconds = 0;
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options);
+        Assert.StartsWith("Exported", await tools.ExportProject("TestFixture", dir.File("out")));
+        Assert.True(File.Exists(Path.Combine(dir.File("out"), ExportDirectory.Marker)));
+    }
+
+    [Fact]
+    public async Task A_background_export_is_not_leftover_work_and_a_repeat_joins_it()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options);
+        using var hold = HoldWorkspace(env, out var writer);
+        using var deadline = new CancellationTokenSource();
+        BeginDeadlineCall();
+        var first = tools.ExportProject("TestFixture", dir.File("out"), cancellationToken: deadline.Token);
+        deadline.Cancel();
+        var running = await Assert.ThrowsAsync<ToolError>(() => first);
+        Assert.Equal(ErrorCode.Timeout, running.Code);
+        Assert.Contains("repeat the same call to wait", running.Remediation);
+        Assert.Equal(0, LeftoverWork.For(env.Options).Running);
+        Assert.Equal(1, CallJoin.For(env.Options).Running);
+
+        var repeat = tools.ExportProject("TestFixture", dir.File("out"));
+        hold.Set();
+        await writer;
+        Assert.StartsWith("Exported", await repeat);
+        Assert.Empty(env.Workspace.DrainNotices());
+    }
+
+    [Fact]
+    public async Task A_finished_background_export_queues_a_notice_naming_the_project()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options);
+        using var hold = HoldWorkspace(env, out var writer);
+        using var deadline = new CancellationTokenSource();
+        BeginDeadlineCall();
+        var first = tools.ExportProject("TestFixture", dir.File("out"), cancellationToken: deadline.Token);
+        deadline.Cancel();
+        await Assert.ThrowsAsync<ToolError>(() => first);
+        hold.Set();
+        await writer;
+        var notice = await NextNotice(env);
+        Assert.Contains("export_project of TestFixture finished", notice);
+        Assert.Contains("Next: build", notice);
+    }
+
+    [Fact]
+    public async Task A_failed_background_export_queues_a_notice_with_its_cause()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options);
+        using var hold = HoldWorkspace(env, out var writer);
+        using var deadline = new CancellationTokenSource();
+        BeginDeadlineCall();
+        var first = tools.ExportProject("TestFixture", dir.File("out"), cancellationToken: deadline.Token);
+        deadline.Cancel();
+        await Assert.ThrowsAsync<ToolError>(() => first);
+        // A foreign file appears while the export waits,
+        // so it refuses the folder once it starts.
+        Directory.CreateDirectory(dir.File("out"));
+        File.WriteAllText(Path.Combine(dir.File("out"), "notes.txt"), "mine");
+        hold.Set();
+        await writer;
+        var notice = await NextNotice(env);
+        Assert.Contains("export_project of TestFixture failed (Out", notice);
+        Assert.Contains("Next:", notice);
+    }
+
+    [Fact]
+    public async Task A_cancelled_background_export_queues_a_cancelled_notice()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options);
+        using var hold = HoldWorkspace(env, out var writer);
+        using var deadline = new CancellationTokenSource();
+        using var client = new CancellationTokenSource();
+        OutputCall.Begin(new OutputCall("export_project", 0, null) { ClientCancel = client.Token });
+        var first = tools.ExportProject("TestFixture", dir.File("out"), cancellationToken: deadline.Token);
+        deadline.Cancel();
+        await Assert.ThrowsAsync<ToolError>(() => first);
+        client.Cancel();
+        hold.Set();
+        await writer;
+        Assert.Contains("export_project of TestFixture was cancelled", await NextNotice(env));
+    }
+
+    [Fact]
+    public async Task A_joined_export_survives_the_first_caller_detaching()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options);
+        using var hold = HoldWorkspace(env, out var writer);
+        using var deadline = new CancellationTokenSource();
+        BeginDeadlineCall();
+        var first = tools.ExportProject("TestFixture", dir.File("out"), cancellationToken: deadline.Token);
+        var second = tools.ExportProject("TestFixture", dir.File("out"));
+        deadline.Cancel();
+        await Assert.ThrowsAsync<ToolError>(() => first);
+        // The second caller waits before the export can end.
+        for (int i = 0; i < 500 && tools.WaitingOn("TestFixture", dir.File("out")) != 1; i++) await Task.Delay(20);
+        Assert.Equal(1, tools.WaitingOn("TestFixture", dir.File("out")));
+        hold.Set();
+        await writer;
+        Assert.StartsWith("Exported", await second);
+        Assert.Empty(env.Workspace.DrainNotices());
+    }
+
+    [Fact]
+    public async Task A_silent_idle_export_ends_as_stalled_and_names_the_raise_variable()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        env.Options.StallSeconds = 80;
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: env.Options)
+        {
+            Clock = clock,
+            ProcessCpu = () => TimeSpan.Zero,
+        };
+        using var hold = HoldWorkspace(env, out var writer);
+        var call = tools.ExportProject("TestFixture", dir.File("out"));
+        for (int i = 0; i < 400 && !call.IsCompleted; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(10));
+            await Task.Delay(10);
+        }
+        var stalled = await Assert.ThrowsAsync<ToolError>(() => call);
+        Assert.StartsWith(StallRule.MessagePrefix + "export_project'", stalled.Message);
+        Assert.Contains(ServerOptions.StallWindowVariable, stalled.Remediation);
+        hold.Set();
+        await writer;
+        Assert.False(Directory.Exists(dir.File("out")));
+    }
+
+    /// <summary>Binds a call as the filter does: the deadline token ends the wait, the client token (none) ends the export.</summary>
+    private static void BeginDeadlineCall() => OutputCall.Begin(new OutputCall("export_project", 0, null));
+
+    /// <summary>A writer holds the workspace until the returned event is set, so an export cannot take its snapshot.</summary>
+    private static ManualResetEventSlim HoldWorkspace(Env env, out Task writer)
+    {
+        var release = new ManualResetEventSlim();
+        using var held = new ManualResetEventSlim();
+        writer = Task.Factory.StartNew(() => env.Workspace.Write(() => { held.Set(); release.Wait(); return 0; }), TaskCreationOptions.LongRunning);
+        held.Wait();
+        return release;
+    }
+
+    private static async Task<string> NextNotice(Env env)
+    {
+        var watch = Stopwatch.StartNew();
+        while (watch.Elapsed < TimeSpan.FromSeconds(60))
+        {
+            if (env.Workspace.DrainNotices().FirstOrDefault() is { } notice) return notice;
+            await Task.Delay(20);
+        }
+        throw new TimeoutException("No notice was queued.");
+    }
 }

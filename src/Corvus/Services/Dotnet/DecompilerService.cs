@@ -380,35 +380,23 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// <summary>Exports <paramref name="snapshot"/> into <paramref name="dir"/>: the project file (or null) and the types that failed.</summary>
     private (string? Project, List<string> Failed) Export(ExportSnapshot snapshot, string dir, Action<int, int, string>? onProgress, CancellationToken ct)
     {
-        // Project export gets 10x the normal timeout.
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
         // Method-call LINQ: query syntax reconstruction can leak compiler names (<>h__TransparentIdentifier0).
         var exportSettings = CreateSettings();
         exportSettings.QueryExpressions = false;
         var framework = snapshot.Framework;
         bool netFramework = snapshot.NetFramework;
-        var exporter = new ProjectExporter(framework, exportSettings, snapshot.Resolver(cts.Token), null,
+        var exporter = new ProjectExporter(framework, exportSettings, snapshot.Resolver(ct), null,
             new FrameworkClassifier(netFramework, Frameworks.NetCoreMajor(framework), Frameworks.NetFrameworkReferenceDirs(framework)), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new InlineProgress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
         {
-            exporter.DecompileProject(snapshot.Main, dir, cts.Token);
+            exporter.DecompileProject(snapshot.Main, dir, ct);
         }
         catch (NotSupportedException ex)
         {
             throw new ToolError(ErrorCode.Unsupported, $"{snapshot.Id} targets {framework ?? "a framework"} that an SDK-style project cannot express " +
                 $"(portable profiles such as Profile328): {ex.Message}", "decompile_member writes a type as source; a build of the same library for .NET Standard or .NET Framework exports");
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            int written = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
-            throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s with {written} files written; nothing was kept.",
-                "decompile the types needed with decompile_member, or ask the user to restart the server with a larger --timeout")
-            {
-                Partial = new { filesWritten = written },
-            };
         }
         RenameUnsafeReferences(dir, snapshot.Names);
         if (snapshot.Inferred != null) UseInferredFramework(dir, snapshot.Inferred);
