@@ -21,7 +21,7 @@
     },
     "pe": {
       "mutate": ["src/Corvus/Native/Pe/*.cs"],
-      "tests": "FullyQualifiedName~PeFile|FullyQualifiedName~NativeFormats|FullyQualifiedName~NativeImage"
+      "tests": "FullyQualifiedName~NativePeTests|FullyQualifiedName~PeImageTests|FullyQualifiedName~PeHybridTests"
     },
     "elf": {
       "mutate": ["src/Corvus/Native/Elf/ElfFile*.cs"],

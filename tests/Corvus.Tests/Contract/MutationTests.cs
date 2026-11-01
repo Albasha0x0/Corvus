@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -38,6 +39,20 @@ public class MutationTests
                 Assert.NotEmpty(Directory.EnumerateFiles(Path.Combine(Root, Path.GetDirectoryName(pattern)!), Path.GetFileName(pattern)));
             }
         }
+    }
+
+    [Fact]
+    public void Every_target_test_filter_matches_a_test()
+    {
+        var names = typeof(MutationTests).Assembly.GetTypes()
+            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Where(m => m.IsDefined(typeof(FactAttribute), true)).Select(m => t.FullName + "." + m.Name)).ToList();
+        foreach (var (name, (_, tests)) in Targets())
+            foreach (var term in tests.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                Assert.StartsWith("FullyQualifiedName~", term, StringComparison.Ordinal);
+                Assert.True(names.Any(n => n.Contains(term["FullyQualifiedName~".Length..], StringComparison.Ordinal)), $"{name}: {term}");
+            }
     }
 
     [Fact]
