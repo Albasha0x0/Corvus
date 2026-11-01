@@ -41,6 +41,14 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
+    public void The_output_masking_switch_is_refused_from_the_client_config()
+    {
+        var (report, env) = Apply("""{ "CORVUS_REDACT_OUTPUT": "1" }""");
+        Assert.Equal(["CORVUS_REDACT_OUTPUT"], report.Refused);
+        Assert.Empty(env);
+    }
+
+    [Fact]
     public void Security_switches_the_locating_variables_and_other_names_are_refused()
     {
         var (report, env) = Apply("""

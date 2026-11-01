@@ -181,6 +181,12 @@ public sealed class ServerOptions
     public const string FenceFileTextOption = "--fence-file-text";
     public const string FenceFileTextVariable = "CORVUS_FENCE_FILE_TEXT";
 
+    /// <summary>Mask credential shapes and secret-named assignments in file-reading results and the kept results; off by default.</summary>
+    public bool RedactOutput { get; set; }
+
+    public const string RedactOutputOption = "--redact-output";
+    public const string RedactOutputVariable = "CORVUS_REDACT_OUTPUT";
+
     /// <summary>The security switches (value-less options, off by default) and their variables; corvus install --set and --unset take these.</summary>
     public static readonly IReadOnlyDictionary<string, string> Switches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -198,6 +204,7 @@ public sealed class ServerOptions
         [AllowRemotePathsOption] = AllowRemotePathsVariable,
         [TraceArgsOption] = TraceArgsVariable,
         [FenceFileTextOption] = FenceFileTextVariable,
+        [RedactOutputOption] = RedactOutputVariable,
     };
 
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
@@ -310,6 +317,7 @@ public sealed class ServerOptions
                     break;
                 case AllowWindowCaptureOption: o.AllowWindowCapture = true; break;
                 case FenceFileTextOption: o.FenceFileText = true; break;
+                case RedactOutputOption: o.RedactOutput = true; break;
                 case LiveScriptingOption: o.LiveScripting = true; break;
                 case LiveInstallFridaOption: o.LiveInstallFrida = true; break;
                 case "--engine": engine = Next(); break;
@@ -370,6 +378,7 @@ public sealed class ServerOptions
             }
         if (Environment.GetEnvironmentVariable(AllowWindowCaptureVariable)?.Trim() is "1" or "true" or "on") o.AllowWindowCapture = true;
         if (Environment.GetEnvironmentVariable(FenceFileTextVariable)?.Trim() is "1" or "true" or "on") o.FenceFileText = true;
+        if (Environment.GetEnvironmentVariable(RedactOutputVariable)?.Trim() is "1" or "true" or "on") o.RedactOutput = true;
         OutputGuard.LiveAllow = [.. o.LiveAllow];
         if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;

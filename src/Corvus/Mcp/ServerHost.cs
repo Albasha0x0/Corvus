@@ -102,7 +102,8 @@ public static class ServerHost
             .AddSingleton(options)
             .AddSingleton<AssemblyWorkspace>()
             .AddSingleton<OutputPager>()
-            .AddSingleton<ResultStore>()
+            .AddSingleton(sp => sp.GetRequiredService<ServerOptions>().RedactOutput
+                ? new ResultStore { Mask = Redaction.Kept } : new ResultStore())
             .AddSingleton<RecentCalls>()
             .AddSingleton<CallActivity>()
             .AddSingleton<DecompilerService>()

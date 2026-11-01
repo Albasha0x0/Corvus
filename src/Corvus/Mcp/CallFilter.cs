@@ -64,6 +64,7 @@ internal static partial class CallFilter
         }
         // The bookkeeping below keeps the client's cancellation: Execute's scope, deadline included, has ended.
         using var waits = AssemblyWorkspace.CancelWaitsWith(cancellationToken, tool);
+        if (options != null && tool != null) result = Redaction.Result(options, tool, result);
         services?.GetService<ResourceSubscriptions>()?.Check();
         if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
         // Recorded whole, before the budget cuts it; read_result's own pages are not findings.

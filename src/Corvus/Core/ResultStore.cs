@@ -78,6 +78,9 @@ public sealed partial class ResultStore
 
     public ResultCacheOptions Options { get; }
 
+    /// <summary>Masks the text and record of each result before it is hashed and kept; null keeps them as given.</summary>
+    public Func<string, string?, (string Text, string? Record)>? Mask { get; init; }
+
     /// <summary>Characters the memory tier holds; lowered by tests.</summary>
     internal long MemoryLimit { get; init; } = MaxMemoryChars;
 
@@ -94,6 +97,7 @@ public sealed partial class ResultStore
     /// <summary>Keeps <paramref name="text"/> (and its structured <paramref name="record"/>) and returns its id; keeping the same text again returns the same id.</summary>
     public string Keep(string text, KeptOrigin origin, string? record = null)
     {
+        if (Mask != null) (text, record) = Mask(text, record);
         var sha = Sha256Hex(text);
         var id = "r-" + sha[..12];
         var info = new KeptInfo(origin.Tool, origin.Arguments, origin.ArgumentsSha256, origin.Inputs ?? [], DateTimeOffset.UtcNow, text.Length, sha, record != null);

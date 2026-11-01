@@ -112,6 +112,7 @@ Each needs a server option or environment variable set by the person running the
   - `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`): `live_session` and `live_console` start a program `--live-allow` names (`*`: any program).
 - `--live-install-frida` (`CORVUS_LIVE_INSTALL_FRIDA=1`): with no tested Frida found, the first session installs the pinned Frida into a private Python environment with pip (hash-checked wheels).
 - `--fence-file-text` (`CORVUS_FENCE_FILE_TEXT=1`): the text of each successful file-reading result sits in a per-session fence. Errors, notices, `--json` output, `structuredContent` and resources stay unfenced.
+- `--redact-output` (`CORVUS_REDACT_OUTPUT=1`): file-reading results and kept results mask token shapes, credentials and secret-named assignments as `[redacted:<hash>]`. A secret in no recognizable form stays.
 - `--allow-window-capture` (`CORVUS_ALLOW_WINDOW_CAPTURE=1`): `inspect_process view=windows` reads window titles, control text and a picture of a window.
 - `--toolsets` limits what is registered; without it every tool is registered, `inspect_process` included.
 
@@ -160,6 +161,7 @@ Every download uses HTTPS to the servers listed for it; a redirect may go only t
 - Each holds analyzed-file content and a side record: the tool, its arguments with secrets masked, a SHA-256 of the unmasked arguments, and the time.
 - Deleted after 7 days unused or beyond 512 MB, least recently used first (`CORVUS_RESULT_CACHE_DAYS`, `CORVUS_RESULT_CACHE_MB`). The side record of an evicted result stays a while so a late read can name the call to repeat.
 - `CORVUS_RESULT_CACHE=off` keeps them in memory only.
+- `CORVUS_REDACT_OUTPUT=1` masks secrets in them before they are kept.
 - `corvus uninstall --purge-data` deletes the data folder; a custom `CORVUS_RESULT_CACHE` folder is left to you.
 
 ## Logs and traces
