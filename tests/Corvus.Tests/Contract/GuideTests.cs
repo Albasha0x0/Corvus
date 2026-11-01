@@ -13,6 +13,16 @@ public class GuideTests
     private static readonly string[] NotTools = ["dump_from_memory"];
 
     [Fact]
+    public void The_guide_core_names_the_long_running_marker_and_the_wait()
+    {
+        Assert.Contains(ToolEffects.LongRunningSuffix.Trim(), Guide.Core);
+        Assert.Contains("waitSeconds=N", Guide.Core);
+        Assert.Contains("guide prompt lists topics", Guide.Core);
+        Assert.Contains(Guide.Topics.Keys.First(), Guide.TopicList);
+        Assert.Contains("[workspace]", Guide.Core);
+    }
+
+    [Fact]
     public void The_guide_core_fits_the_client_limit()
     {
         Assert.Equal(Guide.Core, ServerInstructions.Text);
