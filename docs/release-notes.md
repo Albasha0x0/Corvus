@@ -15,6 +15,7 @@ None.
 
 ### Changes
 
+- **Containers:** `sbomPath` writes the same SBOM for the same file: derived serial, no metadata timestamp.
 - **Web:** lockfiles are read and the packages they resolve compared. [46805f5c](https://github.com/Albasha0x0/Corvus/commit/46805f5c)
 - **Web:** workflow jobs listed, with three privileged patterns flagged. [5c494881](https://github.com/Albasha0x0/Corvus/commit/5c494881)
 - **Web:** MCP server entries, tool descriptions, agent settings and Codex `config.toml` reviewed. [b064959a](https://github.com/Albasha0x0/Corvus/commit/b064959a)

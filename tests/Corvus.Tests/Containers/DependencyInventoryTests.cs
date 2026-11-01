@@ -169,4 +169,41 @@ public sealed class DependencyInventoryTests : IDisposable
         Assert.Equal(ErrorCode.Conflict, refused.Code);
         Assert.Contains("SBOM written to", await tools.SummarizeFile(path: path, sbomPath: sbom, overwrite: true));
     }
+
+    [Fact]
+    public async Task Writing_the_sbom_twice_for_one_file_gives_identical_bytes()
+    {
+        var (path, _) = Summarize("rust-tool", RustProgram());
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace), _workspace);
+        var first = _dir.File("first.cdx.json");
+        var second = _dir.File("second.cdx.json");
+        await tools.SummarizeFile(path: path, view: "dependencies", sbomPath: first);
+        await tools.SummarizeFile(path: path, view: "dependencies", sbomPath: second);
+        Assert.Equal(File.ReadAllBytes(first), File.ReadAllBytes(second));
+    }
+
+    [Fact]
+    public async Task The_sbom_omits_the_timestamp_and_carries_the_derived_serial()
+    {
+        var (path, summary) = Summarize("rust-tool", RustProgram());
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace), _workspace);
+        var sbom = _dir.File("serial.cdx.json");
+        await tools.SummarizeFile(path: path, view: "dependencies", sbomPath: sbom);
+        var bytes = File.ReadAllBytes(sbom);
+        AssertValid(bytes);
+        using var doc = JsonDocument.Parse(bytes);
+        Assert.False(doc.RootElement.GetProperty("metadata").TryGetProperty("timestamp", out _));
+        var expected = CycloneDx.SerialFor(summary.File.Sha256, Corvus.Mcp.ServerIdentity.InformationalVersion);
+        Assert.Equal($"urn:uuid:{expected:D}", doc.RootElement.GetProperty("serialNumber").GetString());
+    }
+
+    [Fact]
+    public void The_serial_is_version_5_variant_1_and_differs_by_input()
+    {
+        var serial = CycloneDx.SerialFor(new string('a', 64), "1.0.0").ToString("D");
+        Assert.Equal('5', serial[14]);
+        Assert.Contains(serial[19], "89ab");
+        Assert.NotEqual(serial, CycloneDx.SerialFor(new string('b', 64), "1.0.0").ToString("D"));
+        Assert.NotEqual(serial, CycloneDx.SerialFor(new string('a', 64), "1.0.1").ToString("D"));
+    }
 }

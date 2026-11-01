@@ -7,8 +7,18 @@ public static class CycloneDx
 {
     public const string SpecVersion = "1.6";
 
-    /// <summary>Returns the BOM as UTF-8 JSON, with the file and its SHA-256 as subject and each component's evidence.</summary>
-    public static byte[] Write(DependencyFacts facts, string filePath, string fileSha256, string toolVersion, DateTimeOffset timestamp, Guid serial)
+    /// <summary>Returns a UUID derived from the SHA-256 and tool version; equal input gives an equal serial.</summary>
+    public static Guid SerialFor(string fileSha256, string toolVersion)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{fileSha256.ToLowerInvariant()} {toolVersion}"));
+        var bytes = hash.AsSpan(0, 16).ToArray();
+        bytes[7] = (byte)((bytes[7] & 0x0F) | 0x50);
+        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
+        return new Guid(bytes);
+    }
+
+    /// <summary>Returns the BOM as UTF-8 JSON; a null <paramref name="timestamp"/> omits the metadata timestamp.</summary>
+    public static byte[] Write(DependencyFacts facts, string filePath, string fileSha256, string toolVersion, DateTimeOffset? timestamp, Guid serial)
     {
         using var stream = new MemoryStream();
         using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -20,7 +30,7 @@ public static class CycloneDx
             w.WriteNumber("version", 1);
 
             w.WriteStartObject("metadata");
-            w.WriteString("timestamp", timestamp.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture));
+            if (timestamp is { } at) w.WriteString("timestamp", at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture));
             w.WriteStartObject("tools");
             w.WriteStartArray("components");
             w.WriteStartObject();
