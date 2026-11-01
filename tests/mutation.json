@@ -36,8 +36,8 @@
       "tests": "FullyQualifiedName~DexTests|FullyQualifiedName~DexNamesTests|FullyQualifiedName~DexStringFoldingTests"
     },
     "containers": {
-      "mutate": ["src/Corvus/Core/Archives/ArchiveReader.cs", "src/Corvus/Core/Archives/ArReader.cs", "src/Corvus/Core/Archives/RpmReader.cs", "src/Corvus/Core/Archives/XarCpioReaders.cs", "src/Corvus/Core/Archives/AceReader.cs", "src/Corvus/Core/Archives/LinuxAppPackages.cs", "src/Corvus/Core/Archives/ApkV3Reader.cs", "src/Corvus/Core/Archives/AppendedArchive.cs", "src/Corvus/Core/Archives/FlatpakBundleReader.cs", "src/Corvus/Core/Archives/IndexedBlobStoreReader.cs"],
-      "tests": "FullyQualifiedName~ArchiveReaderTests|FullyQualifiedName~ArArchiveTests|FullyQualifiedName~RpmReaderTests|FullyQualifiedName~XarCpioTests|FullyQualifiedName~AceArchiveTests|FullyQualifiedName~LinuxAppPackageTests|FullyQualifiedName~ApkV3Tests|FullyQualifiedName~AppendedArchiveTests|FullyQualifiedName~FlatpakBundleTests|FullyQualifiedName~IndexedBlobStoreTests"
+      "mutate": ["src/Corvus/Core/Archives/ArchiveReader.cs", "src/Corvus/Core/Archives/ArReader.cs", "src/Corvus/Core/Archives/RpmReader.cs", "src/Corvus/Core/Archives/XarCpioReaders.cs", "src/Corvus/Core/Archives/AceReader.cs", "src/Corvus/Core/Archives/LinuxAppPackages.cs", "src/Corvus/Core/Archives/ApkV3Reader.cs", "src/Corvus/Core/Archives/AppendedArchive.cs", "src/Corvus/Core/Archives/FlatpakBundleReader.cs", "src/Corvus/Core/Archives/IndexedBlobStoreReader.cs", "src/Corvus/Core/Archives/TransformedBlockContainerReader.cs"],
+      "tests": "FullyQualifiedName~ArchiveReaderTests|FullyQualifiedName~ArArchiveTests|FullyQualifiedName~RpmReaderTests|FullyQualifiedName~XarCpioTests|FullyQualifiedName~AceArchiveTests|FullyQualifiedName~LinuxAppPackageTests|FullyQualifiedName~ApkV3Tests|FullyQualifiedName~AppendedArchiveTests|FullyQualifiedName~FlatpakBundleTests|FullyQualifiedName~IndexedBlobStoreTests|FullyQualifiedName~TransformedBlockContainerTests"
     },
     "decoders": {
       "mutate": ["src/Corvus/Native/Code/Arm64Decoder.cs", "src/Corvus/Native/Code/Arm32Decoder.cs", "src/Corvus/Native/Code/Arm32Decode.cs"],
