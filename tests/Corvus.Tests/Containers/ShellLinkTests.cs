@@ -11,8 +11,8 @@ public sealed class ShellLinkTests
     private static byte[] U16(int v) => BitConverter.GetBytes((ushort)v);
     private static byte[] U32(uint v) => BitConverter.GetBytes(v);
 
-    /// <summary>A shortcut to C:\Windows\System32\cmd.exe with padded arguments, a PDF icon, a tracker block and appended data.</summary>
-    internal static byte[] Shortcut(string arguments, byte[]? overlay = null)
+    /// <summary>A shortcut to cmd.exe with padded arguments, a PDF icon, a tracker block, appended data, a link info path (default cmd.exe) and an optional environment block.</summary>
+    internal static byte[] Shortcut(string arguments, byte[]? overlay = null, string localPath = @"C:\Windows\System32\cmd.exe", string? environment = null, bool rootOnlyIdList = false)
     {
         var o = new MemoryStream();
         // Header: size, link CLSID, flags (ID list, link info, name, working dir, arguments, icon, unicode), attributes, times, size, icon index, show minimized.
@@ -25,8 +25,8 @@ public sealed class ShellLinkTests
         var ids = new MemoryStream();
         void Item(byte[] body) { ids.Write(U16(body.Length + 2)); ids.Write(body); }
         Item([0x1F, 0x50, .. new Guid("20D04FE0-3AEA-1069-A2D8-08002B30309D").ToByteArray()]);
-        Item([0x2F, .. "C:\\"u8.ToArray(), .. new byte[19]]);
-        foreach (var (name, type) in new[] { ("Windows", 0x31), ("System32", 0x31), ("cmd.exe", 0x32) })
+        if (!rootOnlyIdList) Item([0x2F, .. "C:\\"u8.ToArray(), .. new byte[19]]);
+        foreach (var (name, type) in rootOnlyIdList ? [] : new[] { ("Windows", 0x31), ("System32", 0x31), ("cmd.exe", 0x32) })
         {
             var shortName = Encoding.ASCII.GetBytes(name.ToUpperInvariant() + "\0");
             var ext = new MemoryStream();
@@ -40,7 +40,7 @@ public sealed class ShellLinkTests
         var label = Encoding.ASCII.GetBytes("OS\0");
         var volume = new MemoryStream();
         volume.Write(U32((uint)(16 + label.Length))); volume.Write(U32(3)); volume.Write(U32(0x1234ABCD)); volume.Write(U32(16)); volume.Write(label);
-        var basePath = Encoding.ASCII.GetBytes(@"C:\Windows\System32\cmd.exe" + "\0");
+        var basePath = Encoding.ASCII.GetBytes(localPath + "\0");
         uint volumeAt = 28, baseAt = (uint)(28 + volume.Length), suffixAt = (uint)(baseAt + basePath.Length);
         var info = new MemoryStream();
         info.Write(U32((uint)(suffixAt + 1))); info.Write(U32(28)); info.Write(U32(1)); info.Write(U32(volumeAt)); info.Write(U32(baseAt)); info.Write(U32(0)); info.Write(U32(suffixAt));
@@ -54,6 +54,11 @@ public sealed class ShellLinkTests
         var droid = new Guid("11111111-2222-3333-4444-555555555555").ToByteArray();
         var fileDroid = new Guid("e3a1c3d4-1f2e-11ee-9a5b-0800273e1a2b").ToByteArray();
         o.Write(droid); o.Write(fileDroid); o.Write(droid); o.Write(fileDroid);
+        if (environment != null)
+        {
+            var env = new byte[780]; Encoding.ASCII.GetBytes(environment).CopyTo(env, 0); Encoding.Unicode.GetBytes(environment).CopyTo(env, 260);
+            o.Write(U32(0x314)); o.Write(U32(0xA0000001)); o.Write(env);
+        }
         o.Write(U32(0));
         if (overlay != null) o.Write(overlay);
         return o.ToArray();
@@ -93,6 +98,24 @@ public sealed class ShellLinkTests
         Assert.Equal(".NET assembly", f.AppendedData!.Kind);
         var c = Containers.Open(Shortcut(args, overlay), "a.lnk", AnalysisLimits.Default, default);
         Assert.Equal(overlay, Assert.Single(c.Items).Bytes);
+    }
+
+    [Fact]
+    public void Differing_id_list_link_info_and_environment_targets_are_reported()
+    {
+        Assert.DoesNotContain(View(Shortcut("/c calc")).Findings, x => x.Keyword == "target mismatch");
+        var f = View(Shortcut("/c calc", null, @"C:\Users\Public\payload.exe", @"C:\Temp\other.exe"));
+        var finding = Assert.Single(f.Findings, x => x.Keyword == "target mismatch");
+        Assert.Contains(@"ID list C:\Windows\System32\cmd.exe", finding.Description);
+        Assert.Contains(@"link info C:\Users\Public\payload.exe", finding.Description);
+        Assert.Contains(@"environment block C:\Temp\other.exe", finding.Description);
+        // Spelling-only differences and non-plain paths are not mismatches.
+        foreach (var same in new[] { @"C:\WINDOWS\SYSTEM32\CMD.EXE\", "C:/Windows/System32/cmd.exe", @"%windir%\x.exe", "http://example.test/x.exe" })
+            Assert.DoesNotContain(View(Shortcut("/c calc", null, @"C:\Windows\System32\cmd.exe", same)).Findings, x => x.Keyword == "target mismatch");
+        // An ID list that stopped at a root folder has no drive to compare.
+        Assert.DoesNotContain(View(Shortcut("/c calc", null, @"C:\Other.exe", null, true)).Findings, x => x.Keyword == "target mismatch");
+        // Two records that differ are reported without an environment block.
+        Assert.Contains(View(Shortcut("/c calc", null, @"C:\Other\a.exe")).Findings, x => x.Keyword == "target mismatch");
     }
 
     [Fact]

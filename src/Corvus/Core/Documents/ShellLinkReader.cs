@@ -33,6 +33,20 @@ internal static class ShellLinkRules
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Regex Url = new(@"(?i)\b(?:https?|ftp)://[^\s'""\)]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
+    // Only plain paths compare; variables, URIs and unresolved items have no fixed spelling.
+    private static bool Comparable(string? p) =>
+        !string.IsNullOrEmpty(p) && p.IndexOfAny(['%', '<', '{']) < 0 && !p.Contains("://", StringComparison.Ordinal);
+
+    // An ID list path counts only when it reached a drive or share; 8.3 names have no fixed spelling.
+    private static bool ResolvedIdList(string? p) =>
+        Comparable(p) && (p!.StartsWith(@"\\", StringComparison.Ordinal) || p.Length >= 2 && p[1] == ':')
+        && !p.Contains('~');
+
+    private static string Normalize(string p) => p.Replace('/', '\\').TrimEnd('\\');
+
+    // Keeps the tail, where two long paths usually differ.
+    private static string ClipPath(string p) => p.Length <= 120 ? p : "..." + p[^117..];
+
     public static string Clip(string s) => s.Length <= 200 ? s : s[..197] + "...";
 
     public static List<MacroFinding> Scan(ShellLink link)
@@ -54,6 +68,18 @@ internal static class ShellLinkRules
         var icon = (link.IconLocation ?? link.IconEnvironment ?? "").ToLowerInvariant();
         if (icon.Length > 0 && Launchers.Programs.Contains(program) && DocumentIcons.Any(d => icon.Contains(d, StringComparison.Ordinal)))
             f.Add(new MacroFinding("Suspicious", "document icon", $"the icon ({link.IconLocation ?? link.IconEnvironment}) suggests a document while the target is {program}"));
+        var candidates = new (string Record, string? Path)[]
+        {
+            ("ID list", ResolvedIdList(link.IdListPath) ? link.IdListPath : null),
+            ("link info", link.LocalPath ?? link.NetworkPath),
+            ("environment block", link.EnvironmentTarget),
+        };
+        var targets = candidates.Where(t => Comparable(t.Path)).Select(t => (t.Record, Path: t.Path!)).ToList();
+        if (targets.Select(t => Normalize(t.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+        {
+            var named = string.Join("; ", targets.Select(t => $"{t.Record} {ClipPath(t.Path)}"));
+            f.Add(new MacroFinding("Suspicious", "target mismatch", "the shortcut names different targets: " + named));
+        }
         if (link.Overlay.Length > 0)
             f.Add(new MacroFinding("Suspicious", "appended data", $"{link.Overlay.Length:N0} bytes ({Blob.Identify(link.Overlay)}) after the shortcut's last block") { Location = $"0x{link.OverlayOffset:X}" });
         return f;
