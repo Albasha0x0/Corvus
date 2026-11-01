@@ -21,13 +21,13 @@ internal static class TaskDefinition
     // A path with spaces is quoted; a whole command line is kept as written.
     private static readonly Regex BarePath = new(@"\A[A-Za-z]:\\[^""]* [^""]*\.(?:exe|bat|cmd|com)\z", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
-    /// <summary>The actions as blocks and commands; null for a non-task or malformed text.</summary>
+    /// <summary>The actions as blocks and commands; null for a non-task; a malformed task is reported as unknown.</summary>
     internal static SourceParts? Read(string text)
     {
         if (!Regex.IsMatch(text.Length > 4096 ? text[..4096] : text, @"<Task\b[^>]*schemas\.microsoft\.com/windows/\d{4}/\d{2}/mit/task", RegexOptions.NonBacktracking)) return null;
         XElement root;
         try { root = BoundedXml.Parse(text).Root!; }
-        catch (XmlException) { return null; }
+        catch (XmlException) { return new SourceParts("scheduled task", "", [], [], ["Task XML could not be parsed; actions are unknown."]); }
         var plain = new StringBuilder();
         var blocks = new List<ScriptFileView.Block>();
         var commands = new List<string>();
@@ -81,21 +81,23 @@ internal static class NotebookCells
         @"\b(?:os\.(?:system|popen)|subprocess\.(?:run|call|Popen|check_call|check_output|getoutput|getstatusoutput))\(\s*[rbf]?(?:""([^""\n]*)""|'([^'\n]*)')",
         RegexOptions.NonBacktracking);
 
+    private static readonly Regex ProcessCall = new(@"\b(?:os\.(?:system|popen)|subprocess\.\w+)\(", RegexOptions.NonBacktracking);
+
     private static readonly Regex CellMagic = new(@"\A\s*%%(\w+)[^\n]*\n(.*)\z", RegexOptions.Singleline | RegexOptions.NonBacktracking);
 
-    /// <summary>The code cells, shell blocks and commands; null for a non-notebook.</summary>
+    /// <summary>The code cells, shell blocks and commands; null for a non-notebook; malformed JSON is reported as unknown.</summary>
     internal static SourceParts? Read(string text)
     {
         JsonDocument doc;
         try { doc = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 64 }); }
-        catch (JsonException) { return null; }
+        catch (JsonException) { return new SourceParts("notebook", "", [], [], ["Notebook JSON could not be parsed; cells are unknown."]); }
         using (doc)
         {
             if (doc.RootElement is not { ValueKind: JsonValueKind.Object } root || !root.TryGetProperty("cells", out var cells) || cells.ValueKind != JsonValueKind.Array) return null;
             var plain = new StringBuilder();
             var blocks = new List<ScriptFileView.Block>();
             var commands = new List<string>();
-            int index = 0, code = 0, unreadable = 0, python = 0, all = 0, total = cells.GetArrayLength();
+            int index = 0, code = 0, unreadable = 0, python = 0, all = 0, calls = 0, total = cells.GetArrayLength();
             foreach (var cell in cells.EnumerateArray())
             {
                 index++;
@@ -106,12 +108,14 @@ internal static class NotebookCells
                 var shell = Shell(body, out var block, out var isPython);
                 if (isPython) python++;
                 all += shell.Count;
+                if (shell.Count == 0 && ProcessCall.IsMatch(body)) calls++;
                 commands.AddRange(shell.Take(MaxCommands - commands.Count));
                 if (block != null) blocks.Add(block);
             }
             var skipped = total - code - unreadable;
             var notes = new List<string> { $"Read {code} code cell(s) of {total} cell(s)" + (skipped > 0 ? $"; {skipped} markdown or raw cell(s) skipped." : ".") };
             if (python > 0) notes.Add("Python cells are listed, not peeled.");
+            if (calls > 0) notes.Add($"{calls} cell(s) call a process with a non-literal or list-form argument; those commands are not read.");
             if (unreadable > 0) notes.Add($"{unreadable} code cell(s) have no readable source.");
             if (all > commands.Count) notes.Add($"Read {commands.Count:N0} of {all:N0} shell commands.");
             return new SourceParts("notebook", plain.ToString(), blocks, commands, notes);
@@ -126,7 +130,8 @@ internal static class NotebookCells
         _ => null,
     };
 
-    // Shell lines (!cmd), shell cell magics (%%cmd, %%powershell) and string commands of os.system and subprocess.
+    // Shell lines (!cmd), shell cell magics (%%cmd, %%powershell) and string
+    // commands of os.system and subprocess.
     private static List<string> Shell(string body, out ScriptFileView.Block? block, out bool python)
     {
         block = null;

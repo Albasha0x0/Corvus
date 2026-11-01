@@ -153,9 +153,24 @@ public sealed class LauncherTests : IDisposable
     }
 
     [Fact]
-    public void A_malformed_task_definition_gets_no_script_view()
+    public void A_malformed_task_definition_is_reported_as_unknown()
     {
-        Assert.Null(Script("bad.xml", "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions>"));
+        var facts = Assert.IsType<ScriptFileView.Facts>(Script("bad.xml", "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions>")!.Detail);
+        Assert.Contains("Task XML could not be parsed; actions are unknown.", facts.Notes!);
+    }
+
+    [Fact]
+    public void A_truncated_notebook_is_reported_as_unknown()
+    {
+        var facts = Assert.IsType<ScriptFileView.Facts>(Script("cut.ipynb", "{\"cells\":[{\"cell_type\":")!.Detail);
+        Assert.Contains("Notebook JSON could not be parsed; cells are unknown.", facts.Notes!);
+    }
+
+    [Fact]
+    public void A_list_form_process_call_in_a_notebook_is_noted_as_not_read()
+    {
+        var facts = Assert.IsType<ScriptFileView.Facts>(Script("l.ipynb", "{\"cells\":[{\"cell_type\":\"code\",\"source\":\"import subprocess\\nsubprocess.run([\\\"cmd\\\",\\\"/c\\\"])\"}]}")!.Detail);
+        Assert.Contains(facts.Notes!, n => n.Contains("non-literal or list-form", StringComparison.Ordinal));
     }
 
     [Fact]
