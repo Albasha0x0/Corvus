@@ -196,15 +196,25 @@ internal static class SarifLog
             // A lockfile row is keyed "path: name@version".
             else if (key.IndexOf(": ", StringComparison.Ordinal) is > 0 and var colon) path = key[..colon];
             var text = $"{(string?)r["kind"]} {key}" + (detail.Length > 0 ? $": {detail}" : "");
+            // A member path is "container!/inner": the container is the artifact.
+            var fullPath = path;
+            string? member = null;
+            if (path != null && path.IndexOf("!/", StringComparison.Ordinal) is > 0 and var bang)
+            {
+                member = path[(bang + 2)..];
+                path = path[..bang];
+                line = null;
+            }
             var artifact = folder && path != null ? InRoot(baseDir, newPath, path) : Uri(baseDir, newPath);
-            if (!folder && path != null) text += $" (in {path})";
+            if (!folder && fullPath != null) text += $" (in {fullPath})";
+            else if (member != null) text += $" (in {member})";
             var physical = new JsonObject { ["artifactLocation"] = new JsonObject { ["uri"] = artifact, ["uriBaseId"] = "%SRCROOT%" } };
             if (folder && line != null) physical["region"] = new JsonObject { ["startLine"] = line };
             var result = new JsonObject { ["ruleId"] = rule, ["level"] = SarifLevel(level) };
             result["message"] = new JsonObject { ["text"] = text };
             result["locations"] = new JsonArray(new JsonObject { ["physicalLocation"] = physical });
             // Rule, path in the scanned root and key only, so the folder it runs from does not change it.
-            var print = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join((char)10, rule, path?.Replace('\\', '/') ?? artifact, key))));
+            var print = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join((char)10, rule, fullPath?.Replace('\\', '/') ?? artifact, key))));
             result["partialFingerprints"] = new JsonObject { ["corvusDiff/v1"] = print };
             list.Add((level, result));
         }

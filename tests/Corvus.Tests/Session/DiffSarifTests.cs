@@ -105,4 +105,37 @@ public class DiffSarifTests
         var notification = run["invocations"]![0]!["toolExecutionNotifications"]![0]!;
         Assert.StartsWith("3 results left out.", (string?)notification["message"]!["text"]);
     }
+
+    [Fact]
+    public void A_member_row_names_its_container_as_the_artifact_and_never_writes_markdown()
+    {
+        var log = SarifLog.BuildDiff([Comparison(
+            Row("added", "package/index.js: eval", "review at lib/a.zip!/d/e.js:7", "package/eval"))], Directory.GetCurrentDirectory());
+        var result = log["runs"]![0]!["results"]![0]!;
+        var physical = result["locations"]![0]!["physicalLocation"]!;
+        Assert.Equal("new/lib/a.zip", (string?)physical["artifactLocation"]!["uri"]);
+        Assert.Null(physical["region"]);
+        Assert.EndsWith("(in d/e.js)", (string?)result["message"]!["text"]);
+        Assert.DoesNotContain("\"markdown\"", log.ToJsonString());
+    }
+
+    [Fact]
+    public void Member_rows_of_one_container_keep_distinct_fingerprints()
+    {
+        var log = SarifLog.BuildDiff([Comparison(
+            Row("added", "package/index.js: eval", "review at lib/a.zip!/x.js:3", "package/eval"),
+            Row("added", "package/index.js: eval", "review at lib/a.zip!/y.js:9", "package/eval"))], Directory.GetCurrentDirectory());
+        var prints = log["runs"]![0]!["results"]!.AsArray().Select(r => (string?)r!["partialFingerprints"]!["corvusDiff/v1"]).ToArray();
+        Assert.NotEqual(prints[0], prints[1]);
+    }
+
+    [Fact]
+    public void A_member_row_of_a_file_comparison_names_the_member_in_the_message()
+    {
+        var comparison = Comparison(
+            Row("added", "package/index.js: eval", "review at lib/a.zip!/d/e.js:7", "package/eval"));
+        comparison["new"]!["kind"] = "file";
+        var log = SarifLog.BuildDiff([comparison], Directory.GetCurrentDirectory());
+        Assert.EndsWith("(in lib/a.zip!/d/e.js)", (string?)log["runs"]![0]!["results"]![0]!["message"]!["text"]);
+    }
 }
