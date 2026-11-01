@@ -350,22 +350,6 @@ foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' }) {
 }
 Write-Host "Verified $($assets.Count - 1) assets against SHA256SUMS."
 
-# The pin comes from the SHA256SUMS just verified, so the service never pins
-# an archive this run did not check.
-if ($Service) {
-    $pin = Join-Path $Service 'scripts/pin_corvus.py'
-    if (-not (Test-Path $pin)) { Fail "$Service has no scripts/pin_corvus.py" }
-    if (git -C $Service status --porcelain) { Fail "$Service has uncommitted changes" }
-    $python = if ($IsWindows) { 'python' } else { 'python3' }
-    Run $python @('-I', $pin, '--version', $Version, '--sums', (Join-Path $assetDir 'SHA256SUMS'), '--dockerfile', (Join-Path $Service 'Dockerfile'))
-    if (-not (git -C $Service status --porcelain)) { Write-Host "The service already pins $Version." }
-    else {
-        Run 'git' @('-C', $Service, 'commit', '-q', '-a', '-m', "chore(release): install Corvus $Version in the service image",
-            '-m', "The image now installs Corvus $Version, pinned by the SHA-256 its SHA256SUMS lists for the image's archive.")
-        Write-Host "Service pinned to $Version in $Service; review and push it there."
-    }
-}
-
 # Update check: install the previous release in WSL with a throwaway HOME, then 'corvus update' to this one.
 $previous = git -C $root describe --tags --abbrev=0 "$tag^" 2>$null
 $distro = if ($env:CORVUS_RELEASE_WSL) { $env:CORVUS_RELEASE_WSL } else { 'Ubuntu' }
@@ -387,6 +371,22 @@ case "$after" in *"$3"*) echo "update $2 -> $after" ;; *) echo "update from $2 r
     if ($LASTEXITCODE -ne 0) { Fail "update from $previous to $tag failed" }
 }
 else { Write-Host "Update check skipped: no previous tag or no WSL ($distro)." -ForegroundColor Yellow }
+
+# The pin comes from the SHA256SUMS just verified, so the service never pins
+# an archive this run did not check.
+if ($Service) {
+    $pin = Join-Path $Service 'scripts/pin_corvus.py'
+    if (-not (Test-Path $pin)) { Fail "$Service has no scripts/pin_corvus.py" }
+    if (git -C $Service status --porcelain) { Fail "$Service has uncommitted changes" }
+    $python = if ($IsWindows) { 'python' } else { 'python3' }
+    Run $python @('-I', $pin, '--version', $Version, '--sums', (Join-Path $assetDir 'SHA256SUMS'), '--dockerfile', (Join-Path $Service 'Dockerfile'))
+    if (-not (git -C $Service status --porcelain)) { Write-Host "The service already pins $Version." }
+    else {
+        Run 'git' @('-C', $Service, 'commit', '-q', '-a', '-m', "chore(release): install Corvus $Version in the service image",
+            '-m', "The image now installs Corvus $Version, pinned by the SHA-256 its SHA256SUMS lists for the image's archive.")
+        Write-Host "Service pinned to $Version in $Service; review and push it there."
+    }
+}
 
 Write-Host ""
 Write-Host "Release $tag is published. Manual channel steps:"

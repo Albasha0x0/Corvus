@@ -41,6 +41,53 @@ public class ReleaseScriptTests
         Assert.DoesNotMatch(@"'-C', \$Service, 'push'", Script);
     }
 
+    // Fixture: a service checkout with a stub pin script and a Dockerfile holding two pins.
+    [Fact]
+    public void The_service_pin_passes_the_version_and_sums_and_leaves_other_pins()
+    {
+        if (BundleTests.FindOnPath("pwsh.exe") is not { } pwsh || BundleTests.FindOnPath("python.exe") is null || BundleTests.FindOnPath("git.exe") is null) return;
+        using var dir = new TempDir();
+        var service = Directory.CreateDirectory(Path.Combine(dir.Path, "service")).FullName;
+        Directory.CreateDirectory(Path.Combine(service, "scripts"));
+        var sums = Path.Combine(dir.Path, "SHA256SUMS");
+        File.WriteAllText(sums, "x");
+        File.WriteAllText(Path.Combine(service, "Dockerfile"), "ARG CORVUS_VERSION=0.0.1\nARG OTHER_VERSION=3.4.5\n");
+        File.WriteAllText(Path.Combine(service, "scripts", "pin_corvus.py"), """
+            import sys
+            a = sys.argv[1:]
+            open(a[a.index('--sums') + 1] + '.seen', 'w').write(a[a.index('--version') + 1])
+            d = a[a.index('--dockerfile') + 1]
+            t = open(d).read().replace('0.0.1', a[a.index('--version') + 1])
+            open(d, 'w', newline='').write(t)
+            """);
+        foreach (var g in new[] { new[] { "init", "-q" }, ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"] })
+        {
+            using var init = Process.Start(new ProcessStartInfo("git", ["-C", service, .. g]) { RedirectStandardOutput = true, RedirectStandardError = true })!;
+            init.WaitForExit();
+            Assert.Equal(0, init.ExitCode);
+        }
+        var start = Script.IndexOf("if ($Service) {", StringComparison.Ordinal);
+        var end = Script.IndexOf("Write-Host \"Release $tag is published", StringComparison.Ordinal);
+        Assert.True(start > 0 && end > start);
+        var harness = Path.Combine(dir.Path, "pin.ps1");
+        File.WriteAllText(harness, $$"""
+            function Fail([string]$message) { Write-Host "error: $message"; exit 1 }
+            function Run([string]$exe, [string[]]$arguments) { & $exe @arguments; if ($LASTEXITCODE -ne 0) { Fail "$exe failed" } }
+            $env:GIT_AUTHOR_NAME = 't'; $env:GIT_AUTHOR_EMAIL = 't@t'; $env:GIT_COMMITTER_NAME = 't'; $env:GIT_COMMITTER_EMAIL = 't@t'
+            $Service = '{{service}}'; $Version = '4.5.6'; $assetDir = '{{dir.Path}}'
+            {{Script[start..end]}}
+            """);
+        var psi = new ProcessStartInfo(pwsh) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in new[] { "-NoProfile", "-File", harness }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        var log = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        Assert.True(p.ExitCode == 0, log);
+
+        Assert.Equal("4.5.6", File.ReadAllText(sums + ".seen"));
+        Assert.Equal("ARG CORVUS_VERSION=4.5.6\nARG OTHER_VERSION=3.4.5\n", File.ReadAllText(Path.Combine(service, "Dockerfile")));
+    }
+
     [Fact]
     public void The_tagged_commit_and_the_release_carry_the_test_summary()
     {
