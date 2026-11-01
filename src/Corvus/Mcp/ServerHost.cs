@@ -93,6 +93,8 @@ public static class ServerHost
         host.Services.GetRequiredService<NativeCodeService>();
         // PDBs are read during index builds, --prewarm analyzes preloaded images, and journals of earlier sessions are offered.
         host.Services.GetRequiredService<PdbService>();
+        // Registered with the service, so no call path depends on load order.
+        NativeEngineService.BuiltInEngineFor = ParameterDomains.AcceptsBuiltInEngine;
         host.Services.GetRequiredService<NativeEngineService>();
         host.Services.GetRequiredService<EditJournal>();
         var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();

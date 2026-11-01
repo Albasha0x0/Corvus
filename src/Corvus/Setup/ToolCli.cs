@@ -66,6 +66,22 @@ internal static partial class ToolCli
         finally { Console.CancelKeyPress -= onCancel; }
     }
 
+    /// <summary>Prints the batch entries of the usage text.</summary>
+    private static int BatchHelp(CliIo io)
+    {
+        using var full = new StringWriter();
+        SetupCli.TryRun(["help"], full);
+        var lines = full.ToString().Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var start = lines.FindIndex(l => l.TrimStart().StartsWith("batch <file|->", StringComparison.Ordinal));
+        if (start < 0) return SetupCli.TryRun(["help"], io.Out) ?? Exit.Ok;
+        var indent = lines[start].Length - lines[start].TrimStart().Length;
+        var end = start + 1;
+        while (end < lines.Count && (lines[end].Length - lines[end].TrimStart().Length > indent
+            || lines[end].TrimStart().StartsWith("batch ", StringComparison.Ordinal))) end++;
+        foreach (var line in lines.Skip(start).Take(end - start)) io.Out.WriteLine(line[Math.Min(indent, line.Length)..]);
+        return Exit.Ok;
+    }
+
     /// <summary>True for a CLI command, a tool name or another non-setup word; options start with "-", so a server start never matches.</summary>
     public static bool Handles(string[] args)
     {
@@ -87,7 +103,10 @@ internal static partial class ToolCli
             }
             // A leading --help or -h prints usage; call forwards it to the tool.
             if (command != "call" && rest.Count > 0 && rest[0] is "--help" or "-h")
+            {
+                if (command == "batch") return BatchHelp(io);
                 return SetupCli.TryRun(["help"], io.Out) ?? Exit.Ok;
+            }
             var a = CliArgs.Parse(rest);
             return command switch
             {

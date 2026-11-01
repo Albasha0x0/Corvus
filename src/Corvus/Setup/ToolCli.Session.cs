@@ -11,11 +11,37 @@ internal static partial class ToolCli
 {
     public sealed record BatchStep(string Tool, Dictionary<string, object?> Arguments);
 
+    // True when the text holds a backslash that starts no valid JSON escape.
+    static bool HasInvalidEscape(string? text)
+    {
+        if (text == null) return false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '\\') continue;
+            if (++i >= text.Length || "\"\\/bfnrtu".IndexOf(text[i]) < 0) return true;
+        }
+        return false;
+    }
+
+    // The line the reader named, so a hint reads one line and not the file.
+    static string ErrorLine(string text, JsonException ex)
+    {
+        var lines = text.Split('\n');
+        return ex.LineNumber is long n && n < lines.Length ? lines[n] : text;
+    }
+
     // Reports a one-based line and a UTF-8 byte column; omits both when the reader gave none.
-    static string BatchJsonError(JsonException ex, long line, int indent) =>
-        ex.BytePositionInLine is long col
-            ? $"The batch is not valid JSON at line {line}, byte column {col + indent + 1}: {ex.Message}"
-            : $"The batch is not valid JSON: {ex.Message}";
+    static string BatchJsonError(JsonException ex, long line, int indent, string? source = null)
+    {
+        // The reader's zero-based position is replaced by the located form.
+        var cut = ex.Message.IndexOf(" Path:", StringComparison.Ordinal);
+        if (cut < 0) cut = ex.Message.IndexOf("LineNumber:", StringComparison.Ordinal);
+        var reason = cut >= 0 ? ex.Message[..cut].TrimEnd() : ex.Message;
+        var hint = HasInvalidEscape(source) ? " A Windows path takes / or a doubled backslash." : "";
+        return ex.BytePositionInLine is long col
+            ? $"The batch is not valid JSON at line {line}, byte column {col + indent + 1}: {reason}{hint}"
+            : $"The batch is not valid JSON: {reason}{hint}";
+    }
 
     /// <summary>
     /// Steps from a JSON array or JSON Lines; with <paramref name="invalid"/>,
@@ -32,7 +58,7 @@ internal static partial class ToolCli
                 int n = 0;
                 foreach (var node in JsonNode.Parse(text)!.AsArray()) nodes.Add((node, $"entry {++n}", n));
             }
-            catch (JsonException ex) { throw new UsageException(BatchJsonError(ex, (ex.LineNumber ?? 0) + 1, 0)); }
+            catch (JsonException ex) { throw new UsageException(BatchJsonError(ex, (ex.LineNumber ?? 0) + 1, 0, ErrorLine(text, ex))); }
         }
         else
         {
@@ -47,7 +73,7 @@ internal static partial class ToolCli
                 {
                     // The reader's column is relative to the trimmed line.
                     var indent = Encoding.UTF8.GetByteCount(line.AsSpan(0, line.Length - trimmed.Length));
-                    var message = BatchJsonError(ex, i + 1, indent);
+                    var message = BatchJsonError(ex, i + 1, indent, trimmed);
                     if (invalid == null) throw new UsageException(message);
                     skipped.Add((i + 1, $"line {i + 1}: {message}"));
                 }

@@ -48,6 +48,10 @@ public static partial class ParameterDomains
             ["web"] = WebTools(),
         };
 
+    /// <summary>Tells whether a tool accepts engine=ours; true when no tool is named.</summary>
+    public static bool AcceptsBuiltInEngine(string? tool) =>
+        tool == null || Find(tool, "engine") is { } domain && domain.Values.Contains("ours");
+
     /// <summary>By tool, then parameter.</summary>
     public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, Domain>> Table = FamilyTables.Join(ByFamily);
 

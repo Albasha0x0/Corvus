@@ -493,7 +493,7 @@ public sealed class NativeEngineService : IDisposable
             // The early answer ends the call's wait, not the open: wait on the
             // open itself, then ask again. An open that ended in between is
             // read by the next ask.
-            catch (ToolError e) when (e.Code == ErrorCode.Timeout && e.Details is { } d && d.GetType().GetProperty("stillRunning") != null)
+            catch (ToolError e) when (e.Code == ErrorCode.Timeout && e.Details is Dictionary<string, object?> d && d.ContainsKey("stillRunning"))
             {
                 if (Existing(native, id)?.Running is { } open) await open.WaitAsync(ct).ConfigureAwait(false);
             }
@@ -720,15 +720,32 @@ public sealed class NativeEngineService : IDisposable
             var seconds = Math.Round((Now - run.Started).TotalSeconds);
             var expected = run.Expected.Seconds;
             var minutes = Math.Max(1, (int)Math.Ceiling(expected / 60));
-            var remaining = Math.Max(0, Math.Round(expected - seconds));
-            var retry = Native.Providers.BackgroundRunner.RetryFor(remaining);
+            // Past the estimate there is no time left to report; the overrun is.
+            double? remaining = seconds < expected ? Math.Round(expected - seconds) : null;
+            var overdue = remaining == null ? seconds - expected : (double?)null;
+            var retry = Native.Providers.BackgroundRunner.RetryFor(remaining ?? 0);
             // Once per task, so the end reaches a call that returned early; a later call finds it on the next reply.
             if (!ReferenceEquals(Interlocked.Exchange(ref run.Announced, opening), opening))
                 _ = opening.ContinueWith(done => NotifyEnd(native, id, run, done), TaskScheduler.Default);
-            throw new ToolError(ErrorCode.Timeout,
-                $"analysis running, about {minutes} min ({run.Expected.Basis}); the engine is still opening {native.Id} ({stage}, {seconds:0} s); the open goes on in the background and {OpenLimitText}.",
-                $"get_engine_status image={native.Id} waitSeconds={(int)retry.TotalSeconds} waits for the end, or use engine={FallbackEngine} for an answer now")
-                { Details = new { stillRunning = true, stage, seconds, expectedSeconds = expected, expectedBasis = run.Expected.Basis, remainingSeconds = remaining, estimatedMinutes = minutes, image = native.Id, fallbackEngine = FallbackEngine }, RetryAfter = retry };
+            var tool = OutputCall.Current?.Tool;
+            var offersFallback = BuiltInEngineFor?.Invoke(tool) ?? true;
+            var progress = overdue is { } late
+                ? $"analysis running, {late:0} s past the estimate of about {minutes} min ({run.Expected.Basis})"
+                : $"analysis running, about {minutes} min ({run.Expected.Basis})";
+            var next = $"get_engine_status image={native.Id} waitSeconds={(int)retry.TotalSeconds} waits for the end"
+                + (offersFallback ? $", or use engine={FallbackEngine} for an answer now" : "");
+            var message = $"{progress}; the engine is still opening {native.Id} ({stage}, {seconds:0} s); the open goes on in the background and {OpenLimitText}.";
+            // The key is omitted, not null, when the fallback is not offered.
+            var details = new Dictionary<string, object?>
+            {
+                ["stillRunning"] = true, ["stage"] = stage, ["seconds"] = seconds,
+                ["expectedSeconds"] = expected, ["expectedBasis"] = run.Expected.Basis,
+            };
+            if (remaining is { } left) details["remainingSeconds"] = left; else details["overdueSeconds"] = overdue;
+            details["estimatedMinutes"] = minutes;
+            details["image"] = native.Id;
+            if (offersFallback) details["fallbackEngine"] = FallbackEngine;
+            throw new ToolError(ErrorCode.Timeout, message, next) { Details = details, RetryAfter = retry };
         }
     }
 
@@ -780,6 +797,9 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>The first line of why an open failed: the stall, the exit code or the error.</summary>
     private static string FailureReason(Task opening) =>
         Format.Clip((opening.Exception?.InnerException?.Message ?? "no reason reported").Split('\n')[0].Trim(), 200);
+
+    /// <summary>Tells whether a tool accepts engine=ours; null accepts every tool. Set by the tool contract.</summary>
+    internal static Func<string?, bool>? BuiltInEngineFor { get; set; }
 
     /// <summary>The engine value that answers without waiting for an external engine.</summary>
     private const string FallbackEngine = "ours";

@@ -55,6 +55,35 @@ public class ToolCliTests
         Assert.DoesNotContain("in paths", e.Message);
     }
 
+    // Reproduces M15: batch --help printed the general help.
+    [Fact]
+    public async Task Batch_help_prints_only_the_batch_usage()
+    {
+        var (code, output, _) = await Run("batch", "--help");
+        Assert.Equal(0, code);
+        Assert.StartsWith("batch <file|->", output);
+        Assert.Contains("--keep-going", output);
+        Assert.DoesNotContain("prompts ", output);
+        Assert.DoesNotContain("install", output);
+    }
+
+    // Reproduces M14: the batch error carried the reader's raw position text.
+    [Fact]
+    public void A_batch_line_error_drops_the_raw_position_and_hints_at_backslashes()
+    {
+        var e = Assert.Throws<UsageException>(() => ToolCli.ParseBatch("{\"tool\":\"a\"}\n{\"tool\":\"b\",\"args\":{\"path\":\"C:\\Users\\a.dll\"}}"));
+        Assert.Contains("line 2, byte column", e.Message);
+        Assert.DoesNotContain("LineNumber", e.Message);
+        Assert.DoesNotContain("BytePositionInLine", e.Message);
+        Assert.Contains("/ or a doubled backslash", e.Message);
+        var plain = Assert.Throws<UsageException>(() => ToolCli.ParseBatch("{\"tool\":\"a\"}\n{bad"));
+        Assert.DoesNotContain("backslash", plain.Message);
+        var escaped = Assert.Throws<UsageException>(() => ToolCli.ParseBatch("{\"tool\":\"a\\n\", bad"));
+        Assert.DoesNotContain("backslash", escaped.Message);
+        var array = Assert.Throws<UsageException>(() => ToolCli.ParseBatch("[\n{\"tool\":\"a\\\\b\"},\n{bad"));
+        Assert.DoesNotContain("backslash", array.Message);
+    }
+
     [Fact]
     public async Task A_help_flag_after_the_first_token_is_not_usage()
     {

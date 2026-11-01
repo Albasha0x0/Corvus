@@ -219,6 +219,63 @@ public sealed class EngineOpenProfileTests : IDisposable
         finally { gate.SetResult(); }
     }
 
+    private async Task<ToolError> EarlyAnswer(string? tool, Microsoft.Extensions.Time.Testing.FakeTimeProvider? clock = null)
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine();
+        engine.OpenStages.AddRange([("start", 0), ("analysis", 0), ("ready", 0)]);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = gate;
+        var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        NativeEngineService.BuiltInEngineFor = Corvus.Mcp.ParameterDomains.AcceptsBuiltInEngine;
+        if (tool != null) OutputCall.Begin(new OutputCall(tool, 0, null));
+        try
+        {
+            if (clock == null)
+            {
+                engines.EstimateAfter = TimeSpan.FromMilliseconds(200);
+                return await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
+            }
+            engines.Clock = clock;
+            var call = Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
+            while (!call.IsCompleted)
+            {
+                clock.Advance(TimeSpan.FromHours(1));
+                await Task.WhenAny(call, Task.Delay(20));
+            }
+            return await call;
+        }
+        finally { gate.SetResult(); }
+    }
+
+    // Reproduces N3: list_native_types offered engine=ours, which it does not accept.
+    [Fact]
+    public async Task An_engine_wait_offers_engine_ours_only_to_tools_that_accept_it()
+    {
+        var decompilerOnly = await EarlyAnswer("list_native_types");
+        Assert.DoesNotContain("engine=ours", decompilerOnly.Remediation);
+        Assert.Contains("waitSeconds=", decompilerOnly.Remediation);
+        Assert.False(System.Text.Json.JsonDocument.Parse(decompilerOnly.ToJson()).RootElement.GetProperty("details").TryGetProperty("fallbackEngine", out _));
+        var builtIn = await EarlyAnswer("list_functions");
+        Assert.Contains("engine=ours", builtIn.Remediation);
+    }
+
+    // Reproduces N4: a stale estimate reported remainingSeconds 0.
+    [Fact]
+    public async Task An_open_past_its_estimate_reports_the_overrun_and_no_remaining_time()
+    {
+        var error = await EarlyAnswer(null, new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
+        Assert.Matches(@"^analysis running, \d+ s past the estimate of about \d+ min", error.Message);
+        var details = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement.GetProperty("details");
+        Assert.False(details.TryGetProperty("remainingSeconds", out _));
+        Assert.True(details.GetProperty("overdueSeconds").GetDouble() > 0);
+        Assert.True(error.RetryAfter >= TimeSpan.FromSeconds(30));
+    }
+
     [Fact]
     public async Task An_open_that_ends_after_the_early_answer_leaves_a_workspace_notice()
     {
