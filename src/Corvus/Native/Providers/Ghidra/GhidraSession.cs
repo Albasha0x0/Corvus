@@ -227,6 +227,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         }
     }
 
+    /// <summary>Seconds between analysis checkpoints sent to the worker: the configured interval, at least 1.</summary>
+    internal static double CheckpointSeconds(GhidraProviderOptions options) => Math.Max(1, options.AnalysisCheckpoint.TotalSeconds);
+
     protected override async Task StartWorkerAndOpenCoreAsync(CancellationToken cancellationToken)
     {
         var clock = Stopwatch.StartNew();
@@ -260,6 +263,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("loader_args", Pairs(_loaderArguments)),
                 ("options", Pairs(_analyzerOptions)),
                 ("budget_seconds", Math.Max(1, budget.TotalSeconds)),
+                ("checkpoint_seconds", CheckpointSeconds(provider.Options)),
                 ("analysis", Options.Analysis == EngineAnalysis.None ? "none" : "full"),
                 ("pdb", Options.Symbols == SymbolMode.Off ? null : Options.PdbPath),
                 ("decompilers", provider.Options.Decompilers),

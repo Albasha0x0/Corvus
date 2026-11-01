@@ -58,6 +58,8 @@ public class Worker implements GhidraLaunchable {
     /** Program options category holding the server's stamps; saved with the program. */
     static final String STAMPS = "Corvus";
     static final String ANALYSIS_STAMP = "analysis";
+    /** Stamp of a program saved mid-analysis. */
+    static final String CHECKPOINT = "checkpoint";
     private static final long MAX_RESPONSE_CHARS = 32L << 20;
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
@@ -114,6 +116,8 @@ public class Worker implements GhidraLaunchable {
     /** A cancellable monitor that keeps the last stage message for progress events. */
     static final class Monitor extends TaskMonitorAdapter {
         volatile String message = "";
+        /** Receives each message on the setting thread. */
+        volatile java.util.function.Consumer<String> onMessage;
 
         Monitor() {
             super(true);
@@ -121,7 +125,10 @@ public class Worker implements GhidraLaunchable {
 
         @Override
         public void setMessage(String m) {
-            if (m != null) message = m;
+            if (m == null) return;
+            java.util.function.Consumer<String> h = onMessage;
+            if (h != null) h.accept(m);
+            message = m;
         }
 
         @Override
@@ -494,7 +501,10 @@ public class Worker implements GhidraLaunchable {
                 if (df == null) throw new WorkerError("failed", "the project in " + dir + " holds no program " + programName);
                 program = (Program) df.getDomainObject(this, true, false, r.monitor);
                 migrateLegacy(program, warnings);
-                complete = !noAuto && "complete".equals(program.getOptions(STAMPS).getString(ANALYSIS_STAMP, null));
+                String stamp = program.getOptions(STAMPS).getString(ANALYSIS_STAMP, null);
+                complete = !noAuto && "complete".equals(stamp);
+                // A checkpoint stamp means a worker ended mid-analysis; run it again.
+                if (!noAuto && CHECKPOINT.equals(stamp)) complete = analyze(r, a, warnings);
             }
             else {
                 r.monitor.setMessage("import");
@@ -722,6 +732,8 @@ public class Worker implements GhidraLaunchable {
      * HeadlessAnalyzer's sequence: GhidraProject.analyze skips the transaction and does little on a fresh import, and
      * analyzer options exist only after initializeOptions.
      * The budget cancels the analysis; the result is saved as partial.
+     * Ghidra keeps no queue of pending work, so a run after a checkpoint
+     * re-analyzes the saved program; code found before the checkpoint stays.
      */
     private boolean analyze(Request r, JsonObject a, List<String> warnings) throws Exception {
         r.monitor.setMessage("analysis");
@@ -729,11 +741,16 @@ public class Worker implements GhidraLaunchable {
         AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(program);
         double budget = a.has("budget_seconds") ? a.get("budget_seconds").getAsDouble() : 0;
         Thread timer = null;
+        // Time spent saving checkpoints is not charged to the budget.
+        java.util.concurrent.atomic.AtomicLong saveNanos = new java.util.concurrent.atomic.AtomicLong();
         if (budget > 0) {
             Monitor m = r.monitor;
+            long begun = System.nanoTime();
             timer = new Thread(() -> {
                 try {
-                    Thread.sleep((long) (budget * 1000));
+                    long left;
+                    while ((left = (long) (budget * 1e9) + saveNanos.get() - (System.nanoTime() - begun)) > 0)
+                        Thread.sleep(Math.max(1, Math.min(left / 1_000_000, 1000)));
                     m.cancel();
                 }
                 catch (InterruptedException e) {
@@ -743,8 +760,38 @@ public class Worker implements GhidraLaunchable {
             timer.setDaemon(true);
             timer.start();
         }
-        boolean complete;
-        int tx = program.startTransaction("Analysis");
+        boolean complete = false;
+        boolean done = false;
+        int[] tx = {program.startTransaction("Analysis")};
+        double every = a.has("checkpoint_seconds") ? a.get("checkpoint_seconds").getAsDouble() : 600;
+        Thread analysisThread = Thread.currentThread();
+        long[] saved = {System.nanoTime()};
+        int[] taken = {0};
+        // Save refuses to run in an open transaction, so end it first.
+        // An analyzer's name is the monitor message, so save as one starts.
+        r.monitor.onMessage = name -> {
+            // Only the analysis thread owns the transaction; another would race it.
+            if (Thread.currentThread() != analysisThread
+                    || System.nanoTime() - saved[0] < every * 1e9
+                    || mgr.getAnalyzer(name) == null) return;
+            long t0 = System.nanoTime();
+            saved[0] = t0;
+            try {
+                program.getOptions(STAMPS).setString(ANALYSIS_STAMP, CHECKPOINT);
+                program.endTransaction(tx[0], true);
+                tx[0] = -1;
+                program.save("checkpoint", TaskMonitor.DUMMY);
+                taken[0]++;
+            }
+            catch (Exception e) {
+                warnings.add("analysis checkpoint not saved: " + e.getMessage());
+            }
+            finally {
+                if (tx[0] == -1) tx[0] = program.startTransaction("Analysis");
+                saveNanos.addAndGet(System.nanoTime() - t0);
+            }
+        };
+        long started = System.nanoTime();
         try {
             mgr.initializeOptions();
             Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
@@ -754,13 +801,19 @@ public class Worker implements GhidraLaunchable {
             mgr.initializeOptions();
             mgr.reAnalyzeAll(null);
             mgr.startAnalysis(r.monitor);
+            if (taken[0] == 0 && System.nanoTime() - started > 2 * every * 1e9)
+                warnings.add("analysis ran over " + (long) (2 * every) + " s with no checkpoint taken");
             complete = !r.monitor.isCancelled();
             recordAnalyzerSeconds(mgr);
             if (complete) GhidraProgramUtilities.markProgramAnalyzed(program);
             program.getOptions(STAMPS).setString(ANALYSIS_STAMP, complete ? "complete" : "partial");
+            done = true;
         }
         finally {
-            program.endTransaction(tx, true);
+            r.monitor.onMessage = null;
+            // A failed run must not leave the checkpoint stamp for a later save.
+            if (!done) program.getOptions(STAMPS).setString(ANALYSIS_STAMP, "partial");
+            program.endTransaction(tx[0], true);
             if (timer != null) timer.interrupt();
         }
         r.monitor.setMessage("save");

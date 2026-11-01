@@ -27,6 +27,8 @@ public sealed record GhidraProviderOptions
     public TimeSpan? DecompileTimeout { get; init; }
     /// <summary>Decompiler response limit in MB; null: CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB, else 200.</summary>
     public int? DecompilePayloadMb { get; init; }
+    /// <summary>Interval between saves during the first analysis; default 10 minutes.</summary>
+    public TimeSpan AnalysisCheckpoint { get; init; } = TimeSpan.FromMinutes(10);
     /// <summary>Time the worker gets to save and exit on close before it is killed.</summary>
     public TimeSpan ShutdownGrace { get; init; } = TimeSpan.FromSeconds(30);
     /// <summary>Time the JVM may spend idle (under 1% of a core) while it starts and initializes Ghidra.</summary>

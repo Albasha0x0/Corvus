@@ -24,6 +24,16 @@ public class GhidraWorkerBuildTests
             Assert.Contains($"\"{op}\"", worker);
     }
 
+    [Theory]
+    [InlineData(600, 600)]
+    [InlineData(90, 90)]
+    [InlineData(0.2, 1)]
+    public void The_checkpoint_interval_sent_to_the_worker_is_the_configured_one_and_at_least_a_second(double configured, double sent)
+    {
+        var options = configured == 600 ? new GhidraProviderOptions() : new GhidraProviderOptions { AnalysisCheckpoint = TimeSpan.FromSeconds(configured) };
+        Assert.Equal(sent, GhidraSession.CheckpointSeconds(options));
+    }
+
     [Fact]
     public void Source_hash_depends_on_names_and_bytes_only()
     {
