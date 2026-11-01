@@ -223,7 +223,7 @@ file or its folder.
 | `CORVUS_GUARDDOG` | [GuardDog](https://github.com/DataDog/guarddog) 3.2.0; Linux and macOS only | rule matches in `summarize_file view=package` |
 | `CORVUS_CAPA` | standalone [capa](https://github.com/mandiant/capa) 10.0.0 | `survey_features` capa labels |
 | `CORVUS_EMULATOR` | [speakeasy](https://github.com/mandiant/speakeasy) 2.0.0b9 (report format 5) | `emulate_native engine=speakeasy` |
-| `CORVUS_DIE` | Detect It Easy `diec` | `summarize_build detectItEasy=true` |
+| `CORVUS_DIE` | Detect It Easy `diec` | `summarize_build detectItEasy=true`; packers and protectors in `summarize_file view=native` when set |
 | `CORVUS_CLR32` | `Corvus.Clr32.exe` (`clr32/` beside the server) | decoding 32-bit .NET dumps |
 | `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER`, `CORVUS_DART`, `CORVUS_FLUTTER`, `CORVUS_RCODESIGN`, `CORVUS_ARCHIVE_LISTER`, `CORVUS_LZFSE`, `CORVUS_ASSET_CATALOG_READER`, `CORVUS_ARK_DISASSEMBLER`, `CORVUS_PAK_TOOL`, `CORVUS_GAMEMAKER_TOOL`, `CORVUS_QEMU_AARCH64` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft, Dart SDK, Flutter SDK, rcodesign, 7-Zip, lzfse, carfile-go, ark_disasm, repak, UndertaleModCli, qemu-aarch64 | test oracles only |
 

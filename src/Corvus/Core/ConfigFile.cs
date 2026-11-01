@@ -41,7 +41,7 @@ public static class ConfigFile
             Native.Providers.Ghidra.GhidraOptions.PythonVariable, Native.Providers.Ghidra.GhidraOptions.ExtensionsVariable,
             Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, Native.Providers.Ida.IdaInstallation.DirectoryVariable,
             Native.Providers.Ida.IdaProvider.PythonVariable, Native.Providers.Live.FridaBackend.PythonVariable,
-            Services.Analysis.BuildSummary.DieVariable, Setup.Installation.HomeVariable, ServerOptions.AuditVariable,
+            Setup.Installation.HomeVariable, ServerOptions.AuditVariable,
             ServerOptions.MaxCallMinutesVariable, Native.Providers.ExternalTools.ChildEnvironmentVariable,
         ]), StringComparer.OrdinalIgnoreCase);
 

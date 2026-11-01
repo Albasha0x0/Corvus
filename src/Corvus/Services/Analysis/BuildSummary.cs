@@ -90,7 +90,6 @@ public static class BuildSummary
     [ThreadStatic]
     internal static long BytesRead;
     private const int MaxTypeNames = 50_000;
-    private static readonly TimeSpan DieTimeout = TimeSpan.FromSeconds(20);
 
     private static readonly string[] DataMarkers = ["globalgamemanagers", "data.unity3d", "mainData", "level0", "Managed", "il2cpp_data"];
 
@@ -112,7 +111,7 @@ public static class BuildSummary
         if (!File.Exists(full) && !Directory.Exists(full)) throw Targets.FileNotFound(full);
         string? die = null;
         if (detectItEasy)
-            die = FindDie() ?? throw new ToolError(ErrorCode.ProviderUnavailable,
+            die = DetectItEasy.Find() ?? throw new ToolError(ErrorCode.ProviderUnavailable,
                 "Detect It Easy (diec) was not found: looked at CORVUS_DIE (diec.exe or its folder) and for diec / diec.exe on PATH.",
                 "set CORVUS_DIE to the Detect It Easy folder (or diec.exe), or call again with detectItEasy=false");
 
@@ -150,7 +149,7 @@ public static class BuildSummary
         LayoutMarkers(layout, backend, markers, ct);
         SectionMarkers(layout, backend, markers);
         if (die != null) DieMarkers(die, layout, backend, markers, notes, ct);
-        else if (FindDie() is { } found) notes.Add($"Detect It Easy is available ({found}): detectItEasy=true adds its compiler / packer / protector detections.");
+        else if (DetectItEasy.Find() is { } found) notes.Add($"Detect It Easy is available ({found}): detectItEasy=true adds its compiler / packer / protector detections.");
         var (arch, archSource) = Architecture(layout, backend);
         var folders = Folders(layout, ct);
         if (engine.Agreement == "disagree") notes.Add("Version sources disagree: the version resource is the player binary's, the serialized files are the data's; a patched or mixed install shows this.");
@@ -716,25 +715,6 @@ public static class BuildSummary
         _ => $"packer ({section})",
     };
 
-    internal const string DieVariable = "CORVUS_DIE";
-
-    /// <summary>diec from CORVUS_DIE (the file or its folder) or PATH; null when absent.</summary>
-    internal static string? FindDie()
-    {
-        var name = OperatingSystem.IsWindows() ? "diec.exe" : "diec";
-        if (ExternalTools.ReadVariable(DieVariable) is { Length: > 0 } configured)
-        {
-            if (File.Exists(configured)) return Path.GetFullPath(configured);
-            if (Directory.Exists(configured) && File.Exists(Path.Combine(configured, name))) return Path.GetFullPath(Path.Combine(configured, name));
-        }
-        foreach (var dir in (ExternalTools.ReadVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            try { if (File.Exists(Path.Combine(dir.Trim('"'), name))) return Path.Combine(dir.Trim('"'), name); }
-            catch (ArgumentException) { }
-        }
-        return null;
-    }
-
     private static void DieMarkers(string die, Layout layout, BackendFacts backend, List<MarkerFact> markers, List<string> notes, CancellationToken ct)
     {
         var targets = new[] { layout.Exe, backend.NativeBinary, backend.ManagedDirectory != null ? Path.Combine(backend.ManagedDirectory, "Assembly-CSharp.dll") : null }
@@ -742,36 +722,10 @@ public static class BuildSummary
         foreach (var target in targets)
         {
             ct.ThrowIfCancellationRequested();
-            var run = PythonLocator.RunCapture(die, ["-j", target!], DieTimeout);
-            if (run.StartError != null || run.TimedOut)
-            {
-                notes.Add($"Detect It Easy on {Path.GetFileName(target)}: {(run.TimedOut ? $"no answer in {DieTimeout.TotalSeconds:0} s" : run.StartError)}.");
-                continue;
-            }
-            try
-            {
-                using var doc = JsonDocument.Parse(run.Stdout);
-                foreach (var detect in doc.RootElement.GetProperty("detects").EnumerateArray())
-                    foreach (var value in detect.TryGetProperty("values", out var values) ? values.EnumerateArray() : default)
-                    {
-                        var type = value.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
-                        var text = value.TryGetProperty("string", out var s) ? s.GetString() ?? "" : "";
-                        if (text.Length == 0) continue;
-                        var category = type.ToLowerInvariant() switch
-                        {
-                            "packer" => "packing",
-                            "protector" or "protection" => "packing",
-                            "obfuscator" or "(heur)obfuscator" => "transformer",
-                            "cryptor" => "encryption",
-                            _ => "toolchain",
-                        };
-                        markers.Add(new MarkerFact(category, text, Path.GetFileName(target)!, "detect_it_easy"));
-                    }
-            }
-            catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
-            {
-                notes.Add($"Detect It Easy on {Path.GetFileName(target)}: unreadable output ({ex.Message}).");
-            }
+            var result = DetectItEasy.Scan(die, target!, ct);
+            if (result.Problem != null) notes.Add(result.Problem);
+            foreach (var d in result.Detections)
+                markers.Add(new MarkerFact(DetectItEasy.Category(d.Type), d.Text, Path.GetFileName(target)!, "detect_it_easy"));
         }
     }
 

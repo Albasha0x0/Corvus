@@ -212,10 +212,11 @@ public class ServerStatusToolVariableTests
             ["CORVUS_CAPA"] = Place("capa"),
             ["CORVUS_EMULATOR"] = Place("speakeasy"),
             ["CORVUS_GUARDDOG"] = Place("guarddog"),
+            ["CORVUS_DIE"] = Place("diec"),
         };
         var tools = Corvus.Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
         Assert.Equal(tools.Select(t => t.Variable).Order(), variables.Keys.Order());
-        using var scope = new EnvironmentScope().Set(FakeTool.ScriptVariable, fake.ScriptPath).Set("CORVUS_DIE", Place("diec"));
+        using var scope = new EnvironmentScope().Set(FakeTool.ScriptVariable, fake.ScriptPath);
         foreach (var (name, value) in variables) scope.Set(name, value);
 
         (int code, string output, string error) result;

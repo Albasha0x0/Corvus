@@ -49,7 +49,8 @@ internal sealed class NativeFileView : IFileSummaryView
         // Wasm has its own view.
         if (Native.NativeImageLoader.Detect(file.Head) is Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm) return null;
         var image = NativeImageFacts.Of(file.Path, file.Image);
-        var packers = Native.PackerDetection.OfFile(file.Path, file.Image);
+        var packers = Native.PackerDetection.OfFile(file.Path, file.Image).ToList();
+        var dieNote = AddDetectItEasy(file.Path, packers, ct);
         var aot = NativeAot(file.Kind, file.Image, ct);
         var hits = file.Options.AllNetworkValues && file.Kind is "native PE" or "NativeAOT executable" or "elf" or "mach-o" ? IndicatorList.FromImageStrings("native", file.Image, ct) : [];
         var hosted = HostEntries(file);
@@ -57,13 +58,33 @@ internal sealed class NativeFileView : IFileSummaryView
         var isPe = file.Kind is "native PE" or "NativeAOT executable" || (file.Kind == "data" && Native.NativeImageLoader.Detect(file.Head) == Native.NativeFileKind.Pe);
         var pe = isPe ? PeHighlights(file.Image, ct) : [];
         var content = NativeEmbeddedContent.Highlights(file.Image, ct);
-        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0 && pe.Count == 0 && content.Count == 0) return null;
+        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0 && pe.Count == 0 && content.Count == 0 && dieNote == null) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
         highlights.AddRange(pe);
         highlights.AddRange(content);
+        if (dieNote != null) highlights.Add(dieNote);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
         return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding), .. hosted], Indicators = hits };
+    }
+
+    /// <summary>Adds the packers Detect It Easy names when CORVUS_DIE is set, one diec run per call; returns why none were read, null when none is owed.</summary>
+    private static string? AddDetectItEasy(string path, List<Native.PackerFinding> packers, CancellationToken ct)
+    {
+        if (!DetectItEasy.Configured()) return null;
+        if (DetectItEasy.Find() is not { } die) return $"{Native.Providers.ExternalTools.Die.Variable} is set but Detect It Easy was not found there; set it to diec or its folder. The packers listed come from section names and headers only.";
+        var result = DetectItEasy.Scan(die, path, ct);
+        foreach (var d in result.Detections.Where(d => DetectItEasy.Category(d.Type) == "packing"))
+            if (!packers.Any(p => PackerKey(p.Name) == PackerKey(d.Text)))
+                packers.Add(new(d.Text, d.Type.Equals("protector", StringComparison.OrdinalIgnoreCase) || d.Type.Equals("protection", StringComparison.OrdinalIgnoreCase) ? "hardening tool" : "packing tool", "Detect It Easy"));
+        return result.Problem == null ? null : $"{result.Problem} The packers listed come from section names and headers only.";
+    }
+
+    // Drops a "(version)" suffix and a "/alias" so "UPX(3.96)" matches "UPX".
+    private static string PackerKey(string name)
+    {
+        var cut = name.IndexOfAny(['(', '/']);
+        return (cut < 0 ? name : name[..cut]).Trim().ToUpperInvariant();
     }
 
     /// <summary>PE sections, mitigations, PDB path, TLS callbacks, import capabilities; one note when unreadable.</summary>

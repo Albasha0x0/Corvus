@@ -118,7 +118,7 @@ internal static class FakeDevice
     /// fake's copies, which can outlive the test and keep its folder from being deleted.
     /// </summary>
     public static IReadOnlyDictionary<string, string?> ServerEnvironment => new Dictionary<string, string?>(
-        Corvus.Native.Providers.ExternalTools.Table.Select(t => t.Variable).Append("CORVUS_DIE")
+        Corvus.Native.Providers.ExternalTools.Table.Select(t => t.Variable)
             .Select(v => KeyValuePair.Create(v, (string?)(EnvironmentScope.AtStart.GetValueOrDefault(v) ?? ""))))
     {
         ["CORVUS_ADB"] = FakeTool.Executable,

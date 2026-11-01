@@ -173,6 +173,12 @@ public static partial class ExternalTools
         ["capa" + Exe], ["--version"], 10, "survey_features category=capa and analyze_native_function labels", false,
         Ops(("freeze", ["-j", "{file}"]), ("analyze", ["-j", "{file}"]))) { MinimumReason = "the result and freeze formats are read as capa 10 writes them" };
 
+    // Diec prints the detections of its signature database as JSON.
+    // Only the names and types are read.
+    public static readonly ExternalTool Die = new("die", "Detect It Easy (diec)", "CORVUS_DIE", ExternalToolKind.Executable,
+        ["diec" + Exe], ["--version"], 0, "summarize_build detectItEasy=true; summarize_file view=native packers", false,
+        Ops(("scan", ["-j", "{file}"])));
+
     // Tested with speakeasy 2.0.0b9 (report format 5, no version output); unknown APIs stop the run instead of returning 1.
     public static readonly ExternalTool Emulator = new("emulator", "speakeasy 2.0.0b9 (Windows API emulator)", "CORVUS_EMULATOR", ExternalToolKind.Executable,
         ["speakeasy" + Exe], [], 0, "emulate_native engine=speakeasy (a whole program or raw code)", false,
@@ -245,7 +251,7 @@ public static partial class ExternalTools
         ["qemu-aarch64" + Exe], ["--version"], 0, "oracle for the AArch64 emulator in tests", true, Ops(("run", ["{file}"])));
 
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool, QemuUser];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Die, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool, QemuUser];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

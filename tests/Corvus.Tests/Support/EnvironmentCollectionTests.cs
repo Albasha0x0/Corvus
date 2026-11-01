@@ -59,7 +59,7 @@ public sealed partial class EnvironmentCollectionTests
     {
         // Read through ExternalTools.ReadVariable or named CORVUS_TEST_*; any other variable reaches every concurrent test.
         var tools = Corvus.Native.Providers.ExternalTools.Table.Select(t => t.Variable)
-            .Append("CORVUS_DIE").Append(Corvus.Core.ReferencePacks.OfflineVariable).Append(Corvus.Native.Pdb.PdbLocator.CacheVariable)
+            .Append(Corvus.Core.ReferencePacks.OfflineVariable).Append(Corvus.Native.Pdb.PdbLocator.CacheVariable)
             .ToHashSet(StringComparer.Ordinal);
         var setters = new[]
         {
