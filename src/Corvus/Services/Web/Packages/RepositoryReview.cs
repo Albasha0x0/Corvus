@@ -5,7 +5,7 @@ namespace Corvus.Services.Web.Packages;
 
 public static partial class PackageReview
 {
-    private const int MaxBuildFiles = 500, MaxHookLines = 400;
+    private const int MaxBuildFiles = 500, MaxHookLines = 400, MaxSubmoduleFiles = 10, MaxLfsFiles = 10, MaxAttributeFiles = 50;
 
     // What runs each hook, from githooks(5).
     private static readonly Dictionary<string, string> HookEvents = new(StringComparer.Ordinal)
@@ -44,7 +44,17 @@ public static partial class PackageReview
     {
         var review = new AgentReview([], [], []);
         var paths = files.Paths.Where(p => !p.Contains("node_modules/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
-        foreach (var path in paths.Where(p => p == ".git/config" || p.EndsWith("/.git/config", StringComparison.Ordinal)).Take(1)) GitConfig(files, path, review, ct);
+        var configs = Named(paths, ".git/config");
+        Dictionary<string, string>? configured = null;
+        if (configs.Count > 0) configured = GitConfig(files, configs[0], review, ct);
+        if (configs.Count > 1)
+        {
+            review.Notes.Add($"{configs.Count} .git/config files found; only the first was read, so filter commands are unknown");
+            configured = null;
+        }
+        foreach (var path in Capped(Named(paths, ".gitmodules"), MaxSubmoduleFiles, ".gitmodules", review)) GitModules(files, path, review, ct);
+        foreach (var path in Capped(Named(paths, ".lfsconfig"), MaxLfsFiles, ".lfsconfig", review)) LfsConfig(files, path, review);
+        foreach (var path in Capped(Named(paths, ".gitattributes"), MaxAttributeFiles, ".gitattributes", review)) GitAttributes(files, path, configured, review);
         foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)\.git/hooks/[^/]+$", RegexOptions.NonBacktracking) && !p.EndsWith(".sample", StringComparison.Ordinal)))
             GitHook(files, path, "a clone never carries hooks, so this copy had them added", true, review, ct);
         foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)\.husky/[^/_][^/]*$", RegexOptions.NonBacktracking) && HookEvents.ContainsKey(p[(p.LastIndexOf('/') + 1)..])))
@@ -86,19 +96,28 @@ public static partial class PackageReview
             || ext == ".cmake";
     }
 
+    private static List<string> Named(List<string> paths, string name) =>
+        paths.Where(p => p == name || p.EndsWith("/" + name, StringComparison.Ordinal)).ToList();
+
+    // A scan bound is reported: the files past it are unknown, not absent.
+    private static IEnumerable<string> Capped(List<string> found, int cap, string name, AgentReview review)
+    {
+        if (found.Count > cap) review.Notes.Add($"{found.Count} {name} files found; the first {cap} by path were read, the rest are unknown");
+        return found.Take(cap);
+    }
+
     /// <summary>The first line of a script that is not a shebang, comment or blank; null when there is none.</summary>
     private static string? FirstCommand(string? text) =>
         text?.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0 && !l.StartsWith('#'));
 
     // --- git ---
 
-    private static void GitConfig(PackageFiles files, string path, AgentReview review, CancellationToken ct)
+    /// <summary>
+    /// Returns the key, value and 1-based line of each git-config assignment.
+    /// The section and key are lower case; the subsection keeps its case.
+    /// </summary>
+    private static IEnumerable<(string Key, string Value, int Line)> ConfigLines(string text)
     {
-        if (files.Text(path) is not { } text)
-        {
-            review.Notes.Add($"{path}: not read; the commands it sets are unknown");
-            return;
-        }
         string section = "";
         int line = 0;
         foreach (var raw in text.Split('\n'))
@@ -115,15 +134,126 @@ public static partial class PackageReview
             }
             int eq = l.IndexOf('=');
             if (eq <= 0 || section.Length == 0) continue;
-            var key = section + "." + l[..eq].Trim().ToLowerInvariant();
-            var value = l[(eq + 1)..].Trim().Trim('"');
+            yield return (section + "." + l[..eq].Trim().ToLowerInvariant(), l[(eq + 1)..].Trim().Trim('"'), line);
+        }
+    }
+
+    /// <summary>Reviews the commands a git config sets; returns each command key with its value, or null when the file was not read.</summary>
+    private static Dictionary<string, string>? GitConfig(PackageFiles files, string path, AgentReview review, CancellationToken ct)
+    {
+        if (files.Text(path) is not { } text)
+        {
+            review.Notes.Add($"{path}: not read; the commands it sets are unknown");
+            return null;
+        }
+        var set = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value, line) in ConfigLines(text))
+        {
             var hit = ConfigCommands.FirstOrDefault(c => c.Key.IsMatch(key));
             if (hit.Key == null || key.StartsWith("alias.", StringComparison.Ordinal) && !value.StartsWith('!')) continue;
             if (key == "core.fsmonitor" && value is "true" or "false") continue;
+            set[key] = value;
             review.Entries.Add(new AgentEntry("git config", key, Clip(value, 200), path, line));
             review.Findings.Add(new PackageFinding("package/git-config-command", hit.Noteworthy ? "noteworthy" : "review", "repository hook", $"git config {key} runs {hit.When}: {Clip(value, 200)}", path, line));
             ScanCommand(value, "git config " + key, path, line, review, ct);
         }
+        return set;
+    }
+
+    // git-submodule(1) runs "update = !command", and the ext:: transport runs a command.
+    private static void GitModules(PackageFiles files, string path, AgentReview review, CancellationToken ct)
+    {
+        if (files.Text(path) is not { } text)
+        {
+            review.Notes.Add($"{path}: not read; the submodules it names are unknown");
+            return;
+        }
+        foreach (var (key, value, line) in ConfigLines(text))
+        {
+            var m = Regex.Match(key, @"^submodule\.(.+)\.(url|update)$", RegexOptions.NonBacktracking);
+            if (!m.Success) continue;
+            var name = m.Groups[1].Value;
+            if (m.Groups[2].Value == "update")
+            {
+                if (!value.StartsWith('!')) continue;
+                review.Entries.Add(new AgentEntry("submodule", name, Clip(value, 200), path, line));
+                review.Findings.Add(new PackageFinding("package/git-submodule", "noteworthy", "repository hook", $"submodule {name} runs a command on git submodule update: {Clip(value, 200)}", path, line));
+                ScanCommand(value[1..], "submodule " + name, path, line, review, ct);
+                continue;
+            }
+            review.Entries.Add(new AgentEntry("submodule", name, Clip(value, 200), path, line));
+            if (value.StartsWith("ext::", StringComparison.OrdinalIgnoreCase))
+                review.Findings.Add(new PackageFinding("package/git-submodule", "noteworthy", "repository hook", $"submodule {name} is fetched through the ext:: transport, which runs a command: {Clip(value, 200)}", path, line));
+            else if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || value.StartsWith("git://", StringComparison.OrdinalIgnoreCase))
+                review.Findings.Add(new PackageFinding("package/git-submodule", "review", "repository hook", $"submodule {name} is fetched without transport encryption: {Clip(value, 200)}", path, line));
+        }
+    }
+
+    // git-lfs reads only its endpoint keys from .lfsconfig.
+    private static void LfsConfig(PackageFiles files, string path, AgentReview review)
+    {
+        if (files.Text(path) is not { } text)
+        {
+            review.Notes.Add($"{path}: not read; the large-file endpoint it sets is unknown");
+            return;
+        }
+        foreach (var (key, value, line) in ConfigLines(text))
+        {
+            if (!Regex.IsMatch(key, @"^lfs\.(url|pushurl)$|^remote\..+\.lfsurl$", RegexOptions.NonBacktracking)) continue;
+            review.Entries.Add(new AgentEntry("git lfs", key, Clip(value, 200), path, line));
+            if (!value.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) continue;
+            review.Findings.Add(new PackageFinding("package/git-lfs-endpoint", "noteworthy", "repository hook",
+                $"{key} sets the large-file endpoint to {Clip(value, 200)}, over plain HTTP", path, line));
+        }
+    }
+
+    // A filter= name runs the commands the git config sets for it.
+    private static void GitAttributes(PackageFiles files, string path, Dictionary<string, string>? configured, AgentReview review)
+    {
+        if (files.Text(path) is not { } text)
+        {
+            review.Notes.Add($"{path}: not read; the filters it assigns are unknown");
+            return;
+        }
+        int line = 0;
+        foreach (var raw in text.Split('\n'))
+        {
+            line++;
+            var l = raw.Trim();
+            if (l.Length == 0 || l[0] == '#' || l.StartsWith("[attr]", StringComparison.Ordinal)) continue;
+            var tokens = AttributeTokens(l);
+            foreach (var name in tokens.Skip(1).Where(t => t.StartsWith("filter=", StringComparison.Ordinal)).Select(t => t["filter=".Length..]).Where(n => n.Length > 0))
+            {
+                var commands = configured == null ? [] : new[] { "smudge", "process", "clean" }.Where(k => configured.ContainsKey($"filter.{name}.{k}")).ToList();
+                // Git LFS installs this filter itself; only a command set for it is worth a finding.
+                if (commands.Count == 0 && name == "lfs") continue;
+                var onCheckout = commands.Any(k => k is "smudge" or "process");
+                review.Entries.Add(new AgentEntry("git attribute", $"filter={name}", Clip(tokens[0], 160), path, line));
+                var detail = commands.Count > 0
+                    ? $"{tokens[0]} uses filter {name}; the git config sets its {string.Join(", ", commands)} command" + (onCheckout ? ", which runs on checkout" : "")
+                    : configured == null
+                        ? $"{tokens[0]} uses filter {name}; the git config is absent or not read, so its commands are unknown"
+                        : $"{tokens[0]} uses filter {name}; the git config sets no command for it";
+                review.Findings.Add(new PackageFinding("package/git-attribute-filter", onCheckout ? "noteworthy" : "review", "repository hook", detail, path, line));
+            }
+        }
+    }
+
+    // A quoted pattern is one token even when it holds spaces.
+    private static List<string> AttributeTokens(string line)
+    {
+        var tokens = new List<string>();
+        int i = 0;
+        if (line[0] == '"')
+        {
+            int end = 1;
+            while (end < line.Length && line[end] != '"') end += line[end] == '\\' ? 2 : 1;
+            end = Math.Min(end + 1, line.Length);
+            tokens.Add(line[..end]);
+            i = end;
+        }
+        tokens.AddRange(line[i..].Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries));
+        return tokens;
     }
 
     private static void GitHook(PackageFiles files, string path, string origin, bool noteworthy, AgentReview review, CancellationToken ct)

@@ -6,7 +6,7 @@ using Corvus.Core;
 namespace Corvus.Services.Web.Packages;
 
 /// <summary>Configuration that runs or steers code, at its file and line (null: the whole file).</summary>
-/// <param name="Kind">instruction file, hook, mcp server, folder-open task, workflow job, git hook, git config, dev container, direnv, or build step.</param>
+/// <param name="Kind">instruction file, hook, mcp server, folder-open task, workflow job, git hook, git config, submodule, git lfs, git attribute, dev container, direnv, or build step.</param>
 public sealed record AgentEntry(string Kind, string Name, string? Command, string Path, int? Line = null);
 
 public static partial class PackageReview

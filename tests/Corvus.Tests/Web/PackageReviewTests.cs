@@ -2984,6 +2984,92 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Agents!, a => a is { Kind: "build step", Path: "cpp/CMakeLists.txt", Line: 2 });
     }
 
+    // Commands are inert echoes; .git/config sets a smudge command for the "norm" filter only.
+    private string SubmoduleRepository(string name) => Repository(name,
+        ("README.md", "# Sample\n"),
+        (".git/config", "[filter \"norm\"]\n\tsmudge = echo smudge\n\tclean = echo clean\n"),
+        (".gitmodules", "[submodule \"vendor/a\"]\n\tpath = vendor/a\n\turl = https://example.invalid/a.git\n[submodule \"vendor/b\"]\n\tpath = vendor/b\n\turl = ext::sh -c echo%s b\n[submodule \"vendor/c\"]\n\tpath = vendor/c\n\turl = ../c.git\n\tupdate = !echo update c\n"),
+        (".lfsconfig", "[lfs]\n\turl = http://example.invalid/objects\n"),
+        (".gitattributes", "*.txt filter=norm\n*.bin filter=lfs -text\n*.dat filter=other\n# *.md filter=norm\n"));
+
+    [Fact]
+    public void Submodule_lfs_and_filter_files_name_what_runs_at_file_and_line()
+    {
+        var r = Review(SubmoduleRepository("submodules"));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".gitmodules", Line: 6 } && f.Detail.Contains("ext:: transport", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".gitmodules", Line: 10 } && f.Detail.Contains("runs a command on git submodule update: !echo update c", StringComparison.Ordinal));
+        Assert.DoesNotContain(r.Findings, f => f.Path == ".gitmodules" && (f.Line is 3 or 9));
+        Assert.Equal(["vendor/a", "vendor/b", "vendor/c", "vendor/c"], r.Agents!.Where(a => a.Kind == "submodule").Select(a => a.Name).Order(StringComparer.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".lfsconfig", Line: 2 } && f.Detail.Contains("over plain HTTP", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".gitattributes", Line: 1 } && f.Detail.Contains("sets its smudge, clean command, which runs on checkout", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "review", Path: ".gitattributes", Line: 3 } && f.Detail.EndsWith("the git config sets no command for it", StringComparison.Ordinal));
+        Assert.Equal([1, 3], r.Agents!.Where(a => a.Kind == "git attribute").Select(a => a.Line!.Value).Order());
+    }
+
+    [Fact]
+    public void A_filter_without_a_git_config_is_reported_as_unknown_not_absent()
+    {
+        var r = Review(Repository("no-config", (".gitattributes", "*.txt filter=norm\n")));
+        Assert.Contains(r.Findings, f => f is { Level: "review", Path: ".gitattributes", Line: 1 } && f.Detail.EndsWith("the git config is absent or not read, so its commands are unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_plain_transport_submodule_url_is_a_review_finding()
+    {
+        var r = Review(Repository("plain-submodules", (".gitmodules", "[submodule \"a\"]\n\turl = http://example.invalid/a.git\n[submodule \"b\"]\n\turl = git://example.invalid/b.git\n")));
+        Assert.Contains(r.Findings, f => f is { Level: "review", Path: ".gitmodules", Line: 2 });
+        Assert.Contains(r.Findings, f => f is { Level: "review", Path: ".gitmodules", Line: 4 });
+    }
+
+    [Fact]
+    public void An_lfs_pushurl_and_remote_lfsurl_over_plain_http_are_noteworthy()
+    {
+        var r = Review(Repository("lfs-keys", (".lfsconfig", "[lfs]\n\tpushurl = http://example.invalid/p\n[remote \"origin\"]\n\tlfsurl = http://example.invalid/o\n\n[lfs]\n\turl = https://example.invalid/s\n")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Line: 2 });
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Line: 4 });
+        Assert.DoesNotContain(r.Findings, f => f.Path == ".lfsconfig" && f.Line == 7);
+        Assert.Contains(r.Agents!, a => a.Kind == "git lfs" && a.Line == 7);
+    }
+
+    [Fact]
+    public void A_filter_with_a_process_command_is_noteworthy_and_a_configured_lfs_filter_is_listed()
+    {
+        var r = Review(Repository("process-filter",
+            (".git/config", "[filter \"p\"]\n\tprocess = echo p\n[filter \"lfs\"]\n\tclean = echo c\n"),
+            (".gitattributes", "[attr]macro filter=p\n\"a b\" filter=p\n*.bin filter=lfs\n")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".gitattributes", Line: 2 } && f.Detail.StartsWith("\"a b\" uses filter p", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "review", Path: ".gitattributes", Line: 3 });
+        Assert.DoesNotContain(r.Findings, f => f.Path == ".gitattributes" && f.Line == 1);
+    }
+
+    [Fact]
+    public void Several_git_configs_and_files_past_a_cap_are_named_as_unknown()
+    {
+        var files = new List<(string, string)> { ("a/.git/config", "[filter \"n\"]\n\tsmudge = echo\n"), ("b/.git/config", ""), ("a/.gitattributes", "*.txt filter=n\n") };
+        for (int i = 0; i < 12; i++) files.Add(($"m{i:00}/.gitmodules", "[submodule \"x\"]\n\turl = ../x\n"));
+        var r = Review(Repository("capped", [.. files]));
+        Assert.Contains(r.Notes, n => n.StartsWith("2 .git/config files found; only the first was read", StringComparison.Ordinal));
+        Assert.Contains(r.Notes, n => n.StartsWith("12 .gitmodules files found; the first 10", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f.Path == "a/.gitattributes" && f.Detail.EndsWith("so its commands are unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(PackageReview))]
+    public void Fuzzed_submodule_and_attribute_files_never_throw()
+    {
+        var root = SubmoduleRepository("fuzz-submodules");
+        foreach (var name in new[] { ".gitmodules", ".lfsconfig", ".gitattributes" })
+        {
+            var path = Path.Combine(root, name);
+            var failures = FormatFuzz.Run(File.ReadAllBytes(path), b =>
+            {
+                File.WriteAllBytes(path, b);
+                _ = PackageReview.Review(root, default);
+            }, 100);
+            Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+        }
+    }
+
     [Fact]
     public void A_source_folder_opens_in_summarize_file_as_its_package_view()
     {
