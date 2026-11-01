@@ -16,6 +16,9 @@ internal static partial class RuntimeCollapse
     // Setup instructions allowed between a guard branch and its initializer call.
     private const int LazyWindow = 4;
 
+    // Calls scanned after a guard branch before the block is given up.
+    private const int LazyCalls = 8;
+
     /// <summary>The collapse mode, ignoring case: null, empty or "none" is off, "runtime" is on; anything else is rejected.</summary>
     internal static bool Parse(string? mode) => mode?.Trim().ToLowerInvariant() switch
     {
@@ -47,7 +50,7 @@ internal static partial class RuntimeCollapse
         for (int i = 0; i < lines.Count;)
         {
             int lead = 0;
-            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va, out lead) ?? Init(lines, i, va, calls);
+            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va, calls, out lead) ?? ClassInit(lines, i, va, calls) ?? Init(lines, i, va, calls);
             if (run == null || !Contiguous(lines, i + lead, run.Count)) { i++; continue; }
             runs[run.Start] = run;
             i += lead + run.Count;
@@ -107,10 +110,10 @@ internal static partial class RuntimeCollapse
         return Make(lines, i, last + 1 - i + 1, "write barrier", va);
     }
 
-    // Skips exactly one initializer call after a zero check of a static. The
-    // run starts at the branch, so register moves scheduled after the check
-    // stay listed.
-    private static Run? Lazy(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, out int lead)
+    // Skips initializer calls after a zero check of a static. The run starts
+    // at the branch, so register moves scheduled after the check stay listed.
+    // One call may have any target; several must all be metadata initializers.
+    private static Run? Lazy(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls, out int lead)
     {
         lead = 0;
         var cmp = lines[i];
@@ -120,24 +123,49 @@ internal static partial class RuntimeCollapse
         if (j + 1 >= lines.Count) return null;
         var jump = lines[j];
         if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
-        for (int k = j + 1; k < lines.Count && k <= j + 1 + LazyWindow; k++)
+        int callCount = 0, setup = 0;
+        bool allInit = true;
+        for (int k = j + 1; k < lines.Count; k++)
         {
             var l = lines[k];
+            if (l.Rva >= skip) return null;
             if (l.Facts.Flow == FlowKind.Call)
             {
+                if (++callCount > LazyCalls) return null;
+                allInit &= Names(InitMetadata(), l, calls);
+                setup = 0;
                 int last = k;
                 uint end = l.Rva + (uint)l.Facts.Length;
                 // A fence and flag store may precede the skip target.
                 if (end != skip && last + 1 < lines.Count && IsFence(lines[last + 1])) { last++; end = lines[last].Rva + (uint)lines[last].Facts.Length; }
                 if (end != skip && last + 1 < lines.Count && IsFlagStore(lines[last + 1], cmp)) { last++; end = lines[last].Rva + (uint)lines[last].Facts.Length; }
-                if (end != skip) return null;
+                // A fence between two calls is part of the run, not setup.
+                if (end != skip) { k = last; continue; }
+                if (callCount > 1 && !allInit) return null;
                 lead = j == i + 1 ? 0 : j - i;
                 return Make(lines, i + lead, last - i - lead + 1, $"lazy initialization of {va(cmp.Facts.MemoryTarget ?? 0)}", va);
             }
-            if (Mnemonic(l) is not ("mov" or "lea" or "xor" or "sub" or "add")) return null;
+            if (Mnemonic(l) is not ("mov" or "lea" or "xor" or "sub" or "add") || ++setup > LazyWindow) return null;
         }
         return null;
     }
+
+    // Folds a zero check of a class flag, a skip and the class-init call.
+    private static Run? ClassInit(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls)
+    {
+        if (i + 2 >= lines.Count) return null;
+        var cmp = lines[i];
+        if (Mnemonic(cmp) != "cmp" || cmp.Facts.MemoryIsRipRelative || !cmp.Text.Contains('[') || !ZeroOperand().IsMatch(Normal(cmp))) return null;
+        var jump = lines[i + 1];
+        var call = lines[i + 2];
+        if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
+        if (call.Facts.Flow != FlowKind.Call || !Names(ClassInitName(), call, calls) || call.Rva + (uint)call.Facts.Length != skip) return null;
+        return Make(lines, i, 3, "class initialization", va);
+    }
+
+    // A call matches when its call-map name, its operand text or its decoder comment does.
+    private static bool Names(Regex name, DisasmLine l, IReadOnlyDictionary<uint, string>? calls) =>
+        name.IsMatch(calls != null && calls.TryGetValue(l.Rva, out var c) ? c : "") || name.IsMatch(l.Text) || name.IsMatch(l.Comment ?? "");
 
     // A move between registers has no memory operand, so it cannot write memory.
     private static bool IsRegisterMove(DisasmLine l) => Mnemonic(l) == "mov" && l.Facts.Flow == FlowKind.Next && !l.Text.Contains('[') && !l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == null;
@@ -155,11 +183,16 @@ internal static partial class RuntimeCollapse
         var m = StaticBase().Match(l.Text);
         if (m.Success) return Make(lines, i, 1, "metadata initialization " + m.Groups[1].Value, va);
         if (l.Facts.Flow != FlowKind.Call) return null;
-        string? named = calls != null && calls.TryGetValue(l.Rva, out var c) ? c : null;
-        var t = StaticBaseName().Match(named ?? "");
+        var t = StaticBaseName().Match(calls != null && calls.TryGetValue(l.Rva, out var c) ? c : "");
         if (!t.Success) t = StaticBaseName().Match(l.Comment ?? "");
         return t.Success ? Make(lines, i, 1, "metadata initialization " + t.Value, va) : null;
     }
+
+    [GeneratedRegex(@"(?<![A-Za-z0-9])InitMetadata(?![A-Za-z0-9])")]
+    private static partial Regex InitMetadata();
+
+    [GeneratedRegex(@"(?<![A-Za-z0-9])Runtime_ClassInit(?![A-Za-z0-9])")]
+    private static partial Regex ClassInitName();
 
     [GeneratedRegex(@"\s*,\s*|\s+")]
     private static partial Regex Spaces();

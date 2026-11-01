@@ -143,13 +143,18 @@ public sealed partial class NativeCodeTools
             : new Dictionary<uint, RuntimeCollapse.Run>();
         uint skipTo = 0;
         int before = 0, after = 0;
+        var jumpedTo = runs.Count == 0 ? [] : KeptBranchTargets(listing, runs);
+        // Switch tables print their targets as labels, so those stay referenced.
+        if (runs.Count > 0) foreach (var sw in index.GetGraph(fn, ct).Switches) jumpedTo.UnionWith(sw.Targets);
+        // A label inside a run stays only when a kept line or a table uses it.
+        bool Referenced(string text, uint rva) => !text.StartsWith("loc_", StringComparison.Ordinal) || rva == fn.Start || jumpedTo.Contains(rva);
         foreach (var (label, line) in listing)
         {
             if (line != null && line.Rva < skipTo)
             {
-                // Keep a label inside the run, so branches into it still resolve.
                 before++;
-                if (pending != null) { sb.AppendLine(pending); pending = null; }
+                if (pending != null && Referenced(pending, line.Rva)) sb.AppendLine(pending);
+                pending = null;
                 continue;
             }
             if (label != null) pending = label.EndsWith(':') ? label : label + ":";
@@ -158,7 +163,8 @@ public sealed partial class NativeCodeTools
             after++;
             if (runs.TryGetValue(line.Rva, out var run))
             {
-                if (pending != null) { sb.AppendLine(pending); pending = null; }
+                if (pending != null && Referenced(pending, line.Rva)) sb.AppendLine(pending);
+                pending = null;
                 sb.AppendLine("; " + run.Note);
                 skipTo = run.End;
                 end = run.End;
@@ -176,6 +182,20 @@ public sealed partial class NativeCodeTools
         }
         if (runs.Count > 0) sb.AppendLine($"; collapse=runtime: {Plural(before, "instruction")} listed as {Plural(after, "line")}");
         if (truncated) sb.AppendLine($"; truncated at {Plural(max, "instruction")}");
+    }
+
+    // Branch targets of the lines that stay listed after the runs are removed.
+    private static HashSet<uint> KeptBranchTargets(IEnumerable<(string? Label, DisasmLine? Line)> listing, Dictionary<uint, RuntimeCollapse.Run> runs)
+    {
+        var targets = new HashSet<uint>();
+        uint skipTo = 0;
+        foreach (var (_, line) in listing)
+        {
+            if (line == null || line.Rva < skipTo) continue;
+            if (runs.TryGetValue(line.Rva, out var run)) { skipTo = run.End; continue; }
+            if (line.Facts.BranchTarget is { } t) targets.Add(t);
+        }
+        return targets;
     }
 
     /// <summary>What lies between two blocks of <paramref name="fn"/>: a switch table, padding, another function's code, or unreached bytes.</summary>

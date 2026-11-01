@@ -436,4 +436,227 @@ public class RuntimeCollapseTests
         };
         Assert.Empty(RuntimeCollapse.Find(lines, Va));
     }
+
+    private static DisasmLine[] ClassInitBlock(string call = "call 0000000140001000h", string cmp = "cmp dword ptr [rcx+0E0h],0", string? comment = null)
+        =>
+        [
+            L(0, cmp),
+            L(4, "jne 000000014000000Ch", FlowKind.ConditionalJump, 12),
+            L(8, call, FlowKind.Call, 0x1000, len: 4) with { Comment = comment },
+            L(12, "mov rax,rcx"),
+        ];
+
+    // R6: the class-init check is folded.
+    [Theory]
+    [InlineData("cmp dword ptr [rcx+0E0h],0")]
+    [InlineData("cmp byte ptr [rdi+18h],0")]
+    public void A_flag_check_that_skips_the_class_init_helper_is_one_class_initialization(string cmp)
+    {
+        var calls = new Dictionary<uint, string> { [8] = "Runtime_ClassInit" };
+        var run = Assert.Single(RuntimeCollapse.Find(ClassInitBlock(cmp: cmp), Va, calls).Values);
+        Assert.Equal(3, run.Count);
+        Assert.StartsWith("collapsed: class initialization", run.Note);
+    }
+
+    // R6: the decoder comment names the helper when the call map does not.
+    [Fact]
+    public void A_class_init_helper_named_only_by_the_decoder_comment_is_folded()
+    {
+        var lines = ClassInitBlock(comment: "Runtime_ClassInit");
+        Assert.Single(RuntimeCollapse.Find(lines, Va).Values);
+        var other = new Dictionary<uint, string> { [8] = "Runtime_ObjectNew" };
+        Assert.Single(RuntimeCollapse.Find(lines, Va, other).Values);
+    }
+
+    // R6: the helper name alone gates the fold of an otherwise identical block.
+    [Theory]
+    [InlineData("Runtime_ObjectNew")]
+    [InlineData("Runtime_ClassInitFoo")]
+    [InlineData("NotRuntime_ClassInit2")]
+    public void A_flag_check_that_skips_a_call_to_another_function_is_kept(string name)
+    {
+        Assert.Single(RuntimeCollapse.Find(ClassInitBlock(), Va, new Dictionary<uint, string> { [8] = "Runtime_ClassInit" }));
+        Assert.Empty(RuntimeCollapse.Find(ClassInitBlock(), Va, new Dictionary<uint, string> { [8] = name }));
+        Assert.Empty(RuntimeCollapse.Find(ClassInitBlock(), Va));
+    }
+
+    private static DisasmLine[] TwoInitBlock(bool fence = true) =>
+    [
+        L(0, "cmp byte ptr [140003000h],0", rip: true, mem: 0x3000),
+        L(4, "jne 0000000140000028h", FlowKind.ConditionalJump, 0x28),
+        L(8, "lea rcx,[140004000h]"),
+        L(12, "call 0000000140001000h", FlowKind.Call, 0x1000),
+        L(16, "lea rcx,[140004008h]"),
+        L(20, "call 0000000140001000h", FlowKind.Call, 0x1000),
+        .. fence ? new[] { L(24, Fence), L(28, Flag, rip: true, mem: 0x3000, len: 12) } : [L(24, Flag, rip: true, mem: 0x3000, len: 16)],
+        L(0x28, "nop"),
+    ];
+
+    // R6: a lazy block with two metadata-init calls is folded.
+    [Theory]
+    [InlineData(true, 8)]
+    [InlineData(false, 7)]
+    public void A_lazy_block_with_two_metadata_init_calls_is_one_lazy_initialization(bool fence, int count)
+    {
+        var calls = new Dictionary<uint, string> { [12] = "Runtime_InitMetadata", [20] = "Runtime_InitMetadata" };
+        var run = Assert.Single(RuntimeCollapse.Find(TwoInitBlock(fence), Va, calls).Values);
+        Assert.Equal(count, run.Count);
+        Assert.Equal(0x28u, run.End);
+    }
+
+    // R6: either the call-map name or the decoder comment names an init call.
+    [Fact]
+    public void A_metadata_init_call_named_by_the_decoder_comment_counts_in_a_lazy_block()
+    {
+        var lines = TwoInitBlock();
+        lines[3] = lines[3] with { Comment = "Runtime_InitMetadata" };
+        var calls = new Dictionary<uint, string> { [12] = "Runtime_Other", [20] = "Runtime_InitMetadata" };
+        Assert.Single(RuntimeCollapse.Find(lines, Va, calls).Values);
+    }
+
+    // R6: several calls fold only when every one is a metadata-init helper.
+    [Theory]
+    [InlineData("Runtime_ObjectNew")]
+    [InlineData("Runtime_InitMetadataFoo")]
+    public void A_lazy_block_with_a_second_call_to_another_function_is_kept(string second)
+    {
+        var calls = new Dictionary<uint, string> { [12] = "Runtime_InitMetadata", [20] = second };
+        Assert.Empty(RuntimeCollapse.Find(TwoInitBlock(), Va, calls));
+    }
+
+    // R6: one call keeps folding whatever its target.
+    [Fact]
+    public void A_lazy_block_with_one_call_to_any_target_and_no_fence_is_folded()
+    {
+        var lines = new[]
+        {
+            L(0, "cmp byte ptr [140003000h],0", rip: true, mem: 0x3000),
+            L(4, "jne 0000000140000010h", FlowKind.ConditionalJump, 0x10),
+            L(8, "lea rcx,[140004000h]"),
+            L(12, "call 0000000140001000h", FlowKind.Call, 0x1000, len: 4),
+            L(16, "nop"),
+        };
+        var calls = new Dictionary<uint, string> { [12] = "Runtime_ObjectNew" };
+        Assert.Equal(4, Assert.Single(RuntimeCollapse.Find(lines, Va, calls).Values).Count);
+    }
+
+    // R6: the scan stops at the skip target.
+    [Fact]
+    public void A_lazy_scan_does_not_continue_past_the_skip_target()
+    {
+        var lines = new List<DisasmLine>
+        {
+            L(0, "cmp byte ptr [140003000h],0", rip: true, mem: 0x3000),
+            L(4, "jne 0000000140000010h", FlowKind.ConditionalJump, 0x10),
+            L(8, "lea rcx,[140004000h]"),
+            L(12, "mov rax,rcx"),
+        };
+        for (uint at = 16; at < 80; at += 8)
+        {
+            lines.Add(L(at, "mov rax,rcx"));
+            lines.Add(L(at + 4, "call 0000000140001000h", FlowKind.Call, 0x1000));
+        }
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
+    private static (NativeCodeIndex Index, NativeFunction Fn, uint Case0) BarrierCase(bool table)
+    {
+        var a = new Assembler(64);
+        var dflt = a.CreateLabel();
+        var cases = new[] { a.CreateLabel(), a.CreateLabel(), a.CreateLabel(), a.CreateLabel() };
+        if (table)
+        {
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.RDX, new MemoryOperand(Register.RIP, (long)Base, 8)));
+            a.cmp(ecx, 3);
+            a.ja(dflt);
+            a.movsxd(rax, ecx);
+            a.mov(ecx, __dword_ptr[rdx + rax * 4 + (int)(Data + 0x40)]);
+            a.add(rcx, rdx);
+            a.jmp(rcx);
+        }
+        else a.sub(rsp, 0x28);
+        a.Label(ref cases[0]);
+        a.shr(rax, 12);
+        a.bts(__qword_ptr[rdx], rax);
+        a.jne(cases[0]);
+        a.mov(eax, 10);
+        a.ret();
+        for (int i = 1; i < cases.Length; i++)
+        {
+            a.Label(ref cases[i]);
+            a.mov(eax, i + 10);
+            a.ret();
+        }
+        a.Label(ref dflt);
+        a.xor(eax, eax);
+        a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), Base + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        var data = new byte[0x100];
+        for (int i = 0; i < cases.Length; i++)
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x40 + i * 4), (uint)(result.GetLabelRIP(cases[i]) - Base));
+        var image = CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), data, entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        return (index, index.FunctionAt(Code)!, (uint)(result.GetLabelRIP(cases[0]) - Base));
+    }
+
+    // R6: a label that only the collapsed run jumps to is dropped.
+    [Fact]
+    public void A_label_used_only_inside_a_collapsed_run_is_dropped()
+    {
+        var (index, fn, case0) = BarrierCase(table: false);
+        var text = Listing(index, fn, true);
+        Assert.Contains("; collapsed: write barrier", text);
+        Assert.DoesNotContain($"loc_{case0:X}:", text);
+        Assert.Contains($"loc_{case0:X}:", Listing(index, fn, false));
+    }
+
+    // R6: a switch-table target in front of a collapsed run keeps its label.
+    [Fact]
+    public void A_switch_table_target_in_front_of_a_collapsed_run_keeps_its_label()
+    {
+        var (index, fn, case0) = BarrierCase(table: true);
+        Assert.Contains(index.GetGraph(fn).Switches, s => s.Targets.Contains(case0));
+        var text = Listing(index, fn, true).Split('\n');
+        int note = Array.FindIndex(text, l => l.StartsWith("; collapsed: write barrier"));
+        Assert.True(note > 0);
+        Assert.Equal($"loc_{case0:X}:", text[note - 1]);
+    }
+    [Fact]
+    public void A_lazy_block_with_a_fence_after_each_of_two_initializer_calls_is_one_run()
+    {
+        // The retest on 106651bf: the fence after the first call ended the scan.
+        var lines = new[]
+        {
+            L(0x00, "cmp byte ptr [140003000h],0", rip: true, mem: 0x3000),
+            L(0x04, "mov rdi,rax"),
+            L(0x08, "jne 0000000140000030h", FlowKind.ConditionalJump, 0x30),
+            L(0x0C, "lea rcx,[140004000h]"),
+            L(0x10, "call Runtime_InitMetadata", FlowKind.Call, 0x1000),
+            L(0x14, "lock or dword ptr [rsp],0"),
+            L(0x18, "lea rcx,[140004008h]"),
+            L(0x1C, "call Runtime_InitMetadata", FlowKind.Call, 0x1000),
+            L(0x20, "lock or dword ptr [rsp],0"),
+            L(0x24, "mov byte ptr [140003000h],1", rip: true, mem: 0x3000, len: 12),
+            L(0x30, "test rdi,rdi"),
+        };
+        var run = Assert.Single(RuntimeCollapse.Find(lines, Va).Values);
+        Assert.Equal((0x08u, 0x30u), (run.Start, run.End));
+    }
+
+    [Fact]
+    public void A_class_init_call_named_only_in_its_operand_text_is_folded()
+    {
+        // The retest on 106651bf: a call named by the name layer has no comment.
+        var lines = new[]
+        {
+            L(0x00, "mov rcx,[140005000h]", rip: true, mem: 0x5000),
+            L(0x04, "cmp dword ptr [rcx+0E0h],0"),
+            L(0x08, "jne 000000014000000Dh", FlowKind.ConditionalJump, 0x0D, len: 2),
+            L(0x0A, "call Runtime_ClassInit", FlowKind.Call, 0x2000, len: 3),
+            L(0x0D, "mov ecx,[rsi+18h]"),
+        };
+        var run = Assert.Single(RuntimeCollapse.Find(lines, Va).Values);
+        Assert.Contains("class initialization", run.Note);
+    }
 }
