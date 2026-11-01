@@ -27,6 +27,76 @@ public class AotExportTests : IDisposable
         Assert.Contains("RVA 0x1100", type);
     }
 
+    private Corvus.Tools.EditTools EditTools() => new(_env.Workspace, _env.Edits, _env.History, _env.Decompiler, _env.Pager, _env.AotMetadata);
+
+    [Fact]
+    public async Task Stubbing_a_dummy_assembly_method_names_its_native_address_and_patch_call()
+    {
+        // FT-299 H2.
+        foreach (var dryRun in new[] { true, false })
+        {
+            var text = await EditTools().StubMethod("Fixture.Native.NativeThing::First", dryRun: dryRun);
+            Assert.Contains("Dummy assembly:", text);
+            Assert.Contains("RVA 0x1000", text);
+            Assert.Contains("patch_asm or patch_bytes with image=<native image> address=0x1000", text);
+        }
+    }
+
+    [Fact]
+    public async Task Saving_an_edited_dummy_assembly_says_the_file_is_a_dummy()
+    {
+        // FT-299 H2.
+        var tools = EditTools();
+        await tools.StubMethod("Fixture.Native.NativeThing::First", dryRun: false);
+        var text = await tools.SaveAssembly(_env.Fixture.Id, _dir.File("Saved.dll"));
+        Assert.Contains("Dummy assembly: the saved file is not what the program runs", text);
+        Assert.Contains("patch_asm or patch_bytes", text);
+    }
+
+    [Fact]
+    public async Task Rewriting_and_simplifying_a_dummy_assembly_method_say_the_edits_are_not_run()
+    {
+        // FT-299 H2.
+        var tools = EditTools();
+        var il = await tools.PatchMethodIL("Fixture.Native.NativeThing::First", "ret", dryRun: true);
+        Assert.Contains("Dummy assembly: this edit is not what the program runs", il);
+        Assert.Contains("RVA 0x1000", il);
+        var simplified = await tools.SimplifyMethods(symbol: "Fixture.Native.NativeThing::First", dryRun: true);
+        Assert.True(simplified.Contains("Dummy assembly: these edits are not what the program runs"), simplified);
+        Assert.Contains("RVA 0x1000", simplified);
+    }
+
+    [Fact]
+    public async Task An_edit_of_a_method_without_an_address_has_no_dummy_note()
+    {
+        // The fixture carries [Address] on a few methods only; the protocol samples
+        // labelled it a dummy before the note looked at the edited method.
+        var tools = EditTools();
+        Assert.DoesNotContain("Dummy assembly", await tools.StubMethod("Fixture.Model.Secret::Validate(string)", "true", dryRun: false));
+        Assert.DoesNotContain("Dummy assembly", await tools.SaveAssembly(_env.Fixture.Id, _dir.File("Plain.dll")));
+    }
+
+    [Fact]
+    public async Task An_ordinary_assembly_edit_reply_has_no_dummy_note()
+    {
+        using var dir = new TempDir();
+        var managed = dir.File("Plain.dll");
+        File.WriteAllBytes(managed, ContainerFixtures.Module("Plain", m =>
+        {
+            var t = new dnlib.DotNet.TypeDefUser("Plain", "Thing", m.CorLibTypes.Object.TypeDefOrRef);
+            var method = new dnlib.DotNet.MethodDefUser("Run", dnlib.DotNet.MethodSig.CreateStatic(m.CorLibTypes.Int32));
+            method.Body = new dnlib.DotNet.Emit.CilBody();
+            method.Body.Instructions.Add(dnlib.DotNet.Emit.OpCodes.Ldc_I4_0.ToInstruction());
+            method.Body.Instructions.Add(dnlib.DotNet.Emit.OpCodes.Ret.ToInstruction());
+            t.Methods.Add(method);
+            m.Types.Add(t);
+        }));
+        var plain = _env.Workspace.Load(managed);
+        var tools = EditTools();
+        Assert.DoesNotContain("Dummy assembly", await tools.StubMethod("Plain.Thing::Run", "1", dryRun: false));
+        Assert.DoesNotContain("Dummy assembly", await tools.SaveAssembly(plain.Id, dir.File("Plain.out.dll")));
+    }
+
     [Fact]
     public async Task A_managed_body_and_an_invalid_address_get_no_placeholder_banner()
     {

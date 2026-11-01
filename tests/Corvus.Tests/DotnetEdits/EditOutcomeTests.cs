@@ -13,7 +13,7 @@ public sealed class EditOutcomeTests : IDisposable
     private readonly ResultStore _results = new(ResultCacheOptions.MemoryOnly);
     private readonly EditTools _tools;
 
-    public EditOutcomeTests() => _tools = new EditTools(_env.Workspace, _env.Edits, _env.History, _env.Decompiler, _env.Pager, results: _results);
+    public EditOutcomeTests() => _tools = new EditTools(_env.Workspace, _env.Edits, _env.History, _env.Decompiler, _env.Pager, _env.AotMetadata, results: _results);
 
     public void Dispose()
     {

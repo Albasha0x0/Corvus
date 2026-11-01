@@ -12,7 +12,7 @@ public sealed class EditDigestTests : IDisposable
     private readonly TempDir _dir = new();
     private readonly EditTools _tools;
 
-    public EditDigestTests() => _tools = new EditTools(_env.Workspace, _env.Edits, _env.History, _env.Decompiler, _env.Pager);
+    public EditDigestTests() => _tools = new EditTools(_env.Workspace, _env.Edits, _env.History, _env.Decompiler, _env.Pager, _env.AotMetadata);
 
     public void Dispose()
     {

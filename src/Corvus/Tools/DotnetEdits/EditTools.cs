@@ -5,6 +5,7 @@ using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Services;
+using dnlib.DotNet;
 using Corvus.Services.Simplify;
 using static Corvus.Tools.ToolSupport;
 
@@ -13,8 +14,9 @@ namespace Corvus.Tools;
 /// <summary>In-memory .NET edits, seen by every read and written to disk only by save_assembly.</summary>
 [McpServerToolType]
 public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager,
-    EditJournal? journal = null, ResultStore? results = null, ServerOptions? options = null)
+    AotMetadataService aotMetadata, EditJournal? journal = null, ResultStore? results = null, ServerOptions? options = null)
 {
+
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename a type, method, field, property (and accessors) or event in memory; other assemblies keep the old name.")]
     public Task<string> RenameSymbol(
@@ -55,7 +57,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
-        return Outcome(sym.Assembly, dryRun, () => edits.StubMethod(sym, value, dryRun), _ => [new EditChange("body", sym.Label, After: $"return {value ?? "default"};")]);
+        return Outcome(sym.Assembly, dryRun, () => edits.StubMethod(sym, value, dryRun), _ => [new EditChange("body", sym.Label, After: $"return {value ?? "default"};")],
+            DummyNote(sym.Assembly, sym.Member as MethodDef, "this edit is"));
     }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
@@ -74,7 +77,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         {
             var result = edits.PatchMethodCSharp(sym, code, dryRun, cancellationToken);
             return dryRun ? result : $"{result}\n\nDecompiled result:\n{decompiler.DecompileMembers(sym.Assembly, [sym.Member], cancellationToken)}";
-        }, _ => [new EditChange("body", sym.Label)]);
+        }, _ => [new EditChange("body", sym.Label)], DummyNote(sym.Assembly, sym.Member as MethodDef, "this edit is"));
     }, cancellationToken));
 
     [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
@@ -198,7 +201,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         if (!dryRun) journal?.Replayed(path);
         var ids = run.Items.Where(i => i.EditId != null).Select(i => EditId.TryParse(i.EditId, out var id) ? id : default).ToList();
         var changes = run.Items.Where(i => i.Error == null).Select(i => new EditChange("replay", i.Description)).ToList();
-        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, changes, ids) { Failed = run.Failed, Items = [.. run.Items] }, run.Report);
+        var dummy = string.Concat(ids.Select(i => i.Target).Distinct().Select(t => DummyNote(workspace.Get(t), null, "these edits are")));
+        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, changes, ids) { Failed = run.Failed, Items = [.. run.Items] }, run.Report + dummy);
     }, cancellationToken));
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
@@ -212,7 +216,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
-        return Outcome(sym.Assembly, dryRun, () => edits.PatchMethodIL(sym, il, mode, dryRun), _ => [new EditChange("body", sym.Label)]);
+        return Outcome(sym.Assembly, dryRun, () => edits.PatchMethodIL(sym, il, mode, dryRun), _ => [new EditChange("body", sym.Label)],
+            DummyNote(sym.Assembly, sym.Member as MethodDef, "this edit is"));
     }, cancellationToken);
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
@@ -244,7 +249,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             sym = SymbolResolver.ResolveOne(workspace, assembly, symbol);
             asm = sym.Assembly;
         }
-        return Outcome(asm, dryRun, () => edits.SimplifyMethods(asm, sym, options, dryRun, cancellationToken), Touched("body", sym?.Label ?? asm.Id));
+        return Outcome(asm, dryRun, () => edits.SimplifyMethods(asm, sym, options, dryRun, cancellationToken), Touched("body", sym?.Label ?? asm.Id),
+            DummyNote(asm, sym?.Member as MethodDef, "these edits are"));
     }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
@@ -261,13 +267,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     {
         SaveTarget.RequireReplaceAllowed(replaceOriginal, options);
         var asm = workspace.Get(assembly);
+        var dummy = DummyNote(asm, null, "the saved file is");
         var report = edits.Save(asm, outputPath, overwrite, strict, out var saved, replaceOriginal, versioned);
         journal?.Saved(asm);
-        return ToolOutput.Report(report, saved);
+        return ToolOutput.Report(report + dummy, saved);
     }, cancellationToken);
 
     /// <summary>Runs an edit: the edits it recorded (none for a dry run), its changes, and text with the edit ids and pending count.</summary>
-    private static string Outcome(LoadedAssembly asm, bool dryRun, Func<string> edit, Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> changes)
+    private static string Outcome(LoadedAssembly asm, bool dryRun, Func<string> edit, Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> changes, string note = "")
     {
         int before = asm.Edits.Count;
         var (text, previewed) = EditPreview.Capture(edit);
@@ -279,7 +286,29 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             : $"\nEdit {string.Join(", ", ids)}. Unsaved edits in {asm.Id}: {asm.Edits.Count}.";
         if (digest != null) tail += $"\nDigest {digest}{(dryRun ? " (the applied edit and the save report the same)" : "")}.";
         return ToolOutput.Edit(new EditOutcome(!dryRun && ids.Count > 0, dryRun, dryRun || ids.Count > 0 ? changes(recorded) : [], ids) { Digest = digest },
-            $"[{asm.Id}] {text}{tail}");
+            $"[{asm.Id}] {text}{tail}{note}");
+    }
+
+    /// <summary>
+    /// The line saying <paramref name="subject"/> (a subject with its verb, "this edit is") does not change the program: for
+    /// <paramref name="method"/> when it has a native address, else when an unsaved edit of <paramref name="asm"/> touched one; empty otherwise.
+    /// </summary>
+    private string DummyNote(LoadedAssembly asm, MethodDef? method, string subject)
+    {
+        var index = aotMetadata.GetIndex(asm);
+        if (index.Count == 0) return "";
+        if (method != null)
+        {
+            if (aotMetadata.Find(asm, method)?.Rva is not { } rva) return "";
+            return $"\nDummy assembly: {subject} not what the program runs; it runs the native code at RVA 0x{rva:X}. " +
+                   $"Next: patch_asm or patch_bytes with image=<native image> address=0x{rva:X}.";
+        }
+        // A compiled assembly may carry a few [Address] attributes, so only an
+        // unsaved edit of an addressed method makes the note.
+        var touched = asm.Edits.SelectMany(e => e.Touched).ToHashSet(StringComparer.Ordinal);
+        if (!index.Any(a => touched.Contains(Format.MemberLabel(a.Method)))) return "";
+        return $"\nDummy assembly: {subject} not what the program runs; it runs the native code at each method's address. " +
+               $"Next: get_method_addresses assembly={asm.Id}, then patch_asm or patch_bytes with image=<native image> address=0x<RVA>.";
     }
 
     /// <summary>Runs a long call with progress: one report at once (before any lock wait), then the phases its services report.</summary>

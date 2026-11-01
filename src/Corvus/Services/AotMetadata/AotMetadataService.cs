@@ -10,7 +10,7 @@ public sealed class AotMetadataService(AssemblyWorkspace workspace)
     private static readonly string[] KnownAttributes =
         ["AddressAttribute", "FieldOffsetAttribute", "TokenAttribute", "MetadataOffsetAttribute", "Il2CppAddressAttribute"];
 
-    private readonly Dictionary<LoadedAssembly, (int Generation, List<MethodAddress> Index)> _indexes = new();
+    private readonly Dictionary<LoadedAssembly, (List<MethodAddress> Index, Dictionary<uint, MethodAddress> ByRid)> _indexes = new();
 
     public sealed record DummyAttribute(string Name, IReadOnlyDictionary<string, string> Values)
     {
@@ -84,11 +84,20 @@ public sealed class AotMetadataService(AssemblyWorkspace workspace)
         return ulong.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h) ? h : null;
     }
 
+    /// <summary>The address of <paramref name="method"/> in <paramref name="asm"/>, or null when it has none.</summary>
+    public MethodAddress? Find(LoadedAssembly asm, MethodDef method)
+    {
+        GetIndex(asm);
+        lock (_indexes)
+            return _indexes[asm].ByRid.GetValueOrDefault(method.Rid);
+    }
+
+    /// <summary>The methods of <paramref name="asm"/> with a native address; empty for an ordinary assembly. Built once per loaded assembly, as edits keep the address attributes.</summary>
     public IReadOnlyList<MethodAddress> GetIndex(LoadedAssembly asm)
     {
         lock (_indexes)
         {
-            if (_indexes.TryGetValue(asm, out var e) && e.Generation == workspace.Generation)
+            if (_indexes.TryGetValue(asm, out var e))
                 return e.Index;
         }
         var index = new List<MethodAddress>();
@@ -105,8 +114,13 @@ public sealed class AotMetadataService(AssemblyWorkspace workspace)
                 addr.Values.TryGetValue("Slot", out var slot);
                 index.Add(new MethodAddress(asm, m, ParseNumber(rva), ParseNumber(va), ParseNumber(off), ParseNumber(len), slot));
             }
+        var loaded = workspace.Assemblies;
         lock (_indexes)
-            _indexes[asm] = (workspace.Generation, index);
+        {
+            // Unloaded assemblies leave the cache so their modules can be freed.
+            foreach (var gone in _indexes.Keys.Where(k => !loaded.Contains(k)).ToList()) _indexes.Remove(gone);
+            _indexes[asm] = (index, index.ToDictionary(a => a.Method.Rid));
+        }
         return index;
     }
 

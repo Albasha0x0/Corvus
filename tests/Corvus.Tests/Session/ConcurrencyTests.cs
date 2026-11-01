@@ -69,7 +69,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
     {
         using var _ = env;
         using var dir = new TempDir();
-        var editTools = new Corvus.Tools.EditTools(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager);
+        var editTools = new Corvus.Tools.EditTools(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager, env.AotMetadata);
         var workspaceTools = new Corvus.Tools.WorkspaceTools(env.Workspace, new AotMetadataService(env.Workspace),
             new IndexingService(env.Workspace, new CallGraphService(env.Workspace), new ServerOptions()), new Corvus.Services.Analysis.UnpackService(env.Workspace));
         using var started = new ManualResetEventSlim();

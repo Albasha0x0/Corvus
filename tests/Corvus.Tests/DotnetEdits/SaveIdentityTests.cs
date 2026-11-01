@@ -86,7 +86,7 @@ public class SaveIdentityTests : IDisposable
         var loaded = File.ReadAllBytes(original);
         using var env = new Env(original);
         Rename(env);
-        EditTools Tools(params string[] args) => new(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager, options: ServerOptions.Parse(args));
+        EditTools Tools(params string[] args) => new(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager, env.AotMetadata, options: ServerOptions.Parse(args));
 
         var error = await Assert.ThrowsAsync<ToolError>(() => Tools().SaveAssembly(env.Fixture.Id, original, replaceOriginal: true));
         Assert.Equal(ErrorCode.Unsupported, error.Code);
