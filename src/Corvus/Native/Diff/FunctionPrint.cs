@@ -29,6 +29,28 @@ public sealed class FunctionPrint
     public string[] Imports { get; init; } = [];
     public string[] Strings { get; init; } = [];
     public ulong[] Constants { get; init; } = [];
+    /// <summary>Constants set up shortly before a direct call; paired by index with FedTargets.</summary>
+    public ulong[] FedConstants { get; init; } = [];
+    public uint[] FedTargets { get; init; } = [];
+    /// <summary>The image these prints belong to; set when the image is built.</summary>
+    internal ImagePrints? Image { get; set; }
+    private sealed record Scored(int Version, ulong[] Constants);
+    private Scored? _scored;
+
+    /// <summary>Constants that count toward similarity; excludes those set up for an ignored callee.</summary>
+    internal ulong[] ScoredConstants
+    {
+        get
+        {
+            if (FedConstants.Length == 0 || Image is not { } image) return Constants;
+            int version = image.IgnoreVersion;
+            if (_scored is { } known && known.Version == version) return known.Constants;
+            var left = image.LeftOutConstants(this);
+            var kept = left.Count == 0 ? Constants : Constants.Where(k => !left.Contains(k)).ToArray();
+            _scored = new Scored(version, kept);
+            return kept;
+        }
+    }
     /// <summary>Called functions (indexes into the image's prints) in call-site order, each once.</summary>
     public int[] Callees { get; set; } = [];
     /// <summary>Calling functions (indexes), each once, by address.</summary>
@@ -72,6 +94,41 @@ public sealed class ImagePrints
         return counts;
     }
 
+    /// <summary>Instructions after a constant within which a call counts as using it.</summary>
+    internal const int FeedWindow = 4;
+
+    private int _ignoreVersion;
+
+    /// <summary>Changes whenever the ignored callees are recomputed.</summary>
+    internal int IgnoreVersion => _ignoreVersion;
+
+    /// <summary>Constants of <paramref name="p"/> left out of its score; empty when none.</summary>
+    internal IReadOnlySet<ulong> LeftOutConstants(FunctionPrint p)
+    {
+        var ignored = IgnoredCallees;
+        HashSet<ulong>? left = null;
+        for (int i = 0; i < p.FedConstants.Length; i++)
+            if (ByStart.TryGetValue(p.FedTargets[i], out var callee) && ignored[callee]) (left ??= []).Add(p.FedConstants[i]);
+        return left ?? (IReadOnlySet<ulong>)EmptyConstants;
+    }
+
+    private static readonly HashSet<ulong> EmptyConstants = [];
+
+    private IReadOnlyList<ulong>? _leftOut;
+
+    /// <summary>Distinct constants left out of any function of the image, ascending.</summary>
+    internal IReadOnlyList<ulong> LeftOutAll
+    {
+        get
+        {
+            if (_leftOut is { } cached) return cached;
+            var all = new SortedSet<ulong>();
+            foreach (var f in Functions)
+                if (f.FedConstants.Length > 0) all.UnionWith(LeftOutConstants(f));
+            return _leftOut = all.ToArray();
+        }
+    }
+
     /// <summary>Share of an image's functions that makes a callee common.</summary>
     internal const double CommonCalleeShare = 0.02;
 
@@ -86,7 +143,7 @@ public sealed class ImagePrints
     internal IReadOnlySet<int> NamedHelpers
     {
         get => _helpers;
-        set { _helpers = value; _ignored = null; }
+        set { _helpers = value; _ignored = null; _leftOut = null; _ignoreVersion++; }
     }
 
     /// <summary>Marks the functions at <paramref name="helperStarts"/> and those named Runtime_ as helpers; once per image.</summary>
@@ -189,8 +246,13 @@ public sealed class ImagePrints
                 if (site.Caller != null && byStart.TryGetValue(site.Caller.Start, out var c)) callers.Add(c);
             prints[i].Callers = callers.ToArray();
         });
-        return new ImagePrints { Index = index, Functions = prints, ByStart = byStart, Elapsed = sw.Elapsed, Failed = failed };
+        var built = new ImagePrints { Index = index, Functions = prints, ByStart = byStart, Elapsed = sw.Elapsed, Failed = failed };
+        foreach (var p in prints) p.Image = built;
+        return built;
     }
+
+    // Instructions after a shift by 12 that may mask the card index.
+    private const int CardMaskWindow = 3;
 
     private static FunctionPrint Print(NativeCodeIndex index, MaskedDecoder decoder, NativeFunction f, int i, Dictionary<uint, string> slots, CancellationToken ct)
     {
@@ -207,11 +269,33 @@ public sealed class ImagePrints
         var bytes = new Hash64();
         var histogram = new SortedDictionary<int, int>();
         var constants = new SortedSet<ulong>();
-        foreach (var insn in code)
+        var fedConstants = new List<ulong>();
+        var fedTargets = new List<uint>();
+        for (int n = 0; n < code.Count; n++)
         {
+            if (code[n].Constant is not { } fed) continue;
+            // The first call after the constant, with no branch between.
+            for (int m = n + 1; m < code.Count && m <= n + FeedWindow; m++)
+            {
+                if (code[m].Flow == FlowKind.Call)
+                {
+                    if (code[m].Target is { } callee) { fedConstants.Add(fed); fedTargets.Add(callee); }
+                    break;
+                }
+                if (code[m].Flow != FlowKind.Next) break;
+            }
+        }
+        bool x86 = index.Image.Arch is NativeArch.X86 or NativeArch.X64;
+        int cardMask = -1;
+        for (int n = 0; n < code.Count; n++)
+        {
+            var insn = code[n];
             for (int b = 0; b < insn.Length; b++) bytes.AddByte(insn.IsWild(b) ? 0x100 : insn.Bytes[b]);
             histogram[insn.Mnemonic] = histogram.GetValueOrDefault(insn.Mnemonic) + 1;
-            if (insn.Constant is { } k) constants.Add(k);
+            // An inlined write barrier shifts an address by 12, then masks the
+            // card index; its mask is shared by every storing function.
+            if (x86 && insn.Mnemonic == (int)Iced.Intel.Mnemonic.Shr && insn.Bytes is [.., 0xC1, _, 0x0C]) cardMask = n + CardMaskWindow;
+            if (insn.Constant is { } k && !(n <= cardMask && insn.Mnemonic == (int)Iced.Intel.Mnemonic.And)) constants.Add(k);
         }
 
         // Canonical depth-first order of blocks from the entry.
@@ -315,6 +399,8 @@ public sealed class ImagePrints
             Imports = imports.ToArray(),
             Strings = strings.ToArray(),
             Constants = constants.ToArray(),
+            FedConstants = fedConstants.ToArray(),
+            FedTargets = fedTargets.ToArray(),
             CallSites = calls,
             ThunkImport = thunk,
             Sketch = sketch,

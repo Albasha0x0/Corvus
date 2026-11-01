@@ -168,7 +168,7 @@ public sealed class AotNativeNames
         {
             var taken = names.Keys.ToHashSet();
             int helpers = 0;
-            foreach (var h in AotRuntimeHelpers.Find(pe, index, taken, ct))
+            foreach (var h in AotRuntimeHelpers.Find(pe, index, taken, ct, notes.Add))
             {
                 if (!Executable(h.Rva)) continue;
                 names[h.Rva] = Unique(h.Name, h.Rva);
@@ -181,7 +181,7 @@ public sealed class AotNativeNames
         var assemblies = string.Join(", ", image.Assemblies.Select(a => a.Id));
         var (sourcePath, identity) = Provenance(image);
         NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Metadata, names, comments, $"AOT metadata ({assemblies})",
-            new ImportInfo(sourcePath, identity, DateTime.UtcNow)), index);
+            new ImportInfo(sourcePath, identity, DateTime.UtcNow, Rules: AotRuntimeHelpers.Rules)), index);
         lock (RestoreLock)
         {
             AppliedTable.AddOrUpdate(native, new Applied(image, assemblies, literalSlots, literalTexts));
@@ -223,18 +223,22 @@ public sealed class AotNativeNames
 
     /// <summary>
     /// Rebuilds the applied table of an image whose metadata names came from the saved copy.
-    /// Returns null when the table exists or no names were restored, else the notice naming the restoring calls.
+    /// Returns null when the table exists or no names were restored, else the notice naming the restoring calls;
+    /// a layer saved under earlier helper rules always gets a notice naming apply_metadata_names.
     /// The literal slots and assembly list are rebuilt from the loaded dummy assemblies, not recorded by the apply.
     /// </summary>
     public string? Restore(LoadedNative native, CancellationToken ct = default)
     {
         if (NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Metadata) is not { } layer) return null;
-        if (AppliedTable.TryGetValue(native, out _)) return null;
+        string? stale = layer.Info is { Restored: true, Rules: < AotRuntimeHelpers.Rules }
+            ? $"{native.Id}: the saved metadata names predate the current runtime helper rules; apply_metadata_names image={native.Id} names the helpers again"
+            : null;
+        if (AppliedTable.TryGetValue(native, out _)) return stale;
         int generation = aot.Generation;
         // Check, build and store under one lock, so a concurrent apply wins.
         lock (RestoreLock)
         {
-            if (AppliedTable.TryGetValue(native, out _)) return null;
+            if (AppliedTable.TryGetValue(native, out _)) return stale;
             if (!(Failed.TryGetValue(native, out var failed) && failed.Value == generation))
             {
                 ct.ThrowIfCancellationRequested();
@@ -251,7 +255,7 @@ public sealed class AotNativeNames
                                           (n == $"StringLiteral_{i}" || n == $"StringLiteral_{i}_{rva:X}")), ref outside, (_, _, _) => { });
                     AppliedTable.TryAdd(native, new Applied(image, string.Join(", ", image.Assemblies.Select(a => a.Id)), slots, texts));
                     Failed.Remove(native);
-                    return null;
+                    return stale;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

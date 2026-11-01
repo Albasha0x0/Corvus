@@ -221,8 +221,12 @@ public sealed class SourcedNames
     }
 }
 
-/// <summary>Provenance of a saved layer: source file, identity (PDB "GUID age" or SHA-256), time, function starts, restored flag.</summary>
-public sealed record ImportInfo(string? SourcePath, string? SourceIdentity, DateTime ImportedUtc, IReadOnlyList<uint>? FunctionStarts = null, bool Restored = false);
+/// <summary>
+/// Provenance of a saved layer: source file, identity (PDB "GUID age" or SHA-256), time, function starts, restored flag,
+/// and the version of the naming rules that made it (0 when unrecorded).
+/// </summary>
+public sealed record ImportInfo(string? SourcePath, string? SourceIdentity, DateTime ImportedUtc, IReadOnlyList<uint>? FunctionStarts = null, bool Restored = false,
+    int Rules = 0);
 
 /// <summary>Imported names and comments of a loaded image, one layer per source; kept per loaded image so they survive patching, replayed onto every rebuilt index; layers with <see cref="ImportInfo"/> are saved and restored on reload.</summary>
 public sealed class NativeNameLayers

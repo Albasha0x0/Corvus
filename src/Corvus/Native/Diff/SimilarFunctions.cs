@@ -105,7 +105,7 @@ public static class SimilarFunctions
         Add(a.GraphHash == b.GraphHash ? 1 : 0, 0.5);
         if (a.Imports.Length + b.Imports.Length > 0) Add(BuildMatcher.Jaccard(a.Imports, b.Imports, string.CompareOrdinal), 1);
         if (a.Strings.Length + b.Strings.Length > 0) Add(BuildMatcher.Jaccard(a.Strings, b.Strings, string.CompareOrdinal), 1.5);
-        if (a.Constants.Length + b.Constants.Length > 0) Add(BuildMatcher.Jaccard(a.Constants, b.Constants, (x, y) => x.CompareTo(y)), 1);
+        if (a.ScoredConstants is { } ca && b.ScoredConstants is { } cb && ca.Length + cb.Length > 0) Add(BuildMatcher.Jaccard(ca, cb, (x, y) => x.CompareTo(y)), 1);
         if (sameImage && a.Callees.Length + b.Callees.Length > 0 && CalleeJaccard(a.Callees, b.Callees, home) is { } callees) Add(callees, 1);
         return sum / weight;
     }
@@ -165,8 +165,8 @@ public static class SimilarFunctions
             if (score < minScore) return decoders;
             string kind = q.BytesHash == c.BytesHash ? "identical" : q.StructHash == c.StructHash ? "same_shape" : contains && jaccard < 0.6 ? "contains" : "similar";
             hits[k] = new SimilarHit(image, i, Math.Round(score, 3), kind, Math.Round(jaccard, 3), Math.Round(containment, 3),
-                Shared(q.Strings, c.Strings, string.CompareOrdinal), Shared(q.Constants, c.Constants, (x, y) => x.CompareTo(y)),
-                Shared(q.Imports, c.Imports, string.CompareOrdinal), same ? q.Callees.Where(c.Callees.Contains).ToArray() : []);
+                Shared(q.Strings, c.Strings, string.CompareOrdinal), Shared(q.ScoredConstants, c.ScoredConstants, (x, y) => x.CompareTo(y)),
+                Shared(q.Imports, c.Imports, string.CompareOrdinal), same ? q.Callees.Where(x => c.Callees.Contains(x) && !home.IgnoredCallees[x]).ToArray() : []);
             return decoders;
         }, _ => { });
         return hits.Where(h => h != null).Select(h => h!)

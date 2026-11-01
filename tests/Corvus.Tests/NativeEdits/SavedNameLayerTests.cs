@@ -39,6 +39,24 @@ public sealed class SavedNameLayerTests
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
 
+    [Fact]
+    public void A_layer_keeps_its_rules_version_and_one_saved_without_it_reads_as_zero()
+    {
+        var layer = new NativeNameLayers.Layer(NativeNameSource.Metadata, new Dictionary<uint, string> { [0x1000] = "Main" }, new Dictionary<uint, string>(), "metadata",
+            new ImportInfo(null, null, DateTime.UtcNow, Rules: 2));
+        using var saved = new MemoryStream();
+        SavedNameLayer.Write(saved, Sha, "x.dll", layer);
+        Assert.Equal(2, SavedNameLayer.Read(new MemoryStream(saved.ToArray()), Sha)!.Info!.Rules);
+        // Drop the rules field and its marker (4 + 4 bytes), as earlier versions wrote the file.
+        byte[] raw;
+        using (var gz = new GZipStream(new MemoryStream(saved.ToArray()), CompressionMode.Decompress))
+        using (var plain = new MemoryStream()) { gz.CopyTo(plain); raw = plain.ToArray()[..^8]; }
+        using var earlier = new MemoryStream();
+        using (var gz = new GZipStream(earlier, CompressionLevel.Fastest, leaveOpen: true)) gz.Write(raw);
+        earlier.Position = 0;
+        Assert.Equal(0, SavedNameLayer.Read(earlier, Sha)!.Info!.Rules);
+    }
+
     // A metadata layer as versions up to 2.7 named it: <sha256>.il2cpp.names.
     [Fact]
     public void A_metadata_layer_saved_under_the_earlier_file_name_loads_and_deletes()

@@ -85,8 +85,11 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         var index = home.Index;
         var notes = new List<string>();
         if (home.IgnoredCalleeCount > 0)
-            notes.Add($"callee similarity ignores {Plural(home.IgnoredCalleeCount, "callee")}: {Plural(home.IgnoredHelperCount, "runtime helper")} " +
+            notes.Add($"callee similarity and sharedCallees leave out {Plural(home.IgnoredCalleeCount, "callee")}: {Plural(home.IgnoredHelperCount, "runtime helper")} " +
                       $"and {Plural(home.IgnoredCommonCount, "callee")} called by over {ImagePrints.CommonCalleeShare.ToString("P0", System.Globalization.CultureInfo.InvariantCulture)} of the functions");
+        if (home.LeftOutAll.Count > 0)
+            notes.Add($"constant similarity ignores {Plural(home.LeftOutAll.Count, "constant")} across the image, set up for a call to an ignored callee: " +
+                      string.Join(", ", home.LeftOutAll.Take(MaxShared).Select(k => $"0x{k:X}")) + (home.LeftOutAll.Count > MaxShared ? ", ..." : ""));
         if (home.Failed > 0) notes.Add($"{home.Failed} function(s) could not be decoded and are not compared");
         notes.AddRange(index.Truncations);
 

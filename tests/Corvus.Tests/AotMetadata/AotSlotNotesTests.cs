@@ -54,6 +54,8 @@ public sealed partial class AotFieldNotesTests
             a.mov(rcx, rdx);
             a.jmp(__qword_ptr[rax + 0x138]);
         }).CopyTo(code, 0x40);
+        // A callee that returns, so the code after a call to it belongs to the caller.
+        code[0x60] = 0xC3;
         return code;
     }
 
@@ -411,6 +413,24 @@ public sealed partial class AotFieldNotesTests
     public void A_receiver_in_a_preserved_register_survives_an_init_call_and_the_join()
     {
         var notes = SlotNotes(a => InitPrologue(a, p => p.call(0x180000000UL + 0x1060)));
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    // A setup call sits between the class pointer load and the slot call.
+    [Fact]
+    public void A_receiver_in_a_preserved_register_keeps_its_note_across_a_class_setup_call()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.push(rdi);
+            a.sub(rsp, 0x20);
+            a.mov(rdi, rcx);
+            a.mov(rcx, __qword_ptr[rdi]);
+            a.call(0x180000000UL + 0x1060);
+            a.mov(rax, __qword_ptr[rdi]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x20); a.pop(rdi); a.ret();
+        });
         Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
     }
 

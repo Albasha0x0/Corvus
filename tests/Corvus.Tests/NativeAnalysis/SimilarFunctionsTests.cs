@@ -191,6 +191,83 @@ public class SimilarFunctionsTests
         Assert.Equal(new HashSet<int> { s.Of("Helper") }, s.Prints.NamedHelpers);
     }
 
+    // Each pair shares callees and a constant set up for a call.
+        // Barrier and Helper are named helpers; App and Own are ordinary.
+    private static Sample HelperSequences()
+    {
+        var a = new Assembler(64);
+        var labels = new Dictionary<string, Label>();
+        Label L(string name) => labels.TryGetValue(name, out var l) ? l : labels[name] = a.CreateLabel(name);
+        void Here(string name) { var l = L(name); a.Label(ref l); labels[name] = l; }
+        // A and B share only helper calls and the write-barrier sequence.
+        Here("A"); a.mov(edx, 0x1FFFFF); a.call(L("Barrier")); a.call(L("Helper")); a.add(eax, 0x11); a.shl(eax, 3); a.ret(); a.int3();
+        Here("B"); a.mov(edx, 0x1FFFFF); a.call(L("Barrier")); a.call(L("Helper")); a.xor(eax, 0x72); a.sar(eax, 1); a.ret(); a.int3();
+        // P and Q share an ordinary callee and a constant set up for an ordinary call.
+        Here("P"); a.mov(edx, 0x2468AC); a.call(L("Own")); a.call(L("App")); a.add(eax, 0x11); a.shl(eax, 3); a.ret(); a.int3();
+        Here("Q"); a.mov(edx, 0x2468AC); a.call(L("Own")); a.call(L("App")); a.xor(eax, 0x72); a.sar(eax, 1); a.ret(); a.int3();
+        Here("Barrier"); a.mov(eax, 1); a.ret(); a.int3();
+        Here("Helper"); a.mov(eax, 2); a.ret(); a.int3();
+        Here("App"); a.mov(eax, 3); a.ret(); a.int3();
+        Here("Own"); a.mov(eax, 4); a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), 0x140000000UL + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        var s = Make(NativeArch.X64, stream.ToArray(), labels.ToDictionary(kv => kv.Key, kv => (uint)(result.GetLabelRIP(kv.Value) - 0x140000000UL)));
+        s.Prints.NameHelpers([s.At["Barrier"], s.At["Helper"]]);
+        return s;
+    }
+
+    // FT-314 M27.
+    [Fact]
+    public void Two_functions_sharing_only_helper_callees_and_the_write_barrier_sequence_list_nothing_shared()
+    {
+        var s = HelperSequences();
+        var hit = Assert.Single(Similar(s, "A", 0), h => s.NameOf(h.Index) == "B");
+        Assert.Empty(hit.SharedCallees);
+        Assert.DoesNotContain(0x1FFFFFUL, hit.SharedConstants);
+        var f = s.Prints.Functions;
+        Assert.Equal(new ulong[] { 0x1FFFFF }, f[s.Of("A")].Constants.Intersect(f[s.Of("B")].Constants));
+        Assert.Empty(f[s.Of("A")].ScoredConstants.Intersect(f[s.Of("B")].ScoredConstants));
+        Assert.Equal([0x1FFFFFUL], s.Prints.LeftOutAll);
+    }
+
+    [Fact]
+    public void An_inlined_write_barrier_card_mask_is_not_a_shared_constant()
+    {
+        // The retest on 106651bf: the barrier was inlined, not called.
+        var a = new Assembler(64);
+        var labels = new Dictionary<string, Label>();
+        Label L(string name) => labels.TryGetValue(name, out var l) ? l : labels[name] = a.CreateLabel(name);
+        void Here(string name) { var l = L(name); a.Label(ref l); labels[name] = l; }
+        void Barrier() { a.shr(rdx, 12); a.lea(rax, __[rbx + 0x1000]); a.and(edx, 0x1FFFFF); a.mov(ecx, edx); }
+        Here("A"); Barrier(); a.add(eax, 0x5A5A5); a.ret(); a.int3();
+        Here("B"); Barrier(); a.add(eax, 0x5A5A5); a.ret(); a.int3();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), 0x140000000UL + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        var s = Make(NativeArch.X64, stream.ToArray(), labels.ToDictionary(kv => kv.Key, kv => (uint)(result.GetLabelRIP(kv.Value) - 0x140000000UL)));
+        var f = s.Prints.Functions;
+        Assert.DoesNotContain(0x1FFFFFUL, f[s.Of("A")].Constants);
+        Assert.Contains(0x5A5A5UL, f[s.Of("A")].Constants.Intersect(f[s.Of("B")].Constants));
+    }
+
+    [Fact]
+    public void Two_functions_sharing_ordinary_callees_and_a_constant_still_list_them_as_shared()
+    {
+        var s = HelperSequences();
+        var hit = Assert.Single(Similar(s, "P", 0), h => s.NameOf(h.Index) == "Q");
+        Assert.Equal(["App", "Own"], hit.SharedCallees.Select(i => s.NameOf(i)).Order());
+        Assert.Contains(0x2468ACUL, hit.SharedConstants);
+    }
+
+    [Fact]
+    public void Helper_sequences_lower_the_score_below_the_same_pair_with_ordinary_callees()
+    {
+        var s = HelperSequences();
+        var f = s.Prints.Functions;
+        double helpers = SimilarFunctions.Score(f[s.Of("A")], f[s.Of("B")], 0, true, s.Prints);
+        double ordinary = SimilarFunctions.Score(f[s.Of("P")], f[s.Of("Q")], 0, true, s.Prints);
+        Assert.True(ordinary > helpers, $"{ordinary} vs {helpers}");
+    }
+
     [Fact]
     public void A_callee_named_as_a_runtime_routine_is_a_helper_without_the_table()
     {

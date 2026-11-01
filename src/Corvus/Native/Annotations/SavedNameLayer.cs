@@ -35,6 +35,10 @@ public static class SavedNameLayer
         WriteMap(w, layer.Names);
         WriteMap(w, layer.Comments);
         w.Write(End);
+        // After the end marker, so earlier readers still accept the file; the
+        // second marker tells a cut file from one written without the field.
+        w.Write(info.Rules);
+        w.Write(End);
     }
 
     /// <summary>The layer in <paramref name="input"/> (marked restored), or null when it is not a layer of <paramref name="sha256"/> or is unreadable.</summary>
@@ -59,8 +63,14 @@ public static class SavedNameLayer
             var names = ReadMap(r, ct);
             var comments = ReadMap(r, ct);
             if (starts == null || names == null || comments == null || r.ReadString() != End) return null;
+            int rules = 0;
+            if (r.BaseStream.ReadByte() is >= 0 and var first)
+            {
+                rules = first | r.ReadByte() << 8 | r.ReadByte() << 16 | r.ReadByte() << 24;
+                if (r.ReadString() != End) return null;
+            }
             var info = new ImportInfo(path.Length > 0 ? path : null, identity.Length > 0 ? identity : null, new DateTime(ticks, DateTimeKind.Utc),
-                starts.Length > 0 ? starts : null, Restored: true);
+                starts.Length > 0 ? starts : null, Restored: true, rules);
             return new NativeNameLayers.Layer((NativeNameSource)source, names, comments, origin, info);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or FormatException or OverflowException
