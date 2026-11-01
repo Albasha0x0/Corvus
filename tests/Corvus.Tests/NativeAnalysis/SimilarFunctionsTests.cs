@@ -119,7 +119,7 @@ public class SimilarFunctionsTests
     }
 
     [Fact]
-    public void A_callee_called_from_many_functions_weighs_less_in_the_shared_callee_score()
+    public void A_callee_called_from_many_functions_is_ignored_in_the_shared_callee_score()
     {
         var a = new Assembler(64);
         var labels = new Dictionary<string, Label>();
@@ -151,10 +151,99 @@ public class SimilarFunctionsTests
         double plain = SimilarFunctions.Score(d0, d1, 0, true, null);
         double weighted = SimilarFunctions.Score(d0, d1, 0, true, s.Prints);
         Assert.True(weighted < plain, $"shared helper {weighted} vs {plain}");
-        // The callee term falls from 1/3 to 0.2 at weight 1 of 9.
-        Assert.Equal((1.0 / 3 - 0.2) / 9, plain - weighted, 3);
-        Assert.Equal(SimilarFunctions.Score(c0, c1, 0, true, null), SimilarFunctions.Score(c0, c1, 0, true, s.Prints), 9);
+        // Helper is called by over 2% of the functions, so the callee term is 0 instead of 1/3.
+        Assert.Equal(1.0 / 3 / 9, plain - weighted, 3);
+        // Two functions that share only the common callee leave the callee term out.
+        Assert.True(SimilarFunctions.Score(c0, c1, 0, true, s.Prints) < SimilarFunctions.Score(c0, c1, 0, true, null));
         Assert.Equal(SimilarFunctions.Score(r, t, 0, true, null), SimilarFunctions.Score(r, t, 0, true, s.Prints), 9);
+    }
+
+    // A and B share only the helper; P and Q share only App; each callee has two callers.
+    private static Sample HelperPairs(string helper)
+    {
+        var a = new Assembler(64);
+        var labels = new Dictionary<string, Label>();
+        Label L(string name) => labels.TryGetValue(name, out var l) ? l : labels[name] = a.CreateLabel(name);
+        void Here(string name) { var l = L(name); a.Label(ref l); labels[name] = l; }
+        Here("A"); a.call(L(helper)); a.ret(); a.int3();
+        Here("B"); a.call(L(helper)); a.ret(); a.int3();
+        Here("P"); a.call(L("App")); a.ret(); a.int3();
+        Here("Q"); a.call(L("App")); a.ret(); a.int3();
+        Here(helper); a.mov(eax, 1); a.ret(); a.int3();
+        Here("App"); a.mov(eax, 2); a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), 0x140000000UL + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        return Make(NativeArch.X64, stream.ToArray(), labels.ToDictionary(kv => kv.Key, kv => (uint)(result.GetLabelRIP(kv.Value) - 0x140000000UL)));
+    }
+
+    [Fact]
+    public void A_callee_the_helper_table_names_adds_nothing_to_the_shared_callee_score()
+    {
+        var s = HelperPairs("Helper");
+        var f = s.Prints.Functions;
+        double before = SimilarFunctions.Score(f[s.Of("A")], f[s.Of("B")], 0, true, s.Prints);
+        s.Prints.NameHelpers([s.At["Helper"]]);
+        double helper = SimilarFunctions.Score(f[s.Of("A")], f[s.Of("B")], 0, true, s.Prints);
+        double ordinary = SimilarFunctions.Score(f[s.Of("P")], f[s.Of("Q")], 0, true, s.Prints);
+        Assert.True(helper < before, $"{helper} vs {before}");
+        Assert.True(ordinary > helper, $"{ordinary} vs {helper}");
+        Assert.Equal((1, 0), (s.Prints.IgnoredHelperCount, s.Prints.IgnoredCommonCount));
+        Assert.Equal(new HashSet<int> { s.Of("Helper") }, s.Prints.NamedHelpers);
+    }
+
+    [Fact]
+    public void A_callee_named_as_a_runtime_routine_is_a_helper_without_the_table()
+    {
+        var s = HelperPairs("Runtime_Throw");
+        s.Prints.NameHelpers([]);
+        Assert.Equal(new HashSet<int> { s.Of("Runtime_Throw") }, s.Prints.NamedHelpers);
+        Assert.Equal((1, 0), (s.Prints.IgnoredHelperCount, s.Prints.IgnoredCommonCount));
+    }
+
+    // A helper nothing calls is named but not counted as ignored.
+    [Fact]
+    public void An_uncalled_helper_is_not_counted_among_the_ignored_callees()
+    {
+        var s = HelperPairs("Helper");
+        s.Prints.NameHelpers([s.At["A"]]);
+        Assert.Equal(0, s.Prints.IgnoredCalleeCount);
+    }
+
+    // 600 functions put the cutoff at 12 callers; Mid has 10 callers and High has 13.
+    [Fact]
+    public void A_callee_between_the_discount_threshold_and_the_two_percent_cutoff_is_discounted_not_ignored()
+    {
+        var a = new Assembler(64);
+        var labels = new Dictionary<string, Label>();
+        Label L(string name) => labels.TryGetValue(name, out var l) ? l : labels[name] = a.CreateLabel(name);
+        void Here(string name) { var l = L(name); a.Label(ref l); labels[name] = l; }
+        for (int i = 0; i < 600; i++)
+        {
+            Here("F" + i);
+            if (i < 8) a.call(L("Mid"));
+            else if (i < 19) a.call(L("High"));
+            a.mov(eax, i + 1); a.ret(); a.int3();
+        }
+        Here("D0"); a.call(L("Mid")); a.call(L("U0")); a.ret(); a.int3();
+        Here("D1"); a.call(L("Mid")); a.call(L("U1")); a.ret(); a.int3();
+        Here("E0"); a.call(L("High")); a.call(L("U0")); a.ret(); a.int3();
+        Here("E1"); a.call(L("High")); a.call(L("U1")); a.ret(); a.int3();
+        Here("U0"); a.mov(eax, 3); a.ret(); a.int3();
+        Here("U1"); a.mov(eax, 4); a.ret(); a.int3();
+        Here("Mid"); a.mov(eax, 5); a.ret(); a.int3();
+        Here("High"); a.mov(eax, 6); a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), 0x140000000UL + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        var s = Make(NativeArch.X64, stream.ToArray(), labels.ToDictionary(kv => kv.Key, kv => (uint)(result.GetLabelRIP(kv.Value) - 0x140000000UL)));
+
+        var f = s.Prints.Functions;
+        Assert.False(s.Prints.IgnoredCallees[s.Of("Mid")]);
+        Assert.True(s.Prints.IgnoredCallees[s.Of("High")]);
+        double plain = SimilarFunctions.Score(f[s.Of("D0")], f[s.Of("D1")], 0, true, null);
+        double mid = SimilarFunctions.Score(f[s.Of("D0")], f[s.Of("D1")], 0, true, s.Prints);
+        double high = SimilarFunctions.Score(f[s.Of("E0")], f[s.Of("E1")], 0, true, s.Prints);
+        Assert.True(mid < plain, $"{mid} vs {plain}");
+        Assert.True(mid > high, $"{mid} vs {high}");
     }
 
     [Fact]

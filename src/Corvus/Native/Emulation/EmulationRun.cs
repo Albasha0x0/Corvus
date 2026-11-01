@@ -30,6 +30,8 @@ internal sealed class EmulationRun(INativeImage image, ulong imageBase, NativeCo
     internal JsonArray? Reads { get; } = reads;
     internal Queue<(ulong, string)> Trace { get; } = new();
     internal JsonArray Calls { get; } = [];
+    /// <summary>The rows of <see cref="Calls"/> by call, so a resumed run keeps counting them.</summary>
+    internal Dictionary<(ulong, ulong, string?, string, ulong?), JsonObject> CallRows { get; } = [];
     internal long Executed { get; set; }
     internal int CallCount { get; set; }
     internal ulong LastSite { get; set; } = start;

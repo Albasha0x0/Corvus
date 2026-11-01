@@ -86,6 +86,49 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
         Assert.Contains("Fnv1a: stubbed, returned 0x7", stubbed);
     }
 
+    // Three calls to one import from one site.
+    [Fact]
+    public async Task Identical_calls_from_one_site_are_one_row_with_a_count()
+    {
+        var text = await Run("TickLoop", stubs: "kernel32!GetTickCount=5");
+        Assert.Contains("Calls (3):", text);
+        Assert.Contains("GetTickCount: stubbed, returned 0x5 x3", text);
+        Assert.Equal(1, text.Split('\n').Count(l => l.Contains("GetTickCount: stubbed")));
+    }
+
+    // 101 distinct sites against the 100-row list.
+    [Fact]
+    public async Task Rows_past_the_list_cap_stay_in_the_call_count()
+    {
+        var text = await Run("TickFlood", stubs: "kernel32!GetTickCount=5");
+        Assert.Contains("Calls (101, 100 rows listed):", text);
+        Assert.Equal(100, text.Split('\n').Count(l => l.Contains("GetTickCount: stubbed")));
+    }
+
+    // A null destination and 4 bytes written.
+    [Fact]
+    public async Task A_write_through_a_null_receiver_is_reported_below_the_first_page()
+    {
+        var text = await Run("XorDecode", args: $"0, rva:0x{rig.At["encoded"]:X}, 4");
+        Assert.Contains("Writes below the first page: 4 bytes from 0x0", text);
+        var quiet = await Run("XorDecode", args: $"buf:32, rva:0x{rig.At["encoded"]:X}, 4");
+        Assert.DoesNotContain("Writes below the first page", quiet);
+    }
+
+    // A destination 2 bytes below the page boundary and 4 bytes written.
+    [Fact]
+    public async Task Null_page_writes_count_only_the_bytes_below_the_first_page()
+    {
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await Run("XorDecode", args: $"0xFFE, rva:0x{rig.At["encoded"]:X}, 4");
+        var report = Assert.IsType<NativeEmulationTools.EmulationReport>(collector.Value);
+        Assert.Equal(("0xffe", 2L), (report.NullPageWrites!.First.ToLowerInvariant(), report.NullPageWrites.Bytes));
+
+        collector = Corvus.Mcp.ToolOutput.Collect();
+        await Run("XorDecode", args: $"buf:32, rva:0x{rig.At["encoded"]:X}, 4");
+        Assert.Null(Assert.IsType<NativeEmulationTools.EmulationReport>(collector.Value).NullPageWrites);
+    }
+
     [Fact]
     public async Task The_any_call_stub_runs_a_routine_in_the_image_instead_of_skipping_it()
     {

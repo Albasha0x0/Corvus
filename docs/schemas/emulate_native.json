@@ -59,6 +59,10 @@
           },
           "value": {
             "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "default": 1
           }
         },
         "required": [
@@ -126,6 +130,22 @@
           "type": "string"
         }
       }
+    },
+    "nullPageWrites": {
+      "description": "Bytes written below 0x1000 (a null or small receiver): lowest address and count; null when none.",
+      "type": "object",
+      "properties": {
+        "first": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "first",
+        "bytes"
+      ]
     },
     "candidates": {
       "type": "array",

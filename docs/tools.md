@@ -1572,7 +1572,7 @@ Emulate native code from an address: return value, registers and written strings
 | `engine` | string |  |  | auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program. Values: auto, ghidra, ours, speakeasy. |
 | `resume` | string |  |  | Run id from Next; address is ignored. |
 
-Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`, `notes`.
+Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `nullPageWrites`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`, `notes`.
 
 ### verify_native_imports
 

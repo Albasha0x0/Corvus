@@ -84,6 +84,9 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         var home = await Prints(native, progress, cancellationToken);
         var index = home.Index;
         var notes = new List<string>();
+        if (home.IgnoredCalleeCount > 0)
+            notes.Add($"callee similarity ignores {Plural(home.IgnoredCalleeCount, "callee")}: {Plural(home.IgnoredHelperCount, "runtime helper")} " +
+                      $"and {Plural(home.IgnoredCommonCount, "callee")} called by over {ImagePrints.CommonCalleeShare.ToString("P0", System.Globalization.CultureInfo.InvariantCulture)} of the functions");
         if (home.Failed > 0) notes.Add($"{home.Failed} function(s) could not be decoded and are not compared");
         notes.AddRange(index.Truncations);
 
@@ -161,8 +164,12 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
         if (index.Support != CodeSupport.Full) throw NativeEngineCode.Unsupported(index, null, "x86, x64, ARM64 and ARM32 images are compared");
         int total = index.Functions.Count;
-        return await Task.Run(() => ImagePrints.Of(index, ct, new Progress<int>(done => progress.Report(new ProgressNotificationValue
+        var prints = await Task.Run(() => ImagePrints.Of(index, ct, new Progress<int>(done => progress.Report(new ProgressNotificationValue
             { Progress = done, Total = total, Message = $"sketching {native.Id}: {done:N0} of {total:N0} functions" }))), ct);
+        // The helper scan runs once per image; no address is skipped, so every helper is named.
+        if (!prints.HelpersNamed)
+            prints.NameHelpers(await Task.Run(() => AotRuntimeHelpers.Find(native.Image, index, new HashSet<uint>(), ct).Select(h => h.Rva).ToList(), ct));
+        return prints;
     }
 
     private static SimilarMatch Match(ImagePrints home, FunctionPrint q, SimilarHit h, string imageId)

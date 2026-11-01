@@ -222,7 +222,10 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         r.GetProperty("where").GetString() is { } w ? $"{r.GetProperty("pc").GetString()} ({w})" : r.GetProperty("pc").GetString() ?? "?";
 
     public sealed record EmulatedRegister(string Name, string Value);
-    public sealed record EmulatedCall(string Site, string? Name, string Action, string? Value);
+    /// <summary>A call site and its outcome; Count is how many identical calls it stands for.</summary>
+    public sealed record EmulatedCall(string Site, string? Name, string Action, string? Value, int Count = 1);
+    /// <summary>Written memory below the first page: the lowest address and the bytes written there.</summary>
+    public sealed record NullPageWrites(string First, long Bytes);
     public sealed record EmulatedMemory(string Va, long Length, string Bytes, string? Text);
     public sealed record EmulatedRead(string? Label, string Va, string? Bytes, string? Text, string? Error);
 
@@ -235,6 +238,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         IReadOnlyList<EmulatedRead> Reads, IReadOnlyList<IReadOnlyList<string>> Trace)
     {
         public double? ElapsedSeconds { get; init; }
+        [Description("Bytes written below 0x1000 (a null or small receiver): lowest address and count; null when none.")]
+        public NullPageWrites? NullPageWrites { get; init; }
         public IReadOnlyList<EmulatedCandidate>? Candidates { get; init; }
 
         [Description("engine=speakeasy: the program's API calls in order.")]
@@ -311,7 +316,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             stop == "returned" ? S(r, "return_register") : null, stop == "returned" ? S(r, "return_value") : null,
             [.. r.GetProperty("registers").EnumerateArray().Where(x => x[2].GetBoolean()).Select(x => new EmulatedRegister(x[0].GetString()!, x[1].GetString()!))],
             r.GetProperty("call_count").GetInt32(),
-            [.. r.GetProperty("calls").EnumerateArray().Select(c => new EmulatedCall(S(c, "site") ?? "", S(c, "name") ?? S(c, "target"), S(c, "action") ?? "", S(c, "value")))],
+            [.. r.GetProperty("calls").EnumerateArray().Select(c => new EmulatedCall(S(c, "site") ?? "", S(c, "name") ?? S(c, "target"), S(c, "action") ?? "", S(c, "value"), c.TryGetProperty("count", out var n) ? n.GetInt32() : 1))],
             [.. r.GetProperty("written").EnumerateArray().Select(w =>
             {
                 var bytes = Convert.FromHexString(S(w, "bytes") ?? "");
@@ -324,7 +329,11 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
                 return new EmulatedRead(S(x, "label"), S(x, "va") ?? "", hex, bytes != null ? Ascii(bytes) ?? Utf16(bytes) : null, S(x, "error"));
             })],
             [.. r.GetProperty("trace").EnumerateArray().Select(l => (IReadOnlyList<string>)[l[0].GetString() ?? "", l[1].GetString() ?? ""])])
-            { ElapsedSeconds = r.TryGetProperty("seconds", out var s) ? Math.Round(s.GetDouble(), 3) : null };
+            {
+                ElapsedSeconds = r.TryGetProperty("seconds", out var s) ? Math.Round(s.GetDouble(), 3) : null,
+                NullPageWrites = r.TryGetProperty("null_page_writes", out var np) && np.ValueKind == JsonValueKind.Object
+                    ? new NullPageWrites(np.GetProperty("first").GetString()!, np.GetProperty("bytes").GetInt64()) : null,
+            };
     }
 
     internal static string Format(string imageId, JsonElement r, int maxInstructions, string? next = null)
@@ -360,13 +369,15 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         int callCount = r.GetProperty("call_count").GetInt32();
         if (callCount > 0)
         {
-            sb.Append(CultureInfo.InvariantCulture, $"Calls ({callCount}{(callCount > calls.GetArrayLength() ? $", first {calls.GetArrayLength()}" : "")}):\n");
+            int listed = calls.EnumerateArray().Sum(c => c.TryGetProperty("count", out var n) ? n.GetInt32() : 1);
+            sb.Append(CultureInfo.InvariantCulture, $"Calls ({callCount}{(callCount > listed ? $", {calls.GetArrayLength()} rows listed" : "")}):\n");
             foreach (var c in calls.EnumerateArray())
             {
                 var name = c.GetProperty("name").GetString() ?? c.GetProperty("target").GetString();
                 var action = c.GetProperty("action").GetString();
                 sb.Append("  ").Append(c.GetProperty("site").GetString()).Append(" -> ").Append(name).Append(": ")
-                    .Append(action == "into" ? "stepped in" : $"{ActionText(action)}, returned {c.GetProperty("value").GetString()}").Append('\n');
+                    .Append(action == "into" ? "stepped in" : $"{ActionText(action)}, returned {c.GetProperty("value").GetString()}")
+                    .Append(c.TryGetProperty("count", out var times) && times.GetInt32() > 1 ? $" x{times.GetInt32()}" : "").Append('\n');
             }
         }
         var scratch = r.GetProperty("scratch");
@@ -377,6 +388,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         int ranges = r.GetProperty("written_ranges").GetInt32();
         sb.Append(CultureInfo.InvariantCulture, $"Written memory: {ToolSupport.Plural(ranges, "range")}{(ranges > written.GetArrayLength() ? $" (first {written.GetArrayLength()})" : "")}, " +
                                                 $"{r.GetProperty("stack_bytes_written").GetInt64()} stack bytes ({r.GetProperty("stack").GetString()})\n");
+        if (r.TryGetProperty("null_page_writes", out var nullPage) && nullPage.ValueKind == JsonValueKind.Object)
+            sb.Append(CultureInfo.InvariantCulture, $"Writes below the first page: {nullPage.GetProperty("bytes").GetInt64()} bytes from {nullPage.GetProperty("first").GetString()} (a null or small receiver)\n");
         foreach (var w in written.EnumerateArray())
         {
             var where = w.GetProperty("where").GetString();

@@ -192,7 +192,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             Label alloc = a.CreateLabel(), roundTrip = a.CreateLabel(), reuse = a.CreateLabel(), twice = a.CreateLabel();
             Label calloc = a.CreateLabel(), realloc = a.CreateLabel(), free = a.CreateLabel(), thunkCall = a.CreateLabel();
             Label thunk = a.CreateLabel(), useAfterFree = a.CreateLabel(), pastEnd = a.CreateLabel();
-            Label growFail = a.CreateLabel(), reallocZero = a.CreateLabel();
+            Label growFail = a.CreateLabel(), reallocZero = a.CreateLabel(), tickLoop = a.CreateLabel(), tickAgain = a.CreateLabel(), tickFlood = a.CreateLabel();
             void CallImport(string key) => a.AddInstruction(Instruction.Create(
                 Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + slots[key]), 8)));
             void Forward(ref Label label, string key)
@@ -357,6 +357,24 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             a.add(rsp, 0x38);
             a.ret();
             Pad(a);
+            // Calls GetTickCount three times from one site.
+            a.Label(ref tickLoop);
+            a.sub(rsp, 0x38);
+            a.mov(__dword_ptr[rsp + 0x30], 3);
+            a.Label(ref tickAgain);
+            CallImport("KERNEL32.dll!GetTickCount");
+            a.dec(__dword_ptr[rsp + 0x30]);
+            a.jnz(tickAgain);
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
+            // Calls GetTickCount from 101 distinct sites.
+            a.Label(ref tickFlood);
+            a.sub(rsp, 0x38);
+            for (int i = 0; i < 101; i++) CallImport("KERNEL32.dll!GetTickCount");
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
             // p = malloc(8); free(p); free(p).
             a.Label(ref twice);
             a.sub(rsp, 0x38);
@@ -391,6 +409,8 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             at["PastEnd"] = Rva(pastEnd);
             at["GrowFail"] = Rva(growFail);
             at["ReallocZero"] = Rva(reallocZero);
+            at["TickLoop"] = Rva(tickLoop);
+            at["TickFlood"] = Rva(tickFlood);
             at["encoded"] = slots["encoded"];
             return stream.ToArray();
         }
@@ -405,7 +425,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         (string, string[])[] imports = [("KERNEL32.dll", ["GetTickCount"]), ("msvcrt.dll", ["malloc", "calloc", "realloc", "free"])];
         LinkedImages.Build("emu.dll", [], imports, Code, Data);
         string[] exported = ["XorDecode", "Fnv1a", "HashName", "Ticks", "Deref", "Spin", "Alloc", "HeapRoundTrip", "HeapReuse", "DoubleFree",
-            "Calloc", "Realloc", "Free", "ThunkAlloc", "UseAfterFree", "PastEnd", "GrowFail", "ReallocZero"];
+            "Calloc", "Realloc", "Free", "ThunkAlloc", "UseAfterFree", "PastEnd", "GrowFail", "ReallocZero", "TickLoop", "TickFlood"];
         var path = dir.File("emu.dll");
         File.WriteAllBytes(path, LinkedImages.Build("emu.dll", [.. exported.Select(n => (n, (object)(int)(at[n] - LinkedImages.Text)))], imports, Code, Data));
         return path;

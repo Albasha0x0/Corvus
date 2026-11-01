@@ -106,7 +106,7 @@ public static class SimilarFunctions
         if (a.Imports.Length + b.Imports.Length > 0) Add(BuildMatcher.Jaccard(a.Imports, b.Imports, string.CompareOrdinal), 1);
         if (a.Strings.Length + b.Strings.Length > 0) Add(BuildMatcher.Jaccard(a.Strings, b.Strings, string.CompareOrdinal), 1.5);
         if (a.Constants.Length + b.Constants.Length > 0) Add(BuildMatcher.Jaccard(a.Constants, b.Constants, (x, y) => x.CompareTo(y)), 1);
-        if (sameImage && a.Callees.Length + b.Callees.Length > 0) Add(CalleeJaccard(a.Callees, b.Callees, sameImage ? home?.CalleeFanIn : null), 1);
+        if (sameImage && a.Callees.Length + b.Callees.Length > 0 && CalleeJaccard(a.Callees, b.Callees, home) is { } callees) Add(callees, 1);
         return sum / weight;
     }
 
@@ -207,18 +207,24 @@ public static class SimilarFunctions
     }
 
     /// <summary>Callees called from more functions than this are discounted.</summary>
-    private const int CommonCalleeFanIn = 8;
+    internal const int CommonCalleeFanIn = 8;
 
-    private static double CalleeJaccard(int[] a, int[] b, int[]? fanIn)
+    // Null when every callee of both is ignored, so the term is left out.
+    private static double? CalleeJaccard(int[] a, int[] b, ImagePrints? home)
     {
         if (a.Length == 0 || b.Length == 0) return 0;
-        double Weight(int x) => fanIn == null || (uint)x >= (uint)fanIn.Length || fanIn[x] <= CommonCalleeFanIn ? 1 : (double)CommonCalleeFanIn / fanIn[x];
+        var fanIn = home?.CalleeFanIn;
+        var ignored = home?.IgnoredCallees;
+        // Ignored callees weigh 0; the rest keep the fan-in discount.
+        double Weight(int x) =>
+            ignored != null && (uint)x < (uint)ignored.Length && ignored[x] ? 0
+            : fanIn == null || (uint)x >= (uint)fanIn.Length || fanIn[x] <= CommonCalleeFanIn ? 1 : (double)CommonCalleeFanIn / fanIn[x];
         var set = b.Length > 16 ? b.ToHashSet() : null;
         // Weighted Jaccard: identical sets score 1, shared helpers add little.
         double both = 0, total = 0;
         foreach (var x in a) { double w = Weight(x); total += w; if (set?.Contains(x) ?? Array.IndexOf(b, x) >= 0) both += w; }
         foreach (var x in b) total += Weight(x);
-        return both / (total - both);
+        return total - both <= 0 ? null : both / (total - both);
     }
 
     /// <summary>Groups of functions of one graph and instruction shape (identical or same_shape), most redundant bytes first.</summary>

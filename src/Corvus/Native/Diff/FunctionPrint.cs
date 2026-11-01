@@ -72,6 +72,67 @@ public sealed class ImagePrints
         return counts;
     }
 
+    /// <summary>Share of an image's functions that makes a callee common.</summary>
+    internal const double CommonCalleeShare = 0.02;
+
+    private bool[]? _ignored;
+    private int _ignoredHelpers, _ignoredCommon;
+    private IReadOnlySet<int> _helpers = new HashSet<int>();
+
+    /// <summary>Whether <see cref="NameHelpers"/> has run for this image.</summary>
+    internal bool HelpersNamed { get; private set; }
+
+    /// <summary>Functions the runtime helper table or a Runtime_ name marks.</summary>
+    internal IReadOnlySet<int> NamedHelpers
+    {
+        get => _helpers;
+        set { _helpers = value; _ignored = null; }
+    }
+
+    /// <summary>Marks the functions at <paramref name="helperStarts"/> and those named Runtime_ as helpers; once per image.</summary>
+    internal void NameHelpers(IEnumerable<uint> helperStarts)
+    {
+        var set = new HashSet<int>();
+        foreach (var start in helperStarts)
+            if (ByStart.TryGetValue(start, out var i)) set.Add(i);
+        for (int i = 0; i < Functions.Length; i++)
+            if (Index.NameAt(Functions[i].Start)?.StartsWith("Runtime_", StringComparison.Ordinal) == true) set.Add(i);
+        NamedHelpers = set;
+        HelpersNamed = true;
+    }
+
+    /// <summary>Callees that carry no similarity: named helpers and callees of over <see cref="CommonCalleeShare"/> of the functions.</summary>
+    internal bool[] IgnoredCallees
+    {
+        get
+        {
+            if (_ignored is { } cached) return cached;
+            var fanIn = CalleeFanIn;
+            // Below 400 functions the floor is the fan-in discount threshold, not 2%.
+            int floor = Math.Max(SimilarFunctions.CommonCalleeFanIn, (int)(Functions.Length * CommonCalleeShare));
+            var ignored = new bool[Functions.Length];
+            int helpers = 0, common = 0;
+            for (int i = 0; i < ignored.Length; i++)
+            {
+                bool helper = fanIn[i] > 0 && NamedHelpers.Contains(i);
+                ignored[i] = helper || fanIn[i] > floor;
+                if (helper) helpers++;
+                else if (ignored[i]) common++;
+            }
+            (_ignoredHelpers, _ignoredCommon) = (helpers, common);
+            return _ignored = ignored;
+        }
+    }
+
+    /// <summary>How many callees <see cref="IgnoredCallees"/> marks.</summary>
+    internal int IgnoredCalleeCount => IgnoredHelperCount + IgnoredCommonCount;
+
+    /// <summary>Called named helpers that <see cref="IgnoredCallees"/> marks.</summary>
+    internal int IgnoredHelperCount { get { _ = IgnoredCallees; return _ignoredHelpers; } }
+
+    /// <summary>Other callees that <see cref="IgnoredCallees"/> marks for being common.</summary>
+    internal int IgnoredCommonCount { get { _ = IgnoredCallees; return _ignoredCommon; } }
+
     private long _decodes;
 
     /// <summary>Functions of this image decoded again for exact similarity scores; the sketches need no decode.</summary>

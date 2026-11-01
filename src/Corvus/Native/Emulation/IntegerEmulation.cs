@@ -128,13 +128,23 @@ public static class IntegerEmulation
         mem.Tracking = true;
         var clock = Stopwatch.StartNew();
 
+        var rows = run.CallRows;
         void Record(ulong site, ulong target, string? name, string action, ulong? value)
         {
-            if (callCount++ >= MaxCalls) return;
-            calls.Add(new JsonObject
+            callCount++;
+            // Identical rows are one row with a count, so a loop does not fill the list.
+            var key = (site, target, name, action, value);
+            if (rows.TryGetValue(key, out var row))
             {
-                ["site"] = Hex(site), ["target"] = Hex(target), ["name"] = name, ["action"] = action, ["value"] = value is { } v ? Hex(v) : null,
-            });
+                row["count"] = (int)row["count"]! + 1;
+                return;
+            }
+            if (calls.Count >= MaxCalls) return;
+            rows[key] = new JsonObject
+            {
+                ["site"] = Hex(site), ["target"] = Hex(target), ["name"] = name, ["action"] = action, ["value"] = value is { } v ? Hex(v) : null, ["count"] = 1,
+            };
+            calls.Add(rows[key]);
         }
 
         // Answers a callee without a stub from the heap model; null when the callee has none.
@@ -352,6 +362,13 @@ public static class IntegerEmulation
         }
         o["written"] = written;
         o["written_ranges"] = data.Count;
+        // Writes below the first page come from a null or small receiver.
+        var low = ranges.Where(r => r.Start < (ulong)EmulatorMemory.PageSize).ToList();
+        o["null_page_writes"] = low.Count == 0 ? null : new JsonObject
+        {
+            ["first"] = Hex(low.Min(r => r.Start)),
+            ["bytes"] = low.Sum(r => (long)Math.Min(r.Length, (ulong)EmulatorMemory.PageSize - r.Start)),
+        };
 
         var reads = new JsonArray();
         if (run.Reads is { } asked)
