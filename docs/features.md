@@ -337,6 +337,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Apple `.dmg`, HFS+, APFS | every file; encrypted APFS volumes named |
 | `Assets.car` | renditions; bitmaps as PNG with `allFiles` |
 | `.cab`, `.msi` / `.msp` / `.mst` | files, custom action binaries and scripts |
+| Compiled help `.chm` | pages, scripts and binaries; stored and LZX files |
 | Squirrel, WiX Burn, NSIS, Inno Setup, ClickOnce | installed files under their install paths |
 | Firmware image | each embedded filesystem, boot image and archive |
 | ESP32 flash image | bootloader, partition table, every partition |
