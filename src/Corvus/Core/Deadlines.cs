@@ -9,6 +9,9 @@ public static class Deadlines
     /// <summary>A call answers this long before the client gives up on it, so the answer arrives in time.</summary>
     public static TimeSpan ClientMargin { get; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>A joinable long-running call answers "running" after this long (30 s, fixed) and leaves its work to the repeat.</summary>
+    public static TimeSpan Soft { get; } = TimeSpan.FromSeconds(30);
+
     /// <summary>The shortest deadline handed out; a client limit under margin + this still gets a short answer window.</summary>
     public static TimeSpan Minimum { get; } = TimeSpan.FromSeconds(1);
 

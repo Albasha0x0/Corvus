@@ -31,10 +31,13 @@ public sealed class CallJoin
     /// <summary>Whether work for <paramref name="key"/> is running.</summary>
     public bool IsRunning(string key) { lock (_running) return _running.ContainsKey(key); }
 
-    /// <summary>Tool name plus SHA-256 of the canonical arguments; null for tools not read-only and for session tools, whose answer depends on the moment.</summary>
+    /// <summary>Tools that join although they change the workspace: a repeat is a no-op once the first load has finished.</summary>
+    private static readonly HashSet<string> Loads = new(StringComparer.Ordinal) { "load_assembly", "load_session" };
+
+    /// <summary>Tool name plus SHA-256 of the canonical arguments; null for tools not read-only and for session tools other than the loads, whose answer depends on the moment.</summary>
     public static string? Key(string? tool, bool readOnly, IEnumerable<KeyValuePair<string, JsonElement>>? arguments)
     {
-        if (tool == null || !readOnly || Toolsets.FamilyOf(tool) == Toolsets.Session) return null;
+        if (tool == null || !Loads.Contains(tool) && (!readOnly || Toolsets.FamilyOf(tool) == Toolsets.Session)) return null;
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
         {

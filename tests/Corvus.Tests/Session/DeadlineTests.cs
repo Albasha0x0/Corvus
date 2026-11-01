@@ -110,6 +110,180 @@ public sealed class DeadlineTests
         Assert.Equal(0, CallJoin.For(services.GetRequiredService<ServerOptions>()).Running);
     }
 
+    /// <summary>A call of <paramref name="tool"/> that stays running until released, answered at the soft time on a fake clock.</summary>
+    private sealed class SoftRun : IDisposable
+    {
+        private readonly string _tool;
+
+        public readonly ArmedClock Clock = new();
+        public readonly AssemblyWorkspace Workspace = new();
+        public readonly TaskCompletionSource Release = new();
+        public static Dictionary<string, JsonElement> Arguments => Args("""{"path":"a.dll"}""");
+        public int Runs;
+        public readonly ServiceProvider Services;
+
+        public SoftRun(string tool)
+        {
+            _tool = tool;
+            Services = new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = 3600 }).AddSingleton<ResultStore>()
+                .AddSingleton<TimeProvider>(Clock).AddSingleton(Workspace).BuildServiceProvider();
+        }
+
+        /// <summary>The notices queued so far, waiting up to a minute for the first.</summary>
+        public async Task<List<string>> NoticesAsync()
+        {
+            using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+            List<string> notices = [];
+            while (notices.Count == 0)
+            {
+                await Task.Delay(10, limit.Token);
+                notices = Workspace.DrainNotices();
+            }
+            return notices;
+        }
+
+        public readonly TaskCompletionSource Started = new();
+
+        /// <summary>
+        /// Fires the call's timers once its argument check is done; a repeat has
+        /// no start signal, so it gets a short real wait.
+        /// </summary>
+        public async Task<TimeSpan> AnswerAsync(Task call)
+        {
+            if (Runs == 0) await Started.Task.WaitAsync(TimeSpan.FromMinutes(1));
+            else await Task.Delay(200);
+            return await Clock.RunUntilAsync(call);
+        }
+
+        /// <summary>Releases the run after a short real wait, so a repeat started before has attached to it.</summary>
+        public async Task ReleaseAfterAttachAsync()
+        {
+            await Task.Delay(200);
+            Release.SetResult();
+        }
+
+        public ValueTask<CallToolResult> Call() => DeadlineTests.Run(Services, _tool, async _ =>
+        {
+            Interlocked.Increment(ref Runs);
+            Started.TrySetResult();
+            await Release.Task;
+            return Done;
+        }, Arguments);
+
+        public void Dispose() { Services.Dispose(); Workspace.Dispose(); }
+    }
+
+    [Fact]
+    public async Task A_long_running_call_answers_running_and_the_repeat_picks_the_run_up()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        var first = run.Call().AsTask();
+        var elapsed = await run.AnswerAsync(first);
+        Assert.True(elapsed <= Deadlines.Soft, $"answered after {elapsed}");
+        var error = McpProtocolTests.ErrorJson(await first);
+        Assert.StartsWith("running:", error.GetProperty("message").GetString());
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.Equal("soft", error.GetProperty("details").GetProperty("deadlineSource").GetString());
+        Assert.StartsWith("repeat the same call", error.GetProperty("next").GetString());
+        Assert.Equal(1, CallJoin.For(run.Services.GetRequiredService<ServerOptions>()).Running);
+
+        var repeat = run.Call().AsTask();
+        await run.ReleaseAfterAttachAsync();
+        Assert.StartsWith("done", ((TextContentBlock)(await repeat).Content[0]).Text);
+        Assert.Equal(1, run.Runs);
+    }
+
+    [Fact]
+    public async Task A_long_running_call_that_finishes_before_the_soft_time_answers_directly()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        run.Release.SetResult();
+        Assert.StartsWith("done", ((TextContentBlock)(await run.Call().AsTask()).Content[0]).Text);
+        Assert.Empty(run.Workspace.DrainNotices());
+    }
+
+    [Fact]
+    public async Task A_ceiling_below_the_soft_time_is_reported_as_the_ceiling()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        run.Services.GetRequiredService<ServerOptions>().CallCeiling = TimeSpan.FromSeconds(10);
+        var first = run.Call().AsTask();
+        await run.AnswerAsync(first);
+        var error = McpProtocolTests.ErrorJson(await first);
+        Assert.Equal("ceiling", error.GetProperty("details").GetProperty("deadlineSource").GetString());
+        Assert.Contains(ServerOptions.MaxCallMinutesVariable, error.GetProperty("message").GetString());
+        run.Release.SetResult();
+    }
+
+    [Fact]
+    public async Task A_repeat_that_collects_the_result_leaves_no_notice()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        var first = run.Call().AsTask();
+        await run.AnswerAsync(first);
+        await first;
+        var repeat = run.Call().AsTask();
+        await run.ReleaseAfterAttachAsync();
+        Assert.StartsWith("done", ((TextContentBlock)(await repeat).Content[0]).Text);
+        await Task.Delay(50);
+        Assert.Empty(run.Workspace.DrainNotices());
+    }
+
+    [Fact]
+    public async Task A_failed_run_queues_one_notice_with_the_first_line_of_its_error()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        await run.AnswerAsync(run.Call().AsTask());
+        run.Release.SetException(new InvalidOperationException("bad input.\nsecond line"));
+        var notice = Assert.Single(await run.NoticesAsync());
+        Assert.Equal("compare_assemblies failed after its running answer (bad input). Next: repeat the same call to read the error.", notice);
+    }
+
+    [Fact]
+    public async Task A_cancelled_run_queues_one_notice_naming_the_cancel()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        await run.AnswerAsync(run.Call().AsTask());
+        run.Release.SetCanceled();
+        var notice = Assert.Single(await run.NoticesAsync());
+        Assert.StartsWith("compare_assemblies was cancelled after its running answer.", notice);
+    }
+
+    [Fact]
+    public async Task A_run_that_outlived_its_callers_queues_one_notice_at_its_end()
+    {
+        using var run = new SoftRun("compare_assemblies");
+        var first = run.Call().AsTask();
+        await run.AnswerAsync(first);
+        await first;
+        var second = run.Call().AsTask();
+        await run.AnswerAsync(second);
+        await second;
+        Assert.Empty(run.Workspace.DrainNotices());
+        run.Release.SetResult();
+        var notices = await run.NoticesAsync();
+        var notice = Assert.Single(notices);
+        Assert.Equal("compare_assemblies finished after its running answer. Next: repeat the same call.", notice);
+        Assert.Equal(1, run.Runs);
+    }
+
+    [Fact]
+    public async Task A_repeated_load_assembly_joins_the_first_load()
+    {
+        Assert.NotNull(CallJoin.Key("load_assembly", false, Args("""{"path":"a.dll"}""")));
+        Assert.NotNull(CallJoin.Key("load_session", false, Args("""{"path":"a.json"}""")));
+        Assert.Null(CallJoin.Key("unload_assembly", false, Args("""{"path":"a.dll"}""")));
+        using var run = new SoftRun("load_assembly");
+        var first = run.Call().AsTask();
+        await run.AnswerAsync(first);
+        Assert.Equal("timeout", McpProtocolTests.ErrorJson(await first).GetProperty("code").GetString());
+        var repeat = run.Call().AsTask();
+        await run.ReleaseAfterAttachAsync();
+        Assert.StartsWith("done", ((TextContentBlock)(await repeat).Content[0]).Text);
+        Assert.Equal(1, run.Runs);
+    }
+
     [Fact]
     public async Task Editing_calls_never_join()
     {

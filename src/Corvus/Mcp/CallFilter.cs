@@ -178,11 +178,15 @@ internal static partial class CallFilter
         var output = new OutputCall(tool, 0, null);
         var effects = ToolEffects.Of(tool ?? "");
         var deadline = serverOptions != null ? Deadlines.Effective(effects.LongRunning, serverOptions, client!) : null;
+        var joinKey = serverOptions != null ? CallJoin.Key(tool, effects.ReadOnly, request?.Arguments) : null;
+        // A joinable long-running call answers "running" at the soft time, and
+        // its work goes on for the repeat.
+        bool bySoft = effects.LongRunning && joinKey != null && (deadline == null || Deadlines.Soft < deadline);
+        if (bySoft) deadline = Deadlines.Soft;
         var ceiling = serverOptions != null ? Ceiling(tool, serverOptions) : null;
         bool byCeiling = ceiling is { } bound && (deadline == null || bound < deadline);
-        if (byCeiling) deadline = ceiling;
+        if (byCeiling) { deadline = ceiling; bySoft = false; }
         var leftovers = serverOptions != null ? LeftoverWork.For(serverOptions) : null;
-        var joinKey = serverOptions != null ? CallJoin.Key(tool, effects.ReadOnly, request?.Arguments) : null;
         var joins = joinKey != null ? CallJoin.For(serverOptions!) : null;
         // Stopped one grace period early, so even work that ignores its token is answered for by the deadline.
         using var expiry = deadline != null ? new CancellationTokenSource() : null;
@@ -259,7 +263,15 @@ internal static partial class CallFilter
                     // The deadline ends this caller's wait only; a repeat of the call
                     // picks the run up, so the run carries no deadline of its own.
                     var joined = joins.Run(joinKey!, token => { using var unbounded = Deadlines.Enter(null); return Work(token); }, cancellationToken, o => (Copy(o.Result), o.Output));
-                    outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, leftovers, time, tool);
+                    var run = Runs.GetValue(joined.Work, _ => new RunState());
+                    Interlocked.Increment(ref run.Waiting);
+                    try
+                    {
+                        // A soft answer is no leftover: the join counts the run, and
+                        // server_status lists it under joined.
+                        outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, bySoft ? null : leftovers, time, tool);
+                    }
+                    finally { Interlocked.Decrement(ref run.Waiting); }
                 }
                 else
                 {
@@ -297,7 +309,8 @@ internal static partial class CallFilter
         }
         catch (DeadlinePassedException ex)
         {
-            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, byCeiling, phase), output);
+            if (joins != null && phase == null) AnnounceEnd(services?.GetService<AssemblyWorkspace>(), tool, ex.Work);
+            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, byCeiling, phase, bySoft), output);
         }
         catch (OperationCanceledException) when (!call.IsCancellationRequested)
         {
@@ -373,9 +386,43 @@ internal static partial class CallFilter
     private static CallToolResult Copy(CallToolResult result) =>
         JsonSerializer.Deserialize<CallToolResult>(JsonSerializer.SerializeToUtf8Bytes(result, McpJsonUtilities.DefaultOptions), McpJsonUtilities.DefaultOptions)!;
 
-    private sealed class DeadlinePassedException(TimeSpan limit) : Exception
+    private sealed class DeadlinePassedException(TimeSpan limit, Task work) : Exception
     {
         public TimeSpan Limit { get; } = limit;
+        public Task Work { get; } = work;
+    }
+
+    /// <summary>Callers waiting on a joined run, and whether its end is announced.</summary>
+    private sealed class RunState
+    {
+        public int Waiting;
+        public int Announced;
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Task, RunState> Runs = new();
+
+    /// <summary>The first line of an error message, at most 200 characters, without the final period.</summary>
+    private static string Brief(string? message)
+    {
+        var line = (message ?? "").Split('\n')[0].Trim().TrimEnd('.');
+        return line.Length > 200 ? line[..200] + "..." : line;
+    }
+
+    /// <summary>Queues one notice when a joined run outlives its callers; none if a caller is still waiting and gets the result.</summary>
+    private static void AnnounceEnd(AssemblyWorkspace? workspace, string? tool, Task work)
+    {
+        var run = Runs.GetValue(work, _ => new RunState());
+        if (workspace == null || Interlocked.Exchange(ref run.Announced, 1) == 1) return;
+        _ = work.ContinueWith(t =>
+        {
+            if (Volatile.Read(ref run.Waiting) > 0) return;
+            workspace.Notify(t.Status switch
+            {
+                TaskStatus.RanToCompletion => $"{tool} finished after its running answer. Next: repeat the same call.",
+                TaskStatus.Canceled => $"{tool} was cancelled after its running answer. Next: repeat the same call to run it again.",
+                _ => $"{tool} failed after its running answer ({Brief(t.Exception?.GetBaseException().Message)}). Next: repeat the same call to read the error.",
+            });
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     /// <summary>The tool's result; on cancel or deadline the work gets <see cref="DeadlineGrace"/> to stop, then finishes in the background, counted in <paramref name="leftovers"/>.</summary>
@@ -390,17 +437,27 @@ internal static partial class CallFilter
         leftovers?.Track(shared, tool);
         _ = work.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
         client.ThrowIfCancellationRequested();
-        throw new DeadlinePassedException(deadline!.Value);
+        throw new DeadlinePassedException(deadline!.Value, shared);
     }
 
     /// <param name="blockedBy">The workspace lock holders the call was still waiting for, else null.</param>
     /// <param name="joined">The work runs on under a join key: the same call made again picks it up.</param>
     /// <param name="byCeiling">The limit is <see cref="ServerOptions.CallCeiling"/>.</param>
     /// <param name="phase">The step the call was in before its work started ("checking its arguments"), else null.</param>
+    /// <param name="bySoft">The limit is <see cref="Deadlines.Soft"/>: the answer is "running", not a failure.</param>
     private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy, ClientLimits? client, bool joined, bool byCeiling,
-        string? phase = null)
+        string? phase = null, bool bySoft = false)
     {
         bool byClient = !byCeiling && client?.DeadlineSeconds is { } seconds && limit < TimeSpan.FromSeconds(seconds);
+        if (bySoft && phase == null && blockedBy == null)
+            return ErrorResult.From(new ToolError(ErrorCode.Timeout,
+                $"running: the call has not finished after {limit.TotalSeconds:0} s; its work continues in the background.",
+                "repeat the same call to pick up the running work; a [workspace] notice reports its end")
+            {
+                Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = false, blockedBy, deadlineSource = "soft" },
+                RetryAfter = LeftoverWork.RetryAfter,
+                Retryable = true,
+            }, tool);
         var source = byCeiling ? $"the {ServerOptions.MaxCallMinutesVariable} ceiling" : byClient ? $"the client waits {client!.DeadlineSeconds} s" : $"{DeadlineFactor}x --timeout";
         return ErrorResult.From(new ToolError(ErrorCode.Timeout,
             $"the call did not finish within {limit.TotalSeconds:0} s ({source})" +
