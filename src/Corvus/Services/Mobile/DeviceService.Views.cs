@@ -29,10 +29,10 @@ public sealed partial class DeviceService
         {
             ExternalTools.RunResult r;
             using (var file = SafeFile.CreateNew(partial))
-                r = ExternalTools.Run(AdbPath(), [.. args], Long, budget, ct, Environment, sink: file);
+                r = RunLong(args, budget, what, ct, () => file.Length, file);
             if (r.Truncated)
                 throw new ToolError(ErrorCode.LimitExceeded, $"{what} is over {budget >> 20} MB; nothing was kept.");
-            if (check || r.StartError != null || r.TimedOut) Check(r, what);
+            if (check || r.StartError != null) Check(r, what);
             SafeFile.MoveToOutput(partial, final, overwrite: false);
             using var read = File.OpenRead(final);
             return (r, read.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(read)));
@@ -164,7 +164,7 @@ public sealed partial class DeviceService
         {
             var answer = File.ReadAllText(zip).Trim();
             TryDelete(zip);
-            var made = Run(ExternalTools.Arguments(Adb, "bugreport-zip", ("serial", serial)), Long, MaxTextBytes, ct);
+            var made = RunLong(ExternalTools.Arguments(Adb, "bugreport-zip", ("serial", serial)), MaxTextBytes, "collecting the bugreport", ct);
             var text = (made.Text + made.Stderr).Trim();
             if (made.ExitCode == 127 || text.Contains("bugreportz: not found", StringComparison.Ordinal) || text.Contains("bugreportz: inaccessible", StringComparison.Ordinal))
             {
@@ -183,7 +183,7 @@ public sealed partial class DeviceService
             if (long.TryParse(bytes, NumberStyles.Integer, CultureInfo.InvariantCulture, out var remoteSize) && remoteSize > MaxBugreportBytes)
                 throw new ToolError(ErrorCode.LimitExceeded, $"the bugreport ({remoteSize >> 20} MB) is over {MaxBugreportBytes >> 20} MB; it stays on the device at {remote}.",
                     $"pull_android_file remotePath={remote}");
-            Check(Run(ExternalTools.Arguments(Adb, "pull", ("serial", serial), ("remote", remote), ("local", zip)), Long, 1 << 20, ct), $"pulling {remote}");
+            Check(RunLong(ExternalTools.Arguments(Adb, "pull", ("serial", serial), ("remote", remote), ("local", zip)), 1 << 20, $"pulling {remote}", ct, FileBytes(zip)), $"pulling {remote}");
             if (!File.Exists(zip)) throw new ToolError(ErrorCode.IoError, $"adb reported success but wrote nothing for {remote}.");
             using (var f = File.OpenRead(zip)) (size, sha) = (f.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(f)));
             method = $"bugreportz, pulled from {remote}";

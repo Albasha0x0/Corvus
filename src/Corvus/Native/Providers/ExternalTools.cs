@@ -440,12 +440,24 @@ public static partial class ExternalTools
     public sealed record RunResult(int? ExitCode, byte[] Output, string Stderr, bool TimedOut, bool Truncated, string? StartError)
     {
         public string Text => Encoding.UTF8.GetString(Output);
+
+        /// <summary>Set when a <see cref="Watch"/> stopped the program: the progress count it had reached.</summary>
+        public long? StalledAt { get; init; }
     }
 
+    /// <summary>
+    /// Replaces the wall-clock timeout of a run: the program is stopped once
+    /// <see cref="Rule"/> finds no progress. <see cref="Count"/> reads the
+    /// progress count; null counts stdout bytes written.
+    /// </summary>
+    public sealed record Watch(StallRule Rule, Func<long>? Count = null);
+
     /// <summary>Runs a program in its own job with a minimal environment and a temporary folder of its own, removed afterwards; stops the tree past
-    /// <paramref name="maxOutputBytes"/> (setting Truncated), the timeout or cancellation. With <paramref name="sink"/>, stdout streams there and Output is empty.</summary>
+    /// <paramref name="maxOutputBytes"/> (setting Truncated), the timeout or cancellation. With <paramref name="sink"/>, stdout streams there and Output is empty.
+    /// With <paramref name="watch"/>, <paramref name="timeout"/> is unused (pass
+    /// <see cref="Timeout.InfiniteTimeSpan"/>) and a stall ends the run (setting StalledAt).</summary>
     public static RunResult Run(string exe, IReadOnlyList<string> args, TimeSpan timeout, long maxOutputBytes, CancellationToken ct,
-        IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null, Stream? sink = null)
+        IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null, Stream? sink = null, Watch? watch = null)
     {
         // A self-extracting program unpacks into TEMP and removes it only on a normal exit: a stopped one leaves it behind.
         var temp = RunFolderPath();
@@ -454,7 +466,7 @@ public static partial class ExternalTools
             var env = MinimalEnvironment(environment);
             foreach (var name in TempVariables)
                 if (environment?.ContainsKey(name) != true) env[name] = temp;
-            return RunIn(exe, args, timeout, maxOutputBytes, ct, env, workingDirectory, sink, temp);
+            return RunIn(exe, args, timeout, maxOutputBytes, ct, env, workingDirectory, sink, temp, watch);
         }
         finally { RemoveRunFolder(temp); }
     }
@@ -515,7 +527,7 @@ public static partial class ExternalTools
     }
 
     private static RunResult RunIn(string exe, IReadOnlyList<string> args, TimeSpan timeout, long maxOutputBytes, CancellationToken ct,
-        Dictionary<string, string?> env, string? workingDirectory, Stream? sink, string temp)
+        Dictionary<string, string?> env, string? workingDirectory, Stream? sink, string temp, Watch? stallWatch)
     {
         ChildProcess child;
         try
@@ -531,6 +543,8 @@ public static partial class ExternalTools
         {
             child.StandardInput.Dispose();
             bool truncated = false;
+            long? stalledAt = null;
+            var written = new long[1];
             var watch = System.Diagnostics.Stopwatch.StartNew();
             byte[] stdout = [];
             string stderr = "";
@@ -539,15 +553,14 @@ public static partial class ExternalTools
                 var buffer = new MemoryStream();
                 var target = sink ?? buffer;
                 var chunk = new byte[64 * 1024];
-                long written = 0;
                 try
                 {
                     int n;
                     while ((n = child.StandardOutput.Read(chunk, 0, chunk.Length)) > 0)
                     {
-                        int keep = (int)Math.Min(n, Math.Max(0, maxOutputBytes - written));
+                        int keep = (int)Math.Min(n, Math.Max(0, maxOutputBytes - written[0]));
                         target.Write(chunk, 0, keep);
-                        written += keep;
+                        Interlocked.Add(ref written[0], keep);
                         if (keep < n) { truncated = true; child.Kill(); break; }
                     }
                 }
@@ -570,15 +583,33 @@ public static partial class ExternalTools
             bool exited, timedOut;
             try
             {
-                exited = child.Exited.Wait(timeout, ct);
-                timedOut = !exited;
+                if (stallWatch is { } sw)
+                {
+                    // Polled several times per window, so a stall is found within a fraction of it.
+                    var poll = TimeSpan.FromMilliseconds(Math.Clamp(sw.Rule.Window.TotalMilliseconds / 4, 10, 1000));
+                    var last = -1L;
+                    while (!(exited = child.Exited.Wait(poll, ct)))
+                    {
+                        var count = sw.Count?.Invoke() ?? Interlocked.Read(ref written[0]);
+                        if (count != last) { last = count; sw.Rule.Progress(null); }
+                        if (sw.Rule.Stalled(child.TreeCpuTime())) { stalledAt = count; break; }
+                    }
+                    timedOut = false;
+                }
+                else
+                {
+                    exited = child.Exited.Wait(timeout, ct);
+                    timedOut = !exited;
+                }
             }
             catch (OperationCanceledException) { exited = timedOut = false; }
             // A tree still holding the output at the deadline is stopped, which ends it.
-            if (!exited || !ChildProcess.JoinReaders(readers, watch, timeout)) child.Kill();
+            // A watched run has no deadline; a tree holding the pipe after the exit gets one stall window.
+            var held = stallWatch is { } w ? (System.Diagnostics.Stopwatch.StartNew(), w.Rule.Window) : (watch, timeout);
+            if (!exited || !ChildProcess.JoinReaders(readers, held.Item1, held.Item2)) child.Kill();
             ChildProcess.JoinReaders(readers, System.Diagnostics.Stopwatch.StartNew(), TimeSpan.FromSeconds(5));
             ct.ThrowIfCancellationRequested();
-            return new RunResult(child.ExitCode, stdout, stderr, timedOut, truncated, null);
+            return new RunResult(child.ExitCode, stdout, stderr, timedOut, truncated, null) { StalledAt = stalledAt };
         }
     }
 

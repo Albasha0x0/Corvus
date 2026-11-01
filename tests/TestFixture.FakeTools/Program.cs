@@ -96,7 +96,18 @@ foreach (var rule in script["rules"]?.AsArray() ?? [])
 {
     if (!Regex.IsMatch(joined, rule!["match"]!.GetValue<string>())) continue;
     if (rule["sleepMs"]?.GetValue<int>() is { } sleep) Thread.Sleep(sleep);
-    if (rule["file"]?.GetValue<string>() is { } file) File.WriteAllBytes(args[^1], Convert.FromBase64String(file));
+    if (rule["file"]?.GetValue<string>() is { } file)
+    {
+        var content = Convert.FromBase64String(file);
+        if (rule["paceMs"]?.GetValue<int>() is { } pace)
+        {
+            // One byte per interval, so the target grows slowly.
+            using var target = File.Create(args[^1]);
+            foreach (var b in content) { target.WriteByte(b); target.Flush(); Thread.Sleep(pace); }
+        }
+        else File.WriteAllBytes(args[^1], content);
+    }
+    if (rule["hangMs"]?.GetValue<int>() is { } hang) Thread.Sleep(hang);
     if (rule["printEnv"]?.GetValue<string>() is { } variable) Console.Out.Write(Environment.GetEnvironmentVariable(variable) ?? "<unset>");
     if (rule["logFolder"]?.GetValue<string>() is { } folderVariable && Environment.GetEnvironmentVariable(folderVariable) is { } folder)
         Log(log, new JsonObject { ["folder"] = folder, ["entries"] = Directory.Exists(folder) ? Directory.GetFileSystemEntries(folder).Length : -1 }.ToJsonString());

@@ -48,7 +48,7 @@ internal sealed class FakeTool : IDisposable
 
     /// <summary>Adds a rule: the first whose regex finds the joined arguments answers.</summary>
     public FakeTool On(string match, string? stdout = null, string? stderr = null, int exit = 0, byte[]? file = null, int? repeat = null, int? sleepMs = null, string? printEnv = null,
-        byte[]? bytes = null, string? logFolder = null)
+        byte[]? bytes = null, string? logFolder = null, int? paceMs = null, int? hangMs = null)
     {
         var rule = new JsonObject { ["match"] = match, ["exit"] = exit };
         if (stdout != null) rule["stdout"] = stdout;
@@ -57,6 +57,8 @@ internal sealed class FakeTool : IDisposable
         if (file != null) rule["file"] = Convert.ToBase64String(file);
         if (repeat != null) rule["repeat"] = repeat;
         if (sleepMs != null) rule["sleepMs"] = sleepMs;
+        if (paceMs != null) rule["paceMs"] = paceMs;
+        if (hangMs != null) rule["hangMs"] = hangMs;
         if (printEnv != null) rule["printEnv"] = printEnv;
         if (logFolder != null) rule["logFolder"] = logFolder;
         _script["rules"]!.AsArray().Add(rule);

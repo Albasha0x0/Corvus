@@ -56,11 +56,12 @@ public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<
 /// <summary>Runs adb (CORVUS_ADB, PATH, or SDK platform-tools) per operation with the serial pinned; installs and uninstalls need --allow-device-changes.</summary>
 public sealed partial class DeviceService(ServerOptions options, DexService? dex = null)
 {
-    private static readonly TimeSpan Long = TimeSpan.FromMinutes(10);
-
     /// <summary>The time limit of a quick adb call (a list, a read or a check); tests raise it under load.</summary>
     internal TimeSpan Short { get; init; } = TimeSpan.FromSeconds(30);
     private const long MaxTextBytes = 16L << 20;
+
+    /// <summary>The no-progress window after which a long adb call is stopped; null: the server's stall window.</summary>
+    internal TimeSpan? StallWindow { get; init; }
 
     /// <summary>Extra environment for adb (tests).</summary>
     internal IReadOnlyDictionary<string, string?>? Environment { get; init; }
@@ -81,6 +82,22 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
 
     private ExternalTools.RunResult Run(IEnumerable<string> args, TimeSpan timeout, long maxBytes, CancellationToken ct) =>
         ExternalTools.Run(AdbPath(), [.. args], timeout, maxBytes, ct, Environment);
+
+    // A long call ends when it makes no progress, never on a wall clock: a slow
+    // link still finishes. Without a count, stdout bytes are the progress; an
+    // install prints none until it ends, so only CPU use keeps it running.
+    private ExternalTools.RunResult RunLong(IEnumerable<string> args, long maxBytes, string what, CancellationToken ct,
+        Func<long>? count = null, Stream? sink = null)
+    {
+        var window = StallWindow ?? TimeSpan.FromSeconds(options.StallSeconds);
+        var r = ExternalTools.Run(AdbPath(), [.. args], Timeout.InfiniteTimeSpan, maxBytes, ct, Environment, sink: sink, watch: new(new StallRule(window), count));
+        if (r.StalledAt is { } reached)
+            throw new ToolError(ErrorCode.Timeout, $"{what}: adb made no progress for {window.TotalSeconds:0.###} s and used under 1% of a core; it had reached {reached} bytes.",
+                $"repeat the call, or raise {ServerOptions.StallWindowVariable} (seconds without progress)");
+        return r;
+    }
+
+    private static Func<long> FileBytes(string path) => () => File.Exists(path) ? new FileInfo(path).Length : 0;
 
     private List<string> Lines(string serial, string op, string what, params (string, string)[] values) =>
         [.. Check(Run(ExternalTools.Arguments(Adb, op, [("serial", serial), .. values]), Short, MaxTextBytes, default), what)
@@ -374,7 +391,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             {
                 ct.ThrowIfCancellationRequested();
                 var local = SafeFile.OutputUnderRoot(dir, Blob.SafeRelativePath(Path.GetFileName(remote.Replace('\\', '/')), "package.apk"));
-                Check(Run(ExternalTools.Arguments(Adb, "pull", ("serial", s), ("remote", remote), ("local", local)), Long, 1 << 20, ct), $"pulling {remote}");
+                Check(RunLong(ExternalTools.Arguments(Adb, "pull", ("serial", s), ("remote", remote), ("local", local)), 1 << 20, $"pulling {remote}", ct, FileBytes(local)), $"pulling {remote}");
                 if (!File.Exists(local)) throw new ToolError(ErrorCode.IoError, $"adb reported success but {local} was not written.");
                 var bytes = File.ReadAllBytes(local);
                 files.Add(new PulledFile(remote, local, bytes.Length, Blob.Sha256(bytes)));
@@ -431,7 +448,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         var partial = full + ".partial-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
-            Check(Run(ExternalTools.Arguments(Adb, "pull", ("serial", s), ("remote", remotePath), ("local", partial)), Long, 1 << 20, ct), $"pulling {remotePath}");
+            Check(RunLong(ExternalTools.Arguments(Adb, "pull", ("serial", s), ("remote", remotePath), ("local", partial)), 1 << 20, $"pulling {remotePath}", ct, FileBytes(partial)), $"pulling {remotePath}");
             if (!File.Exists(partial)) throw new ToolError(ErrorCode.IoError, $"adb reported success but wrote nothing for {remotePath}.");
             SafeFile.MoveToOutput(partial, full, overwrite);
         }
@@ -542,7 +559,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             if (downgrade) args.Add("-d");
             if (grantPermissions) args.Add("-g");
             args.AddRange(apks);
-            var r = Run(args, Long, MaxTextBytes, ct);
+            var r = RunLong(args, MaxTextBytes, "installing", ct);
             var output = (r.Text + "\n" + r.Stderr).Trim();
             if (InstallFailure().Match(output) is { Success: true } failure)
             {
@@ -596,7 +613,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         var args = ExternalTools.Arguments(Adb, "uninstall", ("serial", s));
         if (keepData) args.Add("-k");
         args.Add(package);
-        var r = Run(args, Long, MaxTextBytes, ct);
+        var r = RunLong(args, MaxTextBytes, "uninstalling", ct);
         var output = (r.Text + "\n" + r.Stderr).Trim();
         if (output.Contains("Failure", StringComparison.Ordinal))
             throw new ToolError(output.Contains("DELETE_FAILED_INTERNAL_ERROR", StringComparison.Ordinal) || output.Contains("Unknown package", StringComparison.Ordinal)

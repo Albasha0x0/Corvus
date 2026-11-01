@@ -198,7 +198,7 @@ Name the programs a session may start or attach to:
 | `CORVUS_ENGINE_MEMORY_MB` | ¾ of available | memory limit of each IDA or Ghidra worker (Windows job object); a worker at it is ended; `0`: none |
 | `CORVUS_ENGINE_ANALYSIS_STALL` | 1800 | seconds IDA's or Ghidra's analysis may show no progress and under 1% CPU before it stops; 0 turns the check off |
 | `CORVUS_ENGINE_REQUEST_TIMEOUT`, `CORVUS_ENGINE_OPEN_TIMEOUT` | 120, unset | seconds per engine request (a stopped request returns what it found); absolute limit in seconds for an engine's start plus auto-analysis, none when unset (0 is rejected) |
-| `CORVUS_STALL_WINDOW` | 600 | seconds a file worker may show no progress and under 1% CPU, or an update download may receive no data, before it is stopped as stalled; work that makes progress runs to completion |
+| `CORVUS_STALL_WINDOW` | 600 | seconds a file worker or a long adb call may show no progress and under 1% CPU, or an update download may receive no data, before it is stopped as stalled; work that makes progress runs to completion |
 | `CORVUS_STALL_DIR` | `<analysis cache>/ghidra/stalls` | thread dumps of Ghidra workers stopped for time or stall |
 
 - `CORVUS_IDA_CONNECT`: the image's SHA-256 must match IDA's input. Reads and edits reach that database at once.

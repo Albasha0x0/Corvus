@@ -1,3 +1,4 @@
+using Corvus.Core;
 using Corvus.Native.Providers;
 using Xunit.Abstractions;
 
@@ -51,6 +52,49 @@ public class ExternalToolsTests : IDisposable
         var temp = named.Text.Trim();
         Assert.StartsWith(PrivateFolder.Temp("run"), temp);
         Assert.False(Directory.Exists(temp), $"{temp} was left behind");
+    }
+
+    private static (string Exe, string[] Args) Script(string windows, string unix) => OperatingSystem.IsWindows()
+        ? (Path.Combine(Environment.SystemDirectory, "cmd.exe"), ["/d", "/c", windows])
+        : ("/bin/sh", ["-c", unix]);
+
+    [Fact]
+    public void A_watched_program_that_keeps_writing_outlasts_the_timeout_and_the_window()
+    {
+        // One line per second for about 5 s, past the 3 s window and the 1 ms timeout.
+        var (exe, args) = Script("ping -n 6 127.0.0.1", "for i in 1 2 3 4 5 6; do echo x; sleep 1; done");
+        var r = ExternalTools.Run(exe, args, TimeSpan.FromMilliseconds(1), 1 << 20, default, watch: new(new StallRule(TimeSpan.FromSeconds(3))));
+        Assert.Equal(0, r.ExitCode);
+        Assert.False(r.TimedOut);
+        Assert.Null(r.StalledAt);
+    }
+
+    [Fact]
+    public void A_watched_program_that_goes_silent_is_stopped_at_the_count_it_reached()
+    {
+        var (exe, args) = Script("ping -n 120 127.0.0.1 >nul", "sleep 120");
+        var r = ExternalTools.Run(exe, args, Timeout.InfiniteTimeSpan, 1 << 20, default, watch: new(new StallRule(TimeSpan.FromMilliseconds(500)), () => 7));
+        Assert.Equal(7, r.StalledAt);
+        Assert.False(r.TimedOut);
+    }
+
+    [Fact]
+    public void A_watched_run_is_cancelled_by_its_token()
+    {
+        var (exe, args) = Script("ping -n 120 127.0.0.1 >nul", "sleep 120");
+        using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        Assert.Throws<OperationCanceledException>(() =>
+            ExternalTools.Run(exe, args, Timeout.InfiniteTimeSpan, 1 << 20, stop.Token, watch: new(new StallRule(TimeSpan.FromMinutes(5)))));
+    }
+
+    [Fact]
+    public void A_watched_run_ends_when_a_child_keeps_the_output_open_after_the_program_exits()
+    {
+        // The parent exits at once; its child holds stdout for 120 s.
+        var (exe, args) = Script("start /b ping -n 120 127.0.0.1", "sleep 120 & exit 0");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        ExternalTools.Run(exe, args, Timeout.InfiniteTimeSpan, 1 << 20, default, watch: new(new StallRule(TimeSpan.FromSeconds(2)), () => 0));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(60), $"the run took {clock.Elapsed}");
     }
 
     /// <summary>Collects a program's output and cancels <paramref name="stop"/> at the first line break.</summary>

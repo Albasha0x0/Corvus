@@ -199,6 +199,30 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
+        public void A_pull_that_keeps_growing_outlasts_the_stall_window()
+        {
+            // 12 bytes at 100 ms each take 1.2 s, past the 0.6 s window.
+            using var slow = FakeDevice.Configure(new FakeTool().On(@"pull /data/local/tmp/notes\.txt ", file: new byte[12], paceMs: 100), AndroidSamples.Apk());
+            var file = DeviceWithStallWindow(slow).PullFile("/data/local/tmp/notes.txt", _dir.File("slow/notes.txt"), false, null, default);
+            Assert.Equal(12, file.Size);
+        }
+
+        [Fact]
+        public void A_pull_that_stops_growing_names_the_bytes_received()
+        {
+            // 5 bytes arrive, then the program hangs.
+            using var stuck = FakeDevice.Configure(new FakeTool().On(@"pull /data/local/tmp/notes\.txt ", file: new byte[5], hangMs: 30_000), AndroidSamples.Apk());
+            var e = Assert.Throws<ToolError>(() => DeviceWithStallWindow(stuck).PullFile("/data/local/tmp/notes.txt", _dir.File("stuck/notes.txt"), false, null, default));
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.Contains("reached 5 bytes", e.Message);
+            Assert.Contains(ServerOptions.StallWindowVariable, e.Remediation!);
+            Assert.Empty(Directory.EnumerateFiles(_dir.File("stuck")));
+        }
+
+        private DeviceService DeviceWithStallWindow(FakeTool tool) =>
+            new(new ServerOptions()) { Environment = tool.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit, StallWindow = TimeSpan.FromMilliseconds(600) };
+
+        [Fact]
         public void Log_filters_and_parses_lines()
         {
             var error = Service().Log(null, null, null, "error", null, null, default).Lines;
@@ -215,6 +239,22 @@ public abstract class DeviceTests : IDisposable
 
     public sealed class Changes : DeviceTests
     {
+        [Fact]
+        public void An_install_that_prints_nothing_is_stopped_after_the_stall_window()
+        {
+            // The program hangs without output and without CPU use.
+            using var stuck = FakeDevice.Configure(new FakeTool().On("install-multiple", hangMs: 30_000), AndroidSamples.Apk());
+            var apk = AndroidSamples.Save(_dir, "stuck.apk", AndroidSamples.Apk());
+            var service = new DeviceService(new ServerOptions { AllowDeviceChanges = true })
+            {
+                Environment = stuck.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit, StallWindow = TimeSpan.FromMilliseconds(600)
+            };
+            var e = Assert.Throws<ToolError>(() => service.Install(apk, true, false, false, null, default));
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.Contains("reached 0 bytes", e.Message);
+            Assert.Contains(ServerOptions.StallWindowVariable, e.Remediation!);
+        }
+
         [Fact]
         public void Install_and_uninstall_are_gated_then_map_failures()
         {
