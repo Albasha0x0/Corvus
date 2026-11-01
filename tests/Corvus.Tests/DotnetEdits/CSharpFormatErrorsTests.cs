@@ -50,6 +50,6 @@ public class CSharpFormatErrorsTests
         var text = Services.CSharpPatcher.FormatErrors([.. errors, .. errors], tree, []);
 
         Assert.Contains("(25 error(s))", text);
-        Assert.Contains("… 5 more", text);
+        Assert.Contains("\u2026 5 more", text);
     }
 }
