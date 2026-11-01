@@ -23,6 +23,7 @@ internal sealed class OfficeDocument
     public List<EmbeddedObject> Objects { get; } = [];
     public List<ExternalLink> Links { get; } = [];
     public List<OleObjectClass> Classes { get; } = [];
+
     public List<string> Notes { get; } = [];
     public bool Encrypted { get; set; }
     public List<MacroFinding> Findings { get; private set; } = [];
@@ -32,6 +33,13 @@ internal sealed class OfficeDocument
 
     /// <summary>Hyperlink targets read from fields, formulas and altChunk parts, with where each was read.</summary>
     internal List<(string Target, string Location)> Targets { get; } = [];
+
+    /// <summary>Adds the class of the object at <paramref name="path"/>; an empty name or a repeated path and name adds nothing.</summary>
+    internal void AddClass(string path, string name, bool active)
+    {
+        if (name.Length == 0 || Classes.Any(c => c.Path == path && c.Name == name)) return;
+        Classes.Add(new OleObjectClass(path, name, active));
+    }
 
     /// <summary>OOXML parts and OLE streams read whole are bounded by this many bytes.</summary>
     private const long MaxPart = 256L << 20;
@@ -127,12 +135,35 @@ internal sealed class OfficeDocument
             if (x.Encrypted) { Encrypted = true; Notes.AddRange(x.Notes.Select(n => prefix + "Workbook: " + n)); }
             if (x.HasMacroSheets || x.Encrypted) Xlm = x;
         }
-        foreach (var e in cf.Entries.Where(e => !e.IsStorage && e.Name == "\u0001Ole10Native"))
+        var objectPath = prefix.Length == 0 ? "root storage" : prefix.TrimEnd('/');
+        if (OleClasses.FromClsid(cf.RootClsid) is { } rootClass) AddClass(objectPath, rootClass.Name, rootClass.Active);
+        foreach (var storage in cf.Entries.Where(e => e.IsStorage && OleClasses.FromClsid(e.Clsid) != null))
+        {
+            var c = OleClasses.FromClsid(storage.Clsid)!;
+            AddClass(prefix + storage.Path, c.Name, c.Active);
+        }
+        foreach (var e in cf.Entries.Where(e => !e.IsStorage && e.Name == "Equation Native"))
         {
             ct.ThrowIfCancellationRequested();
-            if (Ole10Native(cf.Read(e, MaxPart)) is { } package) Objects.Add(package with { Path = prefix + e.Path });
+            var c = OleClasses.FromProgId("Equation.3")!;
+            AddClass(HolderPath(e.Path), c.Name, c.Active);
+            EquationNative.Read(cf.Read(e, MaxPart), prefix + e.Path, Notes);
+        }
+        foreach (var e in cf.Entries.Where(e => !e.IsStorage && e.Name == "Ole10Native"))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (Ole10Native(cf.Read(e, MaxPart)) is { } package)
+            {
+                var packageClass = OleClasses.FromProgId("Package")!;
+                AddClass(HolderPath(e.Path), packageClass.Name, packageClass.Active);
+                Objects.Add(package with { Path = prefix + e.Path });
+            }
             else Notes.Add($"{prefix}{Printable(e.Path)}: not a readable OLE Package");
         }
+
+        // The storage that holds a stream: the container itself for a top-level stream.
+        string HolderPath(string streamPath) =>
+            streamPath.LastIndexOf('/') is var i and > 0 ? prefix + streamPath[..i] : objectPath;
     }
 
     /// <summary>The decrypted OOXML package of an encrypted document, when it opens with the default password.</summary>

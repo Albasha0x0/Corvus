@@ -192,7 +192,7 @@ public static class FindingRules
         N("office/suspicious", "a decoded keyword in a document whose macros run on open", "a keyword worth reviewing in macro text"),
         I("office/ioc", "a URL, address or file name in macro text"),
         I("office/encoded-string", "hex or base64 strings in macro text"),
-        N("office/ole-class", "exact list: Equation Editor and OLE Package objects", "an embedded or linked object of a class that runs code"),
+        N("office/ole-class", "exact list: Equation Editor, OLE Package, HTML document and HTML form control objects", "an embedded or linked object of a class that runs code"),
         R("office/template", "a remote template or linked object target"),
         N("office/dde", "a DDE or DDEAUTO field, a DDE link or a DDE formula reference", "a DDE field, link or formula reference"),
         R("office/field", "an INCLUDETEXT or INCLUDEPICTURE field with an http(s), UNC or file target; other HYPERLINK, INCLUDETEXT and INCLUDEPICTURE fields are info"),

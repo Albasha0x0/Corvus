@@ -105,14 +105,14 @@ internal static class RtfObjects
             var declared = OleClasses.FromProgId(o.Class);
             if (o.Hex.Length == 0)
             {
-                AddClass(path, declared?.Name ?? o.Class, declared?.Active == true);
+                doc.AddClass(path, declared?.Name ?? o.Class, declared?.Active == true);
                 return;
             }
             var bytes = Convert.FromHexString(o.Hex.ToString());
             if (!Header(bytes, out var progId, out var topic, out var native, out var linked))
             {
                 doc.Notes.Add($"{path}: objdata is not an OLE 1.0 object header; its content is unknown");
-                AddClass(path, declared?.Name ?? o.Class, declared?.Active == true);
+                doc.AddClass(path, declared?.Name ?? o.Class, declared?.Active == true);
                 return;
             }
             var cls = OleClasses.FromProgId(progId) ?? declared;
@@ -139,12 +139,7 @@ internal static class RtfObjects
                 }
                 else doc.Objects.Add(new EmbeddedObject(path, $"object_{n}.bin", null, native));
             }
-            AddClass(path, cls?.Name ?? (progId.Length > 0 ? progId : o.Class), cls?.Active == true);
-        }
-
-        void AddClass(string path, string name, bool active)
-        {
-            if (name.Length > 0) doc.Classes.Add(new OleObjectClass(path, name, active));
+            doc.AddClass(path, cls?.Name ?? (progId.Length > 0 ? progId : o.Class), cls?.Active == true);
         }
     }
 
