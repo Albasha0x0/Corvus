@@ -11,9 +11,6 @@ namespace Corvus.Services.Analysis;
 /// <summary>search_container kind=yara: rules from a file, folder, pack or text run by YARA-X in a worker; rules that do not compile are named and the rest still run.</summary>
 internal sealed class YaraSearchKind : IContainerSearchKind
 {
-    /// <summary>A scan's hard limit; YARA-X's own timeout is whole seconds and best effort.</summary>
-    private static readonly TimeSpan ScanLimit = TimeSpan.FromMinutes(10);
-
     public IReadOnlyList<string> Kinds => ["yara"];
 
     public IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct) => [];
@@ -45,10 +42,22 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         return rules == null;
     }
 
-    /// <summary>A yara_scan request run in a yara worker; <paramref name="target"/> names the file in errors.</summary>
-    internal static YaraScanResult Run(JsonObject request, string target, CancellationToken ct) =>
-        WorkerPool.Shared.RunAsync("yara", YaraOps.ScanOp, request, ScanLimit, ct, target).GetAwaiter().GetResult().Deserialize<YaraScanResult>(YaraOps.Json)
-        ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
+    /// <summary>A yara_scan request run in a yara worker until it ends or stalls; <paramref name="target"/> names the file in errors.</summary>
+    internal static YaraScanResult Run(JsonObject request, string target, CancellationToken ct, WorkerPool? pool = null)
+    {
+        JsonElement answer;
+        try { answer = (pool ?? WorkerPool.Shared).RunAsync("yara", YaraOps.ScanOp, request, Timeout.InfiniteTimeSpan, ct, target, ServerOptions.StallWindow()).GetAwaiter().GetResult(); }
+        catch (ToolError e) when (e.Code == ErrorCode.Timeout && e.Message.Contains(StallRule.MessagePrefix, StringComparison.Ordinal))
+        {
+            throw Stalled(e, target);
+        }
+        return answer.Deserialize<YaraScanResult>(YaraOps.Json) ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
+    }
+
+    /// <summary>The retryable error for a stalled scan of <paramref name="target"/>, naming the call to repeat and the variable to raise.</summary>
+    internal static ToolError Stalled(ToolError stalled, string target) =>
+        new(ErrorCode.Timeout, $"Scanning {target} was stopped: {stalled.Message}",
+            $"repeat the same search_container kind=yara call to scan from the start, or raise {ServerOptions.StallWindowVariable} (seconds without progress)");
 
     /// <summary>The full path of the rule file or folder <paramref name="query"/> names, or null when it names none.</summary>
     private static string? RulePath(string query)

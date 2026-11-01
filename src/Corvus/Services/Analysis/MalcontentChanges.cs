@@ -14,9 +14,6 @@ internal static partial class MalcontentChanges
 {
     public const string Pack = "malcontent";
 
-    /// <summary>Both scans together; past it the behaviours are reported not compared.</summary>
-    internal static TimeSpan Limit { get; set; } = TimeSpan.FromMinutes(2);
-
     private const int MaxRows = 300, MaxTextRows = 20;
     private static readonly string[] Risks = ["low", "medium", "high", "critical"];
 
@@ -33,18 +30,15 @@ internal static partial class MalcontentChanges
         if (folder == null) return ([], null);
         var version = Path.GetFileName(folder);
         Dictionary<string, Behaviour> before, after;
-        using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timer.CancelAfter(Limit);
         try
         {
-            var scans = new[] { oldFile, newFile }.Select(f => Task.Run(() => Behaviours(f, folder, pool ?? WorkerPool.Shared, timer.Token), timer.Token)).ToArray();
-            Task.WaitAll(scans, timer.Token);
+            var scans = new[] { oldFile, newFile }.Select(f => Task.Run(() => Behaviours(f, folder, pool ?? WorkerPool.Shared, ct), ct)).ToArray();
+            Task.WaitAll(scans, ct);
             (before, after) = (scans[0].Result, scans[1].Result);
         }
-        catch (Exception e) when (!ct.IsCancellationRequested && e is OperationCanceledException or ToolError or AggregateException)
+        catch (Exception e) when (!ct.IsCancellationRequested && e is ToolError or AggregateException)
         {
-            var why = e is OperationCanceledException ? $"scanning both builds takes over {Limit.TotalSeconds:0} s"
-                : (e is AggregateException a ? a.InnerExceptions[0] : e).Message;
+            var why = (e is AggregateException a ? a.InnerExceptions[0] : e).Message;
             return ([], $"malcontent {version} behaviours not compared: {why}; search_container kind=yara query=pack:{Pack} on each build lists them.\n");
         }
         var rows = before.Keys.Union(after.Keys, StringComparer.Ordinal).Where(k => before.ContainsKey(k) != after.ContainsKey(k))
@@ -71,8 +65,7 @@ internal static partial class MalcontentChanges
         if (Kept.TryGetValue(key, out var kept)) return kept;
         var ids = Ids.GetOrAdd(folder, RuleIds);
         var request = new JsonObject { ["path"] = info.FullName, ["rules"] = folder };
-        var result = pool.RunAsync("yara", YaraOps.ScanOp, request, Limit, ct, file).GetAwaiter().GetResult().Deserialize<YaraScanResult>(YaraOps.Json)
-                     ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
+        var result = YaraSearchKind.Run(request, file, ct, pool);
         var behaviours = new Dictionary<string, Behaviour>(StringComparer.Ordinal);
         foreach (var rule in result.Hits.SelectMany(h => h.Rules))
         {

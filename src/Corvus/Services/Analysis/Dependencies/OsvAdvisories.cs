@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Corvus.Core;
 using Corvus.Native.Providers;
 
 namespace Corvus.Services.Analysis.Dependencies;
@@ -14,7 +15,6 @@ public sealed record DependencyAdvisories(string State, string? Checker, int Che
 /// <summary>Matches a dependency inventory's package URLs against OSV advisories with osv-scanner, offline.</summary>
 internal static class OsvAdvisories
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
     private const long MaxOutput = 64L * 1024 * 1024;
 
     /// <summary>The variable osv-scanner reads its offline databases from; passed through to it when set.</summary>
@@ -40,7 +40,7 @@ internal static class OsvAdvisories
             File.WriteAllBytes(sbom, Bom(candidates));
             var environment = Environment.GetEnvironmentVariable(DatabaseVariable) is { Length: > 0 } db
                 ? new Dictionary<string, string?> { [DatabaseVariable] = db } : null;
-            var run = ExternalTools.Run(probe.Path!, ExternalTools.Arguments(tool, "scan", ("file", sbom)), Timeout, MaxOutput, ct, environment);
+            var run = ExternalTools.Run(probe.Path!, ExternalTools.Arguments(tool, "scan", ("file", sbom)), Timeout.InfiniteTimeSpan, MaxOutput, ct, environment, watch: new(new StallRule(ServerOptions.StallWindow())));
             return Read(run, candidates, without, checker);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -58,9 +58,9 @@ internal static class OsvAdvisories
     internal static DependencyAdvisories Read(ExternalTools.RunResult run, IReadOnlyList<DependencyComponent> candidates, int without, string checker)
     {
         // osv-scanner exits 0 with no advisory, 1 with advisories, and 127 or 128 on an error.
-        if (run.StartError != null || run.TimedOut || run.Truncated || run.ExitCode is not (0 or 1))
+        if (run.StartError != null || run.StalledAt != null || run.Truncated || run.ExitCode is not (0 or 1))
         {
-            var why = run.StartError ?? (run.TimedOut ? $"no answer within {Timeout.TotalMinutes:0} min" : run.Truncated ? $"a report over {MaxOutput / (1024 * 1024)} MiB"
+            var why = run.StartError ?? (run.StalledAt is { } reached ? $"no output for {ServerOptions.StallWindow().TotalSeconds:0.###} s and under 1% of a core after {reached:N0} bytes; repeat the same call or raise {ServerOptions.StallWindowVariable}" : run.Truncated ? $"a report over {MaxOutput / (1024 * 1024)} MiB"
                 : $"exit {run.ExitCode}: {LastLines(run.Stderr)}");
             return NotChecked(checker, candidates.Count + without, $"advisories not checked: osv-scanner gave {why}");
         }

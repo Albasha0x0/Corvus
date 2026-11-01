@@ -79,17 +79,16 @@ internal sealed class PacketSearchKind : IContainerSearchKind
             var fields = named.Select((f, i) => (f, c[11 + i])).Where(f => f.Item2.Length > 0).Select(f => (f.f, f.Item2.Length > 200 ? f.Item2[..200] + "…" : f.Item2)).ToList();
             rows.Add(new PacketRow(frame, time, Host(2, 3, 6, 7), Host(4, 5, 8, 9), c[10].ToLowerInvariant(), fields));
         });
-        var size = new FileInfo(source).Length;
-        // Allows 2 MB/s at the slowest.
-        var timeout = TimeSpan.FromSeconds(Math.Clamp(size / (2 << 20), 60, 3600));
         // An empty profile: no personal preferences, plugins or Lua scripts load.
         var profile = PrivateFolder.Create(ExternalTools.RunFolderPath());
         ExternalTools.RunResult run;
-        try { run = ExternalTools.Run(exe, args, timeout, long.MaxValue, ct, new Dictionary<string, string?> { [ProfileVariable] = profile }, sink: sink); }
+        try { run = ExternalTools.Run(exe, args, Timeout.InfiniteTimeSpan, long.MaxValue, ct, new Dictionary<string, string?> { [ProfileVariable] = profile }, sink: sink, watch: new(new StallRule(ServerOptions.StallWindow()))); }
         finally { ExternalTools.RemoveRunFolder(profile); }
         sink.Flush();
         if (run.StartError != null) throw new ToolError(ErrorCode.Unsupported, $"TShark could not be started: {run.StartError}.", ExternalTools.Remediation(tool));
-        if (run.TimedOut) throw new ToolError(ErrorCode.Timeout, $"TShark did not finish within {timeout.TotalSeconds:N0} s.", "narrow the filter with in-process fields, or split the capture");
+        if (run.StalledAt is { } reached)
+            throw new ToolError(ErrorCode.Timeout, $"TShark was stopped: no output for {ServerOptions.StallWindow().TotalSeconds:0.###} s and under 1% of a core after {reached:N0} bytes.",
+                $"repeat the same search_container kind=packet call, narrow the filter to in-process fields, or raise {ServerOptions.StallWindowVariable} (seconds without progress)");
         if (run.ExitCode != 0)
         {
             var reason = run.Stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? $"exit code {run.ExitCode}";
