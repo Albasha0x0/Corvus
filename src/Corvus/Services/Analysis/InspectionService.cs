@@ -221,11 +221,35 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         catch (Exception ex) { throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 
-    /// <summary>The survey of a build, file or category; a loaded build's full survey is kept.</summary>
-    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) =>
+    /// <summary>
+    /// The survey of a build, file or category; a loaded build's full survey is kept. Category capa waits <paramref name="capaWait"/> for capa, then reports it running.
+    /// A <paramref name="given"/> report from the caller is used as capa's labels.
+    /// </summary>
+    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct, TimeSpan? capaWait = null, CapaReport? given = null) =>
         assembly != null && path == null && (category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase))
             ? Kept(assembly, true, ct).Report
-            : Survey(assembly, path, category, true, ct);
+            : Survey(assembly, path, category, true, ct, capaWait, given);
+
+    /// <summary>capa's report for a PE or ELF file, started or joined, waiting <paramref name="wait"/>; null for other files.</summary>
+    public CapaReport? CapaOf(string path, TimeSpan wait, CancellationToken ct)
+    {
+        if (!File.Exists(path)) return null;
+        Span<byte> head = stackalloc byte[4];
+        using (var stream = File.OpenRead(path)) if (stream.Read(head) < 4) return null;
+        return head[..2].SequenceEqual("MZ"u8) || head.SequenceEqual("ELF"u8) ? NativeCapa.Analyze(path, wait, ct, workspace) : null;
+    }
+
+    /// <summary>Stops the capa run on an assembly's file or <paramref name="path"/>; the report names the outcome or that none ran.</summary>
+    public FeatureReport CancelCapa(string? assembly, string? path)
+    {
+        var file = path != null ? Path.GetFullPath(path) : BuildFile(assembly!);
+        var name = Path.GetFileName(file);
+        return NativeCapa.Cancel(file, workspace) is { } stopped
+            ? new FeatureReport(name, 0, [], [$"category {CapaCategory}: {(stopped.State == NativeCapa.Cancelled ? "capa was cancelled" : "capa is still stopping")}",
+                $"{CapaCategory}: next: survey_features path={file} category=capa runs it again"])
+            : new FeatureReport(name, 0, [], [$"category {CapaCategory}: no capa run is going on {name}",
+                $"{CapaCategory}: next: survey_features path={file} category=capa starts one"]);
+    }
 
     /// <summary>A loaded build's survey with kept capa labels, never running capa; CapaLabelled false means its labels are unknown.</summary>
     public (FeatureReport Report, bool CapaLabelled) BuildSurvey(string assembly, CancellationToken ct) => Kept(assembly, false, ct);
@@ -271,13 +295,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     /// <summary>Build surveys run rather than reused (tests).</summary>
     internal int SurveysRun => Volatile.Read(ref _surveysRun);
 
-    private FeatureReport Survey(string? assembly, string? path, string? category, bool runCapa, CancellationToken ct)
+    private FeatureReport Survey(string? assembly, string? path, string? category, bool runCapa, CancellationToken ct, TimeSpan? capaWait = null, CapaReport? given = null)
     {
         if (assembly == null && path != null && AppSurvey(path, ct) is { } app) return Filter(app, category);
-        if (NativeSurvey(assembly, path, category, ct) is { } native) return Filter(native, category);
+        if (NativeSurvey(assembly, path, category, ct, capaWait, given) is { } native) return Filter(native, category);
         var aotCapa = assembly != null && runCapa ? CapaSurvey(assembly, ct) : null;
         var file = aotCapa != null ? null : path != null ? Path.GetFullPath(path) : workspace.Read(() => workspace.Get(assembly!).FilePath);
-        var labels = file != null ? CapaLabels(file, category, ct) : null;
+        var labels = file != null ? CapaLabels(file, category, capaWait, ct, given) : null;
         var report = WithAssembly(assembly, path, s =>
         {
             var found = new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes);
@@ -321,13 +345,17 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     /// <summary>Most functions named per capa label; the count covers them all.</summary>
     private const int MaxCapaLocations = 5;
 
-    /// <summary>capa's labels of a file: run for category capa, else kept ones; null when none are kept and capa is not set up.</summary>
-    private static CapaReport? CapaLabels(string file, string? category, CancellationToken ct)
+    /// <summary>
+    /// capa's labels of a file: <paramref name="given"/> or a run for category capa (running past <paramref name="wait"/>), else kept ones.
+    /// Null when none are kept and capa is not set up.
+    /// </summary>
+    private CapaReport? CapaLabels(string file, string? category, TimeSpan? wait, CancellationToken ct, CapaReport? given = null)
     {
+        if (given != null && string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase)) return given;
         if (!string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase))
             return NativeCapa.Cached(file) ?? (Native.Providers.ExternalTools.Locate(Native.Providers.ExternalTools.Capa) != null
                 ? new(NativeCapa.NotChecked, null, false, null, [], [$"capa was not run: category={CapaCategory} runs it over the whole file"]) : null);
-        return File.Exists(file) ? NativeCapa.Analyze(file, ct)
+        return File.Exists(file) ? NativeCapa.Analyze(file, wait, ct, workspace)
             : new(NativeCapa.NotChecked, null, false, null, [], [$"capa reads files on disk; {Path.GetFileName(file)} is not one"]);
     }
 
@@ -399,7 +427,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     /// <summary>The survey of a loaded native image or a native file indexed for this call; null when the input is not native.</summary>
-    private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct)
+    private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct, TimeSpan? capaWait = null, CapaReport? given = null)
     {
         if ((assembly == null) == (path == null)) return null;
         NativeCodeIndex index;
@@ -444,7 +472,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         if (index.Image is Native.MachO.MachOFile)
             return string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase)
                 ? report with { Notes = [.. report.Notes, $"category {CapaCategory}: not checked: capa reads PE, ELF and .NET files"] } : report;
-        if (CapaLabels(index.Image.Path, category, ct) is not { } capa) return report;
+        if (CapaLabels(index.Image.Path, category, capaWait, ct, given) is not { } capa) return report;
         var imageBase = index.Image.ImageBase;
         return WithLabels(report, capa, at =>
         {

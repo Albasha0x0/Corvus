@@ -24,12 +24,16 @@ public sealed class AssemblyWorkspace : IDisposable
     public AssemblyWorkspace(ServerOptions? options = null, ILogger<AssemblyWorkspace>? logger = null)
     {
         _logger = logger;
+        Options = options ?? new ServerOptions();
         LoadedSet = new LoadedSetRecord(options?.LoadedSetFile);
         var resolver = new DnlibResolver(this);
         DnlibContext = new ModuleContext(resolver, new Resolver(resolver));
         foreach (var dir in options?.SearchDirectories ?? [])
             AddSearchDirectory(dir);
     }
+
+    /// <summary>The options this workspace was created with; defaults when none were given.</summary>
+    internal ServerOptions Options { get; }
 
     /// <summary>Raised outside the lock after assemblies are loaded or reloaded.</summary>
     public event Action<IReadOnlyList<LoadedAssembly>>? AssembliesLoaded;

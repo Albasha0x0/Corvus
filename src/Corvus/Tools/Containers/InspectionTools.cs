@@ -15,7 +15,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     Native.Providers.Worker.WorkerPool? workers = null)
 {
     private const string AssemblyParam = "A loaded assembly; this or path.";
-    private const string PathParam = "An assembly, container, build folder, package, or serialized asset file or bundle; pass this or assembly.";
+    private const string PathParam = "An assembly, container, build folder, package, or serialized asset file or bundle.";
 
     // The views that read each paging parameter; any other view refuses it.
     private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri", "esp32"];
@@ -33,9 +33,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("Summarize a file, folder or assembly, never run: type, hashes, signature, containers, assemblies, " +
-                 "entry points. view= opens one aspect; the overview lists them.")]
+                 "entry points. view= opens one aspect.")]
     public Task<string> SummarizeFile(
-        [Description("File (assembly, executable, package, archive) or folder.")] string? path = null,
+        [Description("A file or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
         [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace.")] string? table = null,
@@ -46,7 +46,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Overwrite either file.")] bool overwrite = false,
-        [Description("Password of an encrypted document or archive; only it is tried.")] string? password = null,
+        [Description("Password to decrypt with; only it is tried.")] string? password = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
@@ -114,28 +114,42 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
     [Description("Capabilities by rules over calls, imports and strings; category= adds evidence. " +
-                 "Apps add MASVS findings; category=capa adds labels (CORVUS_CAPA).")]
+                 "Apps add MASVS findings; category=capa adds labels (CORVUS_CAPA): waitSeconds waits, cancel stops it.")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET, native or app file, not loaded.")] string? path = null,
         [Description("Category or MASVS prefix; all: everything.")] string? category = null,
         [Description("A native image or path (instead of assembly).")] string? image = null,
-        [Description("Locations per evidence entry, 1-100; default 5.")] int locations = ContainerText.ShownLocations,
+        [Description("Locations per entry, 1-100; default 5.")] int locations = ContainerText.ShownLocations,
+        [Description("Seconds to wait for capa, 0-600.")] int waitSeconds = 0,
+        [Description("Stop the capa run.")] bool cancel = false,
         CancellationToken cancellationToken = default)
     {
         if (locations is < 1 or > Evidence.MaxLocations)
             throw new ToolError(ErrorCode.InvalidArgument, $"locations must be 1-{Evidence.MaxLocations}.");
+        if (waitSeconds is < 0 or > 600)
+            throw new ToolError(ErrorCode.InvalidArgument, $"waitSeconds {waitSeconds} is outside 0-600.", "waitSeconds=60");
         if (image != null && assembly != null)
             throw new ToolError(ErrorCode.InvalidArgument, "Pass assembly or image, not both: they name the same thing.");
         if (image != null && path == null && workspace?.Read(() => workspace.FindNative(image)) == null && File.Exists(image)) (path, image) = (image, null);
+        if (cancel)
+        {
+            if (assembly == null && image == null && path == null)
+                throw new ToolError(ErrorCode.InvalidArgument, "cancel needs the file of the run.", "survey_features path=<file> category=capa cancel=true");
+            var stopped = ContainerText.Survey(inspection.CancelCapa(assembly ?? image, path), null, locations);
+            return ToolOutput.Report(ContainerText.Survey(stopped), stopped);
+        }
         SurveyRecord record;
+        var capa = string.Equals(category, "capa", StringComparison.OrdinalIgnoreCase);
         if (assembly == null && image == null && path != null)
         {
-            var args = new FileWork.SurveyArgs(path, category, locations);
+            // The capa job outlives the call and runs in its own worker; the file worker takes its report.
+            var run = capa ? await Task.Run(() => inspection.CapaOf(path, TimeSpan.FromSeconds(waitSeconds), cancellationToken), cancellationToken) : null;
+            var args = new FileWork.SurveyArgs(path, category, locations, run);
             record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Survey, args, path,
                 () => FileWork.SurveyWith(inspection, args, cancellationToken), cancellationToken);
         }
-        else record = ContainerText.Survey(await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken), category, locations);
+        else record = ContainerText.Survey(await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken, TimeSpan.FromSeconds(waitSeconds)), cancellationToken), category, locations);
         return ToolOutput.Report(ContainerText.Survey(record), record);
     }
 
@@ -150,7 +164,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description("Asset bytes to read; at most 4 GiB (default).")] long? maxAssetBytes = null,
-        [Description("Seconds until the asset read stops with what it read.")] double? timeLimit = null,
+        [Description("Seconds until the asset read stops.")] double? timeLimit = null,
         CancellationToken cancellationToken = default)
     {
         if (maxAssetBytes is <= 0) throw new ToolError(ErrorCode.InvalidArgument, "maxAssetBytes must be above 0.");
@@ -178,11 +192,11 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                  "decoded (hex, base64, compression, XOR) to an image, archive or text with its encoding chain; save=true writes them.")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
-        [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,
+        [Description("An assembly or container file, read without loading.")] string? path = null,
         [Description("Write the items to disk.")] bool save = false,
-        [Description("Empty directory or an earlier extraction of this file; default: temp.")] string? outputDirectory = null,
+        [Description("Empty directory or an earlier extraction; default: temp.")] string? outputDirectory = null,
         [Description("Load .NET assemblies found (implies save).")] bool load = false,
-        [Description("Also try 1-16 byte XOR keys on unreadable data (slower).")] bool xorText = false,
+        [Description("Also try 1-16 byte XOR keys (slower).")] bool xorText = false,
         [Description("Also list and save images (else counted).")] bool includeMedia = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,

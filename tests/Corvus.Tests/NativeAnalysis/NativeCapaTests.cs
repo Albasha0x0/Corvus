@@ -93,6 +93,8 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose()
     {
+        NativeCapa.RunOverride.Value = null;
+        NativeCapa.RootOverride.Value = null;
         foreach (var o in _owned) o.Dispose();
         _dir.Dispose();
     }
@@ -156,6 +158,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
     /// <summary>A fake capa (10.0.0 by default) answering <paramref name="result"/>, named by CORVUS_CAPA and run in this process.</summary>
     private IDisposable FakeCapa(string result, string version = "10.0.0")
     {
+        NativeCapa.RootOverride.Value = _dir.File("capa-cache");
         var fake = _capa = new FakeTool();
         _owned.Add(fake);
         fake.On("^--version$", stdout: $"capa.exe {version}\n");
@@ -213,7 +216,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
     public void Capa_older_than_10_is_not_checked_naming_the_reason()
     {
         using var capa = FakeCapa(Result(), "9.4.0");
-        var report = NativeCapa.Analyze(FixtureFile(), default);
+        var report = NativeCapa.Analyze(FixtureFile(), null, default, null);
         Assert.Equal(NativeCapa.NotChecked, report.State);
         Assert.Contains("version 9.4.0; 10 or newer is required: the result and freeze formats are read as capa 10 writes them", Assert.Single(report.Notes));
         Assert.DoesNotContain(_capa!.ArgumentLists, a => a.Contains("-j"));
@@ -225,7 +228,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         var file = FixtureFile();
         File.WriteAllText(file + ".viv", "a workspace beside the input");
         using var capa = FakeCapa(Result());
-        Assert.Equal("matched", NativeCapa.Analyze(file, default).State);
+        Assert.Equal("matched", NativeCapa.Analyze(file, null, default, null).State);
         var input = Assert.Single(_capa!.ArgumentLists, a => a.Contains("-j")).Last();
         Assert.NotEqual(Path.GetDirectoryName(Path.GetFullPath(file)), Path.GetDirectoryName(Path.GetFullPath(input)));
         Assert.Equal(".exe", Path.GetExtension(input));
@@ -236,7 +239,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
     public void Capa_not_set_up_is_not_checked_naming_the_variable_to_set()
     {
         using var env = new EnvironmentScope().Set("CORVUS_CAPA", Path.Combine(Path.GetTempPath(), "no-capa", "capa.exe"));
-        var report = NativeCapa.Analyze(FixtureFile(), default);
+        var report = NativeCapa.Analyze(FixtureFile(), null, default, null);
         Assert.Equal(NativeCapa.NotChecked, report.State);
         Assert.Contains("CORVUS_CAPA", Assert.Single(report.Notes));
     }
@@ -283,7 +286,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
     {
         using var capa = FakeCapa(Result());
         var path = FixtureFile();
-        Assert.Equal("matched", NativeCapa.Analyze(path, default).State);
+        Assert.Equal("matched", NativeCapa.Analyze(path, null, default, null).State);
         var options = new ServerOptions { BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         _owned.Add(workspace);
@@ -295,6 +298,237 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         Assert.DoesNotContain("set registry value", text);
     }
 
+    private int _runs;
+
+    /// <summary>Makes each capa run wait for <paramref name="gate"/>, then answer <paramref name="answer"/> (the fixture's labels by default); counts the runs.</summary>
+    private void Slow(ManualResetEventSlim gate, Func<CapaReport>? answer = null) =>
+        NativeCapa.RunOverride.Value = (_, _, ct) =>
+        {
+            Interlocked.Increment(ref _runs);
+            WaitHandle.WaitAny([gate.WaitHandle, ct.WaitHandle]);
+            ct.ThrowIfCancellationRequested();
+            return answer?.Invoke() ?? NativeCapa.Read(Ran(Result()), "capa 10.0.0", tested: true);
+        };
+
+    private static List<string> Notices(AssemblyWorkspace workspace)
+    {
+        var notices = new List<string>();
+        Assert.True(SpinWait.SpinUntil(() => { notices.AddRange(workspace.DrainNotices()); return notices.Count > 0; }, TimeSpan.FromSeconds(10)));
+        return notices;
+    }
+
+    // A run held on a gate stands in for a capa run that has not ended.
+    [Fact]
+    public void A_slow_capa_run_answers_running_at_once_then_a_wait_returns_the_report_and_a_notice_is_queued()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim();
+        Slow(gate);
+        using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false });
+        var inspection = new InspectionService(workspace);
+        var file = FixtureFile();
+        var running = inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        Assert.Empty(running.Features);
+        Assert.Contains(running.Notes, n => n.Contains("capa running") && n.Contains("default rate"));
+        Assert.Contains(running.Notes, n => n.Contains($"next: survey_features path={Path.GetFullPath(file)} category=capa waitSeconds=60 waits for the end"));
+        var ending = NativeCapa.Ending(file, workspace);
+        Assert.NotNull(ending);
+        gate.Set();
+        var notice = Assert.Single(Notices(workspace));
+        Assert.Contains("complete", notice);
+        Assert.Contains($"next: survey_features path={Path.GetFullPath(file)} category=capa", notice);
+        var done = inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.FromSeconds(30));
+        Assert.Contains(done.Features, f => f.Name == "create process on Windows");
+    }
+
+    // A run held on a gate stands in for a capa run that has not ended.
+    [Fact]
+    public void A_repeat_of_a_running_capa_call_joins_the_run()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim();
+        Slow(gate);
+        using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false });
+        var inspection = new InspectionService(workspace);
+        var file = FixtureFile();
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        gate.Set();
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.FromSeconds(30));
+        Assert.Equal(1, _runs);
+    }
+
+    // The fake run answers at once, so the report is kept before the second call.
+    [Fact]
+    public void A_finished_report_is_kept_on_disk_and_reused_without_a_run()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim(true);
+        Slow(gate);
+        var file = FixtureFile();
+        Assert.Equal("matched", NativeCapa.Analyze(file, null, default, null).State);
+        Assert.Single(Directory.GetFiles(Path.Combine(_dir.File("capa-cache"), "capa"), "*.json"));
+        NativeCapa.RunOverride.Value = (_, _, _) => throw new InvalidOperationException("capa ran again");
+        var again = NativeCapa.Analyze(file, null, default, null);
+        Assert.Equal(("matched", 5), (again.State, again.Labels.Count));
+        Assert.Equal(1, _runs);
+    }
+
+    // The fixture file grows by one byte between the calls.
+    [Fact]
+    public void A_report_is_not_reused_once_the_file_changes()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim(true);
+        Slow(gate);
+        var file = FixtureFile();
+        NativeCapa.Analyze(file, null, default, null);
+        File.AppendAllText(file, "x");
+        NativeCapa.Analyze(file, null, default, null);
+        Assert.Equal(2, _runs);
+    }
+
+    // Write times are set apart by a minute so the order is not a clock tie.
+    [Fact]
+    public void Only_the_oldest_kept_reports_are_evicted()
+    {
+        using var capa = FakeCapa(Result());
+        var report = NativeCapa.Read(Ran(Result()), "capa 10.0.0", tested: true);
+        var start = DateTime.UtcNow.AddHours(-1);
+        for (var i = 0; i < 3; i++)
+        {
+            NativeCapa.Keep($"key-{i}", report, capacity: 2);
+            File.SetLastWriteTimeUtc(NativeCapa.EntryPath($"key-{i}"), start.AddMinutes(i));
+        }
+        Assert.False(File.Exists(NativeCapa.EntryPath("key-0")));
+        Assert.True(File.Exists(NativeCapa.EntryPath("key-1")));
+        Assert.True(File.Exists(NativeCapa.EntryPath("key-2")));
+    }
+
+    // A run held on a gate stands in for a capa run that has not ended.
+    [Fact]
+    public async Task A_cancel_call_ends_the_run_as_cancelled_and_queues_no_notice()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim();
+        Slow(gate);
+        using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false });
+        var inspection = new InspectionService(workspace);
+        var file = FixtureFile();
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        var announced = NativeCapa.Ending(file, workspace);
+        Assert.NotNull(announced);
+        var cancelled = inspection.CancelCapa(null, file);
+        Assert.Contains(cancelled.Notes, n => n.Contains("capa was cancelled"));
+        Assert.Contains(inspection.CancelCapa(null, file).Notes, n => n.Contains("no capa run is going"));
+        await announced.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Empty(workspace.DrainNotices());
+        gate.Set();
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.FromSeconds(30));
+        Assert.Equal(2, _runs);
+    }
+
+    // A run held on a gate stands in for a capa run that has not ended.
+    [Fact]
+    public void A_failed_run_queues_a_notice_naming_the_call_that_runs_it_again()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim();
+        Slow(gate, () => NativeCapa.Read(Ran("", 1, "ERROR    capa: boom   x.py:1"), "capa 10.0.0", tested: true));
+        using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false });
+        var inspection = new InspectionService(workspace);
+        var file = FixtureFile();
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        gate.Set();
+        var notice = Assert.Single(Notices(workspace));
+        Assert.Contains("failed", notice);
+        Assert.Contains($"next: survey_features path={Path.GetFullPath(file)} category=capa runs it again", notice);
+        var read = inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.FromSeconds(30));
+        Assert.Contains(read.Notes, n => n.Contains("capa failed"));
+        Assert.Equal(2, _runs);
+    }
+
+    private static ExternalTools.RunResult Stalled() => new(null, [], "", false, false, null) { StalledAt = 1234 };
+
+    [Fact]
+    public void A_stalled_capa_run_is_unknown_and_names_the_variable_to_raise()
+    {
+        var read = NativeCapa.Read(Stalled(), "capa 10.0.0", tested: true, TimeSpan.FromSeconds(42));
+        Assert.Equal("unknown", read.State);
+        var note = Assert.Single(read.Notes);
+        Assert.Contains("1,234 bytes", note);
+        Assert.Contains("no output for 42 s", note);
+        Assert.Contains("CORVUS_STALL_WINDOW", note);
+    }
+
+    // The fake run reports a stall as capa's run does when no output arrives.
+    [Fact]
+    public void A_stall_ends_the_job_as_unknown_with_a_notice_naming_the_call_that_runs_it_again()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim();
+        Slow(gate, () => NativeCapa.Read(Stalled(), "capa 10.0.0", tested: true));
+        using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false });
+        var inspection = new InspectionService(workspace);
+        var file = FixtureFile();
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        gate.Set();
+        var notice = Assert.Single(Notices(workspace));
+        Assert.Contains("failed", notice);
+        Assert.Contains("runs it again", notice);
+    }
+
+    // The cancel arrives after the fake run returned its report.
+    [Fact]
+    public void A_cancel_after_the_run_ended_keeps_the_matched_report()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim();
+        using var done = new ManualResetEventSlim();
+        NativeCapa.RunOverride.Value = (_, _, ct) =>
+        {
+            gate.Wait(ct);
+            var report = NativeCapa.Read(Ran(Result()), "capa 10.0.0", tested: true);
+            done.Set();
+            return report;
+        };
+        var file = FixtureFile();
+        var inspection = new InspectionService(new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false }));
+        inspection.SurveyFeatures(null, file, "capa", default, TimeSpan.Zero);
+        gate.Set();
+        Assert.True(done.Wait(TimeSpan.FromSeconds(10)));
+        inspection.CancelCapa(null, file);
+        Assert.Equal("matched", NativeCapa.Analyze(file, null, default, null).State);
+    }
+
+    // A kept entry is overwritten with malformed JSON, then with another file's key.
+    [Fact]
+    public void An_unreadable_kept_entry_is_not_a_report()
+    {
+        using var capa = FakeCapa(Result());
+        using var gate = new ManualResetEventSlim(true);
+        Slow(gate);
+        var file = FixtureFile();
+        NativeCapa.Analyze(file, null, default, null);
+        var entry = NativeCapa.EntryPath(NativeCapa.Key(file)!);
+        File.WriteAllText(entry, "{not json");
+        Assert.Null(NativeCapa.Cached(file));
+        File.WriteAllText(entry, """{"key":"other","report":{"state":"matched","tested":true,"labels":[],"notes":[]}}""");
+        Assert.Null(NativeCapa.Cached(file));
+    }
+
+    // The tool is built without a file worker, so its argument checks run before any survey.
+    [Fact]
+    public async Task The_survey_tool_refuses_a_wait_outside_its_range_and_a_cancel_without_a_file()
+    {
+        using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false });
+        var tools = new InspectionTools(new InspectionService(workspace), workspace);
+        var wait = await Assert.ThrowsAsync<ToolError>(() => tools.SurveyFeatures(path: FixtureFile(), category: "capa", waitSeconds: 601));
+        Assert.Contains("outside 0-600", wait.Message);
+        var cancel = await Assert.ThrowsAsync<ToolError>(() => tools.SurveyFeatures(cancel: true));
+        Assert.Contains("cancel needs the file", cancel.Message);
+    }
+
     /// <summary>A real capa 10.0.0 named by CORVUS_CAPA labels the fixture's process, registry and exit functions, run in the worker host.</summary>
     [CapaFact]
     [Trait("Speed", "Slow")]
@@ -303,7 +537,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         // A pool of the test's own, so its capa worker ends with the test.
         using var pool = new WorkerPool(new WorkerPoolOptions { Enabled = true, MemoryLimitBytes = 0 });
         using var shared = WorkerPool.UseShared(pool);
-        var report = NativeCapa.Analyze(FixtureFile(), default);
+        var report = NativeCapa.Analyze(FixtureFile(), null, default, null);
         output.WriteLine(string.Join("\n", report.Labels.Select(l => $"{l.Name} [{l.Scope}] at {string.Join(",", l.Addresses.Select(a => $"0x{a:X}"))}: " +
                                                                      string.Join("; ", l.Attack.Concat(l.Mbc)))));
         Assert.True(report.State == "matched", string.Join("; ", report.Notes));

@@ -20,6 +20,7 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
 
     public void Dispose()
     {
+        NativeCapa.RootOverride.Value = null;
         foreach (var o in _owned) o.Dispose();
         _dir.Dispose();
     }
@@ -136,6 +137,7 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
     [Fact]
     public void Capa_labels_are_compared_once_capa_labelled_both_builds()
     {
+        NativeCapa.RootOverride.Value = _dir.File("capa-cache");
         var fake = new FakeTool();
         _owned.Add(fake);
         fake.On("^--version$", stdout: "capa.exe 10.0.0\n");
@@ -147,13 +149,13 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         var (env, _, inspection) = Rig();
         var old = env.Workspace.LoadAny(Save("old.exe", Program())).Native!;
         var @new = env.Workspace.LoadAny(Save("new.exe", Program(NetworkAndRegistry))).Native!;
-        Assert.Equal("matched", NativeCapa.Analyze(old.FilePath, default).State);
+        Assert.Equal("matched", NativeCapa.Analyze(old.FilePath, null, default, null).State);
 
         var (rows, text) = CapabilityChanges.Between(inspection, old.Id, @new.Id, default);
         Assert.DoesNotContain(rows!, r => r.Key.StartsWith("capa/", StringComparison.Ordinal));
         Assert.Contains("Note: capa labels not compared: capa has not labelled the new build; survey_features category=capa on each build runs it", text);
 
-        Assert.Equal("matched", NativeCapa.Analyze(@new.FilePath, default).State);
+        Assert.Equal("matched", NativeCapa.Analyze(@new.FilePath, null, default, null).State);
         (rows, _) = CapabilityChanges.Between(inspection, old.Id, @new.Id, default);
         var capa = Assert.Single(rows!, r => r.Key.StartsWith("capa/", StringComparison.Ordinal));
         Assert.Equal(("added", "capa/connect to URL"), (capa.Kind, capa.Key));
@@ -219,7 +221,7 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         using var workers = WorkerPool.UseShared(new WorkerPool(new WorkerPoolOptions { Enabled = false }));
         var (env, _, inspection) = Rig();
         var build = env.Workspace.LoadAny(Save("app.exe", Program())).Native!;
-        Assert.Equal("matched", NativeCapa.Analyze(build.FilePath, default).State);
+        Assert.Equal("matched", NativeCapa.Analyze(build.FilePath, null, default, null).State);
         inspection.SurveyFeatures(build.Id, null, null, default);
         var (_, labelled) = inspection.BuildSurvey(build.Id, default);
         Assert.True(labelled);

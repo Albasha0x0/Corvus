@@ -228,7 +228,7 @@ public static class FileWork
 
     public sealed record EmbeddedArgs(string Path, bool Save, string? OutputDirectory, bool XorText, bool IncludeMedia);
 
-    public sealed record SurveyArgs(string Path, string? Category, int Locations = ContainerText.ShownLocations);
+    public sealed record SurveyArgs(string Path, string? Category, int Locations = ContainerText.ShownLocations, Services.Analysis.CapaReport? Capa = null);
 
     public sealed record ExportPackageArgs(string Path, string OutputDirectory, bool Overwrite);
 
@@ -260,7 +260,7 @@ public static class FileWork
 
     /// <summary>The survey record of a file.</summary>
     public static SurveyRecord SurveyWith(InspectionService inspection, SurveyArgs a, CancellationToken ct) =>
-        ContainerText.Survey(inspection.SurveyFeatures(null, a.Path, a.Category, ct), a.Category, a.Locations);
+        ContainerText.Survey(inspection.SurveyFeatures(null, a.Path, a.Category, ct, null, a.Capa), a.Category, a.Locations);
 
     /// <summary>export_project of an Android package: the Gradle project written whole or not at all.</summary>
     public static readonly FileOp<ExportPackageArgs, ExportOutcome> ExportPackage = new("package_export", "export_project",
