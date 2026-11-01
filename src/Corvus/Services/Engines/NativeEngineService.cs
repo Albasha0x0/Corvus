@@ -779,8 +779,11 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>The engine value that answers without waiting for an external engine.</summary>
     private const string FallbackEngine = "ours";
 
+    /// <summary>The <see cref="EstimateAfter"/> of a new service: 20 s.</summary>
+    internal static TimeSpan DefaultEstimateAfter { get; set; } = TimeSpan.FromSeconds(20);
+
     /// <summary>How long a call waits on a running open before it reports the estimate.</summary>
-    internal TimeSpan EstimateAfter { get; set; } = TimeSpan.FromSeconds(20);
+    internal TimeSpan EstimateAfter { get; set; } = DefaultEstimateAfter;
 
     /// <summary>The clock of the early-answer wait and of every open's start and seconds.</summary>
     internal TimeProvider Clock { get; set; } = TimeProvider.System;
