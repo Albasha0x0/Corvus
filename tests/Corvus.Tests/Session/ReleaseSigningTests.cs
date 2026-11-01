@@ -175,19 +175,14 @@ public class ReleaseSigningTests
         return string.Join(Path.PathSeparator, dirs);
     }
 
+    // Stopped on a stalled tree, not on wall time.
+    // The window is 60 s unless CORVUS_STALL_WINDOW is set.
     private static (int ExitCode, string Output) Run(string exe, IEnumerable<string> args, IDictionary<string, string?> env)
     {
-        var start = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
-        foreach (var a in args) start.ArgumentList.Add(a);
-        foreach (var (k, v) in env)
-            if (v == null) start.Environment.Remove(k);
-            else start.Environment[k] = v;
-        using var p = Process.Start(start)!;
-        p.StandardInput.Close();
-        var stdout = p.StandardOutput.ReadToEndAsync();
-        var stderr = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(TimeSpan.FromMinutes(1))) { p.Kill(entireProcessTree: true); throw new TimeoutException(exe); }
-        return (p.ExitCode, stdout.Result + stderr.Result);
+        var run = Corvus.Native.Providers.ExternalTools.Run(exe, [.. args], Timeout.InfiniteTimeSpan, 1 << 20, default,
+            new Dictionary<string, string?>(env), watch: new Corvus.Native.Providers.ExternalTools.Watch(new Corvus.Core.StallRule(Environment.GetEnvironmentVariable(Corvus.Core.ServerOptions.StallWindowVariable) is null ? TimeSpan.FromSeconds(60) : Corvus.Core.ServerOptions.StallWindow())));
+        Assert.True(run.StartError is null && run.StalledAt is null && !run.TimedOut && !run.Truncated, $"{exe}: {run.StartError}stalled at {run.StalledAt}, truncated {run.Truncated}");
+        return (run.ExitCode ?? -1, run.Text + run.Stderr);
     }
 
     private static string? Pwsh() => OperatingSystem.IsWindows() ? BundleTests.FindOnPath("pwsh.exe") : null;

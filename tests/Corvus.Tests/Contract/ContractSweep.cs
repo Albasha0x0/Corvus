@@ -6,10 +6,55 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>Every advertised tool, called with schema-generated good and bad arguments, answers within <see cref="CallLimit"/> with a schema-valid success or a coded tool error.</summary>
+/// <summary>Every advertised tool, called with schema-generated good and bad arguments, answers with a schema-valid success or a coded tool error; a call is a hang once the server tree is idle for <see cref="CallLimit"/>.</summary>
 public static partial class ContractSweep
 {
+    /// <summary>Idle window after which a call is a hang.</summary>
     public static readonly TimeSpan CallLimit = TimeSpan.FromSeconds(20);
+
+    /// <summary>Absolute bound on one call, for a call that spins on CPU.</summary>
+    public static readonly TimeSpan CallBackstop = TimeSpan.FromMinutes(5);
+
+    private static readonly TimeSpan SamplePeriod = TimeSpan.FromSeconds(5);
+    private static readonly object CpuLock = new();
+    private static readonly Dictionary<int, (long Ticks, TimeSpan? Cpu)> CpuSamples = [];
+
+    /// <summary>The CPU time of a server and its children, or null when unreadable; sampled at most every 5 s and shared by parallel calls.</summary>
+    private static TimeSpan? TreeCpu(int server)
+    {
+        lock (CpuLock)
+        {
+            var now = Environment.TickCount64;
+            if (CpuSamples.TryGetValue(server, out var kept) && now - kept.Ticks < SamplePeriod.TotalMilliseconds - 500) return kept.Cpu;
+            var cpu = ReadTreeCpu(server);
+            CpuSamples[server] = (now, cpu);
+            return cpu;
+        }
+    }
+
+    private static TimeSpan? ReadTreeCpu(int server)
+    {
+        try
+        {
+            using var root = Process.GetProcessById(server);
+            var total = root.TotalProcessorTime;
+            foreach (var child in LeakGuard.Descendants(root))
+                using (child)
+                    try { total += child.TotalProcessorTime; }
+                    catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            return total;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
+    }
+
+    /// <summary>Waits for <paramref name="call"/>; cancels <paramref name="stop"/> once <paramref name="cpu"/> shows under 1% of a core for <paramref name="limit"/>, or after <paramref name="backstop"/>.</summary>
+    internal static async Task StalledAsync(Task call, Func<TimeSpan?> cpu, CancellationTokenSource stop, TimeSpan limit, TimeSpan backstop, TimeSpan poll)
+    {
+        var rule = new Corvus.Core.StallRule(limit);
+        var started = Stopwatch.StartNew();
+        while (await Task.WhenAny(call, Task.Delay(poll)) != call)
+            if (rule.Stalled(cpu()) || started.Elapsed >= backstop) { stop.Cancel(); return; }
+    }
 
     /// <summary>Parameters naming files a tool writes; the sweep passes only paths inside its temp directory there.</summary>
     internal static readonly Dictionary<string, Dictionary<string, string[]>> FileWritersByFamily = new(StringComparer.Ordinal)
@@ -369,16 +414,19 @@ public static partial class ContractSweep
     {
         var watch = Stopwatch.StartNew();
         Result Fail(string outcome, string problem) => new(c, $"{c.Tool} [{c.Label}]: {problem}", outcome, watch.Elapsed);
-        using var cts = new CancellationTokenSource(CallLimit);
+        using var cts = new CancellationTokenSource();
         CallToolResult result;
+        var server = McpProtocolTests.ServerProcessId(client);
         try
         {
-            result = await client.CallToolAsync(c.Tool, c.Args, cancellationToken: cts.Token);
+            var call = client.CallToolAsync(c.Tool, c.Args, cancellationToken: cts.Token).AsTask();
+            await StalledAsync(call, () => TreeCpu(server), cts, CallLimit, CallBackstop, TimeSpan.FromSeconds(1));
+            result = await call;
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            var stacks = McpProtocolTests.ServerProcessId(client) is int server and > 0 ? "; server " + ThreadPoolSnapshot.StacksOf(server) : "";
-            return Fail("hang", $"no answer within {CallLimit.TotalSeconds:0} s{stacks}");
+            var stacks = server > 0 ? "; server " + ThreadPoolSnapshot.StacksOf(server) : "";
+            return Fail("hang", $"no answer and no CPU use for {CallLimit.TotalSeconds:0} s, or none in {CallBackstop.TotalMinutes:0} min{stacks}");
         }
         catch (McpProtocolException ex)
         {

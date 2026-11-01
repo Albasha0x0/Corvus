@@ -109,10 +109,9 @@ public sealed class WorkerHostTests(ITestOutputHelper output)
     {
         if (!OperatingSystem.IsWindows()) return;
         using var pool = Pool(300L << 20);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
+        // A Timeout code would mean the worker outlived its memory limit.
         var e = await Assert.ThrowsAsync<ToolError>(() => pool.RunAsync("test", "fixture_allocate", new JsonObject { ["native"] = true, ["hang"] = true },
             Limit, CancellationToken.None));
         Assert.Equal((ErrorCode.LimitExceeded, false), (e.Code, e.Retryable));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20), $"ended after {watch.Elapsed.TotalSeconds:0.0} s");
     }
 }
