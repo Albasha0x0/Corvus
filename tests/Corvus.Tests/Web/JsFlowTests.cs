@@ -62,7 +62,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
 
     /// <summary>The tool: text with each step's position, the same endpoint record as view=endpoints, arguments checked.</summary>
     [Fact]
-    public void Analyze_js_view_flow_joins_the_endpoint_rows()
+    public async Task Analyze_js_view_flow_joins_the_endpoint_rows()
     {
         var js = _dir.File("app.js");
         File.WriteAllText(js, """
@@ -71,21 +71,51 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
             getJson("/settings");
             """);
         var tools = new Corvus.Tools.WebTools(new OutputPager(new ServerOptions()));
-        var text = tools.AnalyzeJs(js, "origins", query: "getJson");
+        var text = await tools.AnalyzeJs(js, "origins", query: "getJson");
         Assert.Contains("origins of getJson: 1 seed(s)", text, StringComparison.Ordinal);
         Assert.Contains("<- argument parameter path of getJson from getJson(\"/settings\") at 3:9", text, StringComparison.Ordinal);
-        var forward = tools.AnalyzeJs(js, "flow", query: "\"/settings\"");
+        var forward = await tools.AnalyzeJs(js, "flow", query: "\"/settings\"");
         Assert.Contains("sink fetch argument 1 (network) at 2:33; endpoint GET https://api.example.com/v1/settings [fetch via getJson]", forward, StringComparison.Ordinal);
         File.WriteAllText(js + ".map", """{"version":3,"sources":["src/app.ts"],"names":[],"mappings":"AAAA;AACA;AACA"}""");
-        Assert.Contains("sink fetch argument 1 (network) at 2:33 <- src/app.ts:2:1", tools.AnalyzeJs(js, "flow", query: "\"/settings\""), StringComparison.Ordinal);
+        Assert.Contains("sink fetch argument 1 (network) at 2:33 <- src/app.ts:2:1", await tools.AnalyzeJs(js, "flow", query: "\"/settings\""), StringComparison.Ordinal);
         var rows = new List<Corvus.Services.Analysis.Endpoints.CodeEndpoint>();
         var program = JsAnalysis.Program(js, default);
         Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, rows, default);
         var step = new JsFlow(program, null, js, default).Run("\"/settings\"", 0, 0, false, 10, JsFlow.Budget.Default, default).Flows[0].Steps[^1];
         Assert.Equal(JsAnalysis.Endpoint(rows.Single(e => e.Client.Contains(" via ", StringComparison.Ordinal)), null), step.Endpoint);
-        Assert.Contains("sink fetch argument 1 (network) at 2:33", tools.AnalyzeJs(js, "flow", line: 3, column: 9), StringComparison.Ordinal);
-        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => tools.AnalyzeJs(js, "flow")).Code);
-        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => tools.AnalyzeJs(js, "flow", query: "nothingHere")).Code);
+        Assert.Contains("sink fetch argument 1 (network) at 2:33", await tools.AnalyzeJs(js, "flow", line: 3, column: 9), StringComparison.Ordinal);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeJs(js, "flow"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeJs(js, "flow", query: "nothingHere"))).Code);
+    }
+
+    // The token cancels 5 ms into the walk of a 20,000-function bundle.
+    [Theory]
+    [InlineData("flow", "sinks")]
+    [InlineData("secrets", null)]
+    [InlineData("react", null)]
+    public async Task A_view_cancelled_during_the_walk_of_a_large_bundle_stops(string view, string? query)
+    {
+        var js = _dir.File("large.js");
+        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 20_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
+        var tools = new Corvus.Tools.WebTools(new OutputPager(new ServerOptions()));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(5));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => tools.AnalyzeJs(js, view, query: query, cancellationToken: cts.Token));
+    }
+
+    // The flow record crosses the worker boundary as JSON with its nested steps and endpoint.
+    [Fact]
+    public void A_flow_result_survives_the_worker_json_round_trip()
+    {
+        var r = Flow("""
+            const BASE = "https://api.example.com/v1";
+            function getJson(path) { return fetch(BASE + path).then(r => r.json()); }
+            getJson("/settings");
+            """, "\"/settings\"");
+        var options = Corvus.Tools.FileIsolation.Json;
+        var back = System.Text.Json.JsonSerializer.Deserialize<JsFlowResult>(System.Text.Json.JsonSerializer.Serialize(r, options), options)!;
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(r, options), System.Text.Json.JsonSerializer.Serialize(back, options));
+        Assert.Equal(r.Flows[0].Steps[^1].Endpoint, back.Flows[0].Steps[^1].Endpoint);
+        Assert.Equal(r.Flows.Count, back.Flows.Count);
     }
 
     /// <summary>Back from fetch: the URL's parts to the constant and to the caller's literal.</summary>

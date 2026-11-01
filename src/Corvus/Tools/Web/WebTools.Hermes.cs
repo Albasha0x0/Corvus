@@ -7,9 +7,9 @@ namespace Corvus.Tools;
 public sealed partial class WebTools
 {
     /// <summary>analyze_js on Hermes bytecode (a bundle, or the one inside an APK, AAB or .ipa); the source map views take the JavaScript path.</summary>
-    private string AnalyzeHermes(string path, string view, string? query, int offset, int? maxTokens)
+    private string AnalyzeHermes(string path, string view, string? query, int offset, int? maxTokens, CancellationToken cancellationToken)
     {
-        var b = HermesBundles.Open(path);
+        var b = HermesBundles.Open(path, cancellationToken);
         var v = view.Trim().ToLowerInvariant();
         if (b.File.Opcodes == null && v != "summary")
             throw new ToolError(ErrorCode.Unsupported, $"Hermes bytecode version {b.File.Version}: only its header is read (opcode tables cover versions 59–96).", "analyze_js view=summary shows the header");
@@ -26,26 +26,26 @@ public sealed partial class WebTools
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("functions", Functions: rows, Total: total));
             }
             case "decompile":
-                return ToolOutput.With(pager.Page(HermesBundles.Decompile(b, HermesBundles.Function(b, query), default), offset, maxTokens), new JsResult("decompile"));
+                return ToolOutput.With(pager.Page(HermesBundles.Decompile(b, HermesBundles.Function(b, query), cancellationToken), offset, maxTokens), new JsResult("decompile"));
             case "disassemble":
-                return ToolOutput.With(pager.Page(HermesBundles.Disassemble(b, HermesBundles.Function(b, query)), offset, maxTokens), new JsResult("disassemble"));
+                return ToolOutput.With(pager.Page(HermesBundles.Disassemble(b, HermesBundles.Function(b, query), cancellationToken), offset, maxTokens), new JsResult("disassemble"));
             case "modules":
             {
                 var (text, rows) = HermesBundles.Modules(b, string.IsNullOrWhiteSpace(query) ? null : query.Trim());
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("modules", Modules: [.. rows.Take(500)], Total: rows.Count));
             }
             case "module":
-                return ToolOutput.With(pager.Page(HermesBundles.Decompile(b, HermesBundles.ModuleFunction(b, query), default), offset, maxTokens), new JsResult("module"));
+                return ToolOutput.With(pager.Page(HermesBundles.Decompile(b, HermesBundles.ModuleFunction(b, query), cancellationToken), offset, maxTokens), new JsResult("module"));
             case "search":
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=search needs query.", "pass query=<text>");
-                var (text, total) = HermesBundles.Search(b, query.Trim(), default);
+                var (text, total) = HermesBundles.Search(b, query.Trim(), cancellationToken);
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("search", Total: total));
             }
             case "xrefs":
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=xrefs needs query: #<function id> or a whole string.", "pass query=#12 or query=<text>");
-                var (text, total) = HermesBundles.Xrefs(b, query);
+                var (text, total) = HermesBundles.Xrefs(b, query, cancellationToken);
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("xrefs", Total: total));
             }
             case "refs":

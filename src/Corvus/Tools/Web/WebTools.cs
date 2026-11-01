@@ -9,7 +9,7 @@ namespace Corvus.Tools;
 
 /// <summary>JavaScript bundles and their source maps, read statically.</summary>
 [McpServerToolType]
-public sealed partial class WebTools(OutputPager pager)
+public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOptions = null, Corvus.Native.Providers.Worker.WorkerPool? workers = null)
 {
     /// <summary>analyze_js's record: the view's part is set (sources and source carry their text only).</summary>
     public sealed record JsResult(string View, JsSummary? Summary = null, JsPosition? Position = null, IReadOnlyList<JsModule>? Modules = null, int? Total = null,
@@ -25,7 +25,7 @@ public sealed partial class WebTools(OutputPager pager)
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("Read a JavaScript bundle, Hermes or Ark bytecode statically: modules, source map, endpoints, secrets and data flow. " +
                  "view=position maps to the original source.")]
-    public string AnalyzeJs(
+    public async Task<string> AnalyzeJs(
         [Description("A .js, Hermes or Ark file, or a package.")] string path,
         [Description("View.")] string view = "summary",
         [Description("position, flow: 1-based generated line.")] int? line = null,
@@ -34,14 +34,16 @@ public sealed partial class WebTools(OutputPager pager)
         [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name.")] string? query = null,
         [Description("Most rows: flow 50, react 200.")] int? limit = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
-        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        CancellationToken cancellationToken = default)
     {
-        if (view.Trim().ToLowerInvariant() is not ("position" or "sources" or "source") && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens);
-        if (ArkBundles.Applies(path)) return AnalyzeArk(path, view, query, offset, maxTokens);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (view.Trim().ToLowerInvariant() is not ("position" or "sources" or "source") && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens, cancellationToken);
+        if (ArkBundles.Applies(path)) return AnalyzeArk(path, view, query, offset, maxTokens, cancellationToken);
         switch (view.Trim().ToLowerInvariant())
         {
             case "flow" or "origins":
-                return Flow(path, query, line ?? 0, column ?? 0, view.Trim().Equals("origins", StringComparison.OrdinalIgnoreCase), limit ?? 50, offset, maxTokens);
+                return await Flow(path, query, line ?? 0, column ?? 0, view.Trim().Equals("origins", StringComparison.OrdinalIgnoreCase), limit ?? 50, offset, maxTokens, cancellationToken);
             case "summary":
             {
                 var s = JsAnalysis.Summary(path);
@@ -59,7 +61,7 @@ public sealed partial class WebTools(OutputPager pager)
             }
             case "modules":
             {
-                var (all, notes) = JsModules.Of(path, default);
+                var (all, notes) = JsModules.Of(path, cancellationToken);
                 var rows = all.Where(m => query == null || m.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
                                           || m.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
                 var text = $"{rows.Count} module(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(m => m.Family).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
@@ -72,7 +74,7 @@ public sealed partial class WebTools(OutputPager pager)
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=module needs query (the module id).", "pass query=<id> (view=modules lists them)");
                 var code = Encoding.UTF8.GetString(JsAnalysis.Read(path));
-                var m = JsModules.Of(path, default).Modules.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
+                var m = JsModules.Of(path, cancellationToken).Modules.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
                         ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
                 var head = $"// module {m.Id}{(m.Name != null && m.Name != m.Id ? " (" + m.Name + ")" : "")}, {m.Family}, bytes {m.Start}-{m.End}" +
                            (m.Requires.Count > 0 ? $"\n// requires: {string.Join(", ", m.Requires.Take(50))}" : "");
@@ -86,7 +88,7 @@ public sealed partial class WebTools(OutputPager pager)
                 if (JsModules.Parse(code, notes) is not { } script) throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} could not be searched: {string.Join("; ", notes)}");
                 SourceMap? map = null;
                 try { map = SourceMap.Locate(path, JsAnalysis.Read(path))?.Map; } catch (ToolError) { } catch (FormatException) { }
-                var hits = JsSearch.Find(code, script, JsModules.Find(code, script, default), map, query.Trim(), default);
+                var hits = JsSearch.Find(code, script, JsModules.Find(code, script, cancellationToken), map, query.Trim(), cancellationToken);
                 var text = $"{hits.Count}{(hits.Count >= JsSearch.MaxHits ? "+" : "")} hit(s) for '{query.Trim()}':\n" +
                            string.Join("\n", hits.Select(h => $"  {h.Line}:{h.Column} {h.Kind} {h.Value}" + (h.Module != null ? $"  [module {h.Module}]" : "") +
                                                               (h.Original != null ? $"  <- {h.Original}" : "")));
@@ -95,7 +97,7 @@ public sealed partial class WebTools(OutputPager pager)
             case "refs":
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=refs needs query (the module id).", "pass query=<id> (view=modules lists them)");
-                var all = JsModules.Of(path, default).Modules;
+                var all = JsModules.Of(path, cancellationToken).Modules;
                 var target = all.FirstOrDefault(x => x.Id == query.Trim() || x.Name == query.Trim())
                              ?? throw new ToolError(ErrorCode.NotFound, $"no module '{query}' in {Path.GetFileName(path)}.", "analyze_js view=modules lists them");
                 var (requires, by) = JsSearch.Refs(all, target);
@@ -129,10 +131,10 @@ public sealed partial class WebTools(OutputPager pager)
             }
             case "endpoints":
             {
-                var program = JsAnalysis.Program(path, default);
+                var program = JsAnalysis.Program(path, cancellationToken);
                 var map = JsAnalysis.TryMap(path);
                 var found = new List<Corvus.Services.Analysis.Endpoints.CodeEndpoint>();
-                Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, found, default);
+                Corvus.Services.Analysis.Endpoints.JsEndpoints.Scan(program, program.Path, found, cancellationToken);
                 var rows = found.Select(e => JsAnalysis.Endpoint(e, map)).Where(e => query == null || e.Url.Contains(query, StringComparison.OrdinalIgnoreCase) || e.Client.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
                 var text = $"{rows.Count} endpoint(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(e => e.Client.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
                            string.Join("\n", rows.Select(e => $"  {e.Verb} {e.Url}  [{e.Client}] {e.Site}" + (e.Module != null ? $" {e.Module}" : "") + (e.Original != null ? $"  <- {e.Original}" : ""))) +
@@ -142,7 +144,7 @@ public sealed partial class WebTools(OutputPager pager)
             case "diff":
             {
                 if (string.IsNullOrWhiteSpace(source)) throw new ToolError(ErrorCode.InvalidArgument, "view=diff needs source (the old bundle).", "pass source=<old .js path>; path is the new one");
-                var d = JsDiff.Compare(source.Trim(), path, string.IsNullOrWhiteSpace(query) ? null : query.Trim(), default);
+                var d = JsDiff.Compare(source.Trim(), path, string.IsNullOrWhiteSpace(query) ? null : query.Trim(), cancellationToken);
                 int paired = d.Identical + d.Changed;
                 var text = $"{d.OldModules} -> {d.NewModules} module(s): {d.Identical} identical, {d.Changed} changed, {d.Added} added, {d.Removed} removed; " +
                            $"{paired} paired ({(d.OldModules > 0 ? 100.0 * paired / d.OldModules : 0):0.#}% of the old), {d.Renumbered} renumbered\n" +
@@ -153,7 +155,7 @@ public sealed partial class WebTools(OutputPager pager)
             }
             case "runtime":
             {
-                var r = JsRuntime.Read(JsAnalysis.Program(path, default), default);
+                var r = JsRuntime.Read(JsAnalysis.Program(path, cancellationToken), cancellationToken);
                 var sb = new StringBuilder();
                 sb.AppendLine(r.Require != null ? $"Runtime require: {r.Require} (module table {r.ModuleTable ?? "?"})" : "No webpack runtime require function in this file.");
                 if (r.ChunkGlobals.Count > 0) sb.AppendLine("Chunk loading global: " + string.Join(", ", r.ChunkGlobals));
@@ -166,8 +168,8 @@ public sealed partial class WebTools(OutputPager pager)
             }
             case "secrets":
             {
-                var program = JsAnalysis.Program(path, default);
-                var rows = JsSecrets.Find(program, default).Where(s => query == null || s.Kind.Contains(query, StringComparison.OrdinalIgnoreCase)
+                var program = JsAnalysis.Program(path, cancellationToken);
+                var rows = JsSecrets.Find(program, cancellationToken).Where(s => query == null || s.Kind.Contains(query, StringComparison.OrdinalIgnoreCase)
                                                                           || s.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
                 var text = $"{rows.Count} key-like literal(s), values masked:\n" +
                            string.Join("\n", rows.Select(s => $"  {s.Kind}{(s.Name != null ? " " + s.Name : "")} = {s.Masked} ({s.Length} chars, {s.Entropy} bits/char) at {s.Line}:{s.Column}" +
@@ -181,7 +183,7 @@ public sealed partial class WebTools(OutputPager pager)
                 bool auto = words.Contains("auto", StringComparer.OrdinalIgnoreCase);
                 var requested = string.Join(",", words.Where(w => !w.Equals("auto", StringComparison.OrdinalIgnoreCase)));
                 JsBeautify.Result r;
-                try { r = JsBeautify.Format(text, requested.Length > 0 ? requested : null, auto, default); }
+                try { r = JsBeautify.Format(text, requested.Length > 0 ? requested : null, auto, cancellationToken); }
                 catch (InvalidDataException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)}: {ex.Message}"); }
                 var lines = JsBeautify.LineStarts(text);
                 // Lines end in \n alone: the pager counts offsets in that form.
@@ -207,8 +209,8 @@ public sealed partial class WebTools(OutputPager pager)
             }
             case "react":
             {
-                var program = JsAnalysis.Program(path, default);
-                var r = JsReact.Read(program, query, offset, limit ?? 200, default);
+                var program = JsAnalysis.Program(path, cancellationToken);
+                var r = JsReact.Read(program, query, offset, limit ?? 200, cancellationToken);
                 var sb = new StringBuilder();
                 sb.AppendLine($"React: {(r.Versions.Count > 0 ? string.Join(", ", r.Versions) : "version not found")}; {r.Total} component(s), {r.Attributed} of {r.Calls} element call(s) in them" + (r.Components.Count < r.Total ? $"; {offset}-{offset + r.Components.Count} shown" : ""));
                 foreach (var c in r.Components)
@@ -225,8 +227,8 @@ public sealed partial class WebTools(OutputPager pager)
             case "jsx":
             {
                 if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=jsx needs query= with a component name.", "list the names with view=react");
-                var program = JsAnalysis.Program(path, default);
-                var text = JsReact.Jsx(program, query.Trim(), default)
+                var program = JsAnalysis.Program(path, cancellationToken);
+                var text = JsReact.Jsx(program, query.Trim(), cancellationToken)
                            ?? throw new ToolError(ErrorCode.NotFound, $"no component named '{query.Trim()}' in {Path.GetFileName(path)}.", "list the names with view=react");
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("jsx"));
             }

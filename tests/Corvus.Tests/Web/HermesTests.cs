@@ -105,7 +105,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
     public void Analyze_js_reads_a_bundle_and_the_one_in_an_apk()
     {
         var tools = new WebTools(new OutputPager(new ServerOptions()));
-        string Run(string path, string view, string? query = null) => tools.AnalyzeJs(path, view, query: query);
+        string Run(string path, string view, string? query = null) => tools.AnalyzeJs(path, view, query: query).GetAwaiter().GetResult();
         var bundle = Fixture("metro-v96.hbc");
         Assert.Contains("Hermes bytecode version 96 (React Native)", Run(bundle, "summary"), StringComparison.Ordinal);
         Assert.Contains("Metro modules: 2, run first: 0", Run(bundle, "summary"), StringComparison.Ordinal);

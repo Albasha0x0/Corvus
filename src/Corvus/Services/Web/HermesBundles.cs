@@ -229,7 +229,7 @@ public static class HermesBundles
         return map;
     }
 
-    public static string Disassemble(HermesBundle b, int function)
+    public static string Disassemble(HermesBundle b, int function, CancellationToken ct = default)
     {
         var f = b.File;
         var fn = f.Functions[function];
@@ -242,6 +242,7 @@ public static class HermesBundles
         var targets = new HashSet<int>(code.Where(i => i.Op.IsJump).Select(i => (int)i.A));
         foreach (var ins in code)
         {
+            ct.ThrowIfCancellationRequested();
             if (locations.TryGetValue(ins.Offset, out var loc)) sb.Append(CultureInfo.InvariantCulture, $"  ; {loc.File}:{loc.Line}:{loc.Column}\n");
             if (targets.Contains(ins.Offset)) sb.Append(HermesCode.Label(ins.Offset)).Append(":\n");
             sb.Append(CultureInfo.InvariantCulture, $"  {ins.Offset:x4}  {HermesCode.Text(f, ins)}\n");
@@ -295,7 +296,7 @@ public static class HermesBundles
     }
 
     /// <summary>Who uses a function (closures made from it, direct calls, the function that creates it) or a string (exact text).</summary>
-    public static (string Text, int Total) Xrefs(HermesBundle b, string query)
+    public static (string Text, int Total) Xrefs(HermesBundle b, string query, CancellationToken ct = default)
     {
         var f = b.File;
         var q = query.Trim();
@@ -312,12 +313,14 @@ public static class HermesBundles
         int total = 0;
         for (int i = 0; i < f.StringCount; i++)
         {
+            if ((i & 4095) == 0) ct.ThrowIfCancellationRequested();
             if (f.String(i) != q) continue;
             var refs = b.Index.StringRefs(i);
             total += refs.Length;
             sb.Append(CultureInfo.InvariantCulture, $"string #{i} {HermesCode.Quote(q, 200)}: {refs.Length} use(s)\n");
             foreach (var r in refs)
             {
+                ct.ThrowIfCancellationRequested();
                 var fn = f.Functions[r.Function];
                 var ins = HermesCode.Decode(f, fn).FirstOrDefault(x => x.Offset == r.Offset);
                 sb.Append(CultureInfo.InvariantCulture, $"  #{r.Function} {HermesDecompiler.ClosureName(f, r.Function)} at 0x{r.Offset:x4}  {(ins.Op != null ? HermesCode.Text(f, ins) : "")}\n");

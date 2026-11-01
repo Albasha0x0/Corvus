@@ -85,7 +85,7 @@ internal sealed class FileOps : IWorkerOps
         Entry(FileWork.Strings), Entry(FileWork.Embedded), Entry(FileWork.Survey), Entry(FileWork.ExportPackage),
         Entry(FileWork.AndroidManifest), Entry(FileWork.AndroidResources), Entry(FileWork.AndroidResource),
         Entry(FileWork.DexClasses), Entry(FileWork.DexClass), Entry(FileWork.DexSmali), Entry(FileWork.DexSearch), Entry(FileWork.DexReferences),
-        Entry(FileWork.CompareFolders),
+        Entry(FileWork.CompareFolders), Entry(FileWork.JsFlow),
     ];
 
     private static (string, string, WorkerOp) Entry<TArgs, TResult>(FileOp<TArgs, TResult> op) => (op.Name, op.Tool, Op(op));
@@ -189,6 +189,20 @@ public static class FileWork
         bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
+
+    /// <summary>The path, query or position, direction and limit of an analyze_js flow read.</summary>
+    public sealed record JsFlowArgs(string Path, string? Query, int Line, int Column, bool Back, int Limit);
+
+    /// <summary>analyze_js view=flow and view=origins over a path: the flows of a query, at most Limit; an unknown query is a NotFound error.</summary>
+    public static readonly FileOp<JsFlowArgs, Services.Web.JsFlowResult> JsFlow = new("js_flow", "analyze_js", (_, a, ct) => JsFlowWith(a, ct));
+
+    /// <summary>The flows of <paramref name="a"/>, read in this process; throws OperationCanceledException when <paramref name="ct"/> is cancelled and NotFound for a query with no match.</summary>
+    public static Services.Web.JsFlowResult JsFlowWith(JsFlowArgs a, CancellationToken ct)
+    {
+        var program = Services.Web.JsAnalysis.Program(a.Path, ct);
+        var flow = new Services.Web.JsFlow(program, Services.Web.JsAnalysis.TryMap(a.Path), a.Path, ct);
+        return flow.Run(a.Query, a.Line, a.Column, a.Back, a.Limit, Services.Web.JsFlow.Budget.Default with { Time = TimeSpan.MaxValue }, ct);
+    }
 
     public sealed record SearchArgs(string Path, string Query, string? Kind, int Limit, int Offset, string? Capture, bool Values);
 

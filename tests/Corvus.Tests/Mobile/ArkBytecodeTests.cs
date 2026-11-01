@@ -176,7 +176,7 @@ public sealed class ArkToolTests(ITestOutputHelper output)
     {
         var tools = new WebTools(new OutputPager(new ServerOptions()));
         string abc = ArkFixtures.Path("features.abc");
-        string Run(string path, string view, string? query = null) => tools.AnalyzeJs(path, view, query: query);
+        string Run(string path, string view, string? query = null) => tools.AnalyzeJs(path, view, query: query).GetAwaiter().GetResult();
         Assert.StartsWith("features.abc: Ark bytecode version 13.0.1.0, 5 classes, 15 methods (15 with code)", Run(abc, "summary"), StringComparison.Ordinal);
         Assert.Contains("#9 features.#~@0=#Ledger  4 args", Run(abc, "functions", "Ledger"), StringComparison.Ordinal);
         var listing = Run(abc, "disassemble", "classify");

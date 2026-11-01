@@ -115,6 +115,36 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
     }
 
     [Fact]
+    public async Task An_analyze_js_flow_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "analyze_js", new() { ["path"] = Fixture("flow.js", Corvus.Tools.FileOps.FixtureMarker + "exit"), ["view"] = "flow", ["query"] = "sinks" }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("flow.js", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task An_analyze_js_flow_read_through_the_worker_names_the_sink_and_an_unknown_query()
+    {
+        var js = _dir.File("flow.js");
+        File.WriteAllText(js, "const B = \"https://api.example.com/v1\";\nfunction getJson(p) { return fetch(B + p); }\ngetJson(\"/settings\");\n");
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var ok = Whole(await Call(session, "analyze_js", new() { ["path"] = js, ["view"] = "flow", ["query"] = "\"/settings\"" }));
+        Assert.Contains("sink fetch argument 1 (network) at 2:", ok);
+        Assert.Contains("endpoint GET https://api.example.com/v1/settings", ok);
+        var missing = Whole(await Call(session, "analyze_js", new() { ["path"] = js, ["view"] = "flow", ["query"] = "nothingHere" }));
+        Assert.Contains("Error (not_found)", missing);
+        var invalid = Whole(await Call(session, "analyze_js", new() { ["path"] = js, ["view"] = "flow" }));
+        Assert.Contains("Error (invalid_argument)", invalid);
+    }
+
+    [Fact]
     public async Task A_dump_stack_that_ends_the_worker_is_named_and_the_next_read_succeeds()
     {
         var (zip, _, _, _) = Inputs();

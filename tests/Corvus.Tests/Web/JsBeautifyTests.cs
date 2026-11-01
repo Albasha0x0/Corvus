@@ -211,17 +211,17 @@ public sealed class JsBeautifyTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void Analyze_js_view_beautify_lists_the_renames_and_pages_from_an_original_position()
+    public async Task Analyze_js_view_beautify_lists_the_renames_and_pages_from_an_original_position()
     {
         var js = _dir.File("app.min.js");
         File.WriteAllText(js, "function f(e){try{return e()}catch(t){return t}}\nfunction g(n){for(let r=0;r<n;r++)console.log(r)}\n");
         var tools = new Corvus.Tools.WebTools(new OutputPager(new ServerOptions()));
-        var text = tools.AnalyzeJs(js, "beautify", query: "auto,e=work");
+        var text = await tools.AnalyzeJs(js, "beautify", query: "auto,e=work");
         Assert.Contains("; 3 binding(s) renamed", text, StringComparison.Ordinal);
         Assert.Contains("//   e -> work (1:12, requested)", text, StringComparison.Ordinal);
         Assert.Contains("//   t -> error (1:36, catch parameter)", text, StringComparison.Ordinal);
         Assert.Contains("    return work();\n  } catch (error) {\n    return error;\n  }", text, StringComparison.Ordinal);
-        var paged = tools.AnalyzeJs(js, "beautify", line: 2, column: 15);
+        var paged = await tools.AnalyzeJs(js, "beautify", line: 2, column: 15);
         Assert.Contains("]\n  for (let r = 0; r < n; r++) console.log(r);\n}", paged, StringComparison.Ordinal);
     }
 

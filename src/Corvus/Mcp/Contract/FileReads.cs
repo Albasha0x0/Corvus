@@ -224,6 +224,6 @@ public sealed partial record ToolContract
         ["live_timeline"] = R.None,
         ["live_console"] = R.None,
         // web
-        ["analyze_js"] = R.Server,
+        ["analyze_js"] = R.FileWorker | R.Server,
     };
 }

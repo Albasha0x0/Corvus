@@ -139,7 +139,7 @@ internal static class ArkBundles
         return ($"{total:N0} method(s){(filter != null ? $" matching '{filter}'" : "")}:\n" + sb, rows, total);
     }
 
-    public static string Disassemble(ArkBundle b, int function)
+    public static string Disassemble(ArkBundle b, int function, CancellationToken ct = default)
     {
         var m = b.Methods[function];
         var sb = new StringBuilder();
@@ -151,6 +151,7 @@ internal static class ArkBundles
         foreach (var t in code.Tries) { targets.Add(t.Start); foreach (var c in t.Catches) targets.Add(c.Handler); }
         foreach (var ins in list)
         {
+            ct.ThrowIfCancellationRequested();
             if (targets.Contains(ins.Offset)) sb.Append(Label(ins.Offset)).Append(":\n");
             sb.Append(CultureInfo.InvariantCulture, $"  {ins.Offset:x4}  {Text(b.File, m, ins, code.Arguments, code.Registers)}\n");
         }
