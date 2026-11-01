@@ -457,7 +457,9 @@ public static class Containers
                 long end = w + at + pe.EndOfImage;
                 byte[]? bytes = at + pe.EndOfImage <= n ? span.Slice(at, (int)pe.EndOfImage).ToArray()
                     : pe.EndOfImage <= limits.MaxItemBytes ? ReadRange(s, w + at, (int)pe.EndOfImage) : null;
-                if (bytes != null && PeImage.TryParse(bytes)?.IsDotNet(bytes) == true) items.Add(new ExtractedItem($"carved_0x{w + at:X}.dll", bytes, $"carved .NET image at 0x{w + at:X}"));
+                // The image at offset 0 is the file itself.
+                if (w + at == 0) { }
+                else if (bytes != null && PeImage.TryParse(bytes)?.IsDotNet(bytes) == true) items.Add(new ExtractedItem($"carved_0x{w + at:X}.dll", bytes, $"carved .NET image at 0x{w + at:X}"));
                 else native.Add(new NativeImage(w + at, pe.EndOfImage, pe.MachineName));
                 next = end;
                 if (end - w >= n) break;
@@ -811,7 +813,8 @@ public static class Containers
         {
             ct.ThrowIfCancellationRequested();
             if (c.IsDotNet) covered.Add((c.Offset, c.Offset + c.Length));
-            if (c.Offset == 0 && c.Length == data.Length) continue;
+            // The image at offset 0 is the file itself, with or without an overlay.
+            if (c.Offset == 0) continue;
             if (!c.IsDotNet) { native.Add(new NativeImage(c.Offset, c.Length, c.Machine)); continue; }
             items.Add(new ExtractedItem($"carved_0x{c.Offset:X}.dll", data.AsSpan(c.Offset, c.Length).ToArray(), $"carved .NET image at 0x{c.Offset:X}"));
         }

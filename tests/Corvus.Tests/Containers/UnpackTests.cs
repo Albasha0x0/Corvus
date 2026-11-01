@@ -679,6 +679,32 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
+    public void A_native_image_with_an_overlay_does_not_list_itself_as_embedded()
+    {
+        // The image at offset 0 is followed by 0x200 trailing bytes.
+        var image = NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1);
+        var file = new byte[image.Length + 0x200];
+        image.CopyTo(file, 0);
+
+        var c = Containers.Carve(file, "overlay.dll", "native PE", AnalysisLimits.Default, default);
+
+        Assert.DoesNotContain(c.Notes, n => n.Contains("embedded native PE image(s)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_managed_image_with_an_overlay_does_not_carve_itself()
+    {
+        // The managed image at offset 0 is followed by 0x200 trailing bytes.
+        var image = ContainerFixtures.Module("overlay", _ => { });
+        var file = new byte[image.Length + 0x200];
+        image.CopyTo(file, 0);
+
+        var c = Containers.Carve(file, "overlay.dll", ".NET assembly", AnalysisLimits.Default, default);
+
+        Assert.DoesNotContain(c.Items, i => i.Name == "carved_0x0.dll");
+    }
+
+    [Fact]
     public void Nine_embedded_native_images_list_eight_and_count_the_rest()
     {
         var inner = NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1);
