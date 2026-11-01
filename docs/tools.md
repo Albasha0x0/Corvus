@@ -1956,7 +1956,7 @@ Make a byte pattern for an address that survives a rebuild: displacements and re
 | `maxBytes` | integer |  | `64` | Longest pattern in bytes (8-512). |
 | `maxPatterns` | integer |  | `8` | anchor=xrefs: most signatures (1-32). |
 | `engine` | string |  |  | anchor=xrefs: ida or ghidra add engine references. Values: auto, ours, ida, ghidra. |
-| `format` | string |  | `ida` | ida, x64dbg, mask (\x48\x00 x?), bitmask (0x48, 0x00 0b01) or yara (rule, compiled). Values: ida, x64dbg, mask, bitmask. |
+| `format` | string |  | `ida` | ida, x64dbg, mask (\x48\x00 x?), bitmask (0x48, 0x00 0b01) or yara (rule, compiled). Values: ida, x64dbg, mask, bitmask, yara. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 
 Structured output: `image`, `format`, `results`, `failed`.

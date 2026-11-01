@@ -36,7 +36,7 @@ public static partial class ParameterDomains
 {
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> BuildsTools() => new(StringComparer.Ordinal)
     {
-        ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs", "range"]), ["engine"] = Engine, ["format"] = Of(["ida", "x64dbg", "mask", "bitmask"]) },
+        ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs", "range"]), ["engine"] = Engine, ["format"] = Of(["ida", "x64dbg", "mask", "bitmask", "yara"]) },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]), ["engine"] = Of(["ida", "ghidra"]) },
         ["compare_assemblies"] = new Dictionary<string, Domain> { ["changes"] = Of(Services.AssemblyComparer.ChangeKinds, "all") },
         ["migrate_native_names"] = new Dictionary<string, Domain> { ["sources"] = Of(["user", "pdb", "metadata"]) },

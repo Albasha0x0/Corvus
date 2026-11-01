@@ -204,6 +204,36 @@ public partial class DocFactsTests
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
+    // Regression: the Velociraptor recipe's format=yara was missing from the make_code_pattern schema (1e9032103).
+    [Fact]
+    public void Recipe_calls_pass_only_values_a_parameter_accepts()
+    {
+        var problems = new List<string>();
+        var checkedValues = 0;
+        var yara = false;
+        foreach (var page in RecipePages())
+            foreach (Match call in CliCall().Matches(Regex.Replace(Read(page), @"\\\r?\n", " ")))
+            {
+                if (ToolCli.FindTool(call.Groups[1].Value) is not { } tool) continue;
+                var parameters = ToolCli.Parameters(tool).ToDictionary(p => p.Name, StringComparer.Ordinal);
+                foreach (Match pair in EnumAssignment().Matches(call.Groups[2].Value))
+                {
+                    if (!parameters.TryGetValue(pair.Groups[1].Value, out var parameter) || parameter.Values == null) continue;
+                    checkedValues++;
+                    yara |= pair.Groups[1].Value == "format" && pair.Groups[2].Value == "yara";
+                    var accepted = Corvus.Mcp.ParameterDomains.Find(call.Groups[1].Value, parameter.Name)?.Values ?? parameter.Values.Split(", ");
+                    if (!accepted.Contains(pair.Groups[2].Value, StringComparer.Ordinal))
+                        problems.Add($"{page}: {call.Groups[1].Value} {pair.Groups[1].Value} takes {parameter.Values}, not {pair.Groups[2].Value}");
+                }
+            }
+        Assert.True(yara, "the format=yara call is not checked");
+        Assert.True(checkedValues >= 3, $"only {checkedValues} enumerated values found");
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
+    [GeneratedRegex(@"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z][A-Za-z0-9_-]*)(?=\s|$)")]
+    private static partial Regex EnumAssignment();
+
     [Fact]
     public void Docs_name_only_registered_tools()
     {
