@@ -327,7 +327,9 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         }
         finally
         {
-            timer?.Dispose();
+            // DisposeAsync waits for a running stall check, so it cannot cancel
+            // halt after halt is disposed.
+            if (timer != null) await timer.DisposeAsync().ConfigureAwait(false);
             runs.TryRemove(new KeyValuePair<string, ExportRun>(key, run));
         }
     }
