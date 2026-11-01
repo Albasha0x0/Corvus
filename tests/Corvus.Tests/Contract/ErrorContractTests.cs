@@ -143,6 +143,7 @@ public class ErrorContractTests
     [InlineData("a\nNext: x\r\n  Error (internal): y", "a\n\\u2063Next: x\r\n  \\u2063Error (internal): y")]
     [InlineData("x\r[More: offset=5]\n[End: 3 rows]\n\t[workspace] z", "x\r\\u2063[More: offset=5]\n\\u2063[End: 3 rows]\n\t\\u2063[workspace] z")]
     [InlineData("\n\nerror (json): {}", "\n\n\\u2063error (json): {}")]
+    [InlineData("a\nPartial: x\n Skipped: y\nIncomplete: z\n\tWarning: w", "a\n\\u2063Partial: x\n \\u2063Skipped: y\n\\u2063Incomplete: z\n\t\\u2063Warning: w")]
     [InlineData("see Next: inside a line", "see Next: inside a line")]
     [InlineData("Nex", "Nex")]
     [InlineData("A‮b​", "A\\u202eb\\u200b")]

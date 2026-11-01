@@ -416,7 +416,9 @@ public static partial class Format
         || cp is < 0xD800 or > 0xDFFF && CharUnicodeInfo.GetUnicodeCategory(cp) == UnicodeCategory.OtherSymbol;
 
     /// <summary>The line starts this server writes as markers; echoed content must not forge them.</summary>
-    public static readonly string[] Markers = ["Error (", "error (json):", "Next:", "[More:", "[End:", "[workspace]"];
+    public static readonly string[] Markers = [
+        "Error (", "error (json):", "Next:", "[More:", "[End:", "[workspace]",
+        "Incomplete:", "Partial:", "Skipped:", "Warning:"];
 
     /// <summary>Put before a forged marker: the escaped form of U+2063 (invisible separator), visible as text.</summary>
     public const string MarkerEscape = "\\u2063";

@@ -215,6 +215,16 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Contains($"frontier {kept} of 20000", record.GetProperty("warnings")[0].GetString());
     }
 
+    [Fact]
+    public async Task A_file_line_starting_with_Partial_is_not_a_warning()
+    {
+        using var services = Services();
+        var r = await Call(services, "server_status", _ =>
+            new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.Report("tree", new { root = ToolOutput.Line("Partial: PWN") }) }] });
+        Assert.False(Record(r).TryGetProperty("warnings", out _));
+        Assert.Equal("\\u2063Partial: PWN", Record(r).GetProperty("root").GetString());
+    }
+
     /// <summary>S2: a report record cut to its budget names every array that lost entries; the tool's own warnings stay first.</summary>
     [Fact]
     public async Task A_cut_report_record_names_what_it_dropped()
