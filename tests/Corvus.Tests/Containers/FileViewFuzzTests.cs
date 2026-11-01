@@ -104,6 +104,7 @@ public sealed class FileViewFuzzTests : IDisposable
     public void Fuzzed_shell_files_never_throw_past_a_tool_error()
     {
         Fuzz(new ShellFileView(), "a.library-ms", 300, Encoding.UTF8.GetBytes("<libraryDescription><searchConnectorDescription><simpleLocation><url>\\\\h@SSL\\DavWWWRoot\\s</url></simpleLocation></searchConnectorDescription></libraryDescription>"));
+        Fuzz(new ShellFileView(), "a.msc", 300, Encoding.UTF8.GetBytes("<MMC_ConsoleFile><SnapIns><SnapIn CLSID=\"{A}\"/></SnapIns><Task><Command Command=\"cmd.exe\" Params=\"/c x\"/></Task><String>res://a.dll/b.html</String></MMC_ConsoleFile>"));
         Fuzz(new ShellFileView(), "a.url", 300, Encoding.UTF8.GetBytes("[InternetShortcut]\r\nURL=search-ms:query=x\r\nIconFile=C:\\x.ico\r\n"));
     }
 

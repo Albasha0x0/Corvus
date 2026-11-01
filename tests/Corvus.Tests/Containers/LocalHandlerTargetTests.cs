@@ -106,4 +106,61 @@ public sealed class LocalHandlerTargetTests
         var view = View(new ShellFileView(), "a.library-ms", Text("<libraryDescription><url>"));
         Assert.Contains("unknown", Assert.Single(((ShellFileView.Facts)view.Detail).Notes));
     }
+
+    [Fact]
+    public void A_console_file_lists_its_snap_ins_task_commands_and_script_strings()
+    {
+        var xml = Text("<?xml version=\"1.0\"?><MMC_ConsoleFile><ScopeTree><SnapIns><SnapIn CLSID=\"{C96401CF-0E17-11D3-885B-00C04F72C717}\"/></SnapIns></ScopeTree>" +
+            "<ConsoleTaskpads><Task><Command Command=\"powershell.exe\" Params=\"-e SQBFAFgAIAAoAEcAZQB0AC0ARABhAHQAZQApAA==\"/></Task></ConsoleTaskpads>" +
+            "<StringTable><Strings><String ID=\"1\">res://apds.dll/redirect.html?target=javascript:eval(x)</String></Strings></StringTable></MMC_ConsoleFile>");
+        var view = View(new ShellFileView(), "a.msc", xml);
+        var facts = (ShellFileView.Facts)view.Detail;
+        Assert.Equal("{C96401CF-0E17-11D3-885B-00C04F72C717}", Assert.Single(facts.SnapIns!));
+        Assert.Equal(["Task/Command", "StringTable"], facts.Targets.Select(t => t.Field));
+        Assert.Equal("resource reference with a script URL", facts.Targets[1].Kind);
+        Assert.Contains(view.Findings, f => f.Rule == "launcher/command-line");
+    }
+
+    [Fact]
+    public void A_console_file_that_is_not_well_formed_has_unknown_snap_ins()
+    {
+        var view = View(new ShellFileView(), "a.msc", Text("<MMC_ConsoleFile><SnapIns>"));
+        var facts = (ShellFileView.Facts)view.Detail;
+        Assert.Null(facts.SnapIns);
+        Assert.Contains("unknown", Assert.Single(facts.Notes));
+        Assert.DoesNotContain(view.Highlights, h => h.Contains("Snap-ins"));
+    }
+
+    [Fact]
+    public void A_console_file_without_snap_ins_or_tasks_has_an_empty_snap_in_list()
+    {
+        var view = View(new ShellFileView(), "a.msc", Text("<MMC_ConsoleFile/>"));
+        var facts = (ShellFileView.Facts)view.Detail;
+        Assert.Empty(facts.SnapIns!);
+        Assert.Empty(facts.Targets);
+        Assert.DoesNotContain(view.Highlights, h => h.Contains("Snap-ins"));
+    }
+
+    [Fact]
+    public void A_console_task_with_child_element_values_and_a_handler_in_its_params_is_classified()
+    {
+        var xml = Text("<MMC_ConsoleFile><Task><Command>cmd.exe</Command><params>ms-msdt:/id PCWDiagnostic</params></Task>" +
+            "<SnapIns><snapin clsid=\"{A}\"/><snapin clsid=\"{A}\"/></SnapIns><Strings><String>search-ms:query=x</String></Strings></MMC_ConsoleFile>");
+        var view = View(new ShellFileView(), "a.msc", xml);
+        var facts = (ShellFileView.Facts)view.Detail;
+        Assert.Equal("{A}", Assert.Single(facts.SnapIns!));
+        Assert.Equal("cmd.exe ms-msdt:/id PCWDiagnostic", facts.Targets[0].Value);
+        Assert.NotNull(facts.Targets[0].Kind);
+        Assert.Equal("StringTable", facts.Targets[1].Field);
+        Assert.NotNull(facts.Targets[1].Kind);
+    }
+
+    [Fact]
+    public void A_cancelled_console_read_throws()
+    {
+        var data = Text("<MMC_ConsoleFile><SnapIns><SnapIn CLSID=\"{A}\"/></SnapIns></MMC_ConsoleFile>");
+        var view = new ShellFileView();
+        var input = new FileInput("a.msc", data, Blob.Identify(data)) { Options = new FileViewOptions(view.Name) };
+        Assert.ThrowsAny<OperationCanceledException>(() => view.Inspect(input, new CancellationToken(true)));
+    }
 }
