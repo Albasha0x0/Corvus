@@ -16,6 +16,19 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     private Task<string> Set(InProcessServer server, string at) => Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = at });
 
+    /// <summary>A thread held at <paramref name="point"/> that <paramref name="which"/> accepts, read from the session status within 60 s.</summary>
+    private async Task<string> HeldAt(InProcessServer server, string point, Func<string, bool> which)
+    {
+        var status = "";
+        for (var clock = System.Diagnostics.Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromSeconds(60); await Task.Delay(200))
+        {
+            status = await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
+            if (Regex.Matches(status, $@"held: thread (\d+) at {point}\b").Select(m => m.Groups[1].Value).FirstOrDefault(which) is { } thread) return thread;
+        }
+        Assert.Fail($"no matching thread held at {point}: {status}");
+        return "";
+    }
+
     private Task<string> Clear(InProcessServer server, string id) => Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = id });
 
     // ---- each location form reaches the same code
@@ -98,16 +111,14 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         await Set(server, "Work");
         var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
         var a = Regex.Match(first, @"thread (\d+) stopped at s1").Groups[1].Value;
-        var second = await Ok(server, "live_break", new() { ["session"] = "live-1", ["wait"] = true, ["waitSeconds"] = 60 });
-        var b = Regex.Match(second, @"thread (\d+) stopped at s1").Groups[1].Value;
-        Assert.False(string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b), first + second);
-        Assert.NotEqual(a, b);
+        Assert.False(string.IsNullOrEmpty(a), first);
+        // A wait returns the oldest held stop until it continues; the others are read from the held list.
+        var b = await HeldAt(server, "s1", t => t != a);
 
         Assert.Contains($"resumed thread(s) {a}\n", (await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["thread"] = a })).ReplaceLineEndings("\n"));
         Assert.Contains($"thread {b} (held at s1)", await Ok(server, "live_read", new() { ["session"] = "live-1", ["thread"] = b, ["registers"] = "pc" }));
         // The resumed thread runs on into its next call and stops again, while b has not moved.
-        var again = await Ok(server, "live_break", new() { ["session"] = "live-1", ["wait"] = true, ["waitSeconds"] = 60 });
-        Assert.Matches(@"thread \d+ stopped at s1", again);
+        await HeldAt(server, "s1", t => t == a);
         Assert.Contains($"thread {b} (held at s1)", await Ok(server, "live_read", new() { ["session"] = "live-1", ["thread"] = b, ["registers"] = "pc" }));
 
         await Clear(server, "s1");

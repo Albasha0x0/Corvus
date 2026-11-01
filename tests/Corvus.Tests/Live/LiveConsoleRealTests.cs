@@ -67,7 +67,8 @@ public sealed class LiveConsoleRealTests(ITestOutputHelper output) : IDisposable
         {
             ["action"] = "start", ["program"] = exe, ["script"] = new[] { "wait name?", "send Ada\\r", "wait echo: Ada" },
         });
-        Assert.Contains("script complete (3 steps)", run);
+        Assert.Contains("the script runs in the background", run);
+        Assert.Contains("script complete (3 steps)", await Call(server, "live_console", new() { ["action"] = "status", ["run"] = "con-1", ["waitSeconds"] = 60 }));
 
         string list = "";
         for (int i = 0; i < 100 && !list.Contains("exited"); i++)
