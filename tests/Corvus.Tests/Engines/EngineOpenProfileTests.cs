@@ -4,6 +4,7 @@ using Corvus.Mcp;
 using Corvus.Native.Providers;
 using Corvus.Services;
 using Corvus.Tools;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Corvus.Tests;
 
@@ -181,7 +182,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         var progress = new SyncProgress(p => { if (p.Stage == "analysis") deadline.Cancel(); });
         var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, progress, deadline.Token));
         Assert.Equal(ErrorCode.Timeout, error.Code);
-        Assert.Matches(@"^analysis running, about \d+ min \((from (executable section size|earlier opens))\); the engine is still opening .+ \(analysis, \d+ s\)", error.Message);
+        Assert.Matches(@"^analysis running, about \d+ min \((default rate|earlier opens)\); the engine is still opening .+ \(analysis, \d+ s\)", error.Message);
         var details = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement.GetProperty("details");
         Assert.True(details.GetProperty("stillRunning").GetBoolean());
         Assert.Equal("analysis", details.GetProperty("stage").GetString());
@@ -207,8 +208,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         _owned.Add(engines);
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
-        var previous = NativeEngineService.EstimateAfter;
-        NativeEngineService.EstimateAfter = TimeSpan.FromMilliseconds(300);
+        engines.EstimateAfter = TimeSpan.FromMilliseconds(300);
         try
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
@@ -216,7 +216,7 @@ public sealed class EngineOpenProfileTests : IDisposable
             Assert.Equal(ErrorCode.Timeout, error.Code);
             Assert.False(deadline.IsCancellationRequested);
         }
-        finally { NativeEngineService.EstimateAfter = previous; gate.SetResult(); }
+        finally { gate.SetResult(); }
     }
 
     [Fact]
@@ -232,18 +232,13 @@ public sealed class EngineOpenProfileTests : IDisposable
         _owned.Add(engines);
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
-        var previous = NativeEngineService.EstimateAfter;
-        NativeEngineService.EstimateAfter = TimeSpan.FromMilliseconds(200);
-        try
-        {
-            var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
-            Assert.Contains($"get_engine_status image={native.Id} waitSeconds=", error.Remediation);
-            Assert.Contains("engine=ours", error.Remediation);
-            Assert.Contains("ends when the engine finishes, is cancelled or exits, or after 1800 s without progress", error.Message);
-            Assert.Equal(TimeSpan.FromSeconds(30), error.RetryAfter);
-            Assert.Empty(workspace.DrainNotices());
-        }
-        finally { NativeEngineService.EstimateAfter = previous; }
+        engines.EstimateAfter = TimeSpan.FromMilliseconds(200);
+        var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
+        Assert.Contains($"get_engine_status image={native.Id} waitSeconds=", error.Remediation);
+        Assert.Contains("engine=ours", error.Remediation);
+        Assert.Contains("ends when the engine finishes, is cancelled or exits, or after 1800 s without progress", error.Message);
+        Assert.Equal(TimeSpan.FromSeconds(30), error.RetryAfter);
+        Assert.Empty(workspace.DrainNotices());
         gate.SetResult();
         var notices = new List<string>();
         for (int i = 0; i < 100 && notices.Count == 0; i++)
@@ -312,7 +307,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         await Settled(engines, native);
         var row = Assert.Single(report.Engines, e => e.State == "opening");
         Assert.Contains("next: get_engine_status image=", text);
-        Assert.True(row.ExpectedSeconds > 0, "the section-size estimate stands in without earlier opens");
+        Assert.True(row.ExpectedSeconds > 0, "the default rate stands in without earlier opens");
         Assert.True(row.RemainingSeconds > 0);
         var job = Assert.IsType<NativeEngineStatusTools.EngineJob>(row.Job);
         Assert.Equal(("open", "running"), (job.What, job.State));
@@ -332,10 +327,8 @@ public sealed class EngineOpenProfileTests : IDisposable
     public async Task An_open_that_fails_after_the_early_answer_leaves_a_failed_notice_with_the_next_call()
     {
         var (engines, native, gate, workspace) = Rig(new ToolError(ErrorCode.Failed, "scripted open failure"));
-        var previous = NativeEngineService.EstimateAfter;
-        NativeEngineService.EstimateAfter = TimeSpan.FromMilliseconds(200);
-        try { await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default)); }
-        finally { NativeEngineService.EstimateAfter = previous; }
+        engines.EstimateAfter = TimeSpan.FromMilliseconds(200);
+        await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
         gate.SetResult();
         var notices = new List<string>();
         for (int i = 0; i < 100 && notices.Count == 0; i++)
@@ -396,16 +389,125 @@ public sealed class EngineOpenProfileTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, error.Code);
     }
 
-    [Fact]
-    public void The_estimate_is_one_minute_per_started_mebibyte_of_executable_sections()
+    private (NativeEngineService Engines, ScriptedEngine Engine, TaskCompletionSource Gate, AssemblyWorkspace Workspace) ClockRig(
+        TimeProvider clock, string cache, bool partial = false, EngineMode? prewarm = null, bool refusePatches = false)
     {
-        const long mib = 1 << 20;
-        Assert.Equal(1, NativeEngineService.EstimateMinutes([]));
-        Assert.Equal(1, NativeEngineService.EstimateMinutes([(true, 0)]));
-        Assert.Equal(1, NativeEngineService.EstimateMinutes([(true, mib)]));
-        Assert.Equal(2, NativeEngineService.EstimateMinutes([(true, mib + 1)]));
-        Assert.Equal(3, NativeEngineService.EstimateMinutes([(true, mib), (true, mib + mib / 2), (false, 40 * mib)]));
-        Assert.Equal(1, NativeEngineService.EstimateMinutes([(false, 40 * mib)]));
+        var options = new ServerOptions { BackgroundIndexing = false, Prewarm = prewarm };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine { PartialAnalysis = partial, RefusePatches = refusePatches };
+        engine.OpenStages.AddRange([("start", 0), ("analysis", 0), ("ready", 0)]);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = gate;
+        var engines = new NativeEngineService([engine], cache, null, workspace, options) { EstimateAfter = TimeSpan.FromSeconds(20), Clock = clock };
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        return (engines, engine, gate, workspace);
+    }
+
+    /// <summary>Waits until the open has marked its analysis stage.</summary>
+    private static async Task InAnalysis(NativeEngineService engines, LoadedNative native)
+    {
+        for (int i = 0; i < 500 && !engines.ImageSessions(native).Any(e => e.State == "opening" && e.OpenStages.Any(s => s.Stage == "analysis")); i++)
+            await Task.Delay(20);
+    }
+
+    [Fact]
+    public async Task A_prewarm_open_that_outlives_the_early_answer_ends_done_not_failed()
+    {
+        var clock = new ArmedClock();
+        var (engines, _, gate, workspace) = ClockRig(clock, _dir.File("cache"), prewarm: EngineMode.Ida);
+        workspace.LoadAny(McpProtocolTests.NativeSample(_dir));
+        await clock.ArmedAsync();
+        clock.Advance(engines.EstimateAfter + TimeSpan.FromSeconds(1));
+        // The retry asks again and arms a new wait: the early answer was seen and not counted.
+        await clock.ArmedAsync();
+        var running = engines.Prewarming;
+        Assert.Equal((0, 0), (running.Done, running.Failed));
+        Assert.NotNull(running.Running);
+        gate.SetResult();
+        for (int i = 0; i < 500 && engines.Prewarming.Done == 0 && engines.Prewarming.Failed == 0; i++) await Task.Delay(20);
+        var ended = engines.Prewarming;
+        Assert.True((1, 0) == (ended.Done, ended.Failed), ended.ToString());
+        Assert.Null(ended.Running);
+        // The completed analysis records its rate; wait for it so the cache folder is not written after the test.
+        for (int i = 0; i < 500 && !File.Exists(Path.Combine(_dir.File("cache"), OpenEstimate.FileName)); i++) await Task.Delay(20);
+    }
+
+    [Fact]
+    public async Task A_patched_copy_that_opens_slowly_shows_its_own_seconds_as_opening()
+    {
+        var clock = new ArmedClock();
+        var (engines, engine, gate, workspace) = ClockRig(clock, _dir.File("cache"), refusePatches: true);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        gate.SetResult();
+        await engines.Session(native, null, null, default);
+        // The base open lies far in the past when the patched copy starts.
+        clock.Advance(TimeSpan.FromSeconds(1000));
+        clock.Forget();
+        var original = File.ReadAllBytes(native.FilePath)[0x40];
+        native.Patches.Add(new Native.Patching.NativePatch(0x1000, 0x40, [original], [(byte)(original ^ 1)], "test"));
+        engine.StageGates["analysis"] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var call = Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
+        await InAnalysis(engines, native);
+        await clock.ArmedAsync();
+        clock.Advance(TimeSpan.FromSeconds(21));
+        var error = await call;
+        var row = Assert.Single(engines.ImageSessions(native));
+        Assert.Contains("(analysis, 21 s)", error.Message);
+        Assert.Equal(("opening", "analysis", 21), (row.State, row.Stage, row.Seconds));
+        Assert.True(row.ExpectedSeconds > 0);
+    }
+
+    [Fact]
+    public async Task A_partial_open_leaves_the_open_history_unchanged()
+    {
+        var cache = _dir.File("cache");
+        await OpenAfterThirtySeconds(cache, partial: true);
+        await OpenAfterThirtySeconds(cache, partial: false);
+        var history = Path.Combine(cache, OpenEstimate.FileName);
+        for (int i = 0; i < 500 && !File.Exists(history); i++) await Task.Delay(20);
+        using var doc = JsonDocument.Parse(File.ReadAllText(history));
+        Assert.Equal(1, doc.RootElement.GetProperty("ida").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task A_completed_open_records_its_rate_in_the_open_history()
+    {
+        var cache = _dir.File("cache");
+        await OpenAfterThirtySeconds(cache, partial: false);
+        var history = Path.Combine(cache, OpenEstimate.FileName);
+        for (int i = 0; i < 500 && !File.Exists(history); i++) await Task.Delay(20);
+        Assert.True(new OpenEstimate(cache).Seconds("ida", 1 << 20).FromHistory);
+    }
+
+    /// <summary>Opens the image with an analysis stage that lasts 30 s on a fake clock.</summary>
+    private async Task OpenAfterThirtySeconds(string cache, bool partial)
+    {
+        var clock = new FakeTimeProvider();
+        var (engines, _, gate, workspace) = ClockRig(clock, cache, partial);
+        engines.EstimateAfter = TimeSpan.FromHours(1);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        var call = engines.Session(native, null, null, default);
+        await InAnalysis(engines, native);
+        clock.Advance(TimeSpan.FromSeconds(30));
+        gate.SetResult();
+        await call;
+    }
+
+    [Fact]
+    public async Task An_open_without_history_names_the_default_rate()
+    {
+        var clock = new ArmedClock();
+        var (engines, _, _, workspace) = ClockRig(clock, _dir.File("cache"));
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        var call = Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
+        await clock.ArmedAsync();
+        clock.Advance(TimeSpan.FromSeconds(21));
+        var error = await call;
+        var row = Assert.Single(engines.ImageSessions(native));
+        Assert.Contains("(default rate)", error.Message);
+        Assert.Equal("default rate", row.ExpectedBasis);
+        Assert.Contains("(default rate)", await new NativeEngineStatusTools(workspace, engines).GetEngineStatus(native.Id));
     }
 
     private sealed class SyncProgress(Action<NativeProviderProgress> report) : IProgress<NativeProviderProgress>

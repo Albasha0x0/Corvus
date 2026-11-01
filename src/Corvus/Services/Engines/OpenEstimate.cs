@@ -29,12 +29,20 @@ public sealed class OpenEstimate(string cacheRoot)
     /// <summary>Returns the bytes of the executable sections in <paramref name="sections"/>.</summary>
     public static long CodeBytes(IEnumerable<NativeSection> sections) => sections.Where(s => s.IsExecutable).Sum(s => (long)s.MappedSize);
 
-    /// <summary>Returns the expected seconds of a first analysis for the given code size; an unknown engine uses the default rate of 5 s per MiB.</summary>
-    public double Seconds(string engine, long codeBytes)
+    /// <summary>The expected seconds of a first analysis, and whether earlier opens of the engine back them.</summary>
+    public readonly record struct Estimate(double Seconds, bool FromHistory)
+    {
+        /// <summary>What the estimate rests on: earlier opens, else the default rate.</summary>
+        public string Basis => FromHistory ? "earlier opens" : "default rate";
+    }
+
+    /// <summary>Returns the expected seconds of a first analysis; without history the default rate applies.</summary>
+    public Estimate Seconds(string engine, long codeBytes)
     {
         var rates = Load().GetValueOrDefault(engine)?.Select(s => s[1] / s[0] * (1 << 20)).Order().ToList();
-        var rate = rates is { Count: > 0 } ? rates[rates.Count / 2] : InitialRate.GetValueOrDefault(engine, DefaultRate);
-        return Math.Clamp(Math.Round(rate * codeBytes / (1 << 20)), MinimumSeconds, MaximumSeconds);
+        var fromHistory = rates is { Count: > 0 };
+        var rate = fromHistory ? rates![rates.Count / 2] : InitialRate.GetValueOrDefault(engine, DefaultRate);
+        return new(Math.Clamp(Math.Round(rate * codeBytes / (1 << 20)), MinimumSeconds, MaximumSeconds), fromHistory);
     }
 
     /// <summary>Keeps the open only when its analysis ran at least 1 s, since a saved database opens in seconds; returns whether it was kept.</summary>

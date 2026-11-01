@@ -26,7 +26,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         string? Error)
     {
         public string? Version { get; init; }
-        [Description("Expected open seconds (earlier opens, else section size).")] public double? ExpectedSeconds { get; init; }
+        [Description("Expected open seconds: earlier opens or a default rate.")] public double? ExpectedSeconds { get; init; }
         [Description("Expected seconds left.")] public double? RemainingSeconds { get; init; }
         [Description("The running or ended job: an open, or a background run such as reanalyze_native.")] public EngineJob? Job { get; init; }
         [Description("The analysis profile: full or none (IDA); standard, full, minimal or none (Ghidra).")] public string? Profile { get; init; }
@@ -40,7 +40,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         [Description("VA.")] public string? ImageBase { get; init; }
         public int? PointerSize { get; init; }
         public string? Endian { get; init; }
-        [Description("complete, partial (the analysis budget ran out; the saved database holds what was analyzed) or running.")]
+        [Description("complete, partial (stopped early; the database keeps what was analyzed) or running.")]
         public string? Analysis { get; init; }
         public IReadOnlyList<string>? Warnings { get; init; }
         [Description("Ghidra: the analysis's Error and Warning bookmark counts.")] public string? AnalysisProblems { get; init; }
@@ -143,7 +143,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (status.Analysis == "partial") status = status with { Limitations = [.. status.Limitations ?? [], Limitations.Id(Limitation.AnalysisPartial)] };
             list.Add(status);
         }
-        return ToolOutput.With(Render(native, list, waited), new EngineStatusReport(native.Id, list));
+        return ToolOutput.With(Render(native, list, states, waited), new EngineStatusReport(native.Id, list));
     }
 
     /// <summary>Time kept back from the call's deadline so the answer arrives in time.</summary>
@@ -212,7 +212,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         return status;
     }
 
-    private static string Render(LoadedNative native, List<EngineStatus> list, string? waited)
+    private static string Render(LoadedNative native, List<EngineStatus> list, IReadOnlyList<NativeEngineService.ImageEngineStatus> states, string? waited)
     {
         var sb = new StringBuilder($"Engine sessions of {native.Id}:\n");
         if (waited != null) sb.AppendLine(waited + "; call again to keep waiting");
@@ -228,7 +228,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                     continue;
                 case "opening":
                     sb.AppendLine($"{name}: opening ({s.Stage ?? "start"}, {s.Seconds:0.#} s" +
-                                  (s.ExpectedSeconds > 0 ? $", expected {s.ExpectedSeconds:0} s, about {s.RemainingSeconds:0} s left" : "") + ")");
+                                  (s.ExpectedSeconds > 0 ? $", expected {s.ExpectedSeconds:0} s ({states.FirstOrDefault(e => e.Engine == s.Engine)?.ExpectedBasis ?? "default rate"}), about {s.RemainingSeconds:0} s left" : "") + ")");
                     sb.AppendLine($"  next: get_engine_status image={native.Id} waitSeconds=60 waits for the end; engine=ours answers now");
                     if (s.OpenStages != null) sb.AppendLine($"  stages so far: {EngineOpenProfile.Describe(s.OpenStages)}");
                     continue;

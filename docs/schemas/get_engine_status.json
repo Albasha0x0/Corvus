@@ -36,7 +36,7 @@
             "type": "string"
           },
           "expectedSeconds": {
-            "description": "Expected open seconds (earlier opens, else section size).",
+            "description": "Expected open seconds: earlier opens or a default rate.",
             "type": "number"
           },
           "remainingSeconds": {
@@ -115,7 +115,7 @@
             "type": "string"
           },
           "analysis": {
-            "description": "complete, partial (the analysis budget ran out; the saved database holds what was analyzed) or running.",
+            "description": "complete, partial (stopped early; the database keeps what was analyzed) or running.",
             "type": "string"
           },
           "warnings": {

@@ -14,9 +14,19 @@ public sealed class OpenEstimateTests : IDisposable
     public void An_engine_with_no_history_uses_its_initial_rate_on_the_code_size()
     {
         var estimate = new OpenEstimate(_dir.Path);
-        Assert.Equal(20, estimate.Seconds("ida", 10L << 20));
-        Assert.Equal(80, estimate.Seconds("ghidra", 10L << 20));
-        Assert.Equal(5, estimate.Seconds("ida", 1000));
+        Assert.Equal(20, estimate.Seconds("ida", 10L << 20).Seconds);
+        Assert.Equal(80, estimate.Seconds("ghidra", 10L << 20).Seconds);
+        Assert.Equal(5, estimate.Seconds("ida", 1000).Seconds);
+    }
+
+    [Fact]
+    public void The_estimate_names_earlier_opens_only_once_one_is_recorded()
+    {
+        var estimate = new OpenEstimate(_dir.Path);
+        Assert.Equal("default rate", estimate.Seconds("ida", 1L << 20).Basis);
+        estimate.Record("ida", 1L << 20, 10);
+        Assert.Equal("earlier opens", estimate.Seconds("ida", 1L << 20).Basis);
+        Assert.Equal("default rate", estimate.Seconds("ghidra", 1L << 20).Basis);
     }
 
     [Fact]
@@ -26,15 +36,15 @@ public sealed class OpenEstimateTests : IDisposable
         estimate.Record("ida", 10L << 20, 100);
         estimate.Record("ida", 10L << 20, 100);
         estimate.Record("ida", 10L << 20, 400);
-        Assert.Equal(50, new OpenEstimate(_dir.Path).Seconds("ida", 5L << 20));
-        Assert.Equal(40, estimate.Seconds("ghidra", 5L << 20));
+        Assert.Equal(50, new OpenEstimate(_dir.Path).Seconds("ida", 5L << 20).Seconds);
+        Assert.Equal(40, estimate.Seconds("ghidra", 5L << 20).Seconds);
     }
 
     [Fact]
     public void A_corrupt_history_file_falls_back_to_the_initial_rate()
     {
         File.WriteAllText(Path.Combine(_dir.Path, OpenEstimate.FileName), "{ not json");
-        Assert.Equal(20, new OpenEstimate(_dir.Path).Seconds("ida", 10L << 20));
+        Assert.Equal(20, new OpenEstimate(_dir.Path).Seconds("ida", 10L << 20).Seconds);
     }
 
     [Fact]
@@ -43,7 +53,7 @@ public sealed class OpenEstimateTests : IDisposable
         var estimate = new OpenEstimate(_dir.Path);
         for (int i = 0; i < OpenEstimate.MaxSamples; i++) estimate.Record("ida", 1L << 20, 100);
         for (int i = 0; i < OpenEstimate.MaxSamples; i++) estimate.Record("ida", 1L << 20, 10);
-        Assert.Equal(10, estimate.Seconds("ida", 1L << 20));
+        Assert.Equal(10, estimate.Seconds("ida", 1L << 20).Seconds);
     }
 
     [Fact]
@@ -51,7 +61,7 @@ public sealed class OpenEstimateTests : IDisposable
     {
         var estimate = new OpenEstimate(_dir.Path);
         foreach (var seconds in new double[] { 40, 10, 30, 20 }) estimate.Record("ida", 1L << 20, seconds);
-        Assert.Equal(30, estimate.Seconds("ida", 1L << 20));
+        Assert.Equal(30, estimate.Seconds("ida", 1L << 20).Seconds);
     }
 
     [Fact]
@@ -59,9 +69,9 @@ public sealed class OpenEstimateTests : IDisposable
     {
         var path = Path.Combine(_dir.Path, OpenEstimate.FileName);
         File.WriteAllText(path, "{\"ida\":[[0,5],[-1,5],[1048576,0]]}");
-        Assert.Equal(20, new OpenEstimate(_dir.Path).Seconds("ida", 10L << 20));
+        Assert.Equal(20, new OpenEstimate(_dir.Path).Seconds("ida", 10L << 20).Seconds);
         File.WriteAllText(path, "{\"ida\":[[1048576,1e308]]}");
-        Assert.Equal(86400, new OpenEstimate(_dir.Path).Seconds("ida", 10L << 20));
+        Assert.Equal(86400, new OpenEstimate(_dir.Path).Seconds("ida", 10L << 20).Seconds);
     }
 
     [Fact]
@@ -69,9 +79,9 @@ public sealed class OpenEstimateTests : IDisposable
     {
         var estimate = new OpenEstimate(_dir.Path);
         Assert.False(estimate.RecordOpen("ida", 10L << 20, 0.4, 100));
-        Assert.Equal(20, estimate.Seconds("ida", 10L << 20));
+        Assert.Equal(20, estimate.Seconds("ida", 10L << 20).Seconds);
         Assert.True(estimate.RecordOpen("ida", 10L << 20, 1, 100));
-        Assert.Equal(100, estimate.Seconds("ida", 10L << 20));
+        Assert.Equal(100, estimate.Seconds("ida", 10L << 20).Seconds);
     }
 
     [Fact]

@@ -46,6 +46,10 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public TaskCompletionSource? TypeGate { get; set; }
     /// <summary>When set, the open fails with it.</summary>
     public Exception? OpenFailure { get; set; }
+    /// <summary>When set, the session reports a partial analysis.</summary>
+    public bool PartialAnalysis { get; set; }
+    /// <summary>When set, the session reports every patch as missing, so the patched bytes open as their own image.</summary>
+    public bool RefusePatches { get; set; }
     /// <summary>When set, the open fails with it after its stages.</summary>
     public Exception? LateOpenFailure { get; set; }
 
@@ -87,6 +91,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         public TimeSpan OpenTime => TimeSpan.Zero;
         public bool DecompilerAvailable => true;
         public bool IsOpen => true;
+        public bool AnalysisComplete => !e.PartialAnalysis;
         public int DecompileLanes => e.Lanes;
 
         public async Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default)
@@ -141,7 +146,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
 
         public Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new PatchSyncResult(wanted.Count, 0, 0, 0, 0, 0, [], TimeSpan.Zero));
+            Task.FromResult(new PatchSyncResult(wanted.Count, 0, 0, 0, e.RefusePatches ? wanted.Count : 0, 0, [], TimeSpan.Zero));
         public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NativeXref>>(e.Xrefs.Where(x => x.ToRva == rva).ToList());
         public Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>

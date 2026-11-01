@@ -57,6 +57,12 @@ internal sealed class ArmedClock : TimeProvider
     /// <summary>Moves the clock by <paramref name="by"/>, firing every timer due by then.</summary>
     public void Advance(TimeSpan by) => _time.Advance(by);
 
+    /// <summary>Forgets the timers armed so far.</summary>
+    public void Forget()
+    {
+        while (_armed.Reader.TryRead(out _)) { }
+    }
+
     /// <summary>Waits until the next timer is armed (up to a minute) without firing it.</summary>
     public async Task ArmedAsync() => await _armed.Reader.WaitToReadAsync().AsTask().WaitAsync(TimeSpan.FromMinutes(1));
 }
