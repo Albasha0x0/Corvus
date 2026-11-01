@@ -256,18 +256,106 @@ public sealed class StreamedSummaryTests : IDisposable
     }
 }
 
-/// <summary>The memory ceiling of a streamed summary, each test in a process of its own (the working set is the process's).</summary>
-public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisposable
+/// <summary>The memory ceiling of a streamed summary: one nested class per input, each test in a process of its own.</summary>
+public abstract class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisposable
 {
+    // One class per input, so xunit runs the inputs side by side.
+    // Each child process has its own working set.
+    /// <summary>Summary memory ceiling for a 2 GiB capture.</summary>
+    public sealed class Capture(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Two_gigabyte_capture_summary_stays_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            CaptureWithinCeiling();
+        }
+    }
+
+    /// <summary>Summary memory ceiling for a gigabyte .so image.</summary>
+    public sealed class Native(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Gigabyte_inputs_stay_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            GigabyteWithinCeiling("so");
+        }
+    }
+
+    /// <summary>Summary memory ceiling for a gigabyte .apk package.</summary>
+    public sealed class Apk(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Gigabyte_inputs_stay_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            GigabyteWithinCeiling("apk");
+        }
+    }
+
+    /// <summary>Summary memory ceiling for a gigabyte flow log.</summary>
+    public sealed class Flows(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Gigabyte_inputs_stay_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            GigabyteWithinCeiling("flows");
+        }
+    }
+
+    /// <summary>Summary memory ceiling for a gigabyte .wasm module.</summary>
+    public sealed class Wasm(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Gigabyte_inputs_stay_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            GigabyteWithinCeiling("wasm");
+        }
+    }
+
+    /// <summary>Summary memory ceiling for a gigabyte .plist file.</summary>
+    public sealed class Plist(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Gigabyte_inputs_stay_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            GigabyteWithinCeiling("plist");
+        }
+    }
+
+    /// <summary>Summary memory ceiling for a gigabyte .har archive.</summary>
+    public sealed class Har(ITestOutputHelper output) : StreamedSummaryMemoryTests(output)
+    {
+        [Fact]
+        [Trait("Speed", "Slow")]
+        public void Gigabyte_inputs_stay_within_the_memory_ceiling()
+        {
+            if (RanInChild()) return;
+            GigabyteWithinCeiling("har");
+        }
+    }
+
+    // Returns true in the parent once the child process has run this test.
+    private bool RanInChild(
+        [System.Runtime.CompilerServices.CallerMemberName] string method = "") =>
+        ChildTest.Rerun(this, output, null, null, null, method);
+
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _ws = new();
     public void Dispose() { _ws.Dispose(); _dir.Dispose(); }
 
-    [Fact]
-    [Trait("Speed", "Slow")]
-    public void Two_gigabyte_capture_summary_stays_within_the_memory_ceiling()
+    private void CaptureWithinCeiling()
     {
-        if (ChildTest.Rerun(this, output)) return;
         var path = _dir.File("large.pcap");
         using (var f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20)) StreamedSummaryTests.WritePcap(f, 2L * 1024 * 1024 * 1024 / (16 + 28 + 1400), 1400);
         long length = new FileInfo(path).Length;
@@ -354,17 +442,8 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
         return path;
     }
 
-    [Theory]
-    [Trait("Speed", "Slow")]
-    [InlineData("so")]
-    [InlineData("apk")]
-    [InlineData("flows")]
-    [InlineData("wasm")]
-    [InlineData("plist")]
-    [InlineData("har")]
-    public void Gigabyte_inputs_stay_within_the_memory_ceiling(string kind)
+    private void GigabyteWithinCeiling(string kind)
     {
-        if (ChildTest.Rerun(this, output, [kind])) return;
         void Read(string path)
         {
             if (kind == "har") Assert.Single(new UnpackService(_ws).Search(path, "*", "endpoint", 100, AnalysisLimits.Default, default).Items);
