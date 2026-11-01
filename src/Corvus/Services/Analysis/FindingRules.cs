@@ -178,6 +178,7 @@ public static class FindingRules
         R("package/cargo-build-script", "a Cargo build script"),
         R("package/gradle-process", "a Gradle script starts a process"),
         N("package/gradle-wrapper-url", "a build tool downloaded and run from outside services.gradle.org", "the Gradle wrapper downloads its tool"),
+        R("package/dockerfile-add-remote", "ADD of a remote source in a Dockerfile"),
         R("package/cmake-process", "CMake runs a process at configure"),
         N("guarddog/*", "a GuardDog threat-* rule", "a GuardDog rule matches"),
         // Archive and disk image entries.

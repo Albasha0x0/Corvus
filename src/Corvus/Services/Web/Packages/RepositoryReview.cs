@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 
@@ -67,7 +68,7 @@ public static partial class PackageReview
             review.Findings.Add(new PackageFinding("package/direnv", "review", "repository hook", "direnv runs .envrc on entering the folder once it is allowed", path));
             if (files.Text(path) is { } text) ScanCommand(text, ".envrc", path, 1, review, ct);
         }
-        var build = paths.Where(IsBuildFile).ToList();
+        var build = paths.Where(IsBuildFile).OrderBy(p => IsDockerfile(p[(p.LastIndexOf('/') + 1)..]) ? 1 : 0).ToList();
         if (build.Count > MaxBuildFiles) review.Notes.Add($"{build.Count} build files; the first {MaxBuildFiles} by path are read, the others' build steps are unknown");
         foreach (var path in build.Take(MaxBuildFiles))
         {
@@ -78,7 +79,8 @@ public static partial class PackageReview
                 continue;
             }
             var name = path[(path.LastIndexOf('/') + 1)..];
-            if (name == "build.rs") CargoBuildScript(path, text, review, ct);
+            if (IsDockerfile(name)) Dockerfile(path, text, review, ct);
+            else if (name == "build.rs") CargoBuildScript(path, text, review, ct);
             else if (name.StartsWith("build.gradle", StringComparison.Ordinal) || name.StartsWith("settings.gradle", StringComparison.Ordinal)) Gradle(path, text, review, ct);
             else if (name == "gradle-wrapper.properties") GradleWrapper(path, text, review);
             else if (name == "CMakeLists.txt" || name.EndsWith(".cmake", StringComparison.Ordinal)) CMake(path, text, review, ct);
@@ -91,7 +93,8 @@ public static partial class PackageReview
     {
         var name = path[(path.LastIndexOf('/') + 1)..];
         var ext = Path.GetExtension(name).ToLowerInvariant();
-        return ext is ".csproj" or ".vbproj" or ".fsproj" or ".vcxproj" or ".proj" or ".props" or ".targets"
+        return IsDockerfile(name)
+            || ext is ".csproj" or ".vbproj" or ".fsproj" or ".vcxproj" or ".proj" or ".props" or ".targets"
             || name is "build.rs" or "build.gradle" or "build.gradle.kts" or "settings.gradle" or "settings.gradle.kts" or "gradle-wrapper.properties" or "CMakeLists.txt"
             || ext == ".cmake";
     }
@@ -104,6 +107,21 @@ public static partial class PackageReview
     {
         if (found.Count > cap) review.Notes.Add($"{found.Count} {name} files found; the first {cap} by path were read, the rest are unknown");
         return found.Take(cap);
+    }
+
+    private static bool IsDockerfile(string name)
+    {
+        if (name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".containerfile", StringComparison.OrdinalIgnoreCase)) return true;
+        foreach (var stem in new[] { "Dockerfile", "Containerfile" })
+        {
+            if (name.Equals(stem, StringComparison.OrdinalIgnoreCase)) return true;
+            if (name.StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase))
+            {
+                var suffix = name[(stem.Length + 1)..];
+                if (suffix.Length > 0 && !suffix.Contains('.') && suffix.ToLowerInvariant() is not ("md" or "txt" or "sh")) return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>The first line of a script that is not a shebang, comment or blank; null when there is none.</summary>
@@ -384,6 +402,89 @@ public static partial class PackageReview
             review.Entries.Add(new AgentEntry("build step", path[(path.LastIndexOf('/') + 1)..], command, path, i + 1));
             review.Findings.Add(new PackageFinding("package/cmake-process", "review", "build step", $"CMake runs a process at configure: {command}", path, i + 1));
             ScanCommand(lines[i], "CMake", path, i + 1, review, ct);
+        }
+    }
+
+    private static readonly Regex RemoteSource = new(@"^(?:https?://|git@|git://|ssh://)", RegexOptions.NonBacktracking | RegexOptions.IgnoreCase);
+    // The delimiter must start with a letter, so <<< and <<( never match.
+    private static readonly Regex Heredoc = new(@"(?:^|[^<(])<<-?\s*[""']?([A-Za-z_]\w*)[""']?", RegexOptions.NonBacktracking);
+
+    // RUN goes through the code rules.
+    // ADD of a remote source is listed: the build fetches it.
+    private static void Dockerfile(string path, string text, AgentReview review, CancellationToken ct)
+    {
+        var lines = text.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var first = i + 1;
+            var line = lines[i].TrimEnd('\r').Trim();
+            if (line.Length == 0 || line[0] == '#') continue;
+            var body = new StringBuilder();
+            // A trailing backslash continues the instruction.
+            // Comment and blank lines inside it are skipped.
+            while (line.EndsWith('\\'))
+            {
+                body.Append(line[..^1]).Append(' ');
+                line = "";
+                while (i + 1 < lines.Length)
+                {
+                    var next = lines[++i].TrimEnd('\r').Trim();
+                    if (next.Length == 0 || next[0] == '#') continue;
+                    line = next;
+                    break;
+                }
+            }
+            body.Append(line);
+            var instruction = body.ToString().Trim();
+            var (keyword, args) = SplitInstruction(instruction);
+            // ONBUILD defers the instruction that follows it.
+            if (keyword == "ONBUILD") (keyword, args) = SplitInstruction(args);
+            if (keyword is not ("RUN" or "ADD")) continue;
+            if (keyword == "RUN" && Heredoc.Match(args) is { Success: true } doc)
+            {
+                // A here-document body is the script the instruction runs.
+                var script = new StringBuilder(args);
+                bool closed = false;
+                while (i + 1 < lines.Length)
+                {
+                    var next = lines[++i].TrimEnd('\r');
+                    if (next.Trim() == doc.Groups[1].Value) { closed = true; break; }
+                    script.Append('\n').Append(next);
+                }
+                if (!closed) review.Notes.Add($"here-document in {path}:{first} has no terminator; the rest of the file is not read");
+                args = script.ToString();
+            }
+            if (keyword == "RUN") DockerRun(path, args, first, review, ct);
+            else DockerAdd(path, args, first, review, ct);
+        }
+    }
+
+    private static (string Keyword, string Args) SplitInstruction(string instruction)
+    {
+        int space = instruction.IndexOfAny([' ', '	']);
+        return ((space < 0 ? instruction : instruction[..space]).ToUpperInvariant(), space < 0 ? "" : instruction[(space + 1)..].Trim());
+    }
+
+    private static void DockerRun(string path, string args, int line, AgentReview review, CancellationToken ct)
+    {
+        // Exec form is a JSON array of arguments; shell form is the command line.
+        var command = args.StartsWith('[') && JsonTree.Parse(args) is { Items: { } items } ? string.Join(' ', items.Select(a => a.Text ?? "")) : args;
+        int before = review.Findings.Count;
+        ScanCommand(command, "RUN", path, line, review, ct);
+        if (review.Findings.Count > before) review.Entries.Add(new AgentEntry("build step", "RUN", Clip(command, 200), path, line));
+    }
+
+    private static void DockerAdd(string path, string args, int line, AgentReview review, CancellationToken ct)
+    {
+        var words = args.StartsWith('[') && JsonTree.Parse(args) is { Items: { } items }
+            ? items.Select(a => a.Text ?? "").ToList()
+            : args.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).ToList();
+        var sources = words.Where(w => !w.StartsWith("--", StringComparison.Ordinal)).SkipLast(1).Where(w => RemoteSource.IsMatch(w)).ToList();
+        foreach (var source in sources)
+        {
+            review.Entries.Add(new AgentEntry("build step", "ADD", Clip(source, 200), path, line));
+            review.Findings.Add(new PackageFinding("package/dockerfile-add-remote", "review", "build step", $"ADD fetches {Clip(source, 200)} during the image build", path, line));
         }
     }
 }

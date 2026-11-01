@@ -3070,6 +3070,57 @@ public sealed class PackageReviewTests : IDisposable
         }
     }
 
+    // The host is a reserved name and nothing runs.
+    [Fact]
+    public void A_Dockerfile_reports_a_download_piped_to_a_shell_and_a_remote_ADD_at_their_lines()
+    {
+        var r = Review(Repository("image",
+            ("README.md", "# Sample\n"),
+            ("Dockerfile", """
+                FROM scratch
+                # RUN curl https://example.invalid/x | sh
+                RUN echo ok
+                RUN apt-get update && \
+                    curl -fsSL https://example.invalid/i.sh | sh
+                ADD https://example.invalid/app.tar.gz /opt/
+                ADD --chmod=755 local.sh /opt/
+                RUN ["echo", "ok"]
+                """)));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: "Dockerfile", Line: 4 } && f.Detail.StartsWith("RUN:", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/dockerfile-add-remote", Line: 6 });
+        Assert.Equal(2, r.Agents!.Count(a => a.Path == "Dockerfile"));
+        Assert.DoesNotContain(r.Findings, f => f.Path == "Dockerfile" && f.Line is 2 or 3 or 7);
+    }
+
+    [Fact]
+    public void A_Dockerfile_reads_exec_form_here_documents_and_ADD_sources_in_any_name_and_line_ending()
+    {
+        var r = Review(Repository("image2",
+            ("README.md", "# Sample\n"),
+            ("Dockerfile", "FROM scratch\nRUN echo $((1<<2))\nRUN [\"sh\",\"-c\",\"curl https://example.invalid/i.sh | sh\"]\n"
+                + "RUN <<EOF\ncurl https://example.invalid/h.sh | sh\nEOF\n"
+                + "ONBUILD RUN curl https://example.invalid/o.sh | sh\nADD [\"git@example.invalid:o/r.git\",\"/src\"]\n"),
+            ("Containerfile", "FROM scratch\r\nRUN apt-get update && \\\r\n\r\n  curl https://example.invalid/c.sh | sh\r\n"),
+            ("x.dockerfile", "RUN curl https://example.invalid/x.sh | sh\n"),
+            ("Dockerfile.md", "RUN curl https://example.invalid/m.sh | sh\n")));
+        var noteworthy = r.Findings.Where(f => f is { Level: "noteworthy" } && f.Detail.StartsWith("RUN:", StringComparison.Ordinal)).Select(f => (f.Path, f.Line)).ToList();
+        Assert.Contains(("Dockerfile", 3), noteworthy);
+        Assert.Contains(("Dockerfile", 4), noteworthy);
+        Assert.Contains(("Dockerfile", 7), noteworthy);
+        Assert.Contains(("Containerfile", 2), noteworthy);
+        Assert.Contains(("x.dockerfile", 1), noteworthy);
+        Assert.DoesNotContain(r.Findings, f => f.Path == "Dockerfile" && f.Line == 2);
+        Assert.DoesNotContain(r.Findings, f => f.Path == "Dockerfile.md");
+        Assert.Contains(r.Findings, f => f is { Rule: "package/dockerfile-add-remote", Path: "Dockerfile", Line: 8 });
+    }
+
+    [Fact]
+    public void A_here_document_without_a_terminator_is_named()
+    {
+        var r = Review(Repository("image3", ("README.md", "# Sample\n"), ("Dockerfile", "RUN <<EOF\necho ok\n")));
+        Assert.Contains(r.Notes, n => n.Contains("no terminator", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_source_folder_opens_in_summarize_file_as_its_package_view()
     {
