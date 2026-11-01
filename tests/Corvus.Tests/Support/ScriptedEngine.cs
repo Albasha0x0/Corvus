@@ -161,7 +161,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default)
         {
             if (e.TypeGate != null) await e.TypeGate.Task.WaitAsync(cancellationToken);
-            return new NativeTypeList(e.Types.Count, e.Types);
+            var types = kind == null ? e.Types : e.Types.Where(t => t.Kind == kind).ToList();
+            return new NativeTypeList(types.Count, types);
         }
 
         public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>

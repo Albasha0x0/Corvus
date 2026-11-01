@@ -1069,7 +1069,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var order = string.IsNullOrWhiteSpace(sort) ? "name" : sort.Trim().ToLowerInvariant();
         if (order is not ("ordinal" or "name" or "size")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use name or size");
         var nameFilter = NameFilter.Parse(filter);
-        var (_, _, session) = await Open(image, "rva:0", engine, progress, ct);
+        var (native, _, session) = await Open(image, "rva:0", engine, progress, ct);
         if (!string.IsNullOrWhiteSpace(name))
         {
             var t = await session.GetTypeAsync(name.Trim(), ct);
@@ -1106,9 +1106,25 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             relatedNames.TryGetValue(t.Name, out var refs) && refs.Count > 0 ? refs : null)).ToList();
         var header = (nameFilter != null ? $"matching '{nameFilter.Text}'" : "") + (k != null ? $" of kind {k}" : "") + $" by {order}{(descending ? " descending" : "")} " +
                      $"({session.ProviderId})\n";
+        if (total == 0 && nameFilter != null)
+            header += k != null
+                ? $"No {k} type in the {session.ProviderId} database matches '{nameFilter.Text}'.\n"
+                : MetadataTypeHint(native, nameFilter, session.ProviderId);
         return ToolOutput.List(entries, offset, limit, total, TypeLine,
             page => new TypeListReport(session.ProviderId, page, offset, total), "type", header.TrimStart());
     }, cancellationToken));
+
+    /// <summary>The note for an empty engine listing: a layout in the applied metadata is read with get_native_type, and declare_native_types adds it to the engine.</summary>
+    private string MetadataTypeHint(LoadedNative native, NameFilter filter, string engine)
+    {
+        var applied = AotNativeNames.Of(native);
+        var match = applied == null ? null : workspace.Read(() => applied.Image.Assemblies.SelectMany(a => a.Module.GetTypes())
+            .FirstOrDefault(t => filter.IsMatch(t.Name.String) || filter.IsMatch(t.FullName)))?.FullName;
+        return match == null
+            ? $"No type in the {engine} database matches '{filter.Text}'.\n"
+            : $"No type in the {engine} database matches '{filter.Text}'; {match} is a metadata type, so its layout is in the metadata: " +
+              "get_native_type shows it, declare_native_types adds it to the engine database.\n";
+    }
 
     public sealed record TypeMemberEntry(string Name, string? Type,
         long Offset, long? Size);
