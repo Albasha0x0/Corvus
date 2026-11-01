@@ -512,7 +512,7 @@ Pass the name as `view=`.
 | `raw` | likely instruction sets and load bases of headerless code |
 | `wasm` | imports, exports, validation verdict, a component's WIT world |
 | `harmony`, `hermes` | HarmonyOS modules and Hermes bundles |
-| `protobuf` | `.proto` definitions recovered from embedded descriptors |
+| `protobuf` | `.proto` definitions recovered from embedded descriptors; script message ids joined to the messages of a package's `.pb` and `.pbe` entries |
 | `page` | a saved web page's scripts, integrity hashes and CSP |
 | `script` | PowerShell, batch, VBScript, JavaScript, HTML and SVG scripts deobfuscated, Script Encoder text decoded, nothing run; a file a standalone page builds in a Blob is carved as a member |
 | `package` | npm, PyPI, RubyGems, NuGet, Composer, Cargo, CPAN, VS Code and browser packages before install; source folders |

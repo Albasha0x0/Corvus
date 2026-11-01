@@ -37,7 +37,7 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
         }
         using var zip = OpenZip(source);
         var libraries = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var e in zip.Entries.OrderBy(e => e.FullName.Contains("/arm64-v8a/", StringComparison.Ordinal) ? 0 : 1).ThenBy(e => e.FullName, StringComparer.Ordinal))
+        foreach (var e in Entries(zip, source).OrderBy(e => e.FullName.Contains("/arm64-v8a/", StringComparison.Ordinal) ? 0 : 1).ThenBy(e => e.FullName, StringComparer.Ordinal))
         {
             ct.ThrowIfCancellationRequested();
             var name = e.FullName;
@@ -58,6 +58,13 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
             else if (NativeImageLoader.Detect(bytes) != NativeFileKind.Unknown) items.Add(new ContainerItem(name, Blob.Identify(bytes), "zip", bytes));
         }
         return items;
+    }
+
+    /// <summary>The entries of an opened zip; a damaged central directory is a malformed-input error.</summary>
+    internal static IReadOnlyList<ZipArchiveEntry> Entries(ZipArchive zip, string path)
+    {
+        try { return zip.Entries; }
+        catch (InvalidDataException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)}: corrupt zip ({ex.Message})."); }
     }
 
     /// <summary>Opens <paramref name="path"/> as a zip; a damaged archive is a malformed-input error.</summary>

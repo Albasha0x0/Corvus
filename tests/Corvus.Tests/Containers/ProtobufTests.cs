@@ -230,4 +230,126 @@ public sealed class ProtobufTests
         }, 3000);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }
+
+    // Pb/igame.pbe layout: a marked container whose payload is a descriptor padded to whole blocks.
+    private static byte[] Package(byte[] pbe, string script, byte[]? transformedScript = null)
+    {
+        var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, true))
+        {
+            void Add(string name, byte[] data)
+            {
+                using var w = zip.CreateEntry(name, System.IO.Compression.CompressionLevel.NoCompression).Open();
+                w.Write(data);
+            }
+            Add("Pb/igame.pbe", pbe);
+            Add("Scripts/ids.lua", System.Text.Encoding.UTF8.GetBytes(script));
+            if (transformedScript != null) Add("Scripts/main.luae", transformedScript);
+        }
+        return ms.ToArray();
+    }
+
+    private static byte[] MarkedBlocks(byte[] payload)
+    {
+        int padded = (payload.Length + 7) / 8 * 8;
+        var bytes = new byte[8 + padded];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes, 0xFFFFFFFF);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)padded);
+        payload.CopyTo(bytes, 8);
+        return bytes;
+    }
+
+    private const string IdScript = "Msg = {\n  User = 1001,\n  [1002] = \"demo.v1.Users\",\n  Other = 7 -- unrelated\n}\n";
+
+    private static ProtobufFileView.Facts PackageFacts(byte[] zip)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"pb-{Guid.NewGuid():N}.zip");
+        try
+        {
+            File.WriteAllBytes(path, zip);
+            var input = new FileInput(path, zip, "zip") { Options = new FileViewOptions("protobuf") };
+            return Assert.IsType<ProtobufFileView.Facts>(new ProtobufFileView().Inspect(input, default)?.Detail);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_script_message_id_joins_the_descriptor_message_with_its_fields()
+    {
+        var facts = PackageFacts(Package(MarkedBlocks(ProtoWriter.Demo()), IdScript));
+        Assert.Equal(1, facts.Total);
+        var user = Assert.Single(facts.Ids!, i => i.Id == 1001);
+        Assert.Equal(("joined", "demo.v1.User", 9), (user.State, user.Message, user.FieldCount));
+        Assert.Contains("id = 1", user.Fields);
+        Assert.Equal("Pb/igame.pbe", Assert.Single(facts.Files).Source);
+    }
+
+    [Fact]
+    public void A_named_script_id_without_a_message_is_unmatched_and_bare_assignments_are_only_counted()
+    {
+        var facts = PackageFacts(Package(MarkedBlocks(ProtoWriter.Demo()), IdScript));
+        Assert.Equal("unmatched", Assert.Single(facts.Ids!, i => i.Id == 1002).State);
+        Assert.Equal(2, facts.Ids!.Count);
+        Assert.Contains(facts.Notes, n => n.Contains("1 bare name = number assignment(s)"));
+    }
+
+    [Fact]
+    public void An_untransformed_pbe_without_a_descriptor_leaves_the_ids_unknown_and_names_the_next_call()
+    {
+        var facts = PackageFacts(Package(MarkedBlocks(new byte[64]), IdScript));
+        Assert.All(facts.Ids!, i => Assert.Equal("unknown", i.State));
+        Assert.Contains(facts.Notes, n => n.Contains("scanned 1 of 2 package entries") && n.Contains("Pb/igame.pbe (no readable descriptor)") && n.Contains("unpack_container"));
+    }
+
+    [Fact]
+    public void A_transformed_luae_entry_is_counted_as_unreadable_because_its_ids_are_not_read()
+    {
+        var facts = PackageFacts(Package(MarkedBlocks(ProtoWriter.Demo()), IdScript, MarkedBlocks(new byte[32])));
+        Assert.Contains(facts.Notes, n => n.Contains("Scripts/main.luae (transformed payload)"));
+    }
+
+    [Fact]
+    public void A_simple_name_shared_by_two_messages_is_ambiguous()
+    {
+        var two = new ProtoWriter().Str(1, "a.proto").Str(2, "a").Msg(4, m => m.Str(1, "User").Field(2, "id", 1, 3))
+            .Msg(4, m => m.Str(1, "Box").Msg(3, n => n.Str(1, "User").Field(2, "x", 1, 3))).Str(12, "proto3").ToArray();
+        var facts = PackageFacts(Package(MarkedBlocks(two), "User = 5\n"));
+        Assert.Equal("ambiguous", Assert.Single(facts.Ids!).State);
+    }
+
+    [Fact]
+    public void Message_ids_beyond_the_limit_are_counted_and_name_the_raise()
+    {
+        var script = string.Concat(Enumerable.Range(1, 30).Select(i => $"[{i}] = \"M{i}\"\n"));
+        var facts = PackageFacts(Package(MarkedBlocks(ProtoWriter.Demo()), script));
+        Assert.Equal(20, facts.Ids!.Count);
+        Assert.Contains(facts.Notes, n => n.Contains("30 message ids; the first 20 are listed; limit=80 lists more"));
+    }
+
+    [Fact]
+    public void A_marked_container_with_an_oversized_length_is_counted_as_corrupt_not_fatal()
+    {
+        var bad = MarkedBlocks(new byte[16]);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bad.AsSpan(4), 0x7FFFFFF0);
+        var facts = PackageFacts(Package(bad, IdScript));
+        Assert.All(facts.Ids!, i => Assert.Equal("unknown", i.State));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(PackageMessages))]
+    public void Fuzzed_packages_never_throw_past_a_tool_error()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"pb-fuzz-{Guid.NewGuid():N}.zip");
+        try
+        {
+            var failures = FormatFuzz.Run(Package(MarkedBlocks(ProtoWriter.Demo()), IdScript), b =>
+            {
+                File.WriteAllBytes(path, b);
+                try { new ProtobufFileView().Inspect(new FileInput(path, b, "zip") { Options = new FileViewOptions("protobuf") }, default); }
+                catch (ToolError) { }
+            }, 300);
+            Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
+        }
+        finally { File.Delete(path); }
+    }
 }
