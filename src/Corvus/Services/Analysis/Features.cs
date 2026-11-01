@@ -389,7 +389,7 @@ public static class Features
         return RulePatterns.Count;
     });
 
-    /// <summary>Builds every rule's regex once per process and returns the count; timed surveys call it first to exclude this cost.</summary>
+    /// <summary>Builds every rule's regex once per process and returns the count; only tests call it.</summary>
     internal static int Prepare() => Prepared.Value;
 
     /// <summary>A rule's cached regex; throws NotSupportedException for a construct NonBacktracking rejects.</summary>

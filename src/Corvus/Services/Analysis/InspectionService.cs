@@ -221,10 +221,18 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         catch (Exception ex) { throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 
-    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) => Survey(assembly, path, category, true, ct);
+    /// <summary>The survey of a build, file or category; a loaded build's full survey is kept.</summary>
+    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) =>
+        assembly != null && path == null && (category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase))
+            ? Kept(assembly, true, ct).Report
+            : Survey(assembly, path, category, true, ct);
 
     /// <summary>A loaded build's survey with kept capa labels, never running capa; CapaLabelled false means its labels are unknown.</summary>
-    public (FeatureReport Report, bool CapaLabelled) BuildSurvey(string assembly, CancellationToken ct)
+    public (FeatureReport Report, bool CapaLabelled) BuildSurvey(string assembly, CancellationToken ct) => Kept(assembly, false, ct);
+
+    // Survey_features always resurveys, so capa may run,
+    // and stores the result for compare.
+    private (FeatureReport Report, bool CapaLabelled) Kept(string assembly, bool runCapa, CancellationToken ct)
     {
         var (subject, file, generation) = workspace.Read(() =>
         {
@@ -237,9 +245,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         bool capa = NativeCapa.Cached(file) is { State: "matched" };
         // A native image's index is rebuilt by reanalysis without a workspace edit, so it is part of the key.
         object? index = subject is LoadedNative native && code != null ? code.Index(native, null, ct).GetAwaiter().GetResult() : null;
-        if (_surveys.TryGetValue(subject, out var kept) && kept.Generation == generation && kept.Index == index && kept.Capa == capa) return (kept.Report, capa);
-        var report = Survey(assembly, null, null, false, ct);
+        if (_surveys.TryGetValue(subject, out var kept) && kept.Generation == generation && kept.Index == index && kept.Capa == capa && !runCapa) return (kept.Report, capa);
+        var report = Survey(assembly, null, null, runCapa, ct);
         Interlocked.Increment(ref _surveysRun);
+        // Capa may have matched during the survey; the key and labels follow it.
+        capa = NativeCapa.Cached(file) is { State: "matched" };
         _surveys.AddOrUpdate(subject, new KeptSurvey(generation, index, capa, report));
         return (report, capa);
     }
@@ -350,6 +360,44 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                                                      || (c.Rule?.Masvs?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],
         };
 
+    private const int KeptPathIndexes = 2;
+
+    private readonly List<(string Path, long Length, long Written, NativeCodeIndex Index)> _pathIndexes = [];
+
+    private int _indexesBuilt;
+
+    /// <summary>Code indexes built for unloaded native files rather than reused (tests).</summary>
+    internal int IndexesBuilt => Volatile.Read(ref _indexesBuilt);
+
+    // An unloaded file's index is kept by path, size and write time,
+    // so a repeat survey or a compare pair builds it once.
+    private NativeCodeIndex PathIndex(string full, CancellationToken ct)
+    {
+        long length, written;
+        try { var info = new FileInfo(full); (length, written) = (info.Length, info.LastWriteTimeUtc.Ticks); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ToolError(ErrorCode.MalformedInput, $"{full}: not a readable native image ({ex.Message}).");
+        }
+        lock (_pathIndexes)
+            if (_pathIndexes.FindIndex(k => k.Path == full && k.Length == length && k.Written == written) is var at and >= 0) return _pathIndexes[at].Index;
+        Native.INativeImage image;
+        try { image = Native.NativeImageLoader.Open(full); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            throw new ToolError(ErrorCode.MalformedInput, $"{full}: not a readable native image ({ex.Message}).");
+        }
+        var built = NativeCodeIndex.Build(image, ct: ct);
+        Interlocked.Increment(ref _indexesBuilt);
+        lock (_pathIndexes)
+        {
+            _pathIndexes.RemoveAll(k => k.Path == full);
+            if (_pathIndexes.Count >= KeptPathIndexes) _pathIndexes.RemoveAt(0);
+            _pathIndexes.Add((full, length, written, built));
+        }
+        return built;
+    }
+
     /// <summary>The survey of a loaded native image or a native file indexed for this call; null when the input is not native.</summary>
     private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct)
     {
@@ -387,13 +435,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }
             else
             {
-                Native.INativeImage image;
-                try { image = Native.NativeImageLoader.Open(full); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
-                {
-                    throw new ToolError(ErrorCode.MalformedInput, $"{full}: not a readable native image ({ex.Message}).");
-                }
-                index = NativeCodeIndex.Build(image, ct: ct);
+                index = PathIndex(full, ct);
                 label = Path.GetFileName(full);
             }
         }

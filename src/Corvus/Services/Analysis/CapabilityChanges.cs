@@ -89,9 +89,6 @@ public static class CapabilityChanges
 
     private static bool IsProvenance(string key) => key.StartsWith("signed provenance: ", StringComparison.Ordinal);
 
-    /// <summary>Time both surveys of a comparison may add to it; past it the capabilities are reported not compared.</summary>
-    private static readonly TimeSpan SurveyBudget = TimeSpan.FromSeconds(2);
-
     /// <summary>Survey limits named per side; the count covers them all.</summary>
     private const int MaxLimits = 3;
 
@@ -104,33 +101,21 @@ public static class CapabilityChanges
     private static string Evidence(Feature f) => string.Join("; ", f.Evidence.Take(MaxEvidence).Select(e =>
         $"{e.Feature} x{e.Count}{(e.Locations.Count > 0 ? $" at {e.Locations[0]}" : "")}"));
 
-    /// <summary>Capability rows of two loaded builds and their report text; null rows, with the reason, when a survey fails or outlasts <paramref name="budget"/>.</summary>
-    public static (IReadOnlyList<EvidenceChange>? Rows, string Text) Between(InspectionService inspection, string old, string @new, CancellationToken ct,
-        TimeSpan? budget = null)
+    /// <summary>Capability rows of two loaded builds and their report text; null rows, with the reason, when a survey fails.</summary>
+    public static (IReadOnlyList<EvidenceChange>? Rows, string Text) Between(InspectionService inspection, string old, string @new, CancellationToken ct)
     {
-        var (rows, text) = Surveys(inspection, old, @new, ct, budget);
+        var (rows, text) = Surveys(inspection, old, @new, ct);
         // Malcontent behaviours run only with the pack installed.
         var (behaviours, behaviourText) = MalcontentChanges.Between(inspection.BuildFile(old), inspection.BuildFile(@new), ct);
         if (behaviourText == null) return (rows, text);
         return (rows == null && behaviours.Count == 0 ? null : [.. rows ?? [], .. behaviours], text + behaviourText);
     }
 
-    private static (IReadOnlyList<EvidenceChange>? Rows, string Text) Surveys(InspectionService inspection, string old, string @new, CancellationToken ct,
-        TimeSpan? budget)
+    private static (IReadOnlyList<EvidenceChange>? Rows, string Text) Surveys(InspectionService inspection, string old, string @new, CancellationToken ct)
     {
         IReadOnlyList<EvidenceChange> rows;
         IReadOnlyList<string> notes;
-        var limit = budget ?? SurveyBudget;
-        // Build the shared rule patterns before the timer starts: the budget bounds this comparison's own surveys.
-        Features.Prepare();
-        using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        if (limit > TimeSpan.Zero) timer.CancelAfter(limit);
-        else timer.Cancel();
-        try { (rows, notes) = Of(inspection.BuildSurvey(old, timer.Token), inspection.BuildSurvey(@new, timer.Token)); }
-        catch (Exception e) when (e is OperationCanceledException or ToolError { Code: ErrorCode.Cancelled or ErrorCode.Timeout } && !ct.IsCancellationRequested)
-        {
-            return (null, $"Capabilities not compared: surveying both builds takes over {limit.TotalSeconds:0.#} s; survey_features on each build lists them.\n");
-        }
+        try { (rows, notes) = Of(inspection.BuildSurvey(old, ct), inspection.BuildSurvey(@new, ct)); }
         catch (ToolError e) when (e.Code is not (ErrorCode.Cancelled or ErrorCode.Timeout))
         {
             return (null, $"Capabilities {(e.Code == ErrorCode.Unsupported ? NativeCapa.NotChecked : "not compared")}: {e.Message}\n");

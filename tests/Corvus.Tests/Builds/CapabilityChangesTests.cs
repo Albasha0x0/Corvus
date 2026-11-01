@@ -170,14 +170,71 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
     }
 
     [Fact]
-    public void Surveys_past_the_time_budget_report_the_capabilities_not_compared()
+    public void A_compare_after_surveying_both_builds_reads_their_surveys_and_notes_nothing_not_compared()
     {
         var (env, _, inspection) = Rig();
         var old = env.Workspace.Load(Save(Path.Combine("old", "App.dll"), InspectionTests.Compile("App", "public static class App { public static int One() => 1; }")));
         var @new = env.Workspace.Load(Save(Path.Combine("new", "App.dll"), InspectionTests.Compile("App", "public static class App { public static int Two() => 2; }")));
-        var (rows, text) = CapabilityChanges.Between(inspection, old.Id, @new.Id, default, TimeSpan.Zero);
-        Assert.Null(rows);
-        Assert.Equal("Capabilities not compared: surveying both builds takes over 0 s; survey_features on each build lists them.\n", text);
+        inspection.SurveyFeatures(old.Id, null, null, default);
+        inspection.SurveyFeatures(@new.Id, null, null, default);
+        Assert.Equal(2, inspection.SurveysRun);
+        var (rows, text) = CapabilityChanges.Between(inspection, old.Id, @new.Id, default);
+        Assert.NotNull(rows);
+        Assert.DoesNotContain("Capabilities not compared", text);
+        Assert.Equal(2, inspection.SurveysRun);
+    }
+
+    [Fact]
+    public void A_category_survey_is_not_kept_and_an_all_survey_is()
+    {
+        var (env, _, inspection) = Rig();
+        var build = env.Workspace.Load(Save("App.dll", InspectionTests.Compile("App", "public static class App { public static int One() => 1; }")));
+        inspection.SurveyFeatures(build.Id, null, "network", default);
+        Assert.Equal(0, inspection.SurveysRun);
+        inspection.SurveyFeatures(build.Id, null, "all", default);
+        Assert.Equal(1, inspection.SurveysRun);
+        inspection.BuildSurvey(build.Id, default);
+        Assert.Equal(1, inspection.SurveysRun);
+    }
+
+    [Fact]
+    public void A_compare_with_a_cancelled_token_throws_and_notes_nothing()
+    {
+        var (env, _, inspection) = Rig();
+        var old = env.Workspace.Load(Save(Path.Combine("old", "App.dll"), InspectionTests.Compile("App", "public static class App { public static int One() => 1; }")));
+        var @new = env.Workspace.Load(Save(Path.Combine("new", "App.dll"), InspectionTests.Compile("App", "public static class App { public static int Two() => 2; }")));
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => CapabilityChanges.Between(inspection, old.Id, @new.Id, cts.Token));
+    }
+
+    [Fact]
+    public void A_survey_of_a_build_capa_labelled_is_kept_with_its_labels()
+    {
+        var fake = new FakeTool();
+        _owned.Add(fake);
+        fake.On("^--version$", stdout: "capa.exe 10.0.0\n");
+        fake.On(@"^-j .+app\.exe$", stdout: CapaResult("terminate process"));
+        using var scope = new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        using var workers = WorkerPool.UseShared(new WorkerPool(new WorkerPoolOptions { Enabled = false }));
+        var (env, _, inspection) = Rig();
+        var build = env.Workspace.LoadAny(Save("app.exe", Program())).Native!;
+        Assert.Equal("matched", NativeCapa.Analyze(build.FilePath, default).State);
+        inspection.SurveyFeatures(build.Id, null, null, default);
+        var (_, labelled) = inspection.BuildSurvey(build.Id, default);
+        Assert.True(labelled);
+        Assert.Equal(1, inspection.SurveysRun);
+    }
+
+    [Fact]
+    public void Two_path_surveys_of_one_native_file_build_its_code_index_once()
+    {
+        var (_, _, inspection) = Rig();
+        var path = Save("app.exe", Program(NetworkAndRegistry));
+        var first = inspection.SurveyFeatures(null, path, null, default);
+        var second = inspection.SurveyFeatures(null, path, null, default);
+        Assert.Equal(1, inspection.IndexesBuilt);
+        Assert.Equal(first.Features.Select(f => f.Name), second.Features.Select(f => f.Name));
     }
 
     [Fact]
