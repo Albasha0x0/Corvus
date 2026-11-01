@@ -64,4 +64,21 @@ public sealed class PackageBaselineTests(ITestOutputHelper output) : IDisposable
         Assert.Equal([Bundled, Metadata, Source], rows.Select(r => r.Category).Order(StringComparer.Ordinal));
         Assert.All(rows, r => Assert.Equal((2, 0, 0), (r.Match, r.Incorrect, r.Unknown)));
     }
+
+    [Fact]
+    public void Rule_load_names_the_rules_that_flag_ordinary_packages_above_the_budget()
+    {
+        var fixtures = Fixtures().Select(f => (f.ReviewRequired, Report: PackageReview.Review(f.Path, default))).ToList();
+        var ordinary = RuleLoad.Count(fixtures.Where(f => !f.ReviewRequired).Select(f => f.Report));
+        var flagged = RuleLoad.Count(fixtures.Where(f => f.ReviewRequired).Select(f => f.Report));
+        int ordinaryCount = fixtures.Count(f => !f.ReviewRequired), flaggedCount = fixtures.Count(f => f.ReviewRequired);
+        foreach (var (rule, noteworthy, review) in flagged) output.WriteLine($"flagged rule {rule}: {noteworthy} noteworthy, {review} review");
+        Assert.All(ordinary, l => Assert.Equal(0, l.Noteworthy));
+        Assert.Empty(RuleLoad.OverBudget(ordinary, ordinaryCount, 0.01));
+        Assert.Contains("package/install-network-collect", RuleLoad.OverBudget(flagged, flaggedCount, 0.01));
+        // One noteworthy package of N sits at a 1/N budget, not over it.
+        var one = new[] { ("rule", 1, 0) };
+        Assert.Empty(RuleLoad.OverBudget(one, flaggedCount, 1.0 / flaggedCount));
+        Assert.Equal(["rule"], RuleLoad.OverBudget(one, flaggedCount, 0.5 / flaggedCount));
+    }
 }
