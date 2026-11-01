@@ -6,7 +6,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=python: a frozen Python program's freezer, version, scripts and modules; a .pyc's disassembly paged by offset, and source with CORVUS_PY_DECOMPILER.</summary>
+/// <summary>view=python: a frozen Python program's or zipapp's freezer, version, scripts and modules; a .pyc's disassembly paged by offset, and source with CORVUS_PY_DECOMPILER.</summary>
 internal sealed class PythonFileView : IFileSummaryView
 {
     public sealed record Facts(string Freezer, string? PythonVersion, string? VersionSource, IReadOnlyList<string> EntryScripts, int Modules, int Packages,
@@ -38,14 +38,16 @@ internal sealed class PythonFileView : IFileSummaryView
             "native PE" or "elf" or "mach-o" when file.Streamed => FrozenPython.LooksStreamable(file.Head) ? Streamed(file, name, limits, ct) : null,
             "native PE" or "elf" or "mach-o" => FrozenPython.Read(file.Bytes, name, file.Path, allFiles: false, limits, ct),
             "pyinstaller pyz" => PyInstallerArchive.ReadPyz(file.Bytes, name, limits, ct),
-            "zip" when file.HasZipEntry(e => e.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase)) => FrozenPython.ReadLibraryZip(file.Bytes, limits, ct),
+            "zip" when file.HasZipEntry(e => e is "__main__.py" or "__main__.pyc") => FrozenPython.ReadZipApp(file.Bytes, limits, ct) ?? Library(file, limits, ct),
+            "zip" => Library(file, limits, ct),
+            "text" or "data" when ZipBehindInterpreterLine(file.Head) => FrozenPython.ReadZipApp(file.Bytes, limits, ct),
             _ => null,
         };
         if (app == null) return null;
         string[] Paths(Func<string, bool> role) => [.. app.Entries.Where(e => role(e.Role)).Select(e => e.Path).Take(MaxListed)];
         bool Is(string role, string wanted) => role == wanted || role.StartsWith(wanted + " (", StringComparison.Ordinal);
         var modules = app.Entries.Where(e => Is(e.Role, FrozenApp.Module) || Is(e.Role, FrozenApp.Package) || Is(e.Role, FrozenApp.Script) || e.Role == FrozenApp.Encrypted)
-            .Select(e => FrozenApp.ModuleOf(e.Path.Split("_extracted/")[^1])?.Name).OfType<string>().Distinct().ToList();
+            .Select(e => FrozenApp.NameOf(e.Path.Split("_extracted/")[^1])?.Name).OfType<string>().Distinct().ToList();
         var notes = new List<string>(app.Notes);
         if (modules.Count > MaxListed) notes.Add($"{MaxListed} of {modules.Count:N0} module names listed; unpack_container lists every file.");
         var facts = new Facts(app.Freezer, app.Version is { } v ? PyVersion.Label(v) : null, app.VersionSource, app.EntryScripts,
@@ -57,6 +59,17 @@ internal sealed class PythonFileView : IFileSummaryView
         if (facts.Encrypted > 0) highlights.Add($"{facts.Encrypted:N0} modules are encrypted (PyInstaller --key).");
         return new FileView(facts, highlights);
     }
+
+    // An archive after an interpreter line starts within the first 1,024 bytes.
+    private static bool ZipBehindInterpreterLine(byte[] head)
+    {
+        if (!head.AsSpan().StartsWith("#!"u8)) return false;
+        int eol = head.AsSpan(0, Math.Min(head.Length, 1024)).IndexOf((byte)'\n');
+        return eol > 0 && head.AsSpan(eol + 1).StartsWith("PK\x03\x04"u8);
+    }
+
+    private static FrozenApp? Library(FileInput file, AnalysisLimits limits, CancellationToken ct) =>
+        file.HasZipEntry(e => e.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase)) ? FrozenPython.ReadLibraryZip(file.Bytes, limits, ct) : null;
 
     private static FrozenApp? Streamed(FileInput file, string name, AnalysisLimits limits, CancellationToken ct)
     {

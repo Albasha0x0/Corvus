@@ -103,6 +103,9 @@ public sealed class FrozenApp(string freezer, string kind)
         return name.Length == 0 ? null : (name, package);
     }
 
+    /// <summary>The module name of a .pyc or .py path: <see cref="ModuleOf"/>, else <see cref="SourceOf"/>; null for other paths.</summary>
+    public static (string Name, bool Package)? NameOf(string path) => ModuleOf(path) ?? SourceOf(path);
+
     /// <summary>The module name of a .pyc path in a library: "a/b/__init__.pyc" is package a.b, "a/b.pyc" module a.b.</summary>
     public static (string Name, bool Package)? ModuleOf(string path)
     {

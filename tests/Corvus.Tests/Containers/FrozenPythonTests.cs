@@ -5,6 +5,7 @@ using System.Text;
 using Corvus.Core;
 using Corvus.Core.Python;
 using Corvus.Services.Analysis;
+using Corvus.Services.Analysis.Dependencies;
 
 namespace Corvus.Tests;
 
@@ -355,6 +356,92 @@ public sealed class FrozenPythonTests : IDisposable
         Assert.Contains(c.Notes, n => n.Contains("compiled to native code", StringComparison.Ordinal));
         Assert.Equal("app.bin=main binary (compiled program); libpython3.12.so.1.0=Python runtime; _ssl.so=native module; certifi/cacert.pem=data", Roles(c));
         Assert.Equal("pem", Encoding.ASCII.GetString(c.Items.Single(i => i.Name == "certifi/cacert.pem").Bytes));
+    }
+
+    [Fact]
+    public void The_python_view_names_a_zipapp_with_its_interpreter_and_source_modules()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "import pkg\n"u8.ToArray()), ("pkg/__init__.py", "x = 1\n"u8.ToArray()));
+        byte[] bytes = [.. "#!/usr/bin/env python3.11\n"u8.ToArray(), .. zip];
+        var path = Path.Combine(_dir.Path, "tool.pyz");
+        File.WriteAllBytes(path, bytes);
+        var facts = Assert.IsType<PythonFileView.Facts>(new PythonFileView().Inspect(new FileInput(path, bytes, Blob.Identify(bytes)), default)!.Detail);
+        Assert.Equal(("Python zipapp", "3.11", "the interpreter line"), (facts.Freezer, facts.PythonVersion, facts.VersionSource));
+        Assert.Equal(["__main__", "pkg"], facts.ModuleNames);
+        Assert.Equal(1, facts.Packages);
+    }
+
+    [Fact]
+    public void The_python_view_reads_a_plain_zip_zipapp_of_source_modules()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "import pkg\n"u8.ToArray()), ("pkg/__init__.py", "x = 1\n"u8.ToArray()));
+        var facts = Assert.IsType<PythonFileView.Facts>(new PythonFileView().Inspect(new FileInput("tool.pyz", zip, Blob.Identify(zip)), default)!.Detail);
+        Assert.Equal(("Python zipapp", null), (facts.Freezer, facts.PythonVersion));
+        Assert.Equal(["__main__", "pkg"], facts.ModuleNames);
+    }
+
+    [Fact]
+    public void The_python_view_leaves_the_version_unknown_for_an_interpreter_line_without_one()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "x = 1\n"u8.ToArray()));
+        byte[] bytes = [.. "#!/usr/bin/python\n"u8.ToArray(), .. zip];
+        var facts = Assert.IsType<PythonFileView.Facts>(new PythonFileView().Inspect(new FileInput("tool.pyz", bytes, Blob.Identify(bytes)), default)!.Detail);
+        Assert.Null(facts.PythonVersion);
+    }
+
+    [Fact]
+    public void The_python_view_skips_a_script_with_an_interpreter_line_and_no_archive()
+    {
+        byte[] bytes = "#!/bin/sh\necho hello\n"u8.ToArray();
+        Assert.Null(new PythonFileView().Inspect(new FileInput("run.sh", bytes, Blob.Identify(bytes)), default));
+    }
+
+    [Fact]
+    public void The_python_view_skips_a_truncated_archive_behind_an_interpreter_line()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "x = 1\n"u8.ToArray()));
+        byte[] bytes = [.. "#!/usr/bin/env python3\n"u8.ToArray(), .. zip[..(zip.Length / 2)]];
+        Assert.Null(new PythonFileView().Inspect(new FileInput("tool.pyz", bytes, Blob.Identify(bytes)), default));
+    }
+
+    [Fact]
+    public void The_python_view_falls_back_to_the_library_reader_when_the_root_main_does_not_open()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "x = 1\n"u8.ToArray()), ("lib/m.pyc", PyVersion.WithHeader(Magic312, V312, Code("m.py"))));
+        // The entry data follows a 30-byte header and an 11-byte name; block
+        // type 3 is reserved.
+        zip[30 + 11] |= 0x06;
+        var facts = Assert.IsType<PythonFileView.Facts>(new PythonFileView().Inspect(new FileInput("lib.zip", zip, Blob.Identify(zip)), default)?.Detail);
+        Assert.NotEqual("Python zipapp", facts.Freezer);
+    }
+
+    [Fact]
+    public void The_dependencies_view_names_the_top_level_packages_of_a_source_zipapp()
+    {
+        var zip = ContainerFixtures.Zip(("__main__.py", "import pkg\n"u8.ToArray()), ("pkg/__init__.py", "x = 1\n"u8.ToArray()));
+        var input = new FileInput("tool.pyz", zip, Blob.Identify(zip));
+        var view = new PythonFileView().Inspect(input, default)!;
+        var facts = DependencyInventory.Of(input, [], [], new Dictionary<string, FileView> { ["python"] = view }, default)!;
+        Assert.Contains(facts.All, c => c.Name == "pkg");
+    }
+
+    [Fact]
+    public void The_dependencies_view_ignores_a_source_file_that_is_not_a_module()
+    {
+        var app = new FrozenApp("Python zipapp", "Python zipapp");
+        app.Entries.Add(new FrozenEntry("share/helper.py", 1, FrozenApp.Data));
+        app.Entries.Add(new FrozenEntry("pkg/__init__.py", 1, FrozenApp.Package));
+        var detail = new PythonFileView.Facts("Python zipapp", null, null, [], 0, 1, 0, [], [], 1, false, [], []) { App = app };
+        var input = new FileInput("tool.pyz", [], "zip");
+        var facts = DependencyInventory.Of(input, [], [], new Dictionary<string, FileView> { ["python"] = new FileView(detail, []) }, default)!;
+        Assert.Equal(["pkg"], facts.All.Select(c => c.Name));
+    }
+
+    [Fact]
+    public void The_python_view_skips_a_zip_without_a_root_main_or_compiled_modules()
+    {
+        var zip = ContainerFixtures.Zip(("pkg/__init__.py", "x = 1\n"u8.ToArray()));
+        Assert.Null(new PythonFileView().Inspect(new FileInput("a.zip", zip, Blob.Identify(zip)), default));
     }
 
     [Fact]

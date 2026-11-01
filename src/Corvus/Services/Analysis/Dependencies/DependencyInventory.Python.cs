@@ -78,7 +78,7 @@ internal static partial class DependencyInventory
             if (e.Role is FrozenApp.Module or FrozenApp.Package or FrozenApp.Encrypted || e.Role.StartsWith(FrozenApp.Module + Beside, StringComparison.Ordinal)
                 || e.Role.StartsWith(FrozenApp.Package + Beside, StringComparison.Ordinal))
             {
-                if (FrozenApp.ModuleOf(inner) is not { } m) continue;
+                if (FrozenApp.NameOf(inner) is not { } m) continue;
                 modules.TryAdd(m.Name, e);
                 Top(m.Name.Split('.')[0], e.Path);
             }
