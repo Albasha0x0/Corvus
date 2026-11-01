@@ -458,6 +458,20 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void Decoded_code_given_to_Function_or_vm_and_code_run_from_other_clients_is_noteworthy()
+    {
+        foreach (var code in new[] { "new Function(atob(s))();", "Function(Buffer.from(s, 'base64').toString())()", "vm.runInThisContext(Buffer.from(s, 'base64').toString());", "new vm.Script(atob(s)).runInThisContext();",
+            "vm.runInNewContext(atob(s));", "vm.runInContext(unescape(s), ctx);", "Function(atob(s))();", "new Function(unescape(s))();", "new Function('a', atob(s))();", "Function(\"require\", Buffer.from(s, 'base64').toString())();", "new vm.Script(unescape(s));" })
+            Assert.Contains(Details(code), d => d == "evaluates decoded code");
+        Assert.DoesNotContain(Details("new Function('a', 'return a + 1');"), d => d == "evaluates decoded code");
+        Assert.DoesNotContain(Details("new Function(body)();"), d => d == "evaluates decoded code");
+        Assert.DoesNotContain(Details("obj.Function(atob(s));"), d => d == "evaluates decoded code");
+        Assert.Contains(Details("exec(httpx.get(u).text)"), d => d.StartsWith("executes code it downloads", StringComparison.Ordinal));
+        Assert.Contains(Details("exec(requests.post(u, data=d).text)"), d => d.StartsWith("executes code it downloads", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("print(httpx.get(u).text)"), d => d.StartsWith("executes code it downloads", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Rules_that_took_lookarounds_or_a_backreference_find_what_they_found_before()
     {
         Assert.Contains(Details("eval( code)"), d => d.Contains("(eval / Function)", StringComparison.Ordinal));
