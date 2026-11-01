@@ -35,12 +35,14 @@ final class ScriptOps {
     private static final int MAX_OUTPUT = 200_000;
     private static final Pattern PACKAGE = Pattern.compile("^\\s*package\\s+([\\w.]+)\\s*;", Pattern.MULTILINE);
     private static final int MAX_COMPILED = 32;
+    // Eviction only touches this worker's folder, never another worker's.
+    private static final ScriptFolder FOLDER = ScriptFolder.current();
     /** Compiled script classes by source hash, least recently run first: a repeat skips compilation (about 2 s). */
     private static final Map<String, Class<?>> COMPILED = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Class<?>> eldest) {
             if (size() <= MAX_COMPILED) return false;
-            delete(new File(System.getProperty("user.home"), "scripts" + File.separator + eldest.getKey()));
+            FOLDER.evict(eldest.getKey());
             return true;
         }
     };
@@ -74,7 +76,7 @@ final class ScriptOps {
         if (python) return runPython(w, r, name != null ? installed(name, userDir, ".py") : null, code, scriptArgs, timeout);
         if (name != null) code = Files.readString(installed(name, userDir, ".java").toPath(), StandardCharsets.UTF_8);
         String key = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
-        File dir = new File(System.getProperty("user.home"), "scripts" + File.separator + key);
+        File dir = FOLDER.of(key);
         String className = "UserScript_" + key;
         String source;
         if (code.contains("extends GhidraScript")) {
@@ -169,7 +171,7 @@ final class ScriptOps {
         File file = installedFile;
         if (file == null) {
             String key = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
-            File dir = new File(System.getProperty("user.home"), "scripts" + File.separator + key);
+            File dir = FOLDER.of(key);
             if (!dir.isDirectory() && !dir.mkdirs()) throw new Worker.WorkerError("io_error", "cannot create " + dir);
             file = new File(dir, "user_script_" + key + ".py");
             Files.writeString(file.toPath(), code, StandardCharsets.UTF_8);
@@ -269,14 +271,5 @@ final class ScriptOps {
 
     private static String clip(String s) {
         return s.length() <= MAX_OUTPUT ? s : s.substring(0, MAX_OUTPUT) + "\n[clipped at " + MAX_OUTPUT + " characters]";
-    }
-
-    private static void delete(File dir) {
-        File[] files = dir.listFiles();
-        if (files != null) for (File f : files) {
-            if (f.isDirectory()) delete(f);
-            else if (!f.delete()) f.deleteOnExit();
-        }
-        if (!dir.delete()) dir.deleteOnExit();
     }
 }

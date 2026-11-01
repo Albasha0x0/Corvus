@@ -146,10 +146,16 @@ internal static class GhidraScriptSource
     {
         var name = $"UserScript_{key}.java";
         var workerRoot = Environment.GetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable);
-        if (workerRoot is not { Length: > 0 })
-            return System.IO.Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "ghidra", "home", "scripts", key, name);
-        foreach (var set in Directory.Exists(workerRoot) ? Directory.GetDirectories(workerRoot) : [])
-            if (System.IO.Path.Combine(set, "home", "scripts", key, name) is var path && File.Exists(path)) return path;
-        return System.IO.Path.Combine(workerRoot, "*", "home", "scripts", key, name);
+        // Each worker keeps its scripts under its process id (ScriptFolder).
+        var homes = workerRoot is not { Length: > 0 }
+            ? [System.IO.Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "ghidra", "home")]
+            : (Directory.Exists(workerRoot) ? Directory.GetDirectories(workerRoot) : []).Select(set => System.IO.Path.Combine(set, "home")).ToList();
+        var found = homes
+            .Select(home => System.IO.Path.Combine(home, "scripts"))
+            .Where(Directory.Exists)
+            .SelectMany(Directory.GetDirectories)
+            .Select(worker => System.IO.Path.Combine(worker, key, name))
+            .FirstOrDefault(File.Exists);
+        return found ?? System.IO.Path.Combine(homes.FirstOrDefault() ?? "", "scripts", "*", key, name);
     }
 }

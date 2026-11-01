@@ -80,6 +80,64 @@ public class GhidraWorkerBuildTests
         Assert.Empty(Directory.GetFiles(tmp.File("w"), "*.jar"));
     }
 
+    // Regression: workers on one home shared scripts/<hash> folders.
+    [JdkFact]
+    public async Task Evicting_a_script_in_one_worker_keeps_the_scripts_of_another()
+    {
+        using var tmp = new TempDir();
+        var java = JdkFactAttribute.Jdk!;
+        var folder = WorkerBuild.EmbeddedSources().Single(s => s.Name == "ScriptFolder.java");
+        const string probe = """
+            package corvus.ghidra;
+            import java.io.File;
+            public class Probe {
+                public static void main(String[] a) throws Exception {
+                    File home = new File(a[0]);
+                    ScriptFolder one = new ScriptFolder(home, "1"), two = new ScriptFolder(home, "2");
+                    for (ScriptFolder f : new ScriptFolder[] { one, two }) {
+                        new File(f.of("k"), "classes").mkdirs();
+                        new File(f.of("k"), "UserScript_k.java").createNewFile();
+                    }
+                    one.evict("k");
+                    System.out.println(one.of("k").exists() + " " + new File(two.of("k"), "UserScript_k.java").exists());
+                }
+            }
+            """;
+        var jars = await WorkerBuild.EnsureAsync(java, [], [folder, ("Probe.java", System.Text.Encoding.UTF8.GetBytes(probe))], tmp.File("w"), default);
+        var run = Corvus.Native.Providers.PythonLocator.RunCapture(java.Java, ["-cp", jars.Boot + Path.PathSeparator + jars.Worker, "corvus.ghidra.Probe", tmp.File("home")], TimeSpan.FromSeconds(30));
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal("false true", run.Stdout.Trim());
+        var ops = System.Text.Encoding.UTF8.GetString(WorkerBuild.EmbeddedSources().Single(s => s.Name == "ScriptOps.java").Bytes);
+        Assert.DoesNotContain("\"scripts\"", ops);
+        Assert.Contains("FOLDER.evict(", ops);
+    }
+
+    // A pid above any the system hands out stands for an ended worker.
+    [JdkFact]
+    public async Task Starting_a_worker_deletes_the_script_folders_of_ended_workers_only()
+    {
+        using var tmp = new TempDir();
+        var java = JdkFactAttribute.Jdk!;
+        var folder = WorkerBuild.EmbeddedSources().Single(s => s.Name == "ScriptFolder.java");
+        const string probe = """
+            package corvus.ghidra;
+            import java.io.File;
+            public class Probe {
+                public static void main(String[] a) throws Exception {
+                    File scripts = new File(a[0], "scripts");
+                    String self = Long.toString(ProcessHandle.current().pid());
+                    for (String w : new String[] { "4000000000", self, "notes" }) new File(new File(scripts, w), "k").mkdirs();
+                    ScriptFolder.sweep(scripts);
+                    System.out.println(new File(scripts, "4000000000").exists() + " " + new File(scripts, self).exists() + " " + new File(scripts, "notes").exists());
+                }
+            }
+            """;
+        var jars = await WorkerBuild.EnsureAsync(java, [], [folder, ("Probe.java", System.Text.Encoding.UTF8.GetBytes(probe))], tmp.File("w"), default);
+        var run = Corvus.Native.Providers.PythonLocator.RunCapture(java.Java, ["-cp", jars.Boot + Path.PathSeparator + jars.Worker, "corvus.ghidra.Probe", tmp.File("home")], TimeSpan.FromSeconds(30));
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal("false true true", run.Stdout.Trim());
+    }
+
     private static List<string> Entries(string jar)
     {
         using var zip = ZipFile.OpenRead(jar);
