@@ -338,10 +338,13 @@ def op_open(args):
     if _state["open"]:
         raise WorkerError("invalid_argument", "a database is already open")
     idb = args["idb"]
-    reuse = os.path.isfile(idb)
-    path = idb if reuse else args["input"]
+    legacy = args.get("legacy")
+    # A 32-bit .idb is converted on open, saved as the entry's .i64 and reported as reused.
+    converted = bool(legacy) and not os.path.isfile(idb)
+    reuse = os.path.isfile(idb) or converted
+    path = idb if os.path.isfile(idb) else (legacy or args["input"])
     extra = list(args.get("ida_args") or [])
-    if not reuse:
+    if not os.path.isfile(idb):
         extra.insert(0, "-o" + idb)
     cmdline = " ".join(quote_arg(a) for a in extra) or None
     start = time.time()
@@ -406,7 +409,7 @@ def op_open(args):
             _state["open"] = False
             raise WorkerError("malformed_input", "the saved database %s was made from other input (%s, expected %s)"
                               % (idb, made_from or "no input stamp", sha))
-    if not reuse:
+    if converted or not reuse:
         # IDA writes the packed .i64 only on save; persist the analysis now so a crash does not discard it.
         save_idb(m)
     result = info(m, reuse, time.time() - start)

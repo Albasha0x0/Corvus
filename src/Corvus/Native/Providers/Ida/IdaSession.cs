@@ -45,26 +45,30 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
     /// <summary>What the open could not apply of the import overrides (seeds, analyzer names, the compiler).</summary>
     internal IReadOnlyList<string> Warnings { get; private set; } = [];
 
-    private string? _adopting, _adoptedFrom, _adoptionRejected;
+    private string? _adopting, _adoptedFrom, _adoptionRejected, _legacyCopy;
 
-    /// <summary>The user's own IDA database beside the input (x.i64 or x.dll.i64), which a new cache entry starts from.</summary>
+    /// <summary>The user's own IDA database beside the input (x.i64, x.dll.i64, then the 32-bit x.idb or x.dll.idb), which a new cache entry starts from.</summary>
     internal static string? UserDatabase(string source) =>
-        new[] { Path.ChangeExtension(source, ".i64"), source + ".i64" }.FirstOrDefault(p => File.Exists(p) && new FileInfo(p).Length > 0);
+        new[] { Path.ChangeExtension(source, ".i64"), source + ".i64", Path.ChangeExtension(source, ".idb"), source + ".idb" }
+            .FirstOrDefault(p => File.Exists(p) && new FileInfo(p).Length > 0);
 
     /// <summary>Copies the user's database into the cache entry; the worker accepts it only when IDA's record of its input matches.</summary>
     private void Adopt()
     {
         if (File.Exists(_databasePath) || Entry!.SnapshotOf != null || UserDatabase(Entry.SourcePath) is not { } user) return;
+        // IDA converts a 32-bit .idb on open, so the copy keeps its extension.
+        var target = user.EndsWith(".idb", StringComparison.OrdinalIgnoreCase) ? Path.ChangeExtension(_databasePath, ".idb") : _databasePath;
         try
         {
             using (var from = new FileStream(user, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16, FileOptions.SequentialScan))
-            using (var to = new FileStream(_databasePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16))
+            using (var to = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
                 from.CopyTo(to);
             _adopting = user;
+            if (target != _databasePath) _legacyCopy = target;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            TryDelete(_databasePath);
+            TryDelete(target);
             _adoptionRejected = $"{user} was not used: {ex.Message}";
         }
     }
@@ -173,7 +177,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
 
         // Loading idalib reports progress: a busy machine stretches it, so the start limit counts from the last report.
         provider.CheckVersion(await worker.RequestAsync("hello", null, Options.OpenTimeout, cancellationToken, quiet: provider.Options.StartTimeout).ConfigureAwait(false));
-        var reuse = File.Exists(_databasePath);
+        var legacy = File.Exists(_databasePath) ? null : _legacyCopy;
+        var reuse = File.Exists(_databasePath) || legacy != null;
         ReusedDatabase = reuse;
         Volatile.Write(ref stage, reuse ? "load" : "analysis");
         StartStage(reuse ? "load" : "analysis");
@@ -203,14 +208,18 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         try
         {
             info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
-                ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null),
+                ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null), ("legacy", legacy),
                 ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw), ("overrides", overrideArgs), ("budget_seconds", Math.Max(1, budget.TotalSeconds))), remaining, cancellationToken, stallLimit: stall).ConfigureAwait(false);
         }
         catch (ToolError e) when (adopting != null)
         {
-            // The session rebuilds the database from the input.
+            // The copy goes too, so the next open analyzes the input.
             _adoptionRejected = $"{adopting} was not used: {e.Message}";
             throw;
+        }
+        finally
+        {
+            DropLegacyCopy();
         }
         _adoptedFrom = adopting;
         if (info.TryGetProperty("warnings", out var w)) Warnings = [.. w.EnumerateArray().Select(x => x.GetString() ?? "")];
@@ -282,7 +291,15 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         if (connection != null) return;
         var stem = Path.Combine(Path.GetDirectoryName(_databasePath)!, Path.GetFileNameWithoutExtension(_databasePath));
         foreach (var ext in UnpackedExtensions) TryDelete(stem + ext);
+        TryDelete(stem + ".idb");
+        _legacyCopy = null;
         if (File.Exists(_databasePath) && new FileInfo(_databasePath).Length == 0) TryDelete(_databasePath);
+    }
+
+    private void DropLegacyCopy()
+    {
+        if (_legacyCopy != null) TryDelete(_legacyCopy);
+        _legacyCopy = null;
     }
 
     protected override void DeleteDatabase()
