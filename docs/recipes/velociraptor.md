@@ -42,3 +42,32 @@ velociraptor --definitions . artifacts collect Custom.Corvus.FileBatch --args Gl
 ```
 
 Each row has `OSPath`, `Size`, `ReturnCode` and `Batch`, the `corvus.batch/1` document. The batch's exit code is 0 when the document is written, 124 when `--time-limit` ended the run.
+
+## Hunt with a rule made from a function
+
+Make a YARA rule from an address, then scan with Velociraptor's `yara` plugin:
+
+```sh
+corvus make_code_pattern image=sample.dll address=rva:1a40 format=yara > rule.yar
+```
+
+```yaml
+name: Custom.Corvus.RuleHunt
+type: CLIENT
+parameters:
+  - name: Glob
+    default: C:\Users\*\Downloads\*.dll
+  - name: Rules
+sources:
+  - query: |
+      LET files = SELECT OSPath FROM glob(globs=Glob) WHERE NOT IsDir
+      SELECT * FROM foreach(row=files, query={
+        SELECT OSPath, Rule, Namespace FROM yara(rules=Rules, files=OSPath)
+      })
+```
+
+Pass the rule text at collection time:
+
+```sh
+velociraptor --definitions . artifacts collect Custom.Corvus.RuleHunt --args Rules="$(cat rule.yar)" --format json
+```
