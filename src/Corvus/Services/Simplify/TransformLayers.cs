@@ -5,8 +5,8 @@ using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>A transformation layer of an assembly; State is restored, partial, unknown, or present (counted, not restored).</summary>
-public sealed record TransformLayer(string Layer, string State, int Sites, int Restored, IReadOnlyList<string> Reasons, string Evidence);
+/// <summary>A transformation layer of an assembly; State is restored, partial, unknown, or present (counted, not restored); Stopped is what kept the layer from being fully read, null when nothing did.</summary>
+public sealed record TransformLayer(string Layer, string State, int Sites, int Restored, IReadOnlyList<string> Reasons, string Evidence, FallbackReason? Stopped = null);
 
 // A constants site is a call of a module helper with a decoder shape, so plain string helpers add none.
 /// <summary>Reads an assembly's transformation layers from a simplify_methods dry run, IL health and assembly load calls; unseen layers are unknown.</summary>
@@ -32,7 +32,7 @@ public static class TransformLayers
         {
             var (unreadable, total) = asm.BodyCensus;
             layers.AddRange(new[] { Constants, Proxies, ControlFlow }.Select(layer =>
-                new TransformLayer(layer, "unknown", 0, 0, [UnreadableCode], $"not read: {unreadable} of {total} method bodies are not IL")));
+                new TransformLayer(layer, "unknown", 0, 0, [UnreadableCode], $"not read: {unreadable} of {total} method bodies are not IL", FallbackReason.UnreadableBodies)));
         }
         if (asm.BodyHealth is { Invalid: > 0 } health)
             layers.Add(new(EncodedBodies, "present", health.Invalid, 0, [CountedOnly], $"{health.Invalid} of {health.Bodies} method bodies are not valid IL"));
@@ -43,7 +43,7 @@ public static class TransformLayers
         return layers;
     }
 
-    /// <summary>The calls that act on the restorable or unseen layers; empty when none apply.</summary>
+    /// <summary>Next-step calls for the layers read; empty when none applies.</summary>
     public static List<string> Next(IReadOnlyList<TransformLayer> layers, string assemblyId, TimeSpan? limit = null)
     {
         var next = new List<string>();
@@ -53,10 +53,10 @@ public static class TransformLayers
             var passes = restorable.Select(l => $"\"{SimplifyOptions.PassOf(l.Layer)}\"");
             next.Add($"simplify_methods assembly={assemblyId} passes=[{string.Join(",", passes)}] dryRun=false (restores {restorable.Sum(l => l.Restored)} sites)");
         }
-        if (layers.Any(l => l.Reasons.Any(r => r.StartsWith(TimeLimitCode, StringComparison.Ordinal))))
+        if (layers.Any(l => l.Stopped == FallbackReason.TimeLimit))
             next.Add($"simplify_methods assembly={assemblyId} dryRun=true covers every method; this view stopped at {(limit ?? TimeLimit).TotalSeconds:0} s");
-        if (layers.Any(l => l.Reasons.Contains(UnreadableCode)))
-            next.Add($"load_assembly an image dumped after the code ran; simplify_methods refuses {assemblyId} while its method bodies are restored at run time");
+        if (layers.Any(l => l.Stopped == FallbackReason.UnreadableBodies))
+            next.Add($"load_assembly path=<image dumped after the code ran>; simplify_methods refuses {assemblyId} while its method bodies are restored at run time");
         return next;
     }
 
@@ -130,7 +130,7 @@ public static class TransformLayers
             if (sites == 0 && left == 0) return null;
             var reasons = kept.GroupBy(f => SimplifyManifest.CodeOf(f.Reason)).OrderByDescending(g => g.Count()).Select(g => $"{g.Key}: {g.Count()}").Concat(sites > 0 ? rejected : rejected.Where(r => r.StartsWith(TimeLimitCode, StringComparison.Ordinal))).ToList();
             var state = sites == 0 ? "unknown" : restored == sites && reasons.Count == 0 ? "restored" : restored > 0 ? "partial" : "unknown";
-            return new(name, state, sites, restored, reasons, sites == 0 ? "no site in the methods read" : evidence);
+            return new(name, state, sites, restored, reasons, sites == 0 ? "no site in the methods read" : evidence, left > 0 ? FallbackReason.TimeLimit : null);
         }
 
         string First(Func<MethodChange, bool> has) => changes.FirstOrDefault(has) is { } c ? "first in " + Format.MemberLabel(c.Method) : "";

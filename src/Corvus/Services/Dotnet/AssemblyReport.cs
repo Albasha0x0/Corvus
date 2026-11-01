@@ -59,7 +59,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
     /// <summary>Call under the workspace read lock.</summary>
     public string Build(LoadedAssembly asm) => Build(asm, "all", out _);
 
-    /// <summary>The overview text of <paramref name="view"/>, and its facts as <paramref name="summary"/>. Call under the workspace read lock.</summary>
+    /// <summary>The overview text of <paramref name="view"/>, and its facts as <paramref name="summary"/>; <paramref name="transformLimit"/> bounds the transforms view, null keeps the default. Call under the workspace read lock.</summary>
     public string Build(LoadedAssembly asm, string view, out Summary summary, CancellationToken ct = default, TimeSpan? transformLimit = null)
     {
         bool all = view == "all", references = all || view == "references", metadata = all || view == "metadata";

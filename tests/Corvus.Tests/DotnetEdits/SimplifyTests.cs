@@ -966,9 +966,25 @@ public sealed class SimplifyTests : IDisposable
     [Fact]
     public void Layers_left_unknown_by_unreadable_bodies_name_the_image_to_load()
     {
-        var layer = new TransformLayer(TransformLayers.Constants, "unknown", 0, 0, ["unreadable-bodies"], "");
-        Assert.Equal(["load_assembly an image dumped after the code ran; simplify_methods refuses A while its method bodies are restored at run time"],
+        var layer = new TransformLayer(TransformLayers.Constants, "unknown", 0, 0, ["unreadable-bodies"], "", FallbackReason.UnreadableBodies);
+        Assert.Equal(["load_assembly path=<image dumped after the code ran>; simplify_methods refuses A while its method bodies are restored at run time"],
             TransformLayers.Next([layer], "A"));
+    }
+
+    [Fact]
+    public void The_time_limit_next_step_follows_the_stopped_field_not_the_note_text()
+    {
+        var layer = new TransformLayer(TransformLayers.Constants, "partial", 1, 0, ["time-limit"], "", FallbackReason.TimeLimit);
+        Assert.StartsWith("simplify_methods assembly=A dryRun=true", Assert.Single(TransformLayers.Next([layer], "A")));
+    }
+
+    [Fact]
+    public void A_layer_cut_short_by_the_time_limit_carries_that_reason_as_a_field()
+    {
+        using var env = new Env(ObfFixture());
+        var layers = env.Workspace.Read(() => TransformLayers.Read(env.Fixture, default, TimeSpan.FromTicks(-1)));
+        Assert.NotEmpty(layers);
+        Assert.All(layers, l => Assert.Equal(FallbackReason.TimeLimit, l.Stopped));
     }
 
     private const string HelperSource = """
