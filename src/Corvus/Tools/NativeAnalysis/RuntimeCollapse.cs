@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Code;
 
@@ -20,20 +21,20 @@ internal static partial class RuntimeCollapse
     {
         null or "" or "none" => false,
         Runtime => true,
-        _ => throw new ArgumentException($"disassemble collapse '{mode}' is not supported; use 'none' or '{Runtime}'."),
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"disassemble collapse '{mode}' is not supported; use 'none' or '{Runtime}'.", "pass collapse=none or collapse=runtime"),
     };
 
-    /// <summary>Throws when collapse=runtime cannot apply: an external engine, a WebAssembly image or a non-x86 architecture.</summary>
+    /// <summary>Throws an unsupported error when collapse=runtime cannot apply: an external engine, a WebAssembly image or a non-x86 architecture.</summary>
     internal static void RequireEngine(bool external, bool wasm, NativeArch arch)
     {
         if (external || wasm || arch is not (NativeArch.X86 or NativeArch.X64))
-            throw new ArgumentException("disassemble collapse=runtime applies to x86 and x64 images on the built-in engine only.");
+            throw new ToolError(ErrorCode.Unsupported, "disassemble collapse=runtime applies to x86 and x64 images on the built-in engine only.", "pass collapse=none");
     }
 
     /// <summary>Throws when the listing is a linear range, which collapse=runtime does not cover.</summary>
     internal static void RequireFunction(bool inFunction)
     {
-        if (!inFunction) throw new ArgumentException("disassemble collapse=runtime applies to a function listing, not to a range from an address.");
+        if (!inFunction) throw new ToolError(ErrorCode.InvalidArgument, "disassemble collapse=runtime applies to a function listing, not to a range from an address.", "pass the function's name or start address");
     }
 
     /// <summary>One collapsed run: the first instruction, the end of the run, the instruction count and the comment line.</summary>

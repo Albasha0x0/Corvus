@@ -1,3 +1,4 @@
+using Corvus.Core;
 using System.Text;
 using Iced.Intel;
 using Corvus.Native;
@@ -86,7 +87,7 @@ public class RuntimeCollapseTests
         Assert.False(RuntimeCollapse.Parse(null));
         Assert.False(RuntimeCollapse.Parse("none"));
         Assert.True(RuntimeCollapse.Parse("runtime"));
-        Assert.Throws<ArgumentException>(() => RuntimeCollapse.Parse("all"));
+        Assert.Throws<ToolError>(() => RuntimeCollapse.Parse("all"));
     }
 
     [Fact]
@@ -102,10 +103,10 @@ public class RuntimeCollapseTests
     {
         RuntimeCollapse.RequireEngine(false, false, NativeArch.X64);
         RuntimeCollapse.RequireFunction(true);
-        Assert.Throws<ArgumentException>(() => RuntimeCollapse.RequireEngine(true, false, NativeArch.X64));
-        Assert.Throws<ArgumentException>(() => RuntimeCollapse.RequireEngine(false, true, NativeArch.X64));
-        Assert.Throws<ArgumentException>(() => RuntimeCollapse.RequireEngine(false, false, NativeArch.Arm64));
-        Assert.Throws<ArgumentException>(() => RuntimeCollapse.RequireFunction(false));
+        Assert.Throws<ToolError>(() => RuntimeCollapse.RequireEngine(true, false, NativeArch.X64));
+        Assert.Throws<ToolError>(() => RuntimeCollapse.RequireEngine(false, true, NativeArch.X64));
+        Assert.Throws<ToolError>(() => RuntimeCollapse.RequireEngine(false, false, NativeArch.Arm64));
+        Assert.Throws<ToolError>(() => RuntimeCollapse.RequireFunction(false));
     }
 
     [Fact]
