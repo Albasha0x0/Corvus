@@ -94,7 +94,7 @@ internal static partial class DependencyInventory
                 && (aotSplit || input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal))), ct);
         if (b.Components.Count == 0) return null;
         var edges = b.Edges.Select(e => new DependencyEdge(e.Key, e.Value)).ToList();
-        if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; sbomPath writes all");
+        if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; pass sbomPath=<file> to write all");
         return new DependencyFacts(b.Subject, b.Components.Count, b.Components.Count(c => c.Purl != null), [.. b.Components.Take(MaxListed)],
             edges.Sum(e => e.To.Count), b.Sources, b.Notes)
         {

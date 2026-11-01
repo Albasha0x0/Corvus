@@ -7,6 +7,7 @@ using Corvus.Native;
 using Corvus.Tests.NativeFormats;
 using Corvus.Services.Analysis;
 using Corvus.Services.Analysis.Dependencies;
+using Corvus.Tools;
 
 namespace Corvus.Tests;
 
@@ -146,6 +147,29 @@ public sealed class DependencyInventoryTests : IDisposable
     public void A_plain_assembly_with_nothing_bundled_has_no_dependencies_view()
     {
         Assert.False(new InspectionService(_workspace).Summarize(null, Env.FixturePath, default).Views.ContainsKey("dependencies"));
+    }
+
+    [Fact]
+    public void An_asked_for_dependencies_view_with_no_component_says_unread_is_unknown()
+    {
+        var summary = new InspectionService(_workspace).Summarize(null, Env.FixturePath, default, new FileViewOptions("dependencies"));
+        Assert.Contains(summary.Notes, n => n.Contains("unknown, not absent", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_overview_without_the_dependencies_view_has_no_dependencies_note()
+    {
+        var overview = new InspectionService(_workspace).Summarize(null, Env.FixturePath, default);
+        Assert.DoesNotContain(overview.Notes, n => n.StartsWith("dependencies:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_sbom_of_a_file_with_no_component_is_refused_with_the_next_call()
+    {
+        var summary = new InspectionService(_workspace).Summarize(null, Env.FixturePath, default, new FileViewOptions("dependencies") { Sbom = true });
+        var ex = Assert.Throws<ToolError>(() => FileWork.WriteSbom(summary, _dir.File("x.cdx.json"), false));
+        Assert.Contains("view=dependencies", ex.Remediation, StringComparison.Ordinal);
+        Assert.False(File.Exists(_dir.File("x.cdx.json")));
     }
 
     [Fact]

@@ -10,6 +10,10 @@ namespace Corvus.Services.Analysis;
 public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null, Mobile.DexService? dex = null,
     AotNavigator? aot = null, AotStringService? literals = null)
 {
+    // The note for a dependencies view that read no component.
+    private const string NoDependencyNote = "dependencies: no component was read. The view reads .NET manifests and assemblies, Go, Rust, frozen Python and Android packages; "
+                                            + "a part it cannot read is unknown, not absent.";
+
     private static AnalysisLimits Limits => AnalysisLimits.Default;
     private const int MaxSummarizedAssemblies = 8;
     private const int MaxSummaryContents = 5;
@@ -1059,6 +1063,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         try { managed = UnpackService.Managed(input, facts.Sha256, Limits, ct); }
         catch (ToolError ex)
         {
+            if (input.Options.View == "dependencies" || input.Options.Sbom) viewNotes.Add(NoDependencyNote);
             return WithViews(new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message, .. viewNotes]));
         }
         DependencyView(input, managed.Assemblies, managed.Manifests, views, viewNotes, ct);
@@ -1140,6 +1145,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             if (Dependencies.DependencyInventory.Of(input, assemblies, parsed, views, ct) is { } facts)
                 views["dependencies"] = new FileView(facts, facts.Advisories is { Findings.Count: > 0 } a
                     ? [$"{a.Findings.Count} advisories for {a.Findings.Select(f => f.Component).Distinct().Count()} components ({a.Checker})."] : []);
+            else if (input.Options.View == "dependencies" || input.Options.Sbom)
+                notes.Add(NoDependencyNote);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

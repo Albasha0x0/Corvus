@@ -469,7 +469,7 @@ public static class FileWork
     public static string WriteSbom(InspectionService.FileSummary summary, string sbomPath, bool overwrite)
     {
         if (summary.Views.GetValueOrDefault("dependencies")?.Detail is not Services.Analysis.Dependencies.DependencyFacts facts)
-            throw new ToolError(ErrorCode.NotFound, "Found no component in the file; no SBOM written.", "pass path= with a .NET app, bundle or package, or a Go or Rust program");
+            throw new ToolError(ErrorCode.NotFound, "No component was read from the file; no SBOM written. A part the readers cannot read is unknown, not absent.", "call summarize_file view=dependencies path=<an app, bundle, executable or package> sbomPath=<file>");
         var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,
             null, Services.Analysis.Dependencies.CycloneDx.SerialFor(summary.File.Sha256, ServerIdentity.InformationalVersion));
         var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);
