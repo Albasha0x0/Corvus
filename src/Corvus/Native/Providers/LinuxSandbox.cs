@@ -23,12 +23,16 @@ internal static class LinuxSandbox
     /// <param name="NoNewPrivs">True when the no_new_privs flag is set; null when unreadable.</param>
     /// <param name="Landlock">The Landlock outcome: "abi N, special files refused", "unsupported" or "failed: errno N".</param>
     /// <param name="CoreLimitBytes">The soft core dump limit in bytes; -1 unlimited; null when unreadable.</param>
-    public sealed record Settings(bool? NoNewPrivs, string Landlock, long? CoreLimitBytes)
+    /// <param name="DataLimitBytes">The soft data segment limit in bytes; -1 unlimited; null when unreadable.</param>
+    public sealed record Settings(bool? NoNewPrivs, string Landlock, long? CoreLimitBytes, long? DataLimitBytes)
     {
+        private static string Bytes(long? value) =>
+            value is { } v ? (v < 0 ? "unlimited" : v.ToString(CultureInfo.InvariantCulture)) : "unknown";
+
         /// <summary>One line for server_status; unknown values read "unknown", never "off".</summary>
         public string Describe() =>
             $"no_new_privs {(NoNewPrivs is { } n ? (n ? "on" : "off") : "unknown")}, landlock {Landlock}, " +
-            $"core dump limit {(CoreLimitBytes is { } c ? (c < 0 ? "unlimited" : c.ToString(CultureInfo.InvariantCulture)) : "unknown")}";
+            $"core dump limit {Bytes(CoreLimitBytes)}, data limit {Bytes(DataLimitBytes)}";
     }
 
     /// <summary>Applies the restrictions and returns what /proc reports; null off Linux.</summary>
@@ -47,7 +51,7 @@ internal static class LinuxSandbox
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or IOException or UnauthorizedAccessException)
         {
-            return new Settings(null, "unknown", null);
+            return new Settings(null, "unknown", null, null);
         }
     }
 
@@ -73,7 +77,11 @@ internal static class LinuxSandbox
     }
 
     /// <summary>Settings parsed from /proc status and limits text; a missing field is null.</summary>
-    internal static Settings Read(string status, string limits, string landlock) => new(NoNewPrivsOf(status), landlock, SoftLimitOf(limits, "Max core file size"));
+    internal static Settings Read(string status, string limits, string landlock) => new(
+            NoNewPrivsOf(status),
+            landlock,
+            SoftLimitOf(limits, "Max core file size"),
+            SoftLimitOf(limits, "Max data size"));
 
     /// <summary>The NoNewPrivs flag of a status text; null when absent or malformed.</summary>
     internal static bool? NoNewPrivsOf(string status)

@@ -8,7 +8,8 @@ public class LinuxSandboxTests
     private const string Status = "Name:\tcorvus\nNoNewPrivs:\t1\nSeccomp:\t0\n";
     private const string Limits = "Limit                     Soft Limit           Hard Limit           Units\n" +
         "Max cpu time              unlimited            unlimited            seconds\n" +
-        "Max core file size        0                    unlimited            bytes\n";
+        "Max core file size        0                    unlimited            bytes\n" +
+        "Max data size             1073741824           unlimited            bytes\n";
 
     [Fact]
     public void The_no_new_privs_flag_is_read_from_the_status_text()
@@ -35,8 +36,22 @@ public class LinuxSandboxTests
     [Fact]
     public void The_applied_settings_are_described_on_one_line()
     {
-        Assert.Equal("no_new_privs on, landlock abi 4, special files refused, core dump limit 0",
+        Assert.Equal("no_new_privs on, landlock abi 4, special files refused, core dump limit 0, data limit 1073741824",
             LinuxSandbox.Read(Status, Limits, "abi 4, special files refused").Describe());
+    }
+
+    [Fact]
+    public void An_unlimited_data_row_is_described_as_unlimited()
+    {
+        var limits = "Max data size             unlimited            unlimited            bytes\n";
+        Assert.EndsWith("data limit unlimited", LinuxSandbox.Read(Status, limits, "unsupported").Describe());
+    }
+
+    [Fact]
+    public void A_limits_text_without_a_data_row_describes_the_data_limit_as_unknown()
+    {
+        var limits = "Max core file size        0                    unlimited            bytes\n";
+        Assert.EndsWith("data limit unknown", LinuxSandbox.Read(Status, limits, "unsupported").Describe());
     }
 
     [Fact]
