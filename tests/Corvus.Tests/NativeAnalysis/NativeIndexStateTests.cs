@@ -85,7 +85,9 @@ public sealed class NativeIndexStateTests : IDisposable
         Assert.Contains($"edges into {native.Id} are not yet known", note);
         Assert.Contains($"list_assemblies filter={native.Id} waitSeconds=60", note);
         _gate.Set();
-        Assert.Empty(await link.WarmUp(null, default));
+        // The opened index finishes on its own thread; the second wait is the
+        // default one, long enough for a loaded machine.
+        Assert.Empty(await new NativeLinkService(_env.Workspace, code).WarmUp(null, default));
         Assert.Equal("", NativeLinkService.PartialNote([]));
     }
 
