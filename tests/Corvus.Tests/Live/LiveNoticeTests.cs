@@ -40,7 +40,13 @@ public sealed class LiveNoticeTests : LiveSessionTestBase
         _backend.Hit("s1", 77, Base + 0x1010);
         _backend.Hit("s1", 78, Base + 0x1010);
         var first = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        // The second stop event can reach the session after the first wait returns.
         var second = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        for (int i = 0; i < 100 && !second.Contains("held: thread 78"); i++)
+        {
+            await Task.Delay(50);
+            second = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        }
         Assert.Contains("thread 77 stopped at s1", first);
         Assert.Contains("thread 77 stopped at s1", second);
         Assert.Contains("held: thread 78 at s1", second);
