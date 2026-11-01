@@ -186,6 +186,57 @@ public sealed class SavedImageTests
         Assert.Contains(c.Notes, n => n.StartsWith("layer 1:", StringComparison.Ordinal) && n.Contains("4,096"));
     }
 
+    private sealed class ForwardOnly(byte[] data) : MemoryStream(data, writable: false)
+    {
+        public override bool CanSeek => false;
+    }
+
+    [Fact]
+    public void A_cancelled_token_stops_the_image_read()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => Containers.Open(DockerSave(), "app.tar", AnalysisLimits.Default, cts.Token));
+    }
+
+    [Fact]
+    public void An_unparsable_oci_index_leaves_a_plain_tar()
+    {
+        var c = Containers.Open(Tar(("oci-layout", Text("{}")), ("index.json", Text("{not json")), ("a.txt", Text("x"))), "bad-oci.tar", AnalysisLimits.Default, default);
+        Assert.Equal("tar", c.Kind);
+        Assert.Contains(c.Entries!, e => e.Path == "a.txt");
+    }
+
+    [Fact]
+    public void An_oci_index_without_manifests_keeps_the_plain_tar_listing()
+    {
+        var c = Containers.Open(Tar(("oci-layout", Text("{}")), ("index.json", Text("""{"schemaVersion":2,"manifests":[]}""")), ("a.txt", Text("x"))), "empty-oci.tar", AnalysisLimits.Default, default);
+        Assert.Contains(c.Entries!, e => e.Path == "a.txt");
+    }
+
+    [Fact]
+    public void A_tar_without_entries_is_not_read_as_an_image()
+    {
+        var c = Containers.Open(Tar(), "empty.tar", AnalysisLimits.Default, default);
+        Assert.NotEqual("docker image archive", c.Kind);
+    }
+
+    [Fact]
+    public void A_non_seekable_image_names_that_its_layers_were_not_read()
+    {
+        var c = new ArchiveReader().Open(new ForwardOnly(DockerSave()), "app.tar", false, AnalysisLimits.Default, default)!;
+        Assert.Equal("tar", c.Kind);
+        Assert.Contains(c.Notes, n => n.StartsWith("image layers not read: the input is not seekable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Entries_past_the_scan_limit_are_counted_and_named()
+    {
+        var files = Enumerable.Range(0, 30).Select(i => ($"f{i}.txt", Text("x"))).Prepend(("manifest.json", Text("""[{"Config":"cfg.json","Layers":[]}]"""))).ToArray();
+        var c = Containers.Open(Tar(files), "many.tar", new AnalysisLimits { MaxItems = 2 }, default);
+        Assert.Contains(c.Notes, n => n.StartsWith("scanned 20 entries, then stopped at the 20-entry limit", StringComparison.Ordinal) && n.Contains("later entries are unknown"));
+    }
+
     [Fact]
     [FuzzEntry(typeof(ContainerImage))]
     public void Fuzzed_image_archives_never_throw_unexpectedly()

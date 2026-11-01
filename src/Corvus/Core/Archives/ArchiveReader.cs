@@ -153,6 +153,8 @@ internal sealed class ArchiveReader : IContainerReader
         }
         string[] paths = [.. entries.Select(e => e.Path), .. streamRecords];
         notes.AddRange(MemberNames.Notes(paths));
+        if (format == "tar" && !stream.CanSeek && ContainerImage.Looks(entries))
+            notes.Add("image layers not read: the input is not seekable; save it to a file and open that file.");
         if (format == "tar" && stream.CanSeek && ContainerImage.Looks(entries) && ContainerImage.Read(stream, limits, ct) is { } image)
         {
             kind = image.Kind;

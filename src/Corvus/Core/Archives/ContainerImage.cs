@@ -15,8 +15,6 @@ internal static class ContainerImage
 {
     private const int MaxJsonBytes = 4 << 20;
 
-    private const int MaxRecords = 200_000;
-
     private const int MaxIndexDepth = 4;
 
     private const string WhiteoutPrefix = ".wh.";
@@ -43,7 +41,7 @@ internal static class ContainerImage
     public static Listing? Read(Stream tar, AnalysisLimits limits, CancellationToken ct)
     {
         var notes = new List<string>();
-        var records = Index(tar, notes, ct);
+        var records = Index(tar, limits, notes, ct);
         var byName = new Dictionary<string, TarRecord>(StringComparer.Ordinal);
         foreach (var r in records) byName[r.Name] = r;
 
@@ -133,9 +131,11 @@ internal static class ContainerImage
         return new Listing(kind, entries, notes);
     }
 
+    private static long RecordLimit(AnalysisLimits limits) => 10L * limits.MaxItems;
+
     private static string Normal(string path) => path.StartsWith("./", StringComparison.Ordinal) ? path[2..] : path;
 
-    private static List<TarRecord> Index(Stream s, List<string> notes, CancellationToken ct)
+    private static List<TarRecord> Index(Stream s, AnalysisLimits limits, List<string> notes, CancellationToken ct)
     {
         var records = new List<TarRecord>();
         var block = new byte[512];
@@ -155,9 +155,9 @@ internal static class ContainerImage
                 notes.Add($"tar header at 0x{p:X} is damaged; the entries after it are unknown.");
                 break;
             }
-            if (records.Count >= MaxRecords)
+            if (records.Count >= RecordLimit(limits))
             {
-                notes.Add($"scanned {records.Count:N0} entries, then stopped at the {MaxRecords:N0}-entry limit; later entries are unknown.");
+                notes.Add($"scanned {records.Count:N0} entries, then stopped at the {RecordLimit(limits):N0}-entry limit (10 times limits.MaxItems); later entries are unknown.");
                 break;
             }
             byte type = block[156];
