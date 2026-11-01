@@ -1,0 +1,12 @@
+# agreement groups without a test that compares their tools on a built fixture may only fall (RT-318)
+# Measured ratchet: values may only fall (tests/Corvus.Tests/Support/CountRatchet.cs).
+imports and exports = 1
+managed callers and callees = 1
+managed edits = 1
+managed type and member names = 1
+method addresses = 1
+native callers and callees = 1
+native edits = 1
+native function bounds and names = 1
+native type layouts = 1
+strings = 1

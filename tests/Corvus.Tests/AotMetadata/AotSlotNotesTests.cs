@@ -1,3 +1,4 @@
+using Corvus.Native;
 using Corvus.Native.Providers;
 using Corvus.Services;
 using Corvus.Tools;
@@ -202,6 +203,33 @@ public sealed partial class AotFieldNotesTests
         Assert.Equal(2, report.Total);
         Assert.Contains(report.Items, r => r.Slot == 3 && r.Status == "exact" && r.Targets.Single() == "StreamHost::Dispatch (slot 3)");
         Assert.Contains(report.Items, r => r.Slot == 25 && r.Class == "BinaryReader" && r.Targets.Single() == "BinaryReader::ReadBytes (slot 25)");
+    }
+
+    // RT-318: find_virtual_calls listed no site where disassemble noted slot calls.
+    [Fact]
+    public async Task Find_virtual_calls_and_disassemble_notes_list_the_same_slot_call_sites()
+    {
+        var (env, service, native, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rbx, __qword_ptr[rcx]);
+            a.mov(rdx, __qword_ptr[rcx + 0x48]);
+            a.mov(ecx, 25);
+            a.call(Helper);
+            a.call(__qword_ptr[rbx + 0x138 + 16 * 3]);
+            a.mov(rdx, r8);
+            a.mov(ecx, 99);
+            a.call(Helper);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        var report = await new NativeVirtualCallTools(env.Workspace, service)
+            .Report(native.Id, "Fixture_Native_StreamHost__Read", null, 0, 100);
+        var fn = index.FunctionAt(0x1000)!;
+        var noted = AotSlotNotes.Comments(native, index, fn, default).Keys.Select(r => NativeAddress.Va(index.Image, r)).Order().ToList();
+        var listed = report.Items.Select(r => r.Address).Order().ToList();
+        Assert.Equal(noted, listed);
+        var sites = AotSlotNotes.Calls(native, index, fn, default).Select(c => NativeAddress.Va(index.Image, c.Rva)).Order().ToList();
+        Assert.Equal(sites, listed);
     }
 
     [Fact]
