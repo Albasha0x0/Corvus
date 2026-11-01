@@ -71,8 +71,9 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
 }
 
 /// <summary>
-/// Reviews npm, PyPI, RubyGems, NuGet, Composer, VSIX and browser extension
-/// packages and agent configuration without installing or running them.
+/// Reviews npm, PyPI, RubyGems, NuGet, Composer, Cargo, VSIX and browser
+/// extension packages and agent configuration without installing or running
+/// them.
 /// </summary>
 public static partial class PackageReview
 {
@@ -93,6 +94,7 @@ public static partial class PackageReview
             : files.Paths.Any(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || IsSdistFile(p)) ? Python(files, ct)
             : GemSpecPath(files) != null ? RubyGems(files, ct)
             : Root(files, "composer.json") != null ? Composer(files, ct)
+            : CargoManifest(files) != null ? Cargo(files, ct)
             : null;
         if (report != null)
         {
@@ -212,6 +214,8 @@ public static partial class PackageReview
         new("package/child-process", "process", "review", R(@"\bchild_process\b|\bexecSync\s*\(|\bspawnSync?\s*\(|\bexecFile(?:Sync)?\s*\("), "starts processes (child_process)"),
         new("package/python-process", "process", "review", R(@"\bsubprocess\.(?:Popen|run|call|check_output|check_call)\b|\bos\.(?:system|popen|exec[lv]p?e?)\s*\(|\bpty\.spawn\b"), "starts processes (subprocess / os.system)"),
         new("package/network", "network", "review", R(@"require\(\s*['""](?:node:)?(?:https?|net|dns|dgram|tls)['""]\s*\)|\bfetch\s*\(\s*['""`]https?:|\bXMLHttpRequest\b|\bnew\s+WebSocket\s*\(|\bhttps?\.(?:request|get)\s*\(|require\(\s*['""](?:axios|node-fetch|got|undici)['""]\s*\)|\bawait\s+fetch\s*\(|\baxios\.(?:get|post|request)\s*\("), "opens network connections"),
+        new("package/rust-process", "process", "review", R(@"\bstd::process::Command\b|\bCommand::new\s*\("), "starts processes (std::process::Command)"),
+        new("package/rust-network", "network", "review", R(@"\b(?:reqwest|ureq|attohttpc|minreq|isahc)::|\bTcpStream::connect\b|\bUdpSocket::bind\b"), "opens network connections (Rust)"),
         new("package/python-network", "network", "review", R(@"\b(?:urllib\.request|urllib2|requests\.(?:get|post|put)|http\.client|socket\.socket|urlopen)\b"), "opens network connections (Python)"),
         new("package/download-tool", "network", "review", R(@"\b(?:curl|wget)\s+(?:-[\w-]+\s+)*['""]?https?://|\bInvoke-WebRequest\b|\biwr\s+https?:|\bbitsadmin\b|\bcertutil\s+-urlcache"), "downloads with a command-line tool"),
         new("package/eval", "dynamic code", "review", R(@"\beval\s*\((?:[^'""`]|\z)|\bnew\s+Function\s*\(|\bvm\.runIn(?:This|New)Context\b"), "evaluates code built at run time (eval / Function)"),
@@ -289,8 +293,10 @@ public static partial class PackageReview
             }
         }
         var matched = new List<Rule>();
+        // Rust rules read Rust source only; Command::new is common text elsewhere.
+        bool rust = path.EndsWith(".rs", StringComparison.OrdinalIgnoreCase);
         foreach (var rule in CodeRules)
-            if (rule.IsMatch(plain)) matched.Add(rule);
+            if ((rust || !rule.Id.StartsWith("package/rust-", StringComparison.Ordinal)) && rule.IsMatch(plain)) matched.Add(rule);
         var hits = matched.Select(r => r.Category).ToHashSet(StringComparer.Ordinal);
         bool context = install || hits.Overlaps(["credentials", "host details", "process", "dynamic code", "transformed code"]);
         foreach (var rule in matched)

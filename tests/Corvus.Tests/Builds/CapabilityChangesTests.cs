@@ -380,4 +380,16 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         Assert.Contains(result.Changes!, c => c is { Kind: "added", Key: "runs: dev container initializeCommand: sh tools/init.sh" });
         Assert.Equal("package policy: review none -> noteworthy; added: 1 endpoint(s), 1 native file(s), 1 run(s) on open, checkout or build; removed: 1 endpoint(s)", result.Notes[0]);
     }
+
+    [Fact]
+    public async Task Two_crate_versions_list_a_build_script_added_by_the_newer_one()
+    {
+        const string manifest = "[package]\nname = \"sample-tool\"\nversion = \"1.0.0\"\n";
+        var old = Tgz("sample-tool-1.0.0.crate", ("sample-tool-1.0.0/Cargo.toml", manifest));
+        var @new = Tgz("sample-tool-1.0.1.crate", ("sample-tool-1.0.1/Cargo.toml", manifest.Replace("1.0.0", "1.0.1")),
+            ("sample-tool-1.0.1/build.rs", "fn main() { std::process::Command::new(\"sh\"); }"));
+        var result = await new FolderTools(new FolderCompare()).CompareFolders(old, @new);
+        output.WriteLine(string.Join("\n", result.Notes));
+        Assert.Contains(result.Changes!, c => c.Kind == "added" && c.Key.Contains("build", StringComparison.Ordinal));
+    }
 }

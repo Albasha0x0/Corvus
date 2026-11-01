@@ -90,10 +90,10 @@ public sealed class FolderTools(FolderCompare folders, ServerOptions? serverOpti
     /// <summary>Finding changes repeated in the notes; Changes holds them all.</summary>
     private const int MaxPackageRows = 50;
 
-    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".gem", ".nupkg", ".vsix", ".crx", ".xpi"];
+    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".gem", ".nupkg", ".vsix", ".crx", ".xpi", ".crate"];
 
     // A folder is reviewed only with a package manifest at its root: the review reads every file in it.
-    private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json", "composer.json"];
+    private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json", "composer.json", "Cargo.toml"];
 
     // Gem and NuGet manifests are named for their package.
     private static readonly string[] FolderManifestPatterns = ["*.gemspec", "*.nuspec"];

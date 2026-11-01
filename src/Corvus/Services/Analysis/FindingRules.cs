@@ -21,6 +21,8 @@ public static class FindingRules
         R("package/python-process", "starts processes (subprocess, os.system)"),
         R("package/network", "opens network connections"),
         R("package/python-network", "opens network connections (Python)"),
+        R("package/rust-process", "starts processes (std::process::Command)"),
+        R("package/rust-network", "opens network connections (Rust)"),
         R("package/download-tool", "downloads with a command-line tool"),
         R("package/eval", "evaluates code built at run time"),
         N("package/exec-decoded", RunsDecoded, "executes decoded code (exec of base64, zlib, marshal)"),
@@ -87,6 +89,7 @@ public static class FindingRules
         R("package/provenance-repository", "an attested source repository other than the one the manifest declares"),
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),
+        I("package/proc-macro", "a procedural macro crate: its code runs inside the compiler"),
         N("package/install-network-tool", AtInstall + ", running a network tool", "an install script runs a network tool"),
         N("package/builtin-dependency", "a Node built-in name aliased to another package or fetched from outside the registry", "a dependency named after a Node built-in module"),
         N("package/carrier", "the only code file, at most 200 bytes, loads nothing, beside runtime dependencies; or holds only a base64 literal decoding to JSON or a URL", "an entry file that only installs its dependencies"),
