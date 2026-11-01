@@ -66,7 +66,7 @@ public sealed record DexClassPage(string Descriptor, string JavaName, string Dex
 }
 
 public sealed record DexHit(
-    [property: Description("string, type, method, field, const or opcode; class for a defined class; recovered: the string the decoder call at offset returns; opcode names the decoder method.")] string Kind,
+    [property: Description("string, type, method, field, const or opcode; class for a defined class; recovered: the string the decoder call at offset returns; unresolved: why a decoder call stays; opcode names the decoder method.")] string Kind,
     [property: Description("The string, descriptor or value found.")] string Value,
     [property: Description("The method containing the instruction (exact id); null for a definition.")] string? Method,
     [property: Description("Code offset in 16-bit units.")] int? Offset, string? Opcode,
@@ -309,6 +309,9 @@ public sealed class DexService
                 }
                 hits.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
                 break;
+            case "decoder":
+                Decoders(index, pattern, hits, notes, MaxHits, ct);
+                break;
             case "const":
                 var text2 = query.Trim();
                 var values = ConstValues(text2);
@@ -327,7 +330,7 @@ public sealed class DexService
                 }
                 break;
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown kind '{kind}'; use string, type, method, field, const or opcode.");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown kind '{kind}'; use string, type, method, field, decoder, const or opcode.");
         }
         if (hits.Count >= MaxHits) notes.Add($"Stopped at {MaxHits} hits: refine the query.");
         limit = Math.Clamp(limit, 1, 5_000);
@@ -362,6 +365,24 @@ public sealed class DexService
         int other = folds.Sites.Count(s => s.Evaluated && s.Fold.Status != DexFoldStatus.Simplified);
         if (recovered > 0 || other > 0)
             notes.Add($"{recovered} matching string(s) recovered from decoder calls; {other} constant-argument call(s) not simplified (disassemble_dex format=simplified says why).");
+        if (folds.Note("search again to continue") is { } stalled) notes.Add(stalled);
+    }
+
+    /// <summary>Hits for string decoder calls matching by string, reason or decoder; unresolved calls carry the reason.</summary>
+    private static void Decoders(DexIndex index, Func<string, bool> pattern, List<DexHit> hits, List<string> notes, int maxHits, CancellationToken ct)
+    {
+        var folding = DexStringFolding.For(index);
+        var folds = folding.Package(ct);
+        foreach (var site in folds.Sites.Where(s => s.Evaluated))
+        {
+            var simplified = site.Fold is { Status: DexFoldStatus.Simplified, Value: { } };
+            var reason = site.Fold.Reason ?? site.Fold.Status.ToString().ToLowerInvariant();
+            var matched = simplified ? site.Fold.Value! : reason;
+            if (hits.Count < maxHits && (pattern(matched) || pattern(site.Decoder)))
+                hits.Add(new(simplified ? "recovered" : "unresolved", simplified ? matched : $"not simplified: {reason}", site.Method, site.Offset, folding.Opcode(site) + " " + site.Decoder, null));
+        }
+        int other = folds.Sites.Count(s => !s.Evaluated);
+        if (other > 0) notes.Add($"{other} decoder call(s) have arguments that are not constants; disassemble_dex format=simplified shows them.");
         if (folds.Note("search again to continue") is { } stalled) notes.Add(stalled);
     }
 

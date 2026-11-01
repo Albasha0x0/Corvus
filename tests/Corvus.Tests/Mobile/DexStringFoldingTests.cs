@@ -362,6 +362,27 @@ public sealed class DexStringFoldingTests : IDisposable
     }
 
     [Fact]
+    public void Decoder_search_lists_recovered_and_unresolved_calls_with_their_reason()
+    {
+        var r = _dex.Search(_path, "decoder", "*", 0, 100, default);
+        Assert.Contains(r.Items, h => h is { Kind: "recovered", Value: "hello" } && h.Method == Main + "->nested()Ljava/lang/String;");
+        Assert.Contains(r.Items, h => h.Kind == "unresolved" && h.Value.StartsWith("not simplified: ", StringComparison.Ordinal));
+        Assert.Equal(r.Items.Count, r.Total);
+        Assert.Contains(r.Notes, n => n.Contains("not constants", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Decoder_search_filters_by_decoder_name_and_returns_nothing_for_no_match()
+    {
+        var all = _dex.Search(_path, "decoder", "*", 0, 100, default);
+        var byName = _dex.Search(_path, "decoder", Dec + "->n(", 0, 100, default);
+        Assert.NotEmpty(byName.Items);
+        Assert.All(byName.Items, h => Assert.Contains(Dec + "->n(", h.Opcode!, StringComparison.Ordinal));
+        Assert.True(byName.Total < all.Total);
+        Assert.Empty(_dex.Search(_path, "decoder", "zz-no-such-site", 0, 100, default).Items);
+    }
+
+    [Fact]
     public void String_search_labels_decoder_results_as_recovered_with_decoder_and_call_site()
     {
         var r = _dex.Search(_path, "string", "hello", 0, 10, default);

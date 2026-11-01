@@ -2497,7 +2497,7 @@ Search DEX code for strings (literals and decoder results), types, methods, fiel
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An Android package, .dex or jar with classes*.dex. |
-| `kind` | string | yes |  | What to search. Values: string, type, method, field, const, opcode. |
+| `kind` | string | yes |  | What to search. Values: string, type, method, field, decoder, const, opcode. |
 | `query` | string | yes |  | Case-insensitive substring or * / ? pattern; for const a number. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most hits. |
