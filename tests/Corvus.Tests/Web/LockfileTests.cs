@@ -52,6 +52,29 @@ public sealed class LockfileTests : IDisposable
     }
 
     [Fact]
+    public void A_pnpm_lockfile_with_nested_aliases_reads_as_written_without_expanding_them()
+    {
+        // Nine references per level would multiply in an expanding reader.
+        var text = new System.Text.StringBuilder("lockfileVersion: '9.0'\nx0: &l0 [a, a, a, a, a, a, a, a, a]\n");
+        for (int i = 1; i < 40; i++)
+            text.Append($"x{i}: &l{i} [" + string.Join(", ", Enumerable.Repeat($"*l{i - 1}", 9)) + "]\n");
+        text.Append("packages:\n  a@1.0.0:\n    resolution: {integrity: *l39}\n");
+        var lockfile = Lockfiles.Read("pnpm-lock.yaml", text.ToString())!;
+        Assert.Equal(["a 1.0.0 *l39"], lockfile.Packages.Select(p => $"{p.Name} {p.Version} {p.Integrity}"));
+    }
+
+    [Fact]
+    public void A_workflow_with_nested_aliases_reads_as_written_without_expanding_them()
+    {
+        var text = new System.Text.StringBuilder("x0: &l0 [a, a, a, a, a, a, a, a, a]\n");
+        for (int i = 1; i < 40; i++)
+            text.Append($"x{i}: &l{i} [" + string.Join(", ", Enumerable.Repeat($"*l{i - 1}", 9)) + "]\n");
+        text.Append("name: *l39\n");
+        var root = WorkflowFile.Parse(text.ToString())!;
+        Assert.Equal("*l39", root["name"]!.Text);
+    }
+
+    [Fact]
     public void A_pnpm_lockfile_reads_keys_of_versions_5_6_and_9_without_peer_suffixes()
     {
         var v5 = Lockfiles.Read("pnpm-lock.yaml", """
