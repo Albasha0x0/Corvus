@@ -24,8 +24,7 @@
     "total": 0,
     "notes": [
       "sample-build-a.dll has no in-memory patches to migrate",
-      "Dry run: 0 of 0 patches (in_memory) would apply to sample-build-b.dll. Nothing recorded; dryRun=false applies them.",
-      "Note: sample-build-a.dll has no in-memory patches to migrate"
+      "Dry run: 0 of 0 patches (in_memory) would apply to sample-build-b.dll. Nothing recorded; dryRun=false applies them."
     ],
     "limit": 100,
     "totalExact": true,

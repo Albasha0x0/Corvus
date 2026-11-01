@@ -38,8 +38,7 @@
       }
     ],
     "notes": [
-      "items on files that are not loaded yet report would_apply without checking them",
-      "Note: items on files that are not loaded yet report would_apply without checking them"
+      "items on files that are not loaded yet report would_apply without checking them"
     ],
     "limit": 200,
     "totalExact": true,

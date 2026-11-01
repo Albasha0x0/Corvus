@@ -31,8 +31,7 @@
     "offset": 0,
     "total": 2,
     "notes": [
-      "Calls name the method through the receiver's static type: a call on a subclass or interface descriptor is listed under that descriptor.",
-      "Note: Calls name the method through the receiver's static type: a call on a subclass or interface descriptor is listed under that descriptor."
+      "Calls name the method through the receiver's static type: a call on a subclass or interface descriptor is listed under that descriptor."
     ],
     "limit": 100,
     "totalExact": true,

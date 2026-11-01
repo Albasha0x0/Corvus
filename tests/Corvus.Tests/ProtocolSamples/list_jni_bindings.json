@@ -22,8 +22,7 @@
     "total": 2,
     "libraries": [],
     "notes": [
-      "The package has no native libraries (lib/<abi>/*.so).",
-      "Note: The package has no native libraries (lib/<abi>/*.so)."
+      "The package has no native libraries (lib/<abi>/*.so)."
     ],
     "limit": 75,
     "totalExact": true,

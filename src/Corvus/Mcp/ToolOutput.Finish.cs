@@ -262,6 +262,9 @@ public static partial class ToolOutput
         NoticePrefix,
     ];
 
+    /// <summary>Markers a tool prints before a line its record holds without them.</summary>
+    private static readonly string[] BarePrefixes = ["Warning: ", "Note: ", "Notes: ", "Hint: ", "Next: "];
+
     /// <summary>Text longer than this is scanned at its head and tail only, where tool-added lines sit.</summary>
     private const int ScanEdge = 8192;
 
@@ -299,8 +302,8 @@ public static partial class ToolOutput
         if (line.StartsWith("[Partial:", StringComparison.Ordinal) || line.StartsWith("[Coverage unknown:", StringComparison.Ordinal) || line.StartsWith("[Unavailable:", StringComparison.Ordinal))
             return record["coverage"] is not null;
         if (line.StartsWith(NoticePrefix, StringComparison.Ordinal)) return record["notices"] is not null;
-        // The text lines carry a "Warning: " prefix the warnings entry does not.
-        var bare = line.StartsWith("Warning: ", StringComparison.Ordinal) ? line["Warning: ".Length..] : line;
+        // A text line carries its marker ("Warning: ", "Note: ") where the record's entry does not.
+        var bare = BarePrefixes.FirstOrDefault(m => line.StartsWith(m, StringComparison.Ordinal)) is { } marker ? line[marker.Length..] : line;
         return Strings(record).Any(s => s.Contains(bare, StringComparison.Ordinal));
     }
 

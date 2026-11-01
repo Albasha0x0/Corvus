@@ -22,8 +22,7 @@
     "total": 0,
     "notes": [
       "sample-build-a.dll has no user names or comments to carry over",
-      "Dry run: 0 of 0 item(s) would carry from sample-build-a.dll to sample-build-b.dll. Nothing recorded; dryRun=false applies it.",
-      "Note: sample-build-a.dll has no user names or comments to carry over"
+      "Dry run: 0 of 0 item(s) would carry from sample-build-a.dll to sample-build-b.dll. Nothing recorded; dryRun=false applies it."
     ],
     "limit": 100,
     "totalExact": true,

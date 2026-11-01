@@ -20,8 +20,7 @@
     "offset": 0,
     "items": [],
     "notes": [
-      "no RTTI classes with vftables: virtual calls are not resolved",
-      "Note: no RTTI classes with vftables: virtual calls are not resolved"
+      "no RTTI classes with vftables: virtual calls are not resolved"
     ],
     "limit": 100,
     "totalExact": true,

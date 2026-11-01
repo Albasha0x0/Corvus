@@ -391,6 +391,15 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Equal(1, Record(r).GetProperty("warnings").GetArrayLength());
     }
 
+    /// <summary>RT-315: a "Note: " line whose text the record's own notes hold is not added again.</summary>
+    [Fact]
+    public void A_note_line_the_record_holds_without_its_marker_adds_nothing()
+    {
+        var record = new System.Text.Json.Nodes.JsonObject { ["notes"] = new System.Text.Json.Nodes.JsonArray("Target platform: windows, from requested.") };
+        Assert.True(ToolOutput.Carries(record, "Note: Target platform: windows, from requested."));
+        Assert.False(ToolOutput.Carries(record, "Note: No Windows system DLLs on this host."));
+    }
+
     /// <summary>RT-315: a dry-run header is lifted with its Before and After blocks.</summary>
     [Fact]
     public void A_dry_run_block_is_one_action_line_with_its_before_and_after()

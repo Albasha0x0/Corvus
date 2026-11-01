@@ -21,10 +21,7 @@
     "notes": [
       "TestFixture declares no P/Invoke methods.",
       "Unresolved or contradicted does not rule out run-time loading, by this assembly (dynamicLoads) or another in the process.",
-      "Target platform: windows, from requested.",
-      "Note: TestFixture declares no P/Invoke methods.",
-      "Note: Unresolved or contradicted does not rule out run-time loading, by this assembly (dynamicLoads) or another in the process.",
-      "Note: Target platform: windows, from requested."
+      "Target platform: windows, from requested."
     ],
     "limit": 100,
     "totalExact": true,
