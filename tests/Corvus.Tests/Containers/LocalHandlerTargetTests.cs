@@ -163,4 +163,94 @@ public sealed class LocalHandlerTargetTests
         var input = new FileInput("a.msc", data, Blob.Identify(data)) { Options = new FileViewOptions(view.Name) };
         Assert.ThrowsAny<OperationCanceledException>(() => view.Inspect(input, new CancellationToken(true)));
     }
+
+    private static ShellFileView.Facts Shell(string name, byte[] data) => (ShellFileView.Facts)View(new ShellFileView(), name, data).Detail;
+
+    [Fact]
+    public void An_scf_file_with_a_unc_icon_file_is_reported_and_its_command_id_is_not()
+    {
+        var view = View(new ShellFileView(), "a.scf", Text("[Shell]\r\nCommand=2\r\nIconFile=\\\\host\\share\\i.ico\r\n"));
+        var target = Assert.Single(((ShellFileView.Facts)view.Detail).Targets);
+        Assert.Equal(("IconFile", "UNC path"), (target.Field, target.Kind?[..8]));
+        Assert.Equal("IconFile", Assert.Single(view.Findings).Location);
+    }
+
+    [Fact]
+    public void A_desktop_ini_icon_resource_on_a_share_is_reported()
+    {
+        var view = View(new ShellFileView(), "desktop.ini", Text("[.ShellClassInfo]\nIconResource=\\\\host\\share\\i.dll,0\nInfoTip=text\n"));
+        Assert.Equal(["IconResource", "InfoTip"], ((ShellFileView.Facts)view.Detail).Targets.Select(t => t.Field));
+        Assert.Equal("IconResource", Assert.Single(view.Findings).Location);
+    }
+
+    [Fact]
+    public void An_inf_file_lists_the_command_lines_of_the_sections_it_names()
+    {
+        var facts = Shell("a.inf", Text("[DefaultInstall]\nRunPostSetupCommands=Post,Gone\nRegisterDlls=Reg\nAddReg=Keys\n" +
+            "[Post]\ncmd.exe /c echo x\n[Reg]\n11,,a.dll,1\n[Keys]\nHKLM,Software\\Microsoft\\Windows\\CurrentVersion\\Run,App,,C:\\p\\a.exe\nHKLM,Software\\Other,Name,,v\n"));
+        Assert.Equal([("RunPostSetupCommands", "command"), ("RegisterDlls", "module registration"), (@"HKLM\Software\Microsoft\Windows\CurrentVersion\Run\App", "autostart value")],
+            facts.Targets.Select(t => (t.Field, t.Kind!)));
+        Assert.Contains("[Gone]", Assert.Single(facts.Notes));
+    }
+
+    [Fact]
+    public void A_reg_file_lists_run_values_in_ansi_and_utf16_text()
+    {
+        const string reg = "Windows Registry Editor Version 5.00\r\n[HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run]\r\n\"App\"=\"C:\\\\p\\\\a.exe \\\"x\\\"\"\r\n";
+        foreach (var bytes in new[] { Text(reg), Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(reg)).ToArray() })
+        {
+            var target = Assert.Single(Shell("a.reg", bytes).Targets);
+            Assert.Equal(("App", "C:\\p\\a.exe \"x\"", "autostart value"), (target.Field[(target.Field.LastIndexOf('\\') + 1)..], target.Value, target.Kind));
+        }
+    }
+
+    [Fact]
+    public void A_reg_file_decodes_expandable_values_and_counts_binary_ones()
+    {
+        var facts = Shell("a.reg", Text("[HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run]\n\"A\"=hex(2):25,00,70,00,25,00,00,00\n\"B\"=hex:01,02,\\\n  03\n"));
+        Assert.Equal("%p%", Assert.Single(facts.Targets).Value);
+        Assert.Contains("1 non-string", Assert.Single(facts.Notes));
+    }
+
+    [Fact]
+    public void A_reg_file_skips_unrelated_services_values_and_deleted_keys()
+    {
+        var facts = Shell("a.reg", Text("[HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\S]\n\"DisplayName\"=\"n\"\n\"ImagePath\"=\"C:\\\\s.exe\"\n" +
+            "[-HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run]\n\"Gone\"=\"x\"\n"));
+        Assert.Equal("C:\\s.exe", Assert.Single(facts.Targets).Value);
+    }
+
+    [Fact]
+    public void An_appinstaller_file_lists_http_and_dependency_locations()
+    {
+        var xml = "<AppInstaller xmlns=\"http://schemas.microsoft.com/appx/appinstaller/2017\" Uri=\"https://example.com/a.appinstaller\"><MainPackage Uri=\"http://example.com/a.msix\"/>" +
+            "<Dependencies><Package Uri=\"https://example.com/d.msix\"/></Dependencies><UpdateSettings><OnLaunch HoursBetweenUpdateChecks=\"0\"/></UpdateSettings></AppInstaller>";
+        var targets = Shell("a.appinstaller", Text(xml)).Targets;
+        Assert.Equal([("AppInstaller/Uri", null), ("MainPackage/Uri", "unencrypted location"), ("Package/Uri", null), ("UpdateSettings/OnLaunch", "update setting")],
+            targets.Select(t => (t.Field, t.Kind)));
+    }
+
+    [Fact]
+    public void A_malformed_appinstaller_file_notes_its_targets_as_unknown()
+    {
+        Assert.Contains("unknown", Assert.Single(Shell("a.appinstaller", Text("<AppInstaller><MainPackage")).Notes));
+    }
+
+    [Fact]
+    public void An_empty_shell_file_reports_no_target_and_names_the_next_view()
+    {
+        foreach (var name in new[] { "a.scf", "desktop.ini", "a.inf", "a.reg", "a.appinstaller" })
+        {
+            var view = View(new ShellFileView(), name, name == "a.appinstaller" ? Text("<AppInstaller/>") : Text(" "));
+            Assert.Contains("no target", view.Highlights[0]);
+            Assert.Contains("view=script", Assert.Single(((ShellFileView.Facts)view.Detail).Notes));
+        }
+    }
+
+    [Fact]
+    public void A_url_file_with_an_ms_appinstaller_target_is_reported()
+    {
+        var view = View(new ShellFileView(), "a.url", Text("[InternetShortcut]\nURL=ms-appinstaller:?source=https://example.com/a.msix\n"));
+        Assert.Contains("ms-appinstaller: protocol handler", Assert.Single(view.Findings).Evidence);
+    }
 }

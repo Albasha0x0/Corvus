@@ -11,7 +11,7 @@ internal static partial class HandlerTargets
     private static readonly string[] Schemes =
     [
         "ms-word", "ms-excel", "ms-powerpoint", "ms-access", "ms-visio", "ms-project", "ms-publisher", "ms-spd", "ms-infopath",
-        "ms-officecmd", "ms-msdt", "search-ms", "search",
+        "ms-officecmd", "ms-msdt", "search-ms", "search", "ms-appinstaller",
     ];
 
     private const int MaxHtmlTargets = 200;

@@ -500,9 +500,9 @@ Pass the name as `view=`.
 | `model` | safetensors, GGUF, ONNX, PyTorch, pickle, joblib, `.npy`, `.npz`, `.keras`; code a file runs when loaded; nothing unpickled |
 | `installer` | MSI custom actions, services, autostart entries; NSIS and Inno Setup commands, `[Run]` and registry writes at their entries; InstallShield and Advanced Installer named |
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
-| `shell` | the targets of a `.url`, `.library-ms`, `.searchConnector-ms` or `.msc` file; a WebDAV location is named; a console file lists its snap-ins, task commands and script strings |
+| `shell` | the targets of a `.url`, `.scf`, `.inf`, `.reg`, `.appinstaller`, `.library-ms`, `.searchConnector-ms` or `.msc` file or a `desktop.ini`; `.inf` commands and `.appinstaller` update settings; a WebDAV or unencrypted location is named; a console file lists its snap-ins, task commands and script strings |
 | `installer`, `lnk`, `script`, `procmon` | command lines that download, decode or hide through a system tool: one `launcher/command-line` finding |
-| `office`, `page`, `pdf`, `shell` | targets with `ms-msdt:`, `search-ms:`, an Office scheme, `file://` or a UNC path: one `link/local-handler` finding |
+| `office`, `page`, `pdf`, `shell` | targets with `ms-msdt:`, `search-ms:`, `ms-appinstaller:`, an Office scheme, `file://` or a UNC path: one `link/local-handler` finding |
 | `mail` | headers, received chain, recorded authentication results, From, Reply-To and Return-Path side by side, links, parts, attachments |
 | `office` | VBA with folded strings, compiled code compared with the source strings of each module, Excel 4.0 macros, OLE packages and classes, RTF objects and templates, DDE and DDEAUTO fields, DDE links, WEBSERVICE and CALL formulas, altChunk parts, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |

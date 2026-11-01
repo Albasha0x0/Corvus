@@ -82,7 +82,7 @@ internal sealed class InstallerFileView : IFileSummaryView
         return new FileView(new Facts($"{builder} installer", null, null, 0, 0, [], [], [], [], [], [], notes, builder), [notes[0]]);
     }
 
-    private static readonly string[] Autostart =
+    internal static readonly IReadOnlyList<string> Autostart =
         [@"\currentversion\run", @"\currentversion\runonce", @"\currentversion\winlogon", @"\currentversion\policies\explorer\run", @"\image file execution options",
          @"\currentcontrolset\services", @"\currentversion\explorer\shell folders", @"\active setup\installed components"];
 
