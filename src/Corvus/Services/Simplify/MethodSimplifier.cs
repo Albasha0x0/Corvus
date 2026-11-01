@@ -11,6 +11,15 @@ public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, 
 
     public static readonly IReadOnlyList<string> PassNames = ["fold", "cfg", "inline"];
 
+    /// <summary>The pass that restores a transformation layer, or null when no pass does.</summary>
+    public static string? PassOf(string layer) => layer switch
+    {
+        TransformLayers.Constants => "fold",
+        TransformLayers.Proxies => "inline",
+        TransformLayers.ControlFlow => "cfg",
+        _ => null,
+    };
+
     /// <summary>Parses a comma-separated pass list (fold, cfg, inline; "all" or empty for every pass).</summary>
     public static SimplifyOptions Parse(string? passes, int? maxDepth, int? budget, bool deterministicEnvironment = false)
     {

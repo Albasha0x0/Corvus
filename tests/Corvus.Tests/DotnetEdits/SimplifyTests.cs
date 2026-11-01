@@ -937,6 +937,40 @@ public sealed class SimplifyTests : IDisposable
         Assert.Equal(before, Il(env, "Obf.Strings::UseAll"));
     }
 
+    [Fact]
+    public void The_transforms_view_names_the_simplify_call_for_restored_layers()
+    {
+        using var env = new Env(ObfFixture());
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "transforms", out _));
+        Assert.Matches(@"Next: simplify_methods assembly=\S+ passes=\[""fold""[^\]]*\] dryRun=false", text);
+    }
+
+    [Fact]
+    public void Restored_layers_map_to_their_passes_and_unrestored_layers_add_none()
+    {
+        TransformLayer Layer(string name, int restored) => new(name, "restored", restored, restored, [], "");
+        var layers = new[] { Layer(TransformLayers.Constants, 2), Layer(TransformLayers.Proxies, 1), Layer(TransformLayers.ControlFlow, 4) };
+        Assert.Equal(["simplify_methods assembly=A passes=[\"fold\",\"inline\",\"cfg\"] dryRun=false (restores 7 sites)"], TransformLayers.Next(layers, "A"));
+        Assert.Empty(TransformLayers.Next([Layer(TransformLayers.Constants, 0), Layer(TransformLayers.ControlFlow, 0)], "A"));
+        Assert.All(new[] { TransformLayers.Constants, TransformLayers.Proxies, TransformLayers.ControlFlow }, l => Assert.Contains(SimplifyOptions.PassOf(l), SimplifyOptions.PassNames));
+    }
+
+    [Fact]
+    public void A_layer_stopped_by_the_time_limit_names_the_whole_assembly_call()
+    {
+        using var env = new Env(ObfFixture());
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "transforms", out _, default, TimeSpan.Zero));
+        Assert.Contains("Next: simplify_methods assembly=" + env.Fixture.Id + " dryRun=true covers every method; this view stopped at 0 s", text);
+    }
+
+    [Fact]
+    public void Layers_left_unknown_by_unreadable_bodies_name_the_image_to_load()
+    {
+        var layer = new TransformLayer(TransformLayers.Constants, "unknown", 0, 0, ["unreadable-bodies"], "");
+        Assert.Equal(["load_assembly an image dumped after the code ran; simplify_methods refuses A while its method bodies are restored at run time"],
+            TransformLayers.Next([layer], "A"));
+    }
+
     private const string HelperSource = """
         using System.IO;
 

@@ -60,7 +60,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
     public string Build(LoadedAssembly asm) => Build(asm, "all", out _);
 
     /// <summary>The overview text of <paramref name="view"/>, and its facts as <paramref name="summary"/>. Call under the workspace read lock.</summary>
-    public string Build(LoadedAssembly asm, string view, out Summary summary, CancellationToken ct = default)
+    public string Build(LoadedAssembly asm, string view, out Summary summary, CancellationToken ct = default, TimeSpan? transformLimit = null)
     {
         bool all = view == "all", references = all || view == "references", metadata = all || view == "metadata";
         var m = asm.Module;
@@ -99,7 +99,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
         foreach (var o in transformers) sb.AppendLine($"Transformer: {o.Name} ({o.Confidence}): {string.Join("; ", o.Evidence)}");
         if (view == "transforms")
         {
-            var layers = Simplify.TransformLayers.Read(asm, ct);
+            var layers = Simplify.TransformLayers.Read(asm, ct, transformLimit);
             var identified = transformers.ToList();
             sb.AppendLine(layers.Count == 0 ? "Transforms: none seen" : "Transforms (a simplify_methods dry run; nothing is changed):");
             foreach (var l in layers)
@@ -109,6 +109,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
                 sb.AppendLine($"  {l.Layer}: {l.State}, {string.Join("; ", evidence)}");
                 transformers.Add(new("layer: " + l.Layer, l.State, evidence));
             }
+            foreach (var n in Simplify.TransformLayers.Next(layers, asm.Id, transformLimit)) sb.AppendLine("Next: " + n);
         }
         if (view == "bindings")
         {

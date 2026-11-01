@@ -19,6 +19,8 @@ public static class TransformLayers
         LoadedAssemblies = "loaded assemblies";
 
     private const string CountedOnly = "counted-only";
+    private static readonly string TimeLimitCode = SimplifyManifest.CodeOf(FallbackReason.TimeLimit);
+    private static readonly string UnreadableCode = SimplifyManifest.CodeOf(FallbackReason.UnreadableBodies);
 
     /// <summary>The layers seen, in a fixed order; empty when none is. Call under the workspace read lock.</summary>
     public static List<TransformLayer> Read(LoadedAssembly asm, CancellationToken ct, TimeSpan? limit = null)
@@ -30,7 +32,7 @@ public static class TransformLayers
         {
             var (unreadable, total) = asm.BodyCensus;
             layers.AddRange(new[] { Constants, Proxies, ControlFlow }.Select(layer =>
-                new TransformLayer(layer, "unknown", 0, 0, ["unreadable-bodies"], $"not read: {unreadable} of {total} method bodies are not IL")));
+                new TransformLayer(layer, "unknown", 0, 0, [UnreadableCode], $"not read: {unreadable} of {total} method bodies are not IL")));
         }
         if (asm.BodyHealth is { Invalid: > 0 } health)
             layers.Add(new(EncodedBodies, "present", health.Invalid, 0, [CountedOnly], $"{health.Invalid} of {health.Bodies} method bodies are not valid IL"));
@@ -39,6 +41,23 @@ public static class TransformLayers
                 string.Join("; ", loads.Take(3).Select(l => $"{l.Call} in {Format.MemberLabel(l.Method)}" + (l.FromResource ? " (bytes from a manifest resource)" : "")))
                 + (loads.Count > 3 ? $"; +{loads.Count - 3} more" : "")));
         return layers;
+    }
+
+    /// <summary>The calls that act on the restorable or unseen layers; empty when none apply.</summary>
+    public static List<string> Next(IReadOnlyList<TransformLayer> layers, string assemblyId, TimeSpan? limit = null)
+    {
+        var next = new List<string>();
+        var restorable = layers.Where(l => l.Restored > 0 && SimplifyOptions.PassOf(l.Layer) != null).ToList();
+        if (restorable.Count > 0)
+        {
+            var passes = restorable.Select(l => $"\"{SimplifyOptions.PassOf(l.Layer)}\"");
+            next.Add($"simplify_methods assembly={assemblyId} passes=[{string.Join(",", passes)}] dryRun=false (restores {restorable.Sum(l => l.Restored)} sites)");
+        }
+        if (layers.Any(l => l.Reasons.Any(r => r.StartsWith(TimeLimitCode, StringComparison.Ordinal))))
+            next.Add($"simplify_methods assembly={assemblyId} dryRun=true covers every method; this view stopped at {(limit ?? TimeLimit).TotalSeconds:0} s");
+        if (layers.Any(l => l.Reasons.Contains(UnreadableCode)))
+            next.Add($"load_assembly an image dumped after the code ran; simplify_methods refuses {assemblyId} while its method bodies are restored at run time");
+        return next;
     }
 
     /// <summary>One "name (confidence): evidence" line per transformer explaining <paramref name="layer"/>; empty when none applies.</summary>
@@ -102,14 +121,14 @@ public static class TransformLayers
         int left = methods.Count - reached;
         var rejected = changes.Where(c => c.Rejected != null).GroupBy(c => SimplifyManifest.CodeOf(c.Rejected!.Reason))
             .Select(g => $"{g.Key}: {g.Count()} method(s) left whole").ToList();
-        if (left > 0) rejected.Add($"time-limit: {left} method(s) not reached within {limit.TotalSeconds:0} s");
+        if (left > 0) rejected.Add($"{TimeLimitCode}: {left} method(s) not reached within {limit.TotalSeconds:0} s");
 
         TransformLayer? Layer(string name, int restored, IEnumerable<Fallback> skipped, string evidence)
         {
             var kept = skipped.ToList();
             int sites = restored + kept.Count;
             if (sites == 0 && left == 0) return null;
-            var reasons = kept.GroupBy(f => SimplifyManifest.CodeOf(f.Reason)).OrderByDescending(g => g.Count()).Select(g => $"{g.Key}: {g.Count()}").Concat(sites > 0 ? rejected : rejected.Where(r => r.StartsWith("time-limit", StringComparison.Ordinal))).ToList();
+            var reasons = kept.GroupBy(f => SimplifyManifest.CodeOf(f.Reason)).OrderByDescending(g => g.Count()).Select(g => $"{g.Key}: {g.Count()}").Concat(sites > 0 ? rejected : rejected.Where(r => r.StartsWith(TimeLimitCode, StringComparison.Ordinal))).ToList();
             var state = sites == 0 ? "unknown" : restored == sites && reasons.Count == 0 ? "restored" : restored > 0 ? "partial" : "unknown";
             return new(name, state, sites, restored, reasons, sites == 0 ? "no site in the methods read" : evidence);
         }
