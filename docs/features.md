@@ -8,7 +8,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 - Metadata and patching: [dnlib](https://github.com/0xd4d/dnlib) and a `System.Reflection.Metadata` IL scanner.
 - C# patching: Roslyn.
 - .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd), with the dumped runtime's DAC, signature-checked first.
-- Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
+- Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz); ACE archives are listed from their headers.
 - Archive and disk image entries with `..`, rooted, drive or stream names, a trailing blank or dot, a file and folder of one name, or the hidden attribute are named in the notes and reported as review findings by `summarize_file`; RAR 5 stream records are listed.
 - An executable two or more containers deep (an archive inside an archive) is a review finding in `summarize_file`.
 - On Windows, `summarize_file` lists the file's `Zone.Identifier` stream (`ZoneId`, `HostUrl`, `ReferrerUrl`) in the highlights.
