@@ -387,6 +387,57 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.All(ambiguous.Items, r => Assert.NotEmpty(r.Candidates!));
     }
 
+    [Fact]
+    public async Task Paths_are_loaded_once_and_offset_paging_reuses_the_kept_match()
+    {
+        using var h = new Harness();
+        var oldPath = h.Dir.File("old.dll");
+        var newPath = h.Dir.File("new.dll");
+        File.WriteAllBytes(oldPath, Image(false, 0));
+        File.WriteAllBytes(newPath, Image(true, Shift));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+        var keep = new BuildPairs(h.Env.Workspace, h.Code);
+        var (first, _) = await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(oldPath, newPath, limit: 40));
+        Assert.Equal(2, h.Env.Workspace.Natives.Count);
+        var kept = (await keep.Match(oldPath, newPath, new Corvus.Native.Diff.MatchOptions(), default, default)).Match;
+        var (second, _) = await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(oldPath, newPath, offset: 40, limit: 40));
+        // A second computation would replace the kept entry.
+        Assert.Same(kept, (await keep.Match(oldPath, newPath, new Corvus.Native.Diff.MatchOptions(), default, default)).Match);
+        Assert.Equal((first.OldImage, first.NewImage, first.Matched), (second.OldImage, second.NewImage, second.Matched));
+        Assert.Equal(2, h.Env.Workspace.Natives.Count);
+    }
+
+    [Fact]
+    public async Task A_small_fuzzy_cap_note_names_the_call_with_its_arguments()
+    {
+        using var h = new Harness();
+        var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
+        var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+        var (_, text) = await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() =>
+            tools.CompareNativeImages(oldN.Id, newN.Id, codeOnly: true, minScore: 0.5, maxComparisons: 1));
+        Assert.Contains($"Next: compare_native_images oldImage={oldN.Id} newImage={newN.Id} codeOnly=true minScore=0.5 maxComparisons=4", text);
+    }
+
+    [Fact]
+    public void A_fuzzy_cap_at_the_limit_is_reported_as_the_limit_and_names_no_call()
+    {
+        Assert.Equal("; at the 1,000,000,000 limit", NativeDiffTools.FuzzyCapNext(1_000_000_000, "a", "b", ""));
+        Assert.Contains("maxComparisons=1000000000", NativeDiffTools.FuzzyCapNext(400_000_000, "a", "b", ""));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1_000_000_001)]
+    public async Task A_cap_outside_its_range_is_refused_before_any_image_loads(long cap)
+    {
+        using var h = new Harness();
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.CompareNativeImages(h.Dir.File("none.dll"), h.Dir.File("none2.dll"), maxComparisons: cap));
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+        Assert.Empty(h.Env.Workspace.Natives);
+    }
+
     /// <summary>map_address_between_builds: a batch with a bad address succeeds with failed=1; every address bad is an error.</summary>
     [Fact]
     public async Task Address_batch_reports_a_bad_address_per_item()

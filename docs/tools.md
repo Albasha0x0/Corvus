@@ -1878,22 +1878,23 @@ Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`,
 
 **Compare native builds** (read-only, idempotent, open-world, long-running)
 
-Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched and ambiguous functions, and capabilities added or removed.
+Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched, ambiguous, capabilities.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string |  |  | Old build: image id or path. |
 | `newImage` | string |  |  | New build: image id or path. |
-| `view` | string |  | `pairs` | changed: code differs; ambiguous: with candidates; wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
-| `tier` | integer |  | `0` | Only pairs of this tier: 1 name or bytes .. 5 fuzzy; 0 for all. |
+| `view` | string |  | `pairs` | changed: code differs; ambiguous: candidates; wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
+| `tier` | integer |  | `0` | Only tier 1 (name, bytes) .. 5 (fuzzy); 0 all. |
 | `codeOnly` | boolean |  |  | Match by code, not names. |
-| `minScore` | number |  | `0.7` | Least similarity for a fuzzy match (0-1). |
+| `minScore` | number |  | `0.7` | Least fuzzy score (0-1). |
+| `maxComparisons` | integer |  | `40000000` | Fuzzy comparison cap, 1-1e9. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `40` |  |
 | `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead: a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...). |
 | `newResult` | string |  |  | The new side, from the same tool. |
-| `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory instead (no newImage). Values: ida, ghidra. |
+| `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory. Values: ida, ghidra. |
 
 Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

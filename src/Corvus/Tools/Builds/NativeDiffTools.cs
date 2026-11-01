@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -18,8 +19,10 @@ namespace Corvus.Tools;
 /// <summary>Two builds of one native image: function matching, carrying names and addresses forward, and rebuild-stable code patterns.</summary>
 [McpServerToolType]
 public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null,
-    Services.Analysis.InspectionService? inspection = null, ServerOptions? serverOptions = null, Native.Providers.Worker.WorkerPool? workers = null)
+    Services.Analysis.InspectionService? inspection = null)
 {
+    private const long MaxFuzzyCap = 1_000_000_000;
+
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
     private const string OldDescription = "Old build: image id or path.";
@@ -162,21 +165,21 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record ImageError(string Image, BatchError Error);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
-    [Description("Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched and ambiguous functions, and " +
-                 "capabilities added or removed.")]
+    [Description("Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched, ambiguous, capabilities.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
-        [Description("changed: code differs; ambiguous: with candidates; wasm: interface.")] string view = "pairs",
-        [Description("Only pairs of this tier: 1 name or bytes .. 5 fuzzy; 0 for all.")] int tier = 0,
+        [Description("changed: code differs; ambiguous: candidates; wasm: interface.")] string view = "pairs",
+        [Description("Only tier 1 (name, bytes) .. 5 (fuzzy); 0 all.")] int tier = 0,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
-        [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
+        [Description("Least fuzzy score (0-1).")] double minScore = 0.7,
+        [Description("Fuzzy comparison cap, 1-1e9.")] long maxComparisons = 40_000_000,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 40,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(OldResultDescription)] string? oldResult = null,
         [Description(NewResultDescription)] string? newResult = null,
-        [Description("ida or ghidra: compare oldImage's file with that engine's memory instead (no newImage).")] string? engine = null,
+        [Description("ida or ghidra: compare oldImage's file with that engine's memory.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -188,43 +191,25 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous" or "interface"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched, ambiguous or interface");
         offset = Math.Max(0, offset);
-        NativeView result;
-        if (IsolatedFiles(oldImage, newImage))
-        {
-            var args = new FileWork.CompareNativeArgs(oldImage!, newImage!, v, tier, codeOnly, minScore, offset, limit);
-            result = await FileIsolation.RunAsync(serverOptions, workers, FileWork.CompareNative, args, oldImage!,
-                () => ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken).GetAwaiter().GetResult(),
-                cancellationToken);
-        }
-        else result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         return ToolOutput.List(result.Rows, offset, limit, result.Total,
             r => result.Interface ? $"{r.OldName}  {r.Reason}" + (r.Old != null ? $"  was {r.Old}" : "") + (r.New != null ? $"  now {r.New}" : "") : RowText(r),
             page => result.Record with { Items = page }, result.Noun, result.Head);
     });
 
-    /// <summary>True when both sides are files no image of this server holds, so a files worker can load them; ids and loaded paths stay in the server.</summary>
-    internal bool IsolatedFiles(string? oldImage, string? newImage) =>
-        serverOptions != null && Targets.IsolatedFiles(workspace, oldImage, newImage);
-
-    /// <summary>The comparison of two files through the services of a worker, which has no images loaded.</summary>
-    internal static Task<NativeView> ViewOfFiles(IServiceProvider services, FileWork.CompareNativeArgs a, CancellationToken ct)
-    {
-        var tools = new NativeDiffTools(services.GetRequiredService<AssemblyWorkspace>(), services.GetRequiredService<NativeCodeService>(),
-            inspection: services.GetRequiredService<Services.Analysis.InspectionService>());
-        return tools.ViewOf(a.OldImage, a.NewImage, a.View, a.Tier, a.CodeOnly, a.MinScore, a.Offset, a.Limit, default, ct);
-    }
-
     /// <summary>The matched builds as one page of view <paramref name="v"/>; <paramref name="progress"/> may have no sink.</summary>
-    internal async Task<NativeView> ViewOf(string? oldImage, string? newImage, string v, int tier, bool codeOnly, double minScore, int offset, int limit,
+    internal async Task<NativeView> ViewOf(string? oldImage, string? newImage, string v, int tier, bool codeOnly, double minScore, long maxComparisons, int offset, int limit,
         ProgressSpan progress, CancellationToken cancellationToken)
     {
+        if (maxComparisons is < 1 or > MaxFuzzyCap)
+            throw new ToolError(ErrorCode.InvalidArgument, $"maxComparisons must be 1-{MaxFuzzyCap:N0}, not {maxComparisons}.", "use a value in 1-1000000000; default 40000000");
+        if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.", "use 0 for all or 1-5");
+        if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.", "use a value in 0-1");
         var (oldNative, newNative) = await Task.Run(() => (Targets.Native(workspace, oldImage), Targets.Native(workspace, newImage)), cancellationToken);
         if (oldNative.Image is WasmImage oldWasm && newNative.Image is WasmImage newWasm)
             return await Task.Run(() => CompareWasm(oldNative.Id, oldWasm, newNative.Id, newWasm, v, offset, limit, cancellationToken), cancellationToken);
         if (v == "interface") throw new ToolError(ErrorCode.InvalidArgument, "view=interface compares two WebAssembly modules.", "use pairs, changed, unmatched or ambiguous");
-        if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.");
-        if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
-        var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore }, progress, cancellationToken);
+        var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore, MaxFuzzyComparisons = maxComparisons }, progress, cancellationToken);
         var match = pair.Match;
         var o = match.Old.Index;
         var n = match.New.Index;
@@ -251,7 +236,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         int identical = match.Pairs.Count(p => Identical(match, p));
         var tiers = Enumerable.Range(1, 5).Select(t => new TierCount(t, MatchResult.TierNames[t], match.Pairs.Count(p => p.Tier == t))).ToList();
         var record = new NativeComparison(pair.Old.Id, pair.New.Id, match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, identical,
-            match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v, [], offset, rows.Count, Notes(match));
+            match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v, [], offset, rows.Count, Notes(match, pair.Old.Id, pair.New.Id, ViewArguments(v, codeOnly, minScore)));
         var head = new System.Text.StringBuilder($"{record.OldImage} -> {record.NewImage}: {record.Matched} of {record.OldFunctions} old functions matched " +
             $"({identical} identical, {record.Changed} changed); {record.UnmatchedOld} old and {record.UnmatchedNew} new unmatched, {record.Ambiguous} ambiguous. " +
             $"Tiers: {string.Join(", ", tiers.Select(t => $"{t.Tier} {t.Name} {t.Pairs}"))}.\n");
@@ -466,7 +451,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                     : $"{f.Target}: {f.OldFunction ?? "-"} {f.OldAddress ?? "-"} -> {f.NewFunction ?? "-"} {f.NewAddress ?? "-"}: {f.Summary}\n");
             text.Append("Rows: diff_function with one address.\n");
             return ToolOutput.Report(text.ToString(), new FunctionDiffReport(pair.Old.Id, pair.New.Id, null, null, null, null, null, null, null, v, null,
-                0, 0, 0, 0, [], 0, 0, null, summaries, Notes(pair.Match)));
+                0, 0, 0, 0, [], 0, 0, null, summaries, Notes(pair.Match, pair.Old.Id, pair.New.Id)));
         }
 
         var r = await DiffOne(pair, differ, address!, s == "old", v, context, engine, cancellationToken);
@@ -553,7 +538,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var n = match.New.Index;
         var index = fromOld ? o : n;
         uint rva = NativeCodeTools.Address(index, address);
-        var notes = Notes(match);
+        var notes = Notes(match, oldNative.Id, newNative.Id);
         FunctionDiffReport Empty(string summary, string? oldName, string? newName, string? oldVa, string? newVa, IReadOnlyList<MatchCandidate>? candidates) =>
             new(oldNative.Id, newNative.Id, oldName, newName, oldVa, newVa, null, null, null, v, summary, 0, 0, 0, 0, [], 0, 0, candidates, null, notes);
         if (index.FunctionAt(rva) is not { } fn || !(fromOld ? match.Old : match.New).ByStart.TryGetValue(fn.Start, out var fi))
@@ -723,7 +708,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             items.AddRange(layer.Names.OrderBy(x => x.Key).Select(x => new MigrationSource("name", source, x.Key, x.Value)));
             if (comments) items.AddRange(layer.Comments.OrderBy(x => x.Key).Select(x => new MigrationSource("comment", source, x.Key, x.Value)));
         }
-        var notes = Notes(match);
+        var notes = Notes(match, oldNative.Id, newNative.Id, codeOnly ? " codeOnly=true" : "");
         if (items.Count == 0)
             notes.Add($"{oldNative.Id} has no {string.Join(" / ", layers.Select(l => l.Id()))} names or comments to carry over");
 
@@ -1003,7 +988,16 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private Task<LoadedNative> Resolve(string image, CancellationToken ct) => pairs.Resolve(image, ct);
 
-    private static List<string> Notes(MatchResult match)
+    private static string ViewArguments(string view, bool codeOnly, double minScore) =>
+        (view == "pairs" ? "" : $" view={view}") + (codeOnly ? " codeOnly=true" : "") + (minScore == 0.7 ? "" : $" minScore={minScore.ToString("R", CultureInfo.InvariantCulture)}");
+
+    /// <summary>The suffix of the fuzzy cap note: the repeated call with a 4x cap, or the limit when the cap is already at it.</summary>
+    internal static string FuzzyCapNext(long cap, string oldId, string newId, string arguments) => cap < MaxFuzzyCap
+        ? $"; Next: compare_native_images oldImage={oldId} newImage={newId}{arguments} maxComparisons={Math.Min(cap * 4, MaxFuzzyCap)}"
+        : $"; at the {MaxFuzzyCap:N0} limit";
+
+    /// <summary>Match notes, with the fuzzy cap note extended by <see cref="FuzzyCapNext"/>.</summary>
+    private static List<string> Notes(MatchResult match, string oldId, string newId, string arguments = "")
     {
         var notes = new List<string>(match.Notes);
         if (match.Old.Failed + match.New.Failed > 0)
@@ -1011,6 +1005,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         foreach (var t in match.Old.Index.Truncations) notes.Add("old: " + t);
         foreach (var t in match.New.Index.Truncations) notes.Add("new: " + t);
         if (!match.Options.UseNames) notes.Add("names were not used (useNames=false)");
+        var cap = match.Options.MaxFuzzyComparisons;
+        for (var i = 0; i < notes.Count; i++)
+            if (notes[i].StartsWith(MatchOptions.FuzzyCapNote, StringComparison.Ordinal))
+                notes[i] += FuzzyCapNext(cap, oldId, newId, arguments);
         return notes;
     }
 

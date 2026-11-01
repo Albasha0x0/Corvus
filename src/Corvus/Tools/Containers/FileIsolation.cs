@@ -85,7 +85,7 @@ internal sealed class FileOps : IWorkerOps
         Entry(FileWork.Strings), Entry(FileWork.Embedded), Entry(FileWork.Survey), Entry(FileWork.ExportPackage),
         Entry(FileWork.AndroidManifest), Entry(FileWork.AndroidResources), Entry(FileWork.AndroidResource),
         Entry(FileWork.DexClasses), Entry(FileWork.DexClass), Entry(FileWork.DexSmali), Entry(FileWork.DexSearch), Entry(FileWork.DexReferences),
-        Entry(FileWork.CompareFolders), Entry(FileWork.CompareNative),
+        Entry(FileWork.CompareFolders),
     ];
 
     private static (string, string, WorkerOp) Entry<TArgs, TResult>(FileOp<TArgs, TResult> op) => (op.Name, op.Tool, Op(op));
@@ -220,15 +220,9 @@ public static class FileWork
 
     public sealed record CompareFoldersArgs(string OldPath, string NewPath, string? Change, bool? CaseSensitive, string? Exclude, int MaxEntries, int Offset, int Limit, bool Diffs);
 
-    public sealed record CompareNativeArgs(string OldImage, string NewImage, string View, int Tier, bool CodeOnly, double MinScore, int Offset, int Limit);
-
     /// <summary>compare_folders over two paths, with the package and lockfile changes of the call.</summary>
     public static readonly FileOp<CompareFoldersArgs, FolderTools.FolderComparison> CompareFolders = new("folder_compare", "compare_folders",
         (services, a, ct) => FolderTools.CompareWith(services.GetRequiredService<FolderCompare>(), a, null, ct));
-
-    /// <summary>compare_native_images over two files the worker loads itself.</summary>
-    public static readonly FileOp<CompareNativeArgs, NativeDiffTools.NativeView> CompareNative = new("native_compare", "compare_native_images",
-        (services, a, ct) => NativeDiffTools.ViewOfFiles(services, a, ct).GetAwaiter().GetResult());
 
     /// <summary>extract_strings over a file.</summary>
     public static readonly FileOp<StringsArgs, InspectionService.ValueReport> Strings = new("file_strings", "extract_strings",

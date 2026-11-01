@@ -224,19 +224,6 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
         await ReadsAsync(session, zip);
     }
 
-    [Fact]
-    public async Task A_compare_native_images_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
-    {
-        var (zip, _, library, _) = Inputs();
-        using var pool = Pool();
-        using var shared = WorkerPool.UseShared(pool);
-        await using var session = await Session(false);
-        var failed = Whole(await Call(session, "compare_native_images", new() { ["oldImage"] = Fixture("image.bin", Corvus.Tools.FileOps.FixtureMarker + "exit"), ["newImage"] = library }));
-        Assert.Contains("Error (provider_unavailable)", failed);
-        Assert.Contains("image.bin", failed);
-        await ReadsAsync(session, zip);
-    }
-
     [Theory]
     [InlineData("get_android_manifest")]
     [InlineData("list_android_resources")]

@@ -16,6 +16,9 @@ public sealed record MatchOptions
     /// <summary>Cap on similarity computations of the fuzzy tier (per round).</summary>
     public long MaxFuzzyComparisons { get; init; } = 40_000_000;
 
+    /// <summary>Start of the note reported when the fuzzy tier stops at <see cref="MaxFuzzyComparisons"/>.</summary>
+    public const string FuzzyCapNote = "fuzzy matching stopped";
+
     public string Key => $"{UseNames}|{MinScore:R}|{Margin:R}|{NeighborScore:R}|{MaxFuzzyComparisons}";
 }
 
@@ -437,7 +440,7 @@ public sealed class BuildMatcher
             if (top.Count > 0) oldTop[o] = top;
             if (capped) break;
         }
-        if (capped) _notes.Add($"fuzzy matching stopped after {_options.MaxFuzzyComparisons:N0} comparisons; some unmatched functions were not compared");
+        if (capped) _notes.Add($"{MatchOptions.FuzzyCapNote} after {_options.MaxFuzzyComparisons:N0} comparisons; some unmatched functions were not compared");
 
         int accepted = 0;
         foreach (var (o, top) in oldTop)
