@@ -220,6 +220,40 @@ public sealed class ChmTests
     }
 
     [Fact]
+    public void An_image_cut_inside_the_directory_is_refused_as_malformed()
+    {
+        var image = Chm([("/a.htm", "<p>"u8.ToArray())], []);
+        var ex = Assert.Throws<ToolError>(() => ChmFile.Read(image[..(0x60 + 0x20)], "help.chm", default));
+        Assert.Equal(ErrorCode.MalformedInput, ex.Code);
+        Assert.Contains("runs past the file", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_directory_without_an_itsp_header_is_named()
+    {
+        var image = Chm([("/a.htm", "<p>"u8.ToArray())], []);
+        image[0x60] = (byte)'X';
+        var ex = Assert.Throws<ToolError>(() => ChmFile.Read(image, "help.chm", default));
+        Assert.Contains("no ITSP header", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_header_shorter_than_the_fixed_size_is_not_a_help_image()
+    {
+        var image = Chm([], []);
+        Assert.False(ChmFile.Looks(image.AsSpan(0, 0x5F)));
+        Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => ChmFile.Read(image[..0x5F], "help.chm", default)).Code);
+    }
+
+    [Fact]
+    public void An_image_with_no_files_lists_nothing_and_extracts_nothing()
+    {
+        var c = Open(Chm([], []), allFiles: true);
+        Assert.Empty(c.Items);
+        Assert.Empty(c.Entries!);
+    }
+
+    [Fact]
     [FuzzEntry(typeof(ChmReader), typeof(ChmFile))]
     public void Fuzzed_help_images_never_throw_past_a_tool_error()
     {

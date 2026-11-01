@@ -100,6 +100,40 @@ public sealed class RtfObjectTests
     }
 
     [Fact]
+    public void A_template_with_escaped_backslashes_is_a_remote_share()
+    {
+        var facts = View(@"{\rtf1{\*\template \\\\host\\share\\t.dotm}}")!;
+        Assert.Contains(facts.Links, l => l is { Type: "template" } && l.Target == @"\\host\share\t.dotm");
+    }
+
+    [Fact]
+    public void An_object_cut_before_its_closing_braces_is_still_reported()
+    {
+        var hex = Convert.ToHexString(EmbeddedHeader("Equation.3", [1, 2, 3, 4]));
+        var view = Inspect(Encoding.Latin1.GetBytes(@"{\rtf1{\object\objemb{\*\objclass Equation.3}{\*\objdata " + hex))!;
+        Assert.Contains(view.Findings!, f => f is { Rule: "office/ole-class", Level: "noteworthy" } && f.Evidence.StartsWith("Equation Editor 3.0", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Binary_data_inside_object_data_is_noted_as_not_hexadecimal()
+    {
+        var facts = View(@"{\rtf1{\object\objemb{\*\objclass Equation.3}{\*\objdata 0105\bin4 abcd}}}")!;
+        Assert.Contains(facts.Notes, n => n.Contains("not hexadecimal", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_object_without_a_class_or_data_reports_no_finding()
+    {
+        Assert.Empty(Inspect(Encoding.Latin1.GetBytes(@"{\rtf1{\object\objemb}}"), "office")!.Findings!);
+    }
+
+    [Fact]
+    public void A_bare_rtf_signature_yields_no_view()
+    {
+        Assert.Null(Inspect(Encoding.Latin1.GetBytes(@"{\rtf1")));
+    }
+
+    [Fact]
     public void The_class_table_names_each_class_by_progid_and_class_id()
     {
         Assert.Equal("Equation Editor 3.0", OleClasses.FromClsid(new("0002CE02-0000-0000-C000-000000000046"))!.Name);
