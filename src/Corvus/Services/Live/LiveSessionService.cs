@@ -142,8 +142,8 @@ public sealed class LiveSession
     internal Action<string>? Notice { get; set; }
     /// <summary>The time left before the idle limit closes the session.</summary>
     public TimeSpan IdleLeft => LastUsed + IdleLimit - Clock.GetUtcNow();
-    /// <summary>Whether closing ends the program: a started one, unless idle closed it.</summary>
-    public bool EndsProgram => Spawned && CloseReason != IdleReason;
+    /// <summary>Whether closing ends the program: a started one, which runs in the worker's job.</summary>
+    public bool EndsProgram => Spawned;
     internal const string IdleReason = "idle";
 
     /// <summary>Restarts the idle limit; a call that uses the session does this.</summary>
@@ -306,7 +306,9 @@ public sealed class LiveSession
             Add("exit", null, null, "session closed (" + reason + ")");
             Closed = true;
             if (reason == IdleReason)
-                Notice?.Invoke($"{Id}: closed after {IdleLimit.TotalMinutes:0.##} min unused; pid {ProcessId} {(Spawned ? "keeps running, detached" : "was left detached")}. Next: live_session action=attach program={ProcessId}");
+                Notice?.Invoke($"{Id}: closed after {IdleLimit.TotalMinutes:0.##} min unused; pid {ProcessId} " + (Spawned
+                    ? $"was ended. Next: live_events session={Id} reads what it did"
+                    : $"was left detached. Next: live_session action=attach program={ProcessId}"));
             return true;
         }
     }

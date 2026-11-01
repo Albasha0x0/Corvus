@@ -73,7 +73,7 @@ public sealed class LiveNoticeTests : LiveSessionTestBase
     }
 
     [Fact]
-    public async Task The_idle_limit_closes_the_session_and_keeps_a_started_program()
+    public async Task The_idle_limit_closes_the_session_and_ends_a_started_program()
     {
         var clock = new FakeTimeProvider();
         _service.Time = clock;
@@ -82,11 +82,10 @@ public sealed class LiveNoticeTests : LiveSessionTestBase
         clock.Advance(TimeSpan.FromMinutes(31));
         for (var i = 0; i < 500 && s.Ended == null; i++) await Task.Delay(20);
         Assert.Equal("idle", s.CloseReason);
-        Assert.False(_backend.LastCloseEnd);
-        Assert.StartsWith("detached when the session closed (idle)", s.Ended);
+        Assert.True(_backend.LastCloseEnd);
+        Assert.StartsWith("ended when the session closed (idle)", s.Ended);
         var notice = Assert.Single(_workspace.DrainNotices(), n => n.Contains("min unused"));
-        Assert.Contains("keeps running, detached", notice);
-        Assert.Contains("Next: live_session action=attach program=", notice);
+        Assert.Contains("was ended. Next: live_events session=live-1", notice);
     }
 
     [Fact]

@@ -160,12 +160,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         Output.WriteLine($"closed after {clock.Elapsed.TotalSeconds:F1} s");
         Assert.Contains($"pid {pid}, closed", status);
         Assert.InRange(clock.Elapsed.TotalSeconds, 55, 90);
-        // The idle limit detaches the program; it keeps running until ended here.
-        using (var program = Process.GetProcessById(pid))
-        {
-            Assert.False(program.HasExited, "the idle limit ended the program");
-            program.Kill();
-        }
+        Ended(pid);
         // The close's own event follows the state, once the session's worker has shut down.
         string exits = "";
         for (int i = 0; i < 100 && !exits.Contains("session closed (idle)"); i++)
