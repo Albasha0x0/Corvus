@@ -62,7 +62,7 @@ public class ReferenceResolutionTests : IDisposable
         Assert.NotNull(resolved);
         Assert.Same(siblingBase.Module, resolved!.Module);
         Assert.Contains("loaded as Base#2", ws.Read(() => new AssemblyReport(ws, new AotMetadataService(ws)).Build(app)));
-        Assert.Contains("typeof(New)", new DecompilerService(ws, new ServerOptions()).DecompileMembers(app,
+        Assert.Contains("typeof(New)", new DecompilerService(ws).DecompileMembers(app,
             [ws.Read(() => app.Module.Types.Single(t => t.Name == "App").Methods.Single(m => m.Name == "T"))], default));
     }
 

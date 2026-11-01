@@ -29,7 +29,7 @@ public sealed class Env : IDisposable
     {
         Workspace = new AssemblyWorkspace(Options);
         Pager = new OutputPager(Options);
-        Decompiler = new DecompilerService(Workspace, Options);
+        Decompiler = new DecompilerService(Workspace);
         References = new ReferenceService(Workspace);
         AotMetadata = new AotMetadataService(Workspace);
         MetadataStrings = new AotStringService(Workspace, AotMetadata);

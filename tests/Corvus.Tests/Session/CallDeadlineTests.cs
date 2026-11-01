@@ -271,6 +271,42 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_repeat_after_the_deadline_joins_the_running_scan()
+    {
+        var clock = new ArmedClock();
+        using var services = Services(time: clock);
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var asm = workspace.Load(typeof(AssemblyWorkspace).Assembly.Location);
+        var release = new TaskCompletionSource();
+        var started = new TaskCompletionSource();
+        int visits = 0;
+        async Task<CallToolResult> Work(CancellationToken ct)
+        {
+            var found = await Task.Run(() => workspace.Read(() => MetadataUtil.ParallelCollect<int>([asm], (_, _, hits) =>
+            {
+                // The first visit blocks until the repeat is running.
+                if (Interlocked.Increment(ref visits) == 1) { started.TrySetResult(); release.Task.Wait(ct); }
+                hits.Add(1);
+            }, ct)), ct);
+            return new CallToolResult { Content = [new TextContentBlock { Text = $"found {found.Count}" }] };
+        }
+        var first = Run(services, "search_strings", Work).AsTask();
+        await started.Task.WaitAsync(TimeSpan.FromMinutes(1));
+        await clock.RunUntilAsync(first);
+        var timedOut = McpProtocolTests.ErrorJson(await first);
+        Assert.StartsWith("repeat the same call", timedOut.GetProperty("next").GetString());
+        int types = workspace.Read(() => asm.Module.GetTypes().Count());
+        Assert.Equal(types, timedOut.GetProperty("partial").GetProperty("typesTotal").GetInt32());
+        Assert.InRange(timedOut.GetProperty("partial").GetProperty("typesSearched").GetInt32(), 0, types - 1);
+
+        var repeat = Run(services, "search_strings", Work).AsTask();
+        release.SetResult();
+        var text = ((TextContentBlock)(await repeat.WaitAsync(TimeSpan.FromMinutes(1))).Content[0]).Text;
+        Assert.Equal($"found {types}", text);
+        Assert.Equal(types, visits);
+    }
+
+    [Fact]
     public async Task A_call_that_stopped_at_its_deadline_is_not_retryable()
     {
         var clock = new ArmedClock();

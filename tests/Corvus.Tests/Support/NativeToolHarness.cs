@@ -66,7 +66,7 @@ internal sealed class NativeToolHarness : IDisposable
         Functions = new NativeFunctionTools(Workspace, Code, Pager);
         Features = new NativeFeatureTools(Workspace, Code, Pager);
         var aot = new AotMetadataService(Workspace);
-        Resources = new ResourceTools(Workspace, new ResourceService(), new DecompilerService(Workspace, Options), Pager);
+        Resources = new ResourceTools(Workspace, new ResourceService(), new DecompilerService(Workspace), Pager);
         WorkspaceTools = new WorkspaceTools(Workspace, aot, new IndexingService(Workspace, new CallGraphService(Workspace), Options), new UnpackService(Workspace));
     }
 

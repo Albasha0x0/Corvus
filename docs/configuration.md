@@ -94,7 +94,7 @@ Name the programs a session may start or attach to:
 | `--load <path>` | `CORVUS_LOAD` (`;`-separated) | | load a file or folder at startup (repeatable) |
 | `--search-dir <dir>` | | | extra folder for resolving references (repeatable) |
 | `--max-output <chars>` | | 60000 | page size of long results (minimum 2000) |
-| `--timeout <s>` | | 180 | per-call decompilation limit (minimum 5) |
+| `--timeout <s>` | | 180 | call deadline base, twice this per call (minimum 5) |
 | `--no-index` | | | no background method index or call graph after loading |
 | `--no-watch` | | | no reload when loaded files change on disk |
 | `--client <id>` | `CORVUS_CLIENT` | detected | the client's limits ([client table](installation.md#clients)); written by `corvus install` |

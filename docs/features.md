@@ -557,7 +557,7 @@ Pass the name as `view=`.
 | Invisible names | zero-width, bidi and control characters shown as `\uXXXX` |
 | Large output | paged by tokens; overflow kept for `read_result` |
 | Files changing on disk | clean assemblies reload; edited ones stay and the agent is told |
-| Long calls | `--timeout` per decompilation (default 180 s); `timeout` error at twice that |
+| Long calls | `--timeout` sets the call deadline base (default 180 s); `timeout` error at twice that |
 | Crashing inputs | file reads run in a worker process; the server keeps answering |
 | Invalid patches | IL is stack-validated, C# compiled; nothing changes on failure |
 

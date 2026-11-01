@@ -107,7 +107,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     {
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions();
-        var decompiler = new Services.DecompilerService(ws, options);
+        var decompiler = new Services.DecompilerService(ws);
         var search = new Services.SearchService();
         var references = new Services.ReferenceService(ws);
         var sw = Stopwatch.StartNew();
@@ -183,7 +183,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         }
 
         var options = new ServerOptions();
-        var decompiler = new Services.DecompilerService(ws, options);
+        var decompiler = new Services.DecompilerService(ws);
         var sample = ws.Assemblies.SelectMany(a => a.Module.Types.Skip(1).Take(3).Select(t => (a, t))).Take(60).ToList();
         foreach (var (asm, t) in sample)
             Assert.False(string.IsNullOrWhiteSpace(decompiler.DecompileType(asm, t, default)));
@@ -224,7 +224,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         if (flagged.Count == 0) return; // no encrypted code in this folder
         var asm = flagged[0];
         var method = env.Workspace.Read(() => asm.Module.GetTypes().SelectMany(t => t.Methods).First(asm.BodyHealth.IsInvalid));
-        var code = new Services.DecompilerService(env.Workspace, new ServerOptions()).DecompileMembers(asm, [method], default);
+        var code = new Services.DecompilerService(env.Workspace).DecompileMembers(asm, [method], default);
         Assert.Contains("this method body is not valid IL", code);
         Assert.Contains("IL: ", env.Workspace.Read(() => new Services.AssemblyReport(env.Workspace, new Services.AotMetadataService(env.Workspace)).Build(asm)));
     }

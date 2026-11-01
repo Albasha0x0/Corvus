@@ -49,7 +49,7 @@ public sealed class IlStatementTests : IDisposable
         var path = _dir.File("Assembly-CSharp.dll");
         File.WriteAllBytes(path, Roslyn.Release("Assembly-CSharp", Source));
         _scripts = _ws.Load(path);
-        _decompiler = new DecompilerService(_ws, new ServerOptions());
+        _decompiler = new DecompilerService(_ws);
     }
 
     public void Dispose()

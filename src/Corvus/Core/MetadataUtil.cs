@@ -12,51 +12,23 @@ public sealed record SearchResult<T>(List<T> Items, int Total)
 /// <summary>dnlib metadata helpers that return nothing instead of throwing on broken bodies or references.</summary>
 public static class MetadataUtil
 {
-    /// <summary>Visits every type in parallel, results in (assembly, type) order; the visitor only reads, under the read lock.</summary>
-    public static List<T> ParallelCollect<T>(IEnumerable<LoadedAssembly> scope, Action<LoadedAssembly, TypeDef, List<T>> visit, CancellationToken ct) =>
-        ParallelCollect(scope, visit, ct, Timeout.InfiniteTimeSpan, null);
-
-    /// <summary>As above; after <paramref name="timeLimit"/> throws a timeout carrying <paramref name="describe"/>'s partial result.</summary>
-    public static List<T> ParallelCollect<T>(IEnumerable<LoadedAssembly> scope, Action<LoadedAssembly, TypeDef, List<T>> visit, CancellationToken ct,
-        TimeSpan timeLimit, Func<List<T>, object?>? describe)
+    /// <summary>Visits every type in parallel, results in (assembly, type) order; ends on completion or <paramref name="ct"/>.</summary>
+    public static List<T> ParallelCollect<T>(IEnumerable<LoadedAssembly> scope, Action<LoadedAssembly, TypeDef, List<T>> visit, CancellationToken ct)
     {
         var work = scope.SelectMany(a => a.Module.GetTypes().Select(t => (Assembly: a, Type: t))).ToArray();
         var buckets = new List<T>?[work.Length];
-        int searched = 0;
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        if (timeLimit == Timeout.InfiniteTimeSpan) { }
-        else if (timeLimit <= TimeSpan.Zero) limit.Cancel();
-        else limit.CancelAfter(timeLimit);
-        try
+        var progress = ScanProgress.Current;
+        progress?.Start(work.Length);
+        // Capped: uncapped, it took every pool thread and visitors waiting on pool work stalled.
+        Parallel.For(0, work.Length, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
         {
-            // Capped: uncapped, it took every pool thread and visitors waiting on pool work stalled until the time limit.
-            Parallel.For(0, work.Length, new ParallelOptions { CancellationToken = limit.Token, MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
-            {
-                var found = new List<T>();
-                visit(work[i].Assembly, work[i].Type, found);
-                if (found.Count > 0) Volatile.Write(ref buckets[i], found);
-                Interlocked.Increment(ref searched);
-            });
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested && limit.IsCancellationRequested)
-        {
-            var sofar = Collect(buckets);
-            throw new ToolError(ErrorCode.Timeout,
-                $"stopped at the {timeLimit.TotalSeconds:0.#} s time limit after searching {Volatile.Read(ref searched):N0} of {work.Length:N0} types ({sofar.Count:N0} results so far).",
-                "narrow the search (assembly=..., a more specific query); the server's --timeout option sets the limit")
-            {
-                Partial = new { typesSearched = Volatile.Read(ref searched), typesTotal = work.Length, resultsFound = sofar.Count, results = describe?.Invoke(sofar) },
-            };
-        }
-        return Collect(buckets);
-
-        static List<T> Collect(List<T>?[] buckets)
-        {
-            var result = new List<T>();
-            for (int i = 0; i < buckets.Length; i++)
-                if (Volatile.Read(ref buckets[i]) is { } b) result.AddRange(b);
-            return result;
-        }
+            var found = new List<T>();
+            // The visitor only reads, under the read lock.
+            visit(work[i].Assembly, work[i].Type, found);
+            if (found.Count > 0) Volatile.Write(ref buckets[i], found);
+            progress?.Visited();
+        });
+        return [.. buckets.Where(b => b != null).SelectMany(b => b!)];
     }
 
     public static CilBody? SafeBody(MethodDef m)

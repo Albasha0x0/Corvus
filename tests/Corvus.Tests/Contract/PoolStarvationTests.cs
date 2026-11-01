@@ -172,13 +172,14 @@ public class PoolStarvationTests(Xunit.Abstractions.ITestOutputHelper output)
         using var workspace = new Corvus.Core.AssemblyWorkspace(new Corvus.Core.ServerOptions());
         var asm = workspace.Load(typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location);
         int running = 0, peak = 0;
-        Assert.Throws<Corvus.Core.ToolError>(() => Corvus.Core.MetadataUtil.ParallelCollect<int>([asm], (_, _, _) =>
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+        Assert.ThrowsAny<OperationCanceledException>(() => Corvus.Core.MetadataUtil.ParallelCollect<int>([asm], (_, _, _) =>
         {
             int now = Interlocked.Increment(ref running);
             for (int seen = Volatile.Read(ref peak); now > seen; seen = Volatile.Read(ref peak)) Interlocked.CompareExchange(ref peak, now, seen);
             Thread.Sleep(100);
             Interlocked.Decrement(ref running);
-        }, default, TimeSpan.FromSeconds(4), null));
+        }, stop.Token));
         Assert.InRange(peak, 1, Environment.ProcessorCount);
     }
 }

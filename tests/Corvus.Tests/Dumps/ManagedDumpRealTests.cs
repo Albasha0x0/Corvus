@@ -83,7 +83,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var dump = Crash(dll, dir.File("full.dmp"), 4);
         using var ws = new AssemblyWorkspace();
         var probe = ws.Load(dll);
-        using var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
+        using var service = new MinidumpService(ws, decompiler: new DecompilerService(ws));
 
         var summary = await service.Summarize(dump, null, default);
         var m = summary.Managed!;
@@ -351,7 +351,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var (dll, mini, full) = SelfDumps(dir);
         using var ws = new AssemblyWorkspace();
         ws.Load(dll);
-        using var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
+        using var service = new MinidumpService(ws, decompiler: new DecompilerService(ws));
 
         var small = (await service.Summarize(mini, null, default)).Managed!;
         foreach (var f in small.Exception!.Stack) output.WriteLine($"mini {f.Function} il={f.IlOffset} {f.Statement}");

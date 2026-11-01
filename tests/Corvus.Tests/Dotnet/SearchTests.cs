@@ -43,25 +43,6 @@ public class SearchTests : IDisposable
     }
 
     [Fact]
-    public void Time_limit_fails_with_what_was_found()
-    {
-        var search = new Corvus.Services.SearchService { TimeLimit = TimeSpan.Zero };
-        var error = Assert.Throws<ToolError>(() => search.SearchStrings("a", false, All, 10, default));
-        Assert.Equal(ErrorCode.Timeout, error.Code);
-        var json = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement;
-        Assert.True(json.GetProperty("retryable").GetBoolean());
-        Assert.Equal(0, json.GetProperty("partial").GetProperty("typesSearched").GetInt32());
-        Assert.True(json.GetProperty("partial").GetProperty("typesTotal").GetInt32() > 0);
-        Assert.Equal(0, json.GetProperty("partial").GetProperty("results").GetArrayLength());
-
-        // A partial result too large to send with an error is dropped and its size reported.
-        var big = System.Text.Json.JsonDocument.Parse(ToolError.ErrorJson("timeout", true, "m", null, new { text = string.Concat(Enumerable.Repeat("a,", 3 * ToolError.MaxPartialTokens)) }, new { a = 1 })).RootElement;
-        Assert.Equal(System.Text.Json.JsonValueKind.Null, big.GetProperty("partial").ValueKind);
-        Assert.Equal(1, big.GetProperty("details").GetProperty("a").GetInt32());
-        Assert.True(big.GetProperty("details").GetProperty("partialOmittedChars").GetInt32() > 3 * ToolError.MaxPartialTokens);
-    }
-
-    [Fact]
     public void Symbols_match_by_full_name_and_honour_namespace_and_limit()
     {
         var full = _env.Search.SearchSymbols("Model.Account::Charg", false, SymbolKind.Method, All, null, 100, default);

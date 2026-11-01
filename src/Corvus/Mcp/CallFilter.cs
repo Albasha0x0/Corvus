@@ -262,8 +262,10 @@ internal static partial class CallFilter
                 {
                     // The deadline ends this caller's wait only; a repeat of the call
                     // picks the run up, so the run carries no deadline of its own.
-                    var joined = joins.Run(joinKey!, token => { using var unbounded = Deadlines.Enter(null); return Work(token); }, cancellationToken, o => (Copy(o.Result), o.Output));
+                    var progress = new ScanProgress();
+                    var joined = joins.Run(joinKey!, token => { using var unbounded = Deadlines.Enter(null); ScanProgress.Begin(progress); return Work(token); }, cancellationToken, o => (Copy(o.Result), o.Output));
                     var run = Runs.GetValue(joined.Work, _ => new RunState());
+                    if (!joined.WasRunning) run.Progress = progress;
                     Interlocked.Increment(ref run.Waiting);
                     try
                     {
@@ -310,7 +312,8 @@ internal static partial class CallFilter
         catch (DeadlinePassedException ex)
         {
             if (joins != null && phase == null) AnnounceEnd(services?.GetService<AssemblyWorkspace>(), tool, ex.Work);
-            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, byCeiling, phase, bySoft), output);
+            var scan = Runs.TryGetValue(ex.Work, out var ran) ? ran.Progress : null;
+            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, byCeiling, phase, bySoft, scan), output);
         }
         catch (OperationCanceledException) when (!call.IsCancellationRequested)
         {
@@ -397,6 +400,7 @@ internal static partial class CallFilter
     {
         public int Waiting;
         public int Announced;
+        public ScanProgress? Progress;
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Task, RunState> Runs = new();
@@ -446,15 +450,17 @@ internal static partial class CallFilter
     /// <param name="phase">The step the call was in before its work started ("checking its arguments"), else null.</param>
     /// <param name="bySoft">The limit is <see cref="Deadlines.Soft"/>: the answer is "running", not a failure.</param>
     private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy, ClientLimits? client, bool joined, bool byCeiling,
-        string? phase = null, bool bySoft = false)
+        string? phase = null, bool bySoft = false, ScanProgress? scan = null)
     {
+        var searched = scan is { Total: > 0 } ? new { typesSearched = scan.Searched, typesTotal = scan.Total } : null;
         bool byClient = !byCeiling && client?.DeadlineSeconds is { } seconds && limit < TimeSpan.FromSeconds(seconds);
         if (bySoft && phase == null && blockedBy == null)
             return ErrorResult.From(new ToolError(ErrorCode.Timeout,
                 $"running: the call has not finished after {limit.TotalSeconds:0} s; its work continues in the background.",
                 "repeat the same call to pick up the running work; a [workspace] notice reports its end")
             {
-                Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = false, blockedBy, deadlineSource = "soft" },
+                Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = searched != null, blockedBy, deadlineSource = "soft" },
+                Partial = searched,
                 RetryAfter = LeftoverWork.RetryAfter,
                 Retryable = true,
             }, tool);
@@ -469,7 +475,8 @@ internal static partial class CallFilter
                 : stillRunning ? "repeat the same call" + (joined ? " to pick up the running work" : " after details.retryAfterMs, once the background work is done")
                 : "narrow the call (one member instead of a type, a smaller limit or scope)")
         {
-            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = false, blockedBy, deadlineSource = byCeiling ? "ceiling" : byClient ? client!.DeadlineSource : "server" },
+            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = searched != null, blockedBy, deadlineSource = byCeiling ? "ceiling" : byClient ? client!.DeadlineSource : "server" },
+            Partial = searched,
             RetryAfter = stillRunning ? LeftoverWork.RetryAfter : null,
             Retryable = stillRunning || blockedBy != null,
         }, tool);

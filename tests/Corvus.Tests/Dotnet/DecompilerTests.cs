@@ -77,7 +77,7 @@ public class DecompilerTests : IDisposable
     public void Caller_cancellation_is_not_a_tool_error()
     {
         using var env = new Env();
-        var decompiler = new Services.DecompilerService(env.Workspace, new ServerOptions());
+        var decompiler = new Services.DecompilerService(env.Workspace);
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         // Caller cancellation is not converted to a ToolError.
@@ -127,7 +127,7 @@ public class DecompilerTests : IDisposable
         using var held = new FileStream(dir.File("Documented.xml"), FileMode.Open, FileAccess.Read, FileShare.None);
         using var ws = new AssemblyWorkspace();
         var asm = ws.Load(path);
-        var code = ws.Read(() => new Corvus.Services.DecompilerService(ws, new ServerOptions()).DecompileType(asm, asm.Module.Find("Docs.Adder", false)!, default));
+        var code = ws.Read(() => new Corvus.Services.DecompilerService(ws).DecompileType(asm, asm.Module.Find("Docs.Adder", false)!, default));
         Assert.DoesNotContain("decompilation failed", code);
         Assert.Contains("public int Add(int a, int b)", code);
     }

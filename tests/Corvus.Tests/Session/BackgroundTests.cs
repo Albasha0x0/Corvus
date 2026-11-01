@@ -132,7 +132,7 @@ public class BackgroundTests
         Assert.True(await Eventually(() => { notices.AddRange(ws.DrainNotices()); return notices.Any(n => n.Contains("reloaded")); }), string.Join("\n", notices));
 
         // With unsaved edits the assembly is not reloaded; the client is told instead.
-        var edits = new EditService(ws, new IlAssembler(ws), new CSharpPatcher(ws, new DecompilerService(ws, new ServerOptions())));
+        var edits = new EditService(ws, new IlAssembler(ws), new CSharpPatcher(ws, new DecompilerService(ws)));
         ws.Write(() => edits.StubMethod(SymbolResolver.ResolveOne(ws, null, "Account::Score"), "1"));
         File.Copy(Env.FixturePath, path, overwrite: true);
         Assert.True(await Eventually(() => ws.DrainNotices() is { Count: > 0 } n && n.Any(x => x.Contains("unsaved edit"))));

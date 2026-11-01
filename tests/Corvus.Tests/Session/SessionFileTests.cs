@@ -28,7 +28,7 @@ public sealed class SessionFileTests : IDisposable
         {
             var options = new ServerOptions { TimeoutSeconds = 120, BackgroundIndexing = false };
             Workspace = new AssemblyWorkspace(options);
-            var decompiler = new DecompilerService(Workspace, options);
+            var decompiler = new DecompilerService(Workspace);
             Edits = new EditService(Workspace, new IlAssembler(Workspace), new CSharpPatcher(Workspace, decompiler));
             History = new EditHistoryService(Workspace, Edits, decompiler, new AssemblyComparer(Workspace));
             var annotations = new AnnotationStore(store);

@@ -8,7 +8,7 @@ namespace Corvus.Core;
 ///   --load &lt;path&gt;        assembly file or directory to load at startup (repeatable)
 ///   --search-dir &lt;dir&gt;   extra directory for resolving references (repeatable)
 ///   --max-output &lt;n&gt;     max characters per tool response page (default 60000)
-///   --timeout &lt;seconds&gt;  per-call decompilation timeout (default 180)
+///   --timeout &lt;seconds&gt;  call deadline base, twice this per call (default 180, minimum 5)
 ///   --no-index            do not index method bodies / build the call graph in the background
 ///   --no-watch            do not reload assemblies when their files change on disk
 ///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, aot or hostapi

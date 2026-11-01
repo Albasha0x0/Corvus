@@ -340,7 +340,7 @@ public sealed class AotBuildTests(ITestOutputHelper output) : IDisposable
         var export = new AotExporter(aot).Export(ws.Assemblies, _dir.File($"export-{label}"), "all", "aot", default);
         result["export_method_symbols"] = $"{export.Methods} functions, {export.Structs} structs ({watch.Elapsed.TotalSeconds:0.0} s)";
 
-        var decompiler = new DecompilerService(ws, new ServerOptions());
+        var decompiler = new DecompilerService(ws);
         var app = ws.Assemblies.FirstOrDefault(a => a.AssemblyName == "Assembly-CSharp") ?? ws.Assemblies.OrderByDescending(a => a.Module.Types.Count).First();
         var types = app.Module.Types.Where(t => !t.IsGlobalModuleType).ToList();
         int ok = 0, tried = 0;

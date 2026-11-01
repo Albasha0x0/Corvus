@@ -13,7 +13,7 @@ using Dn = dnlib.DotNet;
 namespace Corvus.Services;
 
 /// <summary>C# decompilation and IL disassembly via the ILSpy engine (ICSharpCode.Decompiler).</summary>
-public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions options)
+public sealed class DecompilerService(AssemblyWorkspace workspace)
 {
     // Weak keys: entries are collected with their assembly.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, TypeSystemEntry> _typeSystems = new();
@@ -68,7 +68,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     /// <summary>Decompiles a whole type, falling back to member-by-member output if the engine fails on the type.</summary>
     /// <param name="compilable">Escape identifiers C# cannot express, for source that is compiled again (C# patches).</param>
-    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct, bool compilable = false) => InvalidBodiesNote(asm, type) + WithTimeout(token =>
+    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct, bool compilable = false) => InvalidBodiesNote(asm, type) + RunDeep(token =>
     {
         var decompiler = CreateDecompiler(asm, token, compilable);
         try
@@ -113,7 +113,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>Decompiles each member, falling back to IL for any member that fails.</summary>
-    public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => WithTimeout(token =>
+    public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => RunDeep(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
         // Constructors shown in their type decompile the type once for all of them.
@@ -213,7 +213,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             : (Dn.IMemberDef?)type.Properties.FirstOrDefault(p => p.GetMethods.Contains(method) || p.SetMethods.Contains(method))
               ?? type.Events.FirstOrDefault(e => e.AddMethod == method || e.RemoveMethod == method || e.InvokeMethod == method);
 
-    public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(token =>
+    public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => RunDeep(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
         return asm.DecompilerNote + Print(decompiler.DecompileModuleAndAssemblyAttributes());
@@ -981,7 +981,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         {
             points = [];
             var found = points;
-            WithTimeout(token =>
+            RunDeep(token =>
             {
                 var decompiler = CreateDecompiler(asm, token);
                 var tree = decompiler.Decompile(Handle(asm, source));
@@ -1039,20 +1039,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// <summary>The member's handle in the assembly's current image, including added members.</summary>
     internal static EntityHandle Handle(LoadedAssembly asm, Dn.IMDTokenProvider member) => MetadataTokens.EntityHandle((int)asm.ImageToken(member));
 
-    private string WithTimeout(Func<CancellationToken, string> action, CancellationToken ct)
-    {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
-        try
-        {
-            return DeepStack.Run(() => action(cts.Token), "decompiler");
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new ToolError(ErrorCode.Timeout, $"Decompilation timed out after {options.TimeoutSeconds}s.",
-                "decompile one method with decompile_member, use get_il, or ask the user to restart the server with a larger --timeout");
-        }
-    }
+    // The call token is the only limit; a deadline ends the wait,
+    // not the shared run.
+    private static string RunDeep(Func<CancellationToken, string> action, CancellationToken ct) => DeepStack.Run(() => action(ct), "decompiler");
 
     private static string FirstLine(string s)
     {
