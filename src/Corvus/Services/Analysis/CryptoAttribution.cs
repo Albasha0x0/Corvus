@@ -2,9 +2,8 @@ using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Code;
-using Corvus.Services.Analysis;
 
-namespace Corvus.Tools;
+namespace Corvus.Services.Analysis;
 
 /// <summary>
 /// Function notes for block cipher routines: algorithm, mode, key size,
@@ -32,7 +31,8 @@ internal static partial class CryptoAttribution
     /// </summary>
     internal static void Notes(
         NativeCodeIndex index, NativeFunction f,
-        Action<string?, string, string> add, CancellationToken ct, long scanLimit = CryptoConstantRules.ScanLimit)
+        Action<string?, string, string> add, CancellationToken ct, long scanLimit = CryptoConstantRules.ScanLimit,
+        Found? found = null)
     {
         var image = index.Image;
         var facts = CryptoConstantRules.Facts(index, ct, scanLimit);
@@ -80,6 +80,7 @@ internal static partial class CryptoAttribution
         var own = Uses(f);
         if (own.Count == 0 && reached.Count == 0) return;
         var algorithmNames = string.Join(", ", own.Concat(reached.SelectMany(r => r.Algorithms)).Distinct());
+        found?.Algorithms.UnionWith(own.Concat(reached.SelectMany(r => r.Algorithms)));
 
         if (own.Count > 0)
             add(Va(f.Start), $"crypto: reads {string.Join(", ", own)} tables", "crypto");
@@ -94,9 +95,12 @@ internal static partial class CryptoAttribution
             if (index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
                 add(Va(f.Start), "crypto: mode not determined (loop shapes are read on x86 and x64 only)", "crypto");
             else if (BlockLoop(index, f, facts, [.. reached.Select(r => r.Site)]) is { } loop)
+            {
+                if (found is not null) found.Mode = loop.Mode;
                 add(Va(loop.Start),
                     $"crypto: mode {loop.Mode} (block={loop.Width} bytes, confidence={loop.Confidence}; "
                     + "a loop steps the block routine call)", "crypto");
+            }
             else
                 add(Va(f.Start), "crypto: mode not determined (no loop calls the block routine"
                     + (facts.Extent.Partial ? $"; {facts.Extent.Note}" : "") + ")", "crypto");
@@ -108,6 +112,8 @@ internal static partial class CryptoAttribution
             var rounds = lines.Concat(reached.SelectMany(r => Lines(index, r.Callee)))
                 .Select(x => Rounds().Match(x.Text)).Where(m => m.Success)
                 .Select(m => m.Groups[1].Value.ToUpperInvariant()).Distinct().ToList();
+            if (rounds.Count == 1 && found is not null)
+                found.AesKeyBits = rounds[0] switch { "0AH" => 128, "0CH" => 192, _ => 256 };
             add(null, rounds.Count == 1
                 ? $"crypto: AES key size {(rounds[0] switch { "0AH" => "128", "0CH" => "192", _ => "256" })} "
                   + $"bits (round count {rounds[0]} compared)"
@@ -129,6 +135,27 @@ internal static partial class CryptoAttribution
         if (path.Count > 0)
             add(null, $"crypto: local record path ({string.Join(", ", path.Take(3))}); "
                       + "stored data, not network traffic", "crypto");
+    }
+
+    /// <summary>The structured values behind the cipher notes of one function.</summary>
+    internal sealed class Found
+    {
+        /// <summary>Cipher algorithms the function reads or reaches.</summary>
+        public SortedSet<string> Algorithms { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Block mode (ECB, CBC, CTR), or null when not determined.</summary>
+        public string? Mode { get; set; }
+
+        /// <summary>AES key size in bits, or null when not determined.</summary>
+        public int? AesKeyBits { get; set; }
+    }
+
+    /// <summary>Returns the cipher values of <paramref name="f"/>; empty when it neither reads nor reaches a cipher table.</summary>
+    internal static Found Summary(NativeCodeIndex index, NativeFunction f, CancellationToken ct)
+    {
+        var found = new Found();
+        Notes(index, f, (_, _, _) => { }, ct, found: found);
+        return found;
     }
 
     private static readonly Dictionary<string, string> ShapeLabels = new()

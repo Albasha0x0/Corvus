@@ -15,6 +15,7 @@ using Corvus.Native.Itanium;
 using Corvus.Native.Msvc;
 using Corvus.Native.Providers;
 using Corvus.Services;
+using Corvus.Services.Analysis;
 using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
