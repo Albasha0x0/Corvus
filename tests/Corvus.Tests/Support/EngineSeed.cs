@@ -42,7 +42,8 @@ internal static class EngineSeed
             foreach (var file in Directory.EnumerateFiles(seed, "*", SearchOption.AllDirectories))
             {
                 var name = Path.GetFileName(file);
-                if (name is ".owner" or RecordFile || name.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)) continue;
+                // The open history is one file per cache root for all engines; the test keeps its own.
+                if (name is ".owner" or RecordFile or Corvus.Services.OpenEstimate.FileName || name.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)) continue;
                 var target = Path.Combine(cacheRoot, Path.GetRelativePath(seed, file));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(file, target); // keeps the write time the saved state is checked against
