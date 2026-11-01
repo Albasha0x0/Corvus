@@ -66,8 +66,8 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
                                           || m.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) == true).ToList();
                 var text = $"{rows.Count} module(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(m => m.Family).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
                            string.Join("\n", rows.Select(m => $"  {m.Id}{(m.Name != null && m.Name != m.Id ? " " + m.Name : "")}  [{m.Provenance}] {m.End - m.Start:N0} bytes, " +
-                                                              $"{m.Requires.Count} require(s)")) +
-                           string.Concat(notes.Select(n => "\nNote: " + n));
+                                                              $"{m.Requires.Count} require(s)"));
+                foreach (var n in notes) ToolOutput.Warn(n);
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("modules", Modules: rows.Take(500).ToList(), Total: rows.Count));
             }
             case "module":

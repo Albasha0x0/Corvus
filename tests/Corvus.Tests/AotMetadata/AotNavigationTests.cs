@@ -216,26 +216,100 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("no slots: the dummy methods carry no Slot values", one);
     }
 
+    private static Corvus.Tools.EditTools EditTools(Env env) => new(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager, env.AotMetadata);
+
+    private static async Task<(string Text, OutputCall Call)> Collected(Func<Task<string>> call)
+    {
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        return (await call(), collector);
+    }
+
     // The fixture is BuildVTableTypes, whose Base::Run has RVA 0x1400.
     [Fact]
-    public void A_stub_in_a_placeholder_assembly_names_the_native_patch()
+    public async Task A_stub_in_a_placeholder_assembly_warns_once_with_the_native_patch()
+    {
+        // A stub of an addressed method in a dummy assembly.
+        var path = _dir.File("Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildVTableTypes));
+        using var env = new Env(path);
+        var tools = EditTools(env);
+        var (applied, call) = await Collected(() => tools.StubMethod("Vt.Base::Run", dryRun: false));
+        Assert.DoesNotContain("generated placeholder", applied);
+        var warning = Assert.Single(call.Warnings);
+        Assert.StartsWith("Dummy assembly:", warning);
+        Assert.Contains("address=0x1400", warning);
+        var (_, dry) = await Collected(() => tools.StubMethod("Vt.Base::Stop", dryRun: true));
+        Assert.Equal(2, dry.Warnings.Count);
+        Assert.StartsWith("Nothing changed (dry run)", dry.Warnings[0]);
+        Assert.StartsWith("Dummy assembly:", dry.Warnings[1]);
+        Assert.DoesNotContain("placeholder", string.Join(", ", env.Fixture.Edits.Select(e => e.Description)));
+        var (saved, save) = await Collected(() => tools.SaveAssembly(env.Fixture.Id, _dir.File("Vt.out.dll")));
+        Assert.DoesNotContain("generated placeholder", saved);
+        Assert.StartsWith("Dummy assembly: the saved file is", Assert.Single(save.Warnings));
+    }
+
+    [Fact]
+    public async Task A_stub_note_reaches_the_text_and_the_structured_record_once()
+    {
+        // A stub of an addressed method in a dummy assembly, through the result filter.
+        var path = _dir.File("Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildVTableTypes));
+        using var env = new Env(path);
+        var (text, call) = await Collected(() => EditTools(env).StubMethod("Vt.Base::Run", dryRun: false));
+        var result = new ModelContextProtocol.Protocol.CallToolResult { Content = [new ModelContextProtocol.Protocol.TextContentBlock { Text = text }] };
+        var finished = Corvus.Mcp.ToolOutput.Finish(call, result, false, false, null, new System.Text.Json.Nodes.JsonObject());
+        var shown = string.Concat(finished.Result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+        Assert.Equal(1, shown.Split("Warning: Dummy assembly:").Length - 1);
+        var warnings = finished.Result.StructuredContent!.Value.GetProperty("warnings");
+        Assert.Equal(1, warnings.GetArrayLength());
+        Assert.StartsWith("Dummy assembly:", warnings[0].GetString());
+    }
+
+    [Fact]
+    public async Task A_type_rename_in_a_placeholder_assembly_saves_without_a_dummy_note()
     {
         var path = _dir.File("Vt.dll");
         File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildVTableTypes));
         using var env = new Env(path);
-        var applied = env.Edit(() => env.Edits.StubMethod(env.One("Vt.Base::Run"), null));
-        Assert.Contains("generated placeholder assembly", applied);
-        Assert.Contains("patch_bytes image=<image> address=0x1400", applied);
-        Assert.Contains("generated placeholder assembly", env.Edit(() => env.Edits.StubMethod(env.One("Vt.Base::Stop"), null, dryRun: true)));
-        Assert.DoesNotContain("placeholder", string.Join("\n", env.Fixture.Edits.Select(e => e.Description)));
-        var saved = env.Edit(() => env.Edits.Save(env.Fixture, _dir.File("Vt.out.dll"), overwrite: false));
-        Assert.Contains("generated placeholder assembly", saved);
-        Assert.Contains("patch_bytes image=<image> address=<RVA>", saved);
+        var tools = EditTools(env);
+        await tools.RenameSymbol("Vt.Base", "Root", dryRun: false);
+        var (_, save) = await Collected(() => tools.SaveAssembly(env.Fixture.Id, _dir.File("Vt.out.dll")));
+        Assert.Empty(save.Warnings);
+    }
+
+    [Fact]
+    public async Task An_edit_script_replay_warns_on_a_dry_run_and_names_the_dummy_assembly_when_applied()
+    {
+        var path = _dir.File("Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildVTableTypes));
+        using var env = new Env(path);
+        var tools = EditTools(env);
+        await tools.StubMethod("Vt.Base::Run", dryRun: false);
+        var script = _dir.File("edits.json");
+        await tools.ExportEdits(env.Fixture.Id, script);
+        await tools.RevertEdits(env.Fixture.Id);
+        var (_, dry) = await Collected(() => tools.ApplyEdits(script, dryRun: true));
+        Assert.StartsWith("Nothing changed (dry run)", Assert.Single(dry.Warnings));
+        var (_, applied) = await Collected(() => tools.ApplyEdits(script, dryRun: false));
+        Assert.StartsWith("Dummy assembly:", Assert.Single(applied.Warnings));
+    }
+
+    [Fact]
+    public async Task A_void_stub_reads_return_in_both_parts()
+    {
+        // A void method stub.
+        var path = _dir.File("Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildVTableTypes));
+        using var env = new Env(path);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        var text = await EditTools(env).StubMethod("Vt.Base::Run", dryRun: false);
+        Assert.Equal("return;", Assert.Single(Assert.IsType<EditOutcome>(collector.Value).Changes).After);
+        Assert.Contains("=> return;", text);
     }
 
     // An address-only attribute names its VA when no RVA is recorded.
     [Fact]
-    public void A_stub_in_a_placeholder_assembly_falls_back_to_the_va()
+    public async Task A_stub_in_a_placeholder_assembly_falls_back_to_the_va()
     {
         var path = _dir.File("Va.dll");
         File.WriteAllBytes(path, ContainerFixtures.Module("Va", module =>
@@ -255,11 +329,12 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
             module.Types.Add(type);
         }));
         using var env = new Env(path);
-        Assert.Contains("address=0x180002000", env.Edit(() => env.Edits.StubMethod(env.One("Va.Box::Run"), null)));
+        var (_, call) = await Collected(() => EditTools(env).StubMethod("Va.Box::Run", dryRun: false));
+        Assert.Contains("address=0x180002000", Assert.Single(call.Warnings));
     }
 
     [Fact]
-    public void A_stub_in_an_ordinary_assembly_carries_no_placeholder_warning()
+    public async Task A_stub_in_an_ordinary_assembly_carries_no_dummy_note()
     {
         var path = _dir.File("Plain.dll");
         File.WriteAllBytes(path, ContainerFixtures.Module("Plain", module =>
@@ -270,8 +345,11 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
             module.Types.Add(type);
         }));
         using var env = new Env(path);
-        Assert.DoesNotContain("placeholder", env.Edit(() => env.Edits.StubMethod(env.One("Plain.Box::Run"), null)));
-        Assert.DoesNotContain("placeholder", env.Edit(() => env.Edits.Save(env.Fixture, _dir.File("Plain.out.dll"), overwrite: false)));
+        var tools = EditTools(env);
+        var (_, stub) = await Collected(() => tools.StubMethod("Plain.Box::Run", dryRun: false));
+        Assert.Empty(stub.Warnings);
+        var (_, save) = await Collected(() => tools.SaveAssembly(env.Fixture.Id, _dir.File("Plain.out.dll")));
+        Assert.Empty(save.Warnings);
     }
 
     /// <summary>Vt.Base with virtual Run (slot 5) and Stop (slot 6); Vt.Derived overrides Stop only.</summary>

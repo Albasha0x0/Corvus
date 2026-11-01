@@ -106,24 +106,28 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             if (!string.IsNullOrWhiteSpace(value) && value != "default")
                 throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} returns void; omit the value.");
-            shown = "return;";
+            shown = StubShown(m, value);
         }
         else
         {
-            shown = "return " + (value ?? "default") + ";";
+            shown = StubShown(m, value);
             EmitValue(il, body, ret, value?.Trim());
         }
         il.Add(OpCodes.Ret.ToInstruction());
         var args = SymbolArgs("method", symbol);
         args["value"] = value;
         if (Previewed(dryRun, "stub_method", args))
-            return $"Dry run — {symbol.Label} would become: {shown}\n" + Listing(il) + PlaceholderNote(symbol.Assembly.Module, m);
+            return $"Dry run — {symbol.Label} would become: {shown}\n" + Listing(il);
 
         Apply(m, body);
         var description = $"stub {symbol.Label} => {shown}";
         symbol.Assembly.RecordEdit(new EditRecord("stub_method", args, description, [symbol.Label]));
-        return description + PlaceholderNote(symbol.Assembly.Module, m);
+        return description;
     }
+
+    /// <summary>The body a stub writes as C#: "return;" for a void method, else "return &lt;value&gt;;" (default without a value).</summary>
+    internal static string StubShown(MethodDef method, string? value) =>
+        method.ReturnType.RemovePinnedAndModifiers().ElementType == ElementType.Void ? "return;" : "return " + (value ?? "default") + ";";
 
     /// <summary>True when at least half of the module's methods with a body carry [Address] attributes.</summary>
     internal static bool IsPlaceholderAssembly(ModuleDef module)
@@ -139,32 +143,6 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         // a body; a real assembly with a few such methods is not one.
         return addressed > 0 && addressed * 2 >= bodies;
     }
-
-    private const string PlaceholderStem =
-        "Warning: this is a generated placeholder assembly; its edits do not change the running program.";
-
-    private static string PlaceholderNote(ModuleDef module, MethodDef method)
-    {
-        if (!IsPlaceholderAssembly(module)) return "";
-        var values = AotMetadataService.GetAttributes(method)
-            .Where(a => a.Name == "AddressAttribute" && !a.InvalidAddress)
-            .ToList();
-        // A VA is the fallback when no RVA is recorded.
-        var address = new[] { "RVA", "VA" }
-            .Select(key => values
-                .Select(a => a.Values.TryGetValue(key, out var r) ? AotMetadataService.ParseNumber(r) : null)
-                .FirstOrDefault(r => r is > 0))
-            .FirstOrDefault(r => r is not null);
-        var at = address is { } v
-            ? $" The method's address is 0x{v:X}: patch_bytes image=<image> address=0x{v:X}."
-            : " Patch the native image with patch_bytes image=<image> address=<RVA>.";
-        return "\n" + PlaceholderStem + at;
-    }
-
-    private static string PlaceholderSaveNote(LoadedAssembly asm) =>
-        asm.IsDirty && IsPlaceholderAssembly(asm.Module)
-            ? "\n" + PlaceholderStem + " Patch the native image with patch_bytes image=<image> address=<RVA>."
-            : "";
 
     private static void EmitValue(IList<Instruction> il, CilBody body, TypeSig ret, string? value)
     {
@@ -795,8 +773,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
                $"{(backup != null ? $" Original backed up to {backup}." : "")}" +
                (webcil ? " Written as Webcil; update or remove this file's integrity hash in blazor.boot.json or dotnet.boot.js." : "") +
                (saved.EditList.Count > 0 ? $"\nEdits written: {string.Join(", ", saved.EditList.Select(e => $"{e.Id} ({e.Digest})"))}." : "") +
-               $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}" +
-               PlaceholderSaveNote(asm);
+               $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
     }
 
     /// <summary>What an edit does to the file's signatures: they cover the original bytes, so none survives a change.</summary>

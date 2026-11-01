@@ -21,11 +21,12 @@ public sealed class EditOutcomeTests : IDisposable
         _dir.Dispose();
     }
 
+    // The text joins the call's warnings, which the server adds to text and structured results.
     private static async Task<(string Text, T Record)> Run<T>(Func<Task<string>> call)
     {
         var collector = ToolOutput.Collect();
         var text = await call();
-        return (text, Assert.IsType<T>(collector.Value));
+        return (string.Join('\n', [text, .. collector.Warnings]), Assert.IsType<T>(collector.Value));
     }
 
     [Fact]

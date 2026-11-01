@@ -156,7 +156,8 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
             f.Evidence.Select(e => new FeatureEvidenceRecord(Va(e.Site), e.Kind, e.Detail, e.Seed)).ToList(), f.EvidenceTotal, f.Flags)).ToList();
         return new FeatureReport(id, r.Query, r.Seeds.Select(s => new FeatureSeedRecord(s.Id, s.Kind, Va(s.Rva), s.Text, s.References, s.Error)).ToList(), r.TotalSeeds, page,
             r.Functions.Count, offset, offset + page.Count < r.Functions.Count ? offset + page.Count : null,
-            r.Hubs.Take(20).Select(h => new FeatureHubRecord(Va(h.Function.Start), h.Name, h.Reaches.Select(Va).ToList(), h.Depth)).ToList(), r.Notes);
+            r.Hubs.Take(20).Select(h => new FeatureHubRecord(Va(h.Function.Start), h.Name, h.Reaches.Select(Va).ToList(), h.Depth)).ToList(),
+            index.Truncations.Count > 0 ? [.. r.Notes, string.Join("; ", index.Truncations)] : r.Notes);
     }
 
     private string Text(NativeCodeIndex index, FeatureReport r, FeatureTraceResult result)
@@ -185,7 +186,6 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
             sb.AppendLine($"\nUnreferenced seeds ({silent.Count}): {string.Join(", ", silent.Take(10).Select(s => OneLine(s.Text)))} — built at run time, reached through a " +
                           "computed offset, or not used");
         foreach (var n in r.Notes) sb.AppendLine("Note: " + n);
-        if (index.Truncations.Count > 0) sb.AppendLine("Note: " + string.Join("; ", index.Truncations));
         var top = r.Functions.Take(3).ToList();
         if (top.Count > 0)
         {

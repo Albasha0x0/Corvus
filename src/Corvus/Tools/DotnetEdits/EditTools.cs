@@ -57,7 +57,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
-        return Outcome(sym.Assembly, dryRun, () => edits.StubMethod(sym, value, dryRun), _ => [new EditChange("body", sym.Label, After: $"return {value ?? "default"};")],
+        return Outcome(sym.Assembly, dryRun, () => edits.StubMethod(sym, value, dryRun), _ => [new EditChange("body", sym.Label, After: sym.Member is MethodDef m ? EditService.StubShown(m, value?.Trim()) : $"return {value ?? "default"};")],
             DummyNote(sym.Assembly, sym.Member as MethodDef, "this edit is"));
     }, cancellationToken);
 
@@ -201,8 +201,10 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         if (!dryRun) journal?.Replayed(path);
         var ids = run.Items.Where(i => i.EditId != null).Select(i => EditId.TryParse(i.EditId, out var id) ? id : default).ToList();
         var changes = run.Items.Where(i => i.Error == null).Select(i => new EditChange("replay", i.Description)).ToList();
-        var dummy = string.Concat(ids.Select(i => i.Target).Distinct().Select(t => DummyNote(workspace.Get(t), null, "these edits are")));
-        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, changes, ids) { Failed = run.Failed, Items = [.. run.Items] }, run.Report + dummy);
+        // Warnings reach the text and the record's warnings from one list.
+        if (dryRun) ToolOutput.Warn("Nothing changed (dry run); pass dryRun=false to apply.");
+        Dummy(DummyNote(workspace.Get(run.Assembly), null, "these edits are"));
+        return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, changes, ids) { Failed = run.Failed, Items = [.. run.Items] }, run.Report);
     }, cancellationToken));
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
@@ -270,44 +272,56 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         var dummy = DummyNote(asm, null, "the saved file is");
         var report = edits.Save(asm, outputPath, overwrite, strict, out var saved, replaceOriginal, versioned);
         journal?.Saved(asm);
-        return ToolOutput.Report(report + dummy, saved);
+        Dummy(dummy);
+        return ToolOutput.Report(report, saved);
     }, cancellationToken);
 
+    /// <summary>Adds a dummy-assembly note to the call's warnings.</summary>
+    private static void Dummy(string? note)
+    {
+        if (note != null) ToolOutput.Warn(note);
+    }
+
     /// <summary>Runs an edit: the edits it recorded (none for a dry run), its changes, and text with the edit ids and pending count.</summary>
-    private static string Outcome(LoadedAssembly asm, bool dryRun, Func<string> edit, Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> changes, string note = "")
+    private static string Outcome(LoadedAssembly asm, bool dryRun, Func<string> edit, Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> changes, string? dummy = null)
     {
         int before = asm.Edits.Count;
         var (text, previewed) = EditPreview.Capture(edit);
         var recorded = dryRun ? [] : asm.Edits.Skip(before).ToList();
         var digest = dryRun ? previewed?.ContentDigest() : recorded.Count == 1 ? recorded[0].ContentDigest() : null;
         var ids = recorded.Select(e => new EditId(asm.Id, e.Number)).ToList();
-        var tail = dryRun ? "\nNothing changed (dry run); pass dryRun=false to apply."
+        var tail = dryRun ? ""
             : ids.Count == 0 ? $"\nNo edit recorded. Unsaved edits in {asm.Id}: {asm.Edits.Count}."
             : $"\nEdit {string.Join(", ", ids)}. Unsaved edits in {asm.Id}: {asm.Edits.Count}.";
         if (digest != null) tail += $"\nDigest {digest}{(dryRun ? " (the applied edit and the save report the same)" : "")}.";
+        // Warnings reach the text and the record's warnings from one list.
+        if (dryRun) ToolOutput.Warn("Nothing changed (dry run); pass dryRun=false to apply.");
+        Dummy(dummy);
         return ToolOutput.Edit(new EditOutcome(!dryRun && ids.Count > 0, dryRun, dryRun || ids.Count > 0 ? changes(recorded) : [], ids) { Digest = digest },
-            $"[{asm.Id}] {text}{tail}{note}");
+            $"[{asm.Id}] {text}{tail}");
     }
 
     /// <summary>
-    /// The line saying <paramref name="subject"/> (a subject with its verb, "this edit is") does not change the program: for
-    /// <paramref name="method"/> when it has a native address, else when an unsaved edit of <paramref name="asm"/> touched one; empty otherwise.
+    /// The note saying <paramref name="subject"/> (a subject with its verb, "this edit is") does not change the program: for
+    /// <paramref name="method"/> when it has a native address, else when an unsaved edit of <paramref name="asm"/> touched one; null otherwise.
     /// </summary>
-    private string DummyNote(LoadedAssembly asm, MethodDef? method, string subject)
+    private string? DummyNote(LoadedAssembly asm, MethodDef? method, string subject)
     {
         var index = aotMetadata.GetIndex(asm);
-        if (index.Count == 0) return "";
+        if (index.Count == 0) return null;
         if (method != null)
         {
-            if (aotMetadata.Find(asm, method)?.Rva is not { } rva) return "";
-            return $"\nDummy assembly: {subject} not what the program runs; it runs the native code at RVA 0x{rva:X}. " +
-                   $"Next: patch_asm or patch_bytes with image=<native image> address=0x{rva:X}.";
+            // A VA names the code when no RVA is recorded.
+            var found = aotMetadata.Find(asm, method);
+            if ((found?.Rva ?? found?.Va) is not { } address) return null;
+            return $"Dummy assembly: {subject} not what the program runs; it runs the native code at {(found!.Rva != null ? "RVA" : "VA")} 0x{address:X}. " +
+                   $"Next: patch_asm or patch_bytes with image=<native image> address=0x{address:X}.";
         }
         // A compiled assembly may carry a few [Address] attributes, so only an
         // unsaved edit of an addressed method makes the note.
         var touched = asm.Edits.SelectMany(e => e.Touched).ToHashSet(StringComparer.Ordinal);
-        if (!index.Any(a => touched.Contains(Format.MemberLabel(a.Method)))) return "";
-        return $"\nDummy assembly: {subject} not what the program runs; it runs the native code at each method's address. " +
+        if (!index.Any(a => touched.Contains(Format.MemberLabel(a.Method)))) return null;
+        return $"Dummy assembly: {subject} not what the program runs; it runs the native code at each method's address. " +
                $"Next: get_method_addresses assembly={asm.Id}, then patch_asm or patch_bytes with image=<native image> address=0x<RVA>.";
     }
 
