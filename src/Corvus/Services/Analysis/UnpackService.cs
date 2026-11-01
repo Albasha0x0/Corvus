@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using dnlib.DotNet;
@@ -11,6 +12,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 {
     internal const string Marker = ".corvus-unpack";
     private const string DotNet = ".NET assembly";
+    private readonly ConcurrentDictionary<string, string> _kept = new(StringComparer.Ordinal);
     internal const string HostOrigin = "the file itself (container host)";
 
     /// <summary>ReadyToRun and Merged are set for .NET assemblies only; Extracted is false for a file listed where it already is (host, apphost app).</summary>
@@ -143,6 +145,49 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         files = [.. files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet))];
         return new UnpackReport(extraction.Source, extraction.Container, extraction.OutputDirectory, files, notes)
             { Next = NextOf(extraction.Source, extraction.Container, extraction.Kind, files) };
+    }
+
+    private static readonly JsonSerializerOptions ReportJson = new(JsonSerializerDefaults.Web)
+        { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+
+    /// <summary>Keeps the report under the key and returns its result id.</summary>
+    public string Keep(ResultStore store, string key, UnpackReport report)
+    {
+        var json = JsonSerializer.Serialize(report, ReportJson);
+        var id = store.Keep(json, new KeptOrigin("unpack_container"), json);
+        _kept[key] = id;
+        return id;
+    }
+
+    /// <summary>
+    /// Returns the kept report and its id, or null when none is kept, it was
+    /// evicted, or its files or loaded assemblies are gone.
+    /// </summary>
+    public (UnpackReport Report, string Id)? KeptReport(ResultStore store, string key)
+    {
+        if (!_kept.TryGetValue(key, out var id)) return null;
+        try
+        {
+            var report = JsonSerializer.Deserialize<UnpackReport>(store.Read(id).Text, ReportJson);
+            if (report == null || !Directory.Exists(report.OutputDirectory)) return null;
+            foreach (var file in report.Files)
+            {
+                if (file.LoadedAs != null) workspace.Get(file.LoadedAs);
+                else if (file.Extracted != false && !File.Exists(file.Path)) return Forget(key);
+            }
+            return (report, id);
+        }
+        // A ToolError here is store.Read refusing an evicted entry.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Forget(key);
+        }
+    }
+
+    private (UnpackReport Report, string Id)? Forget(string key)
+    {
+        _kept.TryRemove(key, out _);
+        return null;
     }
 
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };

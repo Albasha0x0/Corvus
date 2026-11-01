@@ -71,6 +71,96 @@ public partial class UnpackTests
         Assert.Empty(first.Items.Select(f => f.Path).Intersect(rest.Items.Select(f => f.Path)));
     }
 
+    private (UnpackTools Tools, string Zip, string Output) KeptSetup()
+    {
+        var bytes = File.ReadAllBytes(Env.FixturePath);
+        var entries = Enumerable.Range(0, 4)
+            .Select(i => ($"lib/a{i}.dll", bytes.Concat(new byte[] { (byte)i }).ToArray()))
+            .ToArray();
+        var zip = Save("paged.zip", ContainerFixtures.Zip(entries));
+        var tools = new UnpackTools(Unpacker, results: new ResultStore(ResultCacheOptions.MemoryOnly));
+        return (tools, zip, _dir.File("paged-out"));
+    }
+
+    private static async Task<UnpackPage> Page(UnpackTools tools, string zip, string output, int offset)
+    {
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.UnpackContainer(zip, output, offset: offset, limit: 2);
+        return Assert.IsType<UnpackPage>(collector.Value);
+    }
+
+    [Fact]
+    public async Task A_second_page_neither_rewrites_files_nor_loads_assemblies_again()
+    {
+        var (tools, zip, output) = KeptSetup();
+        var first = await Page(tools, zip, output, 0);
+        Assert.NotNull(first.ResultId);
+        Assert.All(first.Items, f => Assert.NotNull(f.LoadedAs));
+        var loaded = _workspace.Assemblies.Count;
+        var written = Directory.GetFiles(output, "*.dll", SearchOption.AllDirectories);
+        // Deleting a file of the first page proves the second does not rewrite it.
+        File.Delete(written[0]);
+
+        var second = await Page(tools, zip, output, 2);
+        Assert.Equal(first.ResultId, second.ResultId);
+        Assert.Equal(first.Total, second.Total);
+        Assert.Null(second.Next);
+        Assert.Equal(first.Notes, second.Notes);
+        Assert.Equal(2, second.Items.Count);
+        Assert.False(File.Exists(written[0]));
+        Assert.Equal(loaded, _workspace.Assemblies.Count);
+    }
+
+    [Fact]
+    public async Task An_unloaded_assembly_makes_the_next_page_extract_again()
+    {
+        var (tools, zip, output) = KeptSetup();
+        var first = await Page(tools, zip, output, 0);
+        var loaded = _workspace.Assemblies.Count;
+        _workspace.Unload(_workspace.Get(first.Items[0].LoadedAs!));
+
+        await Page(tools, zip, output, 0);
+        Assert.Equal(loaded, _workspace.Assemblies.Count);
+    }
+
+    [Fact]
+    public async Task A_deleted_output_folder_makes_the_next_page_extract_again()
+    {
+        var (tools, zip, output) = KeptSetup();
+        await Page(tools, zip, output, 0);
+        Directory.Delete(output, recursive: true);
+
+        await Page(tools, zip, output, 0);
+        Assert.Equal(4, Directory.GetFiles(output, "*.dll", SearchOption.AllDirectories).Length);
+    }
+
+    [Fact]
+    public async Task A_removed_extracted_file_makes_the_next_page_extract_again()
+    {
+        var (tools, zip, output) = KeptSetup();
+        async Task<UnpackPage> Extract()
+        {
+            var collector = Corvus.Mcp.ToolOutput.Collect();
+            await tools.UnpackContainer(zip, output, extractOnly: true, limit: 2);
+            return Assert.IsType<UnpackPage>(collector.Value);
+        }
+        await Extract();
+        File.Delete(Directory.GetFiles(output, "*.dll", SearchOption.AllDirectories)[0]);
+
+        await Extract();
+        Assert.Equal(4, Directory.GetFiles(output, "*.dll", SearchOption.AllDirectories).Length);
+    }
+
+    [Fact]
+    public void An_evicted_report_is_not_returned()
+    {
+        var unpacker = Unpacker;
+        var report = new UnpackService.UnpackReport("s", "zip", _dir.File("o"), [], []);
+        unpacker.Keep(new ResultStore(ResultCacheOptions.MemoryOnly), "k", report);
+
+        Assert.Null(unpacker.KeptReport(new ResultStore(ResultCacheOptions.MemoryOnly), "k"));
+    }
+
     [Fact]
     public void List_pages_union_to_the_total_without_duplicates()
     {

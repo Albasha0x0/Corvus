@@ -427,8 +427,9 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
                 if (!inProcess)
                     foreach (var crash in crashes) Assert.Contains("provider_unavailable", Whole(crash));
                 var results = new List<string>();
+                // A kept result's id names this session's copy, not the file's bytes.
                 foreach (var (tool, args) in calls)
-                    results.Add(Regex.Replace(Whole(await Call(session, tool, args(mode))), @"(\n---)?(\n\[workspace\] loaded [^\n]*)+|,""notices"":\[[^\]]*\]", "").Replace(Path.Combine(_dir.Path, mode), "<out>")
+                    results.Add(Regex.Replace(Whole(await Call(session, tool, args(mode))), @"(\n---)?(\n\[workspace\] loaded [^\n]*)+|,""notices"":\[[^\]]*\]|\br-[0-9a-f]{12}\b", m => m.Value.StartsWith("r-") ? "<id>" : "").Replace(Path.Combine(_dir.Path, mode), "<out>")
                         .Replace(JsonEncodedText.Encode(Path.Combine(_dir.Path, mode)).ToString(), "<out>"));
                 // The package unpack loaded an assembly: dump reads now name frames from it, so they stay in this process.
                 Assert.DoesNotContain("provider_unavailable", Whole(await Call(session, "open_minidump", new() { ["path"] = exit })));

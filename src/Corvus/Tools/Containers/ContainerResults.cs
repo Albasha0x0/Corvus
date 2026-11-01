@@ -54,6 +54,8 @@ public sealed record UnpackPage(string Source, string Container, string OutputDi
     public UnpackService.NextCall? Next { get; init; }
     public IReadOnlyList<string>? Notes { get; init; }
     public JsonObject? Transform { get; init; }
+    /// <summary>Id for read_result.</summary>
+    public string? ResultId { get; init; }
 }
 
 /// <summary>summarize_file: the overview, or for another view its facts as detail (guide topic containers).</summary>
@@ -263,12 +265,14 @@ internal static class ContainerText
         return ToolOutput.Report(text.ToString().TrimEnd(), record);
     }
 
-    public static string Unpack(UnpackService.UnpackReport r, int offset, int limit)
+    public static string Unpack(UnpackService.UnpackReport r, int offset, int limit, string? resultId = null)
     {
         int written = r.Files.Count(f => f.Extracted != false);
         var header = new StringBuilder($"{Escape(r.Source)} ({r.Container}): {written} file(s) written to {r.OutputDirectory}.\n");
         if (r.Next is { } next)
             header.Append($"Next: {next.Tool} {string.Join(" ", next.Arguments.Select(a => $"{a.Key}={a.Value}"))} ({next.Reason}).\n");
+        if (resultId != null && r.Files.Count > offset + limit)
+            header.Append($"Next: read_result id={resultId} pages this report.\n");
         foreach (var n in CappedNotes(r.Notes)) header.Append("Note: ").Append(Escape(n)).Append('\n');
         // Paths under the output directory are relative to it (the record names it once).
         var files = r.Files.Select(f => f.Path.StartsWith(r.OutputDirectory, StringComparison.OrdinalIgnoreCase)
@@ -284,7 +288,7 @@ internal static class ContainerText
             return sb.ToString();
         }
         return ToolOutput.List(files, offset, limit, Row,
-            rows => new UnpackPage(r.Source, r.Container, r.OutputDirectory, rows, offset, r.Files.Count) { Next = r.Next, Notes = r.Notes.Count > 0 ? CappedNotes(r.Notes) : null },
+            rows => new UnpackPage(r.Source, r.Container, r.OutputDirectory, rows, offset, r.Files.Count) { Next = r.Next, Notes = r.Notes.Count > 0 ? CappedNotes(r.Notes) : null, ResultId = resultId },
             "file", header.ToString());
     }
 

@@ -8,7 +8,7 @@
   },
   "isError": false,
   "content": [
-    "<fixtures>/samples/lz4.nupkg (NuGet package): 15 file(s) written to <fixtures>/samples/unpack.\n15 files (showing 1-5):\n  .NET assembly lib/net462/K4os.Compression.LZ4.dll 75,264 bytes [NuGet package entry]\n  .NET assembly lib/net5.0/K4os.Compression.LZ4.dll 71,168 bytes [NuGet package entry]\n  .NET assembly lib/net6.0/K4os.Compression.LZ4.dll 70,656 bytes [NuGet package entry]\n  .NET assembly lib/netstandard2.0/K4os.Compression.LZ4.dll 76,288 bytes [NuGet package entry]\n  .NET assembly lib/netstandard2.1/K4os.Compression.LZ4.dll 72,704 bytes [NuGet package entry]\n[More: offset=5]\n"
+    "<fixtures>/samples/lz4.nupkg (NuGet package): 15 file(s) written to <fixtures>/samples/unpack.\nNext: read_result id=<id> pages this report.\n15 files (showing 1-5):\n  .NET assembly lib/net462/K4os.Compression.LZ4.dll 75,264 bytes [NuGet package entry]\n  .NET assembly lib/net5.0/K4os.Compression.LZ4.dll 71,168 bytes [NuGet package entry]\n  .NET assembly lib/net6.0/K4os.Compression.LZ4.dll 70,656 bytes [NuGet package entry]\n  .NET assembly lib/netstandard2.0/K4os.Compression.LZ4.dll 76,288 bytes [NuGet package entry]\n  .NET assembly lib/netstandard2.1/K4os.Compression.LZ4.dll 72,704 bytes [NuGet package entry]\n[More: offset=5]\n"
   ],
   "structuredContent": {
     "source": "<fixtures>/samples/lz4.nupkg",
@@ -58,6 +58,7 @@
     ],
     "offset": 0,
     "total": 15,
+    "resultId": "<id>",
     "limit": 5,
     "totalExact": true,
     "hasMore": true,

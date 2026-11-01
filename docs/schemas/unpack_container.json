@@ -89,6 +89,9 @@
     "transform": {
       "type": "object"
     },
+    "resultId": {
+      "type": "string"
+    },
     "limit": {
       "type": "integer"
     },
@@ -115,9 +118,6 @@
     },
     "coverage": {
       "type": "object"
-    },
-    "resultId": {
-      "type": "string"
     }
   },
   "required": [
