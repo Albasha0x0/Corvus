@@ -133,7 +133,8 @@ public sealed class LiveConsoleTests : IDisposable
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var text = await _tools.LiveConsole("start", program: _program, script: ["wait goodbye"], timeoutSeconds: 10);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"start took {clock.Elapsed}");
-        Assert.Matches(@"step 1\s+wait goodbye\s+running", await _tools.LiveConsole("status"));
+        // The script starts in the background; status waits until it reaches its step.
+        Assert.Matches(@"step 1\s+wait goodbye\s+running", await _tools.LiveConsole("status", waitSeconds: 1));
         Assert.Contains("con-1 prompt.exe", text);
         Assert.Contains("the script runs in the background, at most 10 s", text);
         Assert.Contains("next: live_console action=status run=con-1 waitSeconds=10 waits for the script", text);
