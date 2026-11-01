@@ -153,4 +153,17 @@ public class ConnectionFlowTests
         Assert.Equal(("$.endpoints[0].hostname", "$.endpoints[0].tcpPort", 13), (j.SourceHostField, j.SourcePortField, j.ConnectSequence));
         Assert.Equal(["no host and port field pair", "no earlier response names other.example:80"], r.Unresolved.Select(u => u.Reason));
     }
+
+    [Fact]
+    public void Records_given_out_of_order_join_to_the_same_report_as_ordered_records()
+    {
+        GatewayResponse[] responses = [Resp(1, """{"host":"a.example","port":1}"""), Resp(3, """{"host":"a.example","port":1}"""), Resp(5, """{"host":"b.example","port":2}""")];
+        ConnectCall[] connects = [new(2, "a.example", 1), new(4, "a.example", 1), new(6, "b.example", 2), new(7, "c.example", 3)];
+        var ordered = ConnectionFlow.Join(responses, connects);
+        var shuffled = ConnectionFlow.Join(responses.Reverse(), connects.Reverse());
+        Assert.Equal(ordered.Joins, shuffled.Joins);
+        Assert.Equal(ordered.Unresolved, shuffled.Unresolved);
+        Assert.Equal(3, shuffled.Joins.Count);
+        Assert.Single(shuffled.Unresolved);
+    }
 }

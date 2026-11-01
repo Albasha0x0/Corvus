@@ -193,4 +193,63 @@ public class FrameInferenceTests
         Assert.Equal(3, layout.Frames);
         Assert.Equal(1, layout.EmptyFrames);
     }
+
+    [Fact]
+    public void Frames_coalesced_into_one_read_are_all_parsed_without_a_split()
+    {
+        var layout = InferOne([.. Frame("one"), .. Frame("two"), .. Frame("three")], true);
+        Assert.NotNull(layout);
+        Assert.Equal(3, layout.Frames);
+        Assert.Equal(0, layout.SplitReads);
+        Assert.Equal(0, layout.Buffered);
+    }
+
+    [Fact]
+    public void A_read_that_completes_a_frame_and_starts_the_next_leaves_the_remainder_buffered()
+    {
+        var all = Frame("alpha").Concat(Frame("beta")).Concat(Frame("gamma frame")).ToArray();
+        var cut = Frame("alpha").Length + Frame("beta").Length + 6;
+        var layout = FrameInference.Infer(
+            [new RecordedChunk(true, all[..5]), new RecordedChunk(true, all[5..cut])], received: true);
+        Assert.NotNull(layout);
+        Assert.Equal(2, layout.Frames);
+        Assert.Equal(6, layout.Buffered);
+        Assert.Equal(Frame("gamma frame").Length - 6, layout.Missing);
+        Assert.Equal(1, layout.SplitReads);
+    }
+
+    [Fact]
+    public void A_later_read_completes_a_buffered_frame()
+    {
+        var all = Frame("alpha").Concat(Frame("gamma frame")).ToArray();
+        var cut = Frame("alpha").Length + 6;
+        var layout = FrameInference.Infer(
+            [new RecordedChunk(true, all[..cut]), new RecordedChunk(true, all[cut..])], received: true);
+        Assert.NotNull(layout);
+        Assert.Equal(2, layout.Frames);
+        Assert.Equal(0, layout.Buffered);
+        Assert.Equal(0, layout.Missing);
+        Assert.Equal(1, layout.SplitReads);
+    }
+
+    [Fact]
+    public void An_empty_frame_inside_a_coalesced_read_is_counted_and_not_split()
+    {
+        var layout = InferOne([.. Frame("one"), .. Frame(""), .. Frame("two")], true);
+        Assert.NotNull(layout);
+        Assert.Equal(3, layout.Frames);
+        Assert.Equal(1, layout.EmptyFrames);
+        Assert.Equal(0, layout.SplitReads);
+        Assert.Equal(0, layout.Buffered);
+    }
+
+    [Fact]
+    public void An_oversized_length_after_a_coalesced_frame_stops_with_the_remainder_buffered()
+    {
+        var layout = InferOne([.. Frame("one"), .. Frame("two"), 0xFF, 0xFF, 0xFF, 0xFF], true);
+        Assert.NotNull(layout);
+        Assert.Equal(2, layout.Frames);
+        Assert.True(layout.Stopped);
+        Assert.Equal(4, layout.Buffered);
+    }
 }
