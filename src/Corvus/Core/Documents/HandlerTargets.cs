@@ -8,7 +8,7 @@ internal static partial class HandlerTargets
 {
     // Sources: Microsoft "Office URI Schemes", Microsoft Learn "search-ms
     // protocol", and Microsoft guidance for the MSDT protocol handler.
-    private static readonly string[] Schemes =
+    internal static readonly string[] Schemes =
     [
         "ms-word", "ms-excel", "ms-powerpoint", "ms-access", "ms-visio", "ms-project", "ms-publisher", "ms-spd", "ms-infopath",
         "ms-officecmd", "ms-msdt", "search-ms", "search", "ms-appinstaller",
@@ -27,7 +27,10 @@ internal static partial class HandlerTargets
         int colon = t.IndexOf(':');
         if (colon <= 0) return null;
         var scheme = t[..colon];
-        return Array.Exists(Schemes, s => s.Equals(scheme, StringComparison.OrdinalIgnoreCase)) ? scheme.ToLowerInvariant() + ": protocol handler" : null;
+        if (!Array.Exists(Schemes, s => s.Equals(scheme, StringComparison.OrdinalIgnoreCase))) return null;
+        var name = scheme.ToLowerInvariant();
+        // Parameters of ms-officecmd have no public specification.
+        return name == "ms-officecmd" ? name + ": protocol handler, parameters unspecified" : name + ": protocol handler";
     }
 
     /// <summary>True for a UNC host written for the WebDAV client: a host with @SSL or @port, or a DavWWWRoot segment.</summary>

@@ -503,7 +503,7 @@ Pass the name as `view=`.
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
 | `shell` | the targets of a `.url`, `.scf`, `.inf`, `.reg`, `.appinstaller`, `.library-ms`, `.searchConnector-ms` or `.msc` file or a `desktop.ini`; `.inf` commands and `.appinstaller` update settings; a WebDAV or unencrypted location is named; a console file lists its snap-ins, task commands and script strings |
 | `installer`, `lnk`, `script`, `procmon` | command lines that download, decode or hide through a system tool: one `launcher/command-line` finding |
-| `office`, `page`, `pdf`, `shell` | targets with `ms-msdt:`, `search-ms:`, `ms-appinstaller:`, an Office scheme, `file://` or a UNC path: one `link/local-handler` finding |
+| `office`, `page`, `pdf`, `shell` | targets with `ms-msdt:`, `search-ms:`, `ms-appinstaller:`, an Office scheme, `file://` or a UNC path: one `link/local-handler` finding (`ms-officecmd:` parameters are reported as unspecified) |
 | `mail` | headers, received chain, recorded authentication results, From, Reply-To and Return-Path side by side, links, parts, attachments |
 | `office` | VBA with folded strings, compiled code compared with the source strings of each module, Excel 4.0 macros, OLE packages and classes, RTF objects and templates, DDE and DDEAUTO fields, DDE links, WEBSERVICE and CALL formulas, altChunk parts, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |

@@ -1,5 +1,6 @@
 using System.Text;
 using Corvus.Core;
+using Corvus.Core.Documents;
 using Corvus.Services.Analysis;
 using static Corvus.Tests.DocumentFixtures;
 
@@ -24,6 +25,39 @@ public sealed class LocalHandlerTargetTests
         var f = Assert.Single(View(new OfficeFileView(), "a.docx", Docx("search-ms:query=x&amp;crumb=location:file")).Findings);
         Assert.Equal(("link/local-handler", "review", "word/_rels/document.xml.rels"), (f.Rule, f.Level, f.Location));
         Assert.Contains("search-ms: protocol handler", f.Evidence);
+    }
+
+    public static IEnumerable<object[]> HandlerSchemes() => HandlerTargets.Schemes.Select(s => new object[] { s });
+
+    private static string Expected(string scheme) =>
+        scheme == "ms-officecmd" ? scheme + ": protocol handler, parameters unspecified" : scheme + ": protocol handler";
+
+    [Theory]
+    [MemberData(nameof(HandlerSchemes))]
+    public void Each_handler_scheme_is_reported_in_an_Office_relationship(string scheme)
+    {
+        var view = View(new OfficeFileView(), "a.docx", Docx(scheme + ":x"));
+        var found = Assert.Single(view.Findings, f => f.Rule == "link/local-handler");
+        Assert.Contains(Expected(scheme), found.Evidence);
+    }
+
+    [Theory]
+    [MemberData(nameof(HandlerSchemes))]
+    public void Each_handler_scheme_is_reported_in_a_PDF_URI_action(string scheme)
+    {
+        var pdf = Text("%PDF-1.4\n1 0 obj\n<</Type/Catalog/OpenAction 2 0 R>>\nendobj\n" +
+                       "2 0 obj\n<</S/URI/URI(" + scheme + ":x)>>\nendobj\ntrailer\n<</Root 1 0 R>>\n%%EOF\n");
+        var found = Assert.Single(View(new PdfFileView(), "a.pdf", pdf).Findings, f => f.Rule == "link/local-handler");
+        Assert.Contains(Expected(scheme), found.Evidence);
+    }
+
+    [Theory]
+    [InlineData("MS-OFFICECMD:")]
+    [InlineData("ms-officecmd:{\"id\":1}")]
+    [InlineData("ms-officecmd:{not json")]
+    public void An_ms_officecmd_target_is_matched_by_scheme_whatever_its_parameters(string target)
+    {
+        Assert.Equal("ms-officecmd: protocol handler, parameters unspecified", LocalHandlerTargets.Match(target));
     }
 
     [Fact]
