@@ -93,6 +93,116 @@ public sealed partial class AotFieldNotesTests
     }
 
     [Fact]
+    public void A_call_through_a_register_loaded_from_the_class_pointer_names_the_method_in_the_slot()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx]);
+            a.mov(rax, __qword_ptr[rdx + 0x138 + 16 * 3]);
+            a.call(rax);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    [Fact]
+    public void A_register_overwritten_between_the_slot_load_and_the_call_has_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rbx, __qword_ptr[rcx]);
+            a.mov(rax, __qword_ptr[rbx + 0x138 + 16 * 3]);
+            a.mov(rax, r8);
+            a.call(rax);
+            a.mov(rax, __qword_ptr[rbx + 0x138 + 16 * 3]);
+            a.call(rax);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Equal(0x101Au, Assert.Single(notes).Key);
+    }
+
+    [Fact]
+    public void A_32_bit_copy_of_a_slot_entry_gets_no_note()
+    {
+        var notes = SlotNotes(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx]);
+            a.mov(rax, __qword_ptr[rdx + 0x138 + 16 * 3]);
+            a.mov(eax, eax);
+            a.call(rax);
+            a.add(rsp, 0x28); a.ret();
+        });
+        Assert.Empty(notes);
+    }
+
+    private async Task<NativeVirtualCallTools.VirtualCallReport> SlotReport(string? status, int offset = 0, int limit = 100)
+    {
+        var (env, service, native, _) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rbx, __qword_ptr[rcx]);
+            a.mov(rdx, __qword_ptr[rcx + 0x48]);
+            a.mov(ecx, 25);
+            a.call(Helper);
+            a.call(__qword_ptr[rbx + 0x138 + 16 * 3]);
+            a.mov(rdx, r8);
+            a.mov(ecx, 99);
+            a.call(Helper);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        return await new NativeVirtualCallTools(env.Workspace, service)
+            .Report(native.Id, "Fixture_Native_StreamHost__Read", status, offset, limit);
+    }
+
+    [Fact]
+    public async Task The_status_filter_keeps_the_slot_calls_of_that_status()
+    {
+        var exact = await SlotReport("exact");
+        Assert.Equal(2, exact.Total);
+        Assert.All(exact.Items, r => Assert.Equal("exact", r.Status));
+        var unresolved = await SlotReport("unresolved");
+        var row = Assert.Single(unresolved.Items);
+        Assert.Equal(99, row.Slot);
+        Assert.Equal("receiver_unknown", row.Reason);
+        Assert.Equal("unknown", row.Receiver);
+    }
+
+    [Fact]
+    public async Task Paging_continues_across_the_slot_calls()
+    {
+        var first = await SlotReport(null, 0, 2);
+        Assert.Equal(3, first.Total);
+        Assert.True(first.Truncated);
+        var rest = await SlotReport(null, 2, 2);
+        Assert.Single(rest.Items);
+        Assert.False(rest.Truncated);
+    }
+
+    // The slot calls that disassemble notes are the ones find_virtual_calls lists.
+    [Fact]
+    public async Task Find_virtual_calls_lists_each_slot_call_of_a_function_with_slot_and_method()
+    {
+        var (env, service, native, _) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rbx, __qword_ptr[rcx]);
+            a.mov(rdx, __qword_ptr[rcx + 0x48]);
+            a.mov(ecx, 25);
+            a.call(Helper);
+            a.call(__qword_ptr[rbx + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        var report = await new NativeVirtualCallTools(env.Workspace, service)
+            .Report(native.Id, "Fixture_Native_StreamHost__Read");
+        Assert.Equal(2, report.Total);
+        Assert.Contains(report.Items, r => r.Slot == 3 && r.Status == "exact" && r.Targets.Single() == "StreamHost::Dispatch (slot 3)");
+        Assert.Contains(report.Items, r => r.Slot == 25 && r.Class == "BinaryReader" && r.Targets.Single() == "BinaryReader::ReadBytes (slot 25)");
+    }
+
+    [Fact]
     public void A_call_offset_below_the_vtable_start_has_no_note()
     {
         var notes = SlotNotes(a =>

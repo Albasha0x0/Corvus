@@ -134,15 +134,31 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         var set = index.VirtualCalls;
         IEnumerable<VirtualCallSite> sites = set.Sites;
         string? scopeNote = null;
+        var slotCalls = new List<AotSlotNotes.SlotCall>();
         if (!string.IsNullOrWhiteSpace(function))
         {
             var scope = Scope(index, function);
             sites = scope.Sites;
             scopeNote = scope.Note;
+            // Slot calls come from the resolver that disassemble uses for its notes.
+            var owner = index.FunctionAt(NativeCodeTools.Address(index, function));
+            if (owner != null) slotCalls = AotSlotNotes.Calls(native, index, owner, cancellationToken);
+            if (slotCalls.Count > 0)
+            {
+                var aotNote = $"function {owner!.Name}: {slotCalls.Count:N0} AOT slot calls from metadata beside {scope.Sites.Count:N0} RTTI sites; the totals cover the whole image";
+                scopeNote = scopeNote == null ? aotNote : scopeNote + "; " + aotNote;
+            }
         }
-        if (wanted is { } w) sites = sites.Where(s => s.Status == w);
+        else if (AotNativeNames.Of(native) != null)
+            scopeNote = "AOT slot calls are listed per function: call find_virtual_calls with function=<name>";
+        if (wanted is { } w)
+        {
+            sites = sites.Where(s => s.Status == w);
+            slotCalls = [.. slotCalls.Where(c => (c.Method != null ? VirtualCallStatus.Exact : VirtualCallStatus.Unresolved) == w)];
+        }
         var list = sites.ToList();
-        if (scopeNote != null && wanted != null) scopeNote += $"; status={status!.Trim().ToLowerInvariant()} keeps {list.Count:N0} of them";
+        int total = list.Count + slotCalls.Count;
+        if (scopeNote != null && wanted != null) scopeNote += $"; status={status!.Trim().ToLowerInvariant()} keeps {total:N0} of them";
 
         var rtti = list.Any(s => s.ClassTypeDescriptor != 0) ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken)) : null;
         var classNames = rtti?.Classes.GroupBy(c => c.TypeDescriptorRva).ToDictionary(g => g.Key, g => g.First().Name) ?? [];
@@ -151,19 +167,23 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
             : aotTypes?.ByRva.GetValueOrDefault(s.VftableRva)?.Name; // NativeAOT: the MethodTable holds the vtable
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint r) => index.FunctionAt(r) is { } f ? Format.Within(f.Name, f.Start, r) : Va(r);
-        int start = Math.Clamp(offset, 0, list.Count);
-        var page = list.Skip(start).Take(Math.Clamp(limit, 1, 1000)).Select(s =>
+        int start = Math.Clamp(offset, 0, total);
+        VirtualCallRow SlotRow(AotSlotNotes.SlotCall c) => new(Va(c.Rva), Where(c.Rva), c.Method != null ? "exact" : "unresolved",
+            c.Method != null ? null : c.Receiver != null ? "slot_out_of_range" : "receiver_unknown",
+            "unknown", c.Receiver?.Name, (int)c.Slot, 0, null, false, false,
+            c.Method != null ? 1 : 0, c.Method != null ? [c.Note] : []);
+        var page = list.Select(s =>
         {
             var targets = index.VirtualTargets(s.Rva);
             return new VirtualCallRow(Va(s.Rva), Where(s.Rva), VirtualCallSet.StatusCode(s.Status), VirtualCallSet.ReasonCode(s.Reason),
                 VirtualCallSet.ReceiverCode(s.Receiver), ClassOf(s), s.Slot,
                 s.VfptrOffset, s.VftableRva != 0 ? Va(s.VftableRva) : null, s.TailCall, s.Incomplete, s.TargetCount,
                 targets.Take(16).Select(t => $"{index.NameAt(t) ?? $"sub_{t:X}"} @ {Va(t)}").ToList());
-        }).ToList();
+        }).Concat(slotCalls.Select(SlotRow)).Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
 
         var notes = new List<string>(set.Notes);
         if (scopeNote != null) notes.Add(scopeNote);
-        if (start + page.Count < list.Count) notes.Add($"{list.Count - start - page.Count} more: offset={start + page.Count}");
+        if (start + page.Count < total) notes.Add($"{total - start - page.Count} more: offset={start + page.Count}");
         // Sites in functions whose data flow did not settle are not reported: the counts are lower bounds.
         if (set.Stats.FunctionsNotConverged > 0)
             ToolOutput.Coverage("partial", $"{set.Stats.FunctionsNotConverged} functions were not analyzed to the end (visit budget); their sites are missing", "indirect-calls");
@@ -187,7 +207,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
             }
         }
         var st = set.Stats;
-        return new VirtualCallReport(native.Id, st.Sites, st.Exact, st.Possible, st.Unresolved, st.Edges, direct, st.RttiClasses, list.Count, start,
-            start + page.Count < list.Count, page, check, notes);
+        return new VirtualCallReport(native.Id, st.Sites, st.Exact, st.Possible, st.Unresolved, st.Edges, direct, st.RttiClasses, total, start,
+            start + page.Count < total, page, check, notes);
     });
 }

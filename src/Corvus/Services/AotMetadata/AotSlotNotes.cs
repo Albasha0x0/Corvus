@@ -20,6 +20,11 @@ public static class AotSlotNotes
 
     private sealed record ClassPointer(TypeDef Type) : Value;
 
+    private sealed record SlotEntry(TypeDef Type, long Slot) : Value;
+
+    /// <summary>A slot call: its address, the slot, the method found there and the receiver type (each null when unknown).</summary>
+    public sealed record SlotCall(uint Rva, long Slot, MethodDef? Method, TypeDef? Receiver, string Note);
+
     private const int SlotSize = 16;
 
     // Metadata version assumed when the build has no model; the current layout.
@@ -37,10 +42,17 @@ public static class AotSlotNotes
     /// metadata; a call whose slot is not a constant, whose base is not a known
     /// class pointer, or whose offset is outside the vtable has no entry.
     /// </summary>
-    public static Dictionary<uint, string> Comments(LoadedNative native, NativeCodeIndex index, NativeFunction fn, CancellationToken ct = default)
+    public static Dictionary<uint, string> Comments(LoadedNative native, NativeCodeIndex index, NativeFunction fn, CancellationToken ct = default) =>
+        Calls(native, index, fn, ct).ToDictionary(c => c.Rva, c => c.Note);
+
+    /// <summary>
+    /// The calls <see cref="Comments"/> names, with slot and method, ordered by
+    /// address. Empty on the same conditions.
+    /// </summary>
+    public static List<SlotCall> Calls(LoadedNative native, NativeCodeIndex index, NativeFunction fn, CancellationToken ct = default)
     {
-        var notes = new Dictionary<uint, string>();
-        if (index.Image.Arch != NativeArch.X64 || AotNativeNames.Of(native) is not { } applied) return notes;
+        var calls = new Dictionary<uint, SlotCall>();
+        if (index.Image.Arch != NativeArch.X64 || AotNativeNames.Of(native) is not { } applied) return [];
         bool windows = native.Image.Format == ImageFormat.Pe;
         Register[] args = windows
             ? [Register.RCX, Register.RDX, Register.R8, Register.R9]
@@ -71,11 +83,13 @@ public static class AotSlotNotes
         int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
         // A direct call needs the class pointer, loaded from a receiver's first field.
         bool IsVtableCall(in Instruction i) =>
-            i.FlowControl == FlowControl.IndirectCall && i.Op0Kind == OpKind.Memory;
-        if (!instructions.Any(i => IsHelperCall(i) || IsVtableCall(i))) return notes;
+            i.FlowControl == FlowControl.IndirectCall && i.Op0Kind is OpKind.Memory or OpKind.Register;
+        // A register call needs a vtable entry loaded from memory in the function.
+        bool LoadsEntry = instructions.Any(i => i.Mnemonic == Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Memory);
+        if (!instructions.Any(i => IsHelperCall(i) || (IsVtableCall(i) && (i.Op0Kind == OpKind.Memory || LoadsEntry)))) return [];
         // A jump table or computed jump has targets this scan cannot see.
         for (int k = 0; k < instructions.Count - 1; k++)
-            if (instructions[k].FlowControl == FlowControl.IndirectBranch) return notes;
+            if (instructions[k].FlowControl == FlowControl.IndirectBranch) return [];
 
         var state = new Dictionary<Register, Value>();
         if (Owner(applied.Image.MethodsAt(fn.Start)) is { } method) Entry(method, args, windows, state);
@@ -116,7 +130,7 @@ public static class AotSlotNotes
                 if (IsHelperCall(ins) && Helper((uint)(ins.NearBranchTarget - imageBase)) is { } h
                     && state.GetValueOrDefault(h.Slot) is Constant slot
                     && Describe(applied.Image, slot.Number, state.GetValueOrDefault(h.Object) as Receiver) is { } note)
-                    notes[(uint)(ins.IP - imageBase)] = note;
+                    calls[(uint)(ins.IP - imageBase)] = note with { Rva = (uint)(ins.IP - imageBase) };
                 foreach (var r in clobbered) state.Remove(r);
                 continue;
             }
@@ -124,17 +138,17 @@ public static class AotSlotNotes
             {
                 if (VtableSlot(ins, vtableStart, state) is { } direct
                     && Describe(applied.Image, direct.Slot, new Receiver(direct.Type)) is { } directNote)
-                    notes[(uint)(ins.IP - imageBase)] = directNote;
+                    calls[(uint)(ins.IP - imageBase)] = directNote with { Rva = (uint)(ins.IP - imageBase) };
                 foreach (var r in clobbered) state.Remove(r);
                 continue;
             }
-            var loaded = Load(ins, state);
+            var loaded = Load(ins, state, vtableStart);
             foreach (var u in info.GetInfo(ins).GetUsedRegisters())
                 if (u.Access is OpAccess.Write or OpAccess.ReadWrite or OpAccess.CondWrite or OpAccess.ReadCondWrite)
                     state.Remove(u.Register.GetFullRegister());
             if (loaded != null) state[ins.Op0Register.GetFullRegister()] = loaded;
         }
-        return notes;
+        return [.. calls.Values.OrderBy(c => c.Rva)];
     }
 
     // Mutates into: removes registers whose value differs or is missing in other.
@@ -144,17 +158,23 @@ public static class AotSlotNotes
             if (!other.TryGetValue(r, out var v) || !v.Equals(into[r])) into.Remove(r);
     }
 
-    // The slot a call [class + offset] addresses when the base holds the class
-    // pointer of a known type; null for others.
+    // The slot a call [class + offset] addresses, or a call through a register
+    // loaded from one, when the base holds the class pointer of a known type;
+    // null for others.
     private static (TypeDef Type, long Slot)? VtableSlot(
         in Instruction ins, int start, Dictionary<Register, Value> state)
     {
+        if (ins.Op0Kind == OpKind.Register)
+            return state.GetValueOrDefault(ins.Op0Register.GetFullRegister()) is SlotEntry e ? (e.Type, e.Slot) : null;
         if (ins.MemoryIndex != Register.None || ins.SegmentPrefix != Register.None
             || !ins.MemoryBase.IsGPR64() || ins.MemoryBase == Register.RIP
             || state.GetValueOrDefault(ins.MemoryBase) is not ClassPointer klass) return null;
-        long offset = (long)ins.MemoryDisplacement64;
-        return offset >= start && (offset - start) % SlotSize == 0 ? (klass.Type, (offset - start) / SlotSize) : null;
+        return SlotAt((long)ins.MemoryDisplacement64, start) is { } slot ? (klass.Type, slot) : null;
     }
+
+    // The slot index of a class record offset; null outside the vtable.
+    private static long? SlotAt(long offset, int start) =>
+        offset >= start && (offset - start) % SlotSize == 0 ? (offset - start) / SlotSize : null;
 
     // Shared, generic and value-type methods have no single receiver type.
     private static MethodDef? Owner(IReadOnlyList<AotMetadataService.MethodAddress> methods)
@@ -196,7 +216,7 @@ public static class AotSlotNotes
 
     // The value a mov, xor or field load leaves in its destination; null for
     // others. A narrow destination keeps the old upper bits, so it is unknown.
-    private static Value? Load(in Instruction ins, Dictionary<Register, Value> state)
+    private static Value? Load(in Instruction ins, Dictionary<Register, Value> state, int vtableStart)
     {
         if (ins.OpCount == 0 || ins.Op0Kind != OpKind.Register) return null;
         var dest = ins.Op0Register;
@@ -214,7 +234,11 @@ public static class AotSlotNotes
                 && (ins.Op1Register.IsGPR64() || ins.Op1Register.IsGPR32()):
                 var copied = state.GetValueOrDefault(ins.Op1Register.GetFullRegister());
                 // A 32-bit copy truncates a pointer.
-                return copied is Receiver or ClassPointer && !dest.IsGPR64() ? null : copied;
+                return copied is Receiver or ClassPointer or SlotEntry && !dest.IsGPR64() ? null : copied;
+            case OpKind.Memory when dest.IsGPR64() && ins.SegmentPrefix == Register.None
+                && ins.MemoryIndex == Register.None && ins.MemoryBase.IsGPR64() && ins.MemoryBase != Register.RIP
+                && state.GetValueOrDefault(ins.MemoryBase) is ClassPointer klass:
+                return SlotAt((long)ins.MemoryDisplacement64, vtableStart) is { } entry ? new SlotEntry(klass.Type, entry) : null;
             case OpKind.Memory when dest.IsGPR64() && ins.SegmentPrefix == Register.None
                 && ins.MemoryIndex == Register.None && ins.MemoryBase.IsGPR64() && ins.MemoryBase != Register.RIP
                 && state.GetValueOrDefault(ins.MemoryBase) is Receiver r:
@@ -257,16 +281,16 @@ public static class AotSlotNotes
         });
 
     // Null for a value outside the vtable index range: it is not a slot index.
-    private static string? Describe(AotNavigator.Image image, long slot, Receiver? receiver)
+    private static SlotCall? Describe(AotNavigator.Image image, long slot, Receiver? receiver)
     {
         if (slot < 0 || slot > int.MaxValue) return null;
         if (receiver != null)
             return AotNavigator.SlotMethod(receiver.Type, (int)slot) is { } m
-                ? $"{m.DeclaringType.Name}::{m.Name} (slot {slot})"
-                : $"{receiver.Type.Name} slot {slot}: method unknown";
+                ? new SlotCall(0, slot, m, receiver.Type, $"{m.DeclaringType.Name}::{m.Name} (slot {slot})")
+                : new SlotCall(0, slot, null, receiver.Type, $"{receiver.Type.Name} slot {slot}: method unknown");
         int count = CountSlots(image).GetValueOrDefault((int)slot);
-        return count == 0
+        return new SlotCall(0, slot, null, null, count == 0
             ? $"virtual call, slot {slot}, receiver unknown, no metadata method in slot {slot}"
-            : $"virtual call, slot {slot}, receiver unknown, {count} candidates";
+            : $"virtual call, slot {slot}, receiver unknown, {count} candidates");
     }
 }
