@@ -399,7 +399,7 @@ Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`,
 
 **Find usages (xrefs to)** (read-only, idempotent)
 
-Every use of a symbol in loaded assemblies: method call sites (also via base or interface), field reads, writes and address uses, type uses. A native export gives P/Invoke callers and native call sites.
+Every use of a symbol in loaded assemblies: method call sites (also via base or interface), field reads, writes, address uses and type uses. A native export gives P/Invoke callers and native call sites.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -417,7 +417,7 @@ Structured output: `target`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **What a method uses (xrefs from)** (read-only, idempotent)
 
-What a method uses, in IL order with offsets: calls, field reads and writes, types, strings. A P/Invoke or native export gives its native callees as call-tree rows.
+What a method uses, in IL order with offsets: calls, field reads and writes, types, strings. A P/Invoke or native export gives native callees as call-tree rows.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -434,26 +434,26 @@ Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Call tree (callers / callees)** (read-only, idempotent)
 
-Callers or callees of a method across loaded assemblies, several levels deep, one row per node in tree order. Continues through P/Invokes into loaded native code; takes a native export too.
+Callers or callees of a method across loaded assemblies, several levels deep, one row per node. Continues through P/Invokes into native code; takes a native export.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member (Ns.Type::Method(int), name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `direction` | string |  | `callers` | callers or callees. Values: callers, callees. |
-| `depth` | integer |  | `3` | Levels to expand (1-8). |
-| `includeExternal` | boolean |  |  | Callees: also calls into assemblies not loaded (framework). |
+| `depth` | integer |  | `3` | Levels (1-8). |
+| `includeExternal` | boolean |  |  | Callees: also calls into unloaded assemblies (framework). |
 | `assembly` | string |  |  | Assembly id, name, path; omit: all. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `root`, `direction`, `depth`, `items`, `offset`, `total`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
+Structured output: `root`, `direction`, `depth`, `items`, `offset`, `total`, `totalExact`, `partial`, `limit`, `hasMore`, `nextOffset`.
 
 ### find_call_paths
 
 **Call paths to a method** (read-only, idempotent)
 
-Call chains that reach a method, from from= or from entry points, shortest first. A native to= follows native callers and P/Invokes back to managed code.
+Call chains that reach a method, from from= or entry points, shortest first. A native to= follows native callers and P/Invokes back to managed code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -785,7 +785,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Add new types (C#)** (edit, long-running)
 
-Add C# types (with namespace) to an assembly; they see its internal types and patch_method_csharp can call them.
+Add C# types (with namespace) to an assembly; they see its internal types; patch_method_csharp can call them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -817,7 +817,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **List unsaved edits** (read-only, idempotent)
 
-Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays when other edits are undone.
+Unsaved edits of an assembly in order; numbers (editId <assembly>#<n>) stay when others are undone.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -832,7 +832,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`
 
 **Diff edits (before/after C#)** (read-only, idempotent)
 
-Unified diff of the decompiled C# of each member the edits (or one edit) touched; review before save_assembly.
+Unified diff of the decompiled C# of each member the edits (or one) touched.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1060,7 +1060,7 @@ Structured output: `image`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 **Resolve native address** (read-only, idempotent, long-running)
 
-A native address as RVA, VA, file offset, section, nearest symbol, source line; with the code index, its function, instruction or data item and references. Uses PDB, DWARF and AOT metadata.
+What a native address is: RVA, VA, file offset, section, nearest symbol, source line; with the code index, its function, instruction or data item, references. Reads PDB, DWARF, AOT metadata where present.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1266,7 +1266,7 @@ Structured output: `image`, `target`, `items`, `offset`, `total`, `boundTo`, `en
 
 **Native call tree** (read-only, idempotent, open-world, long-running)
 
-Callers or callees of a native function, several levels deep across loaded images and through thunks and import slots; module!import gives its callers. Callees include GetProcAddress and virtual call targets.
+Callers or callees of a native function across loaded images, thunks and import slots; module!import gives its callers. Callees include GetProcAddress and virtual call targets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1281,7 +1281,7 @@ Callers or callees of a native function, several levels deep across loaded image
 | `engine` | string |  |  | auto (default): IDA or Ghidra if analyzed, else ours. Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  |  |
 
-Structured output: `image`, `root`, `direction`, `items`, `offset`, `total`, `frontier`, `engine`, `engineNote`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
+Structured output: `image`, `root`, `direction`, `items`, `offset`, `total`, `frontier`, `engine`, `engineNote`, `partial`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
 ### find_virtual_calls
 
@@ -1312,7 +1312,7 @@ Strings referenced by code or data of a native image, with address, reference co
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `query` | string |  |  | Case-insensitive substring, or regex with regex=true or written /pattern/ (always a regex; regex=true keeps the slashes); omit for all. |
+| `query` | string |  |  | Case-insensitive substring, or regex (regex=true, or /pattern/: always a regex; regex=true keeps the slashes); omit for all. |
 | `regex` | boolean |  |  | query is a regex. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -1349,7 +1349,7 @@ Trace a value through native code across functions and images: backward to the c
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | An instruction, call, function start (with argument) or writable global: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `location` | string |  |  | The value at address: a register (rdx, xmm1, x1, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return). |
+| `location` | string |  |  | Value at address: register (rdx, xmm1, x1), stack slot ([rsp+28h], [x29-8]), op1 / op2 (operand) or result (call return). |
 | `argument` | string |  |  | Argument of the call or parameter of the function at address: 1-based or API name. |
 | `direction` | string |  |  | backward (default): values reaching it; forward: its uses. Values: backward, forward, both. |
 | `maxDepth` | integer |  | `3` | Function boundaries to cross (0-8). |
@@ -1986,7 +1986,7 @@ Copy names, comments and engine types from the old build to the new one through 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | Older build (image id or path), static library (.lib, .a) or object file (COFF, ELF): its functions name the starts holding their bytes. |
+| `oldImage` | string | yes |  | Older build (image id or path), static library (.lib, .a) or object file: its functions name the starts holding their bytes. |
 | `newImage` | string | yes |  | New build: image id or path. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names, identical bytes) to 5 (all). |
@@ -2270,7 +2270,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Run IDA or Ghidra auto-analysis over an image or range in the background and save. analyzers=true lists the options.
+Start IDA or Ghidra auto-analysis over an image or range in the background and save; completes a cut-short analysis. analyzers=true lists the options.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2282,7 +2282,7 @@ Run IDA or Ghidra auto-analysis over an image or range in the background and sav
 | `preset` | string |  |  | full (Ghidra defaults) or a preset in analysis-presets.json. |
 | `from` | string |  |  | Range start (default: whole image). |
 | `to` | string |  |  | Range end (exclusive). |
-| `timeoutSeconds` | integer |  |  | Budget in seconds; omit to run until done or stalled. |
+| `timeoutSeconds` | integer |  |  | Budget in seconds; omit to run until done or stalled. Other engine calls conflict until done. |
 | `offset` | integer |  |  | With analyzers: rows to skip. |
 | `limit` | integer |  | `200` | With analyzers: max rows. |
 
@@ -2310,20 +2310,20 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run IDAPython on the image database. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1); runs with server rights, not undoable.
+Run IDAPython on the image database; returns the last expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1); runs with server rights, not undoable.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `code` | string |  |  | Python source; base is the image base. |
+| `code` | string |  |  | Python source (or scriptPath); base is the image base. |
 | `reset` | boolean |  |  | Clear globals kept from earlier calls. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
 | `scriptPath` | string |  |  | A .py file to run instead of code. |
-| `maxTokens` | integer |  |  |  |
 | `persist` | boolean |  |  | Save the database afterwards. |
-| `allowError` | boolean |  |  | Return an exception as the result. |
-| `timeoutSeconds` | integer |  |  | Seconds before it is cancelled. |
-| `background` | boolean |  |  | Return at once; the end arrives as a notice. |
+| `maxTokens` | integer |  |  |  |
+| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
+| `timeoutSeconds` | integer |  |  | Seconds before it is cancelled; default 120. |
+| `background` | boolean |  |  | Return at once; a notice reports the end. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
@@ -2337,14 +2337,14 @@ Run a Java or Python Ghidra script on the image in one transaction: saved on ret
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `code` | string |  |  | Java (a GhidraScript class, or a run() body with imports first) or Python source. |
-| `name` | string |  |  | Instead of code: an installed script. |
+| `name` | string |  |  | Instead of code: a script in the Ghidra script folders or DATA/ghidra_scripts. |
 | `args` | string[] |  |  | With name: script arguments (getScriptArgs). |
-| `timeoutSeconds` | integer |  |  | Seconds before it is cancelled. Default 120. |
+| `timeoutSeconds` | integer |  |  | Seconds before it is cancelled; default 120. |
 | `language` | string |  |  | java (default) or python (needs CORVUS_GHIDRA_PYTHON); name *.py is Python. |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 | `maxTokens` | integer |  |  |  |
-| `allowError` | boolean |  |  | Return an exception as the result. |
-| `background` | boolean |  |  | Return at once; the end arrives as a notice. |
+| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
+| `background` | boolean |  |  | Return at once; a notice reports the end. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
@@ -2562,7 +2562,7 @@ Structured output: `items`, `offset`, `total`, `libraries`, `notes`, `limit`, `t
 
 **List Android devices** (read-only, idempotent, open-world)
 
-Android devices and emulators adb sees: serial, state, model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.
+Android devices and emulators: serial, state, model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.
 
 No parameters.
 
@@ -2683,7 +2683,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Uninstall package from device** (destructive, idempotent, open-world)
 
-Remove an app (and its data unless keepData) from a device; needs the server option --allow-device-changes.
+Remove an app (and its data unless keepData) from a device; needs --allow-device-changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -3044,7 +3044,7 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Read a JavaScript bundle, Hermes or Ark bytecode: modules, source map, endpoints, secrets and data flow.
+Read a JavaScript bundle, Hermes or Ark bytecode statically: modules, source map, endpoints, secrets and data flow.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

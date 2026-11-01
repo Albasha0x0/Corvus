@@ -550,6 +550,29 @@ public sealed class CryptoConstantTests : IDisposable
     }
 
     [Fact]
+    public async Task Library_version_strings_are_named_with_their_version_and_a_bare_name_has_none()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "Mbed TLS 3.4.0"u8.ToArray(), .. Pad(0x40), .. "wolfSSL 5.6.3"u8.ToArray(), .. Pad(0x40), .. "OpenSSL 3.0.13 30 Jan 2024"u8.ToArray(), .. Pad(0x40), .. "BoringSSL"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("Mbed TLS version string 3.4.0", 0x100, text);
+        AssertAt("wolfSSL version string 5.6.3", 0x14E, text);
+        AssertAt("OpenSSL version string 3.0.13", 0x19B, text);
+        Assert.DoesNotMatch(@"BoringSSL identification string \d", text);
+        Assert.Contains("(weak evidence)", Lines(text, "BoringSSL"));
+    }
+
+    [Fact]
+    public async Task A_truncated_version_prefix_and_bare_names_are_reported_without_a_version()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "Mbed TLS 3."u8.ToArray(), .. Pad(0x40), .. "libsodium"u8.ToArray(), .. Pad(0x40), .. "wolfSSL_Init"u8.ToArray(), .. Pad(0x40), .. "Crypto++"u8.ToArray()]);
+        AssertAt("Mbed TLS version string 3", 0x100, text);
+        Assert.Contains("(weak evidence)", Lines(text, "libsodium"));
+        Assert.Contains("(weak evidence)", Lines(text, "wolfSSL identification"));
+        Assert.Contains("(weak evidence)", Lines(text, "Crypto++"));
+    }
+
+    [Fact]
     public async Task CRC_32_tables_are_named_in_both_byte_orders_and_bit_orders()
     {
         await using var server = await InProcessServer.StartAsync();
