@@ -89,6 +89,37 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
             await Call(server, "inspect_process", new() { ["process"] = process, ["view"] = "stacks", ["thread"] = m.Groups[1].Value });
     }
 
+    /// <summary>Waits for a stop in 30 s slices until the session's events stall.</summary>
+    private protected Task<string> WaitStop(InProcessServer server, string session)
+    {
+        var first = true;
+        return WaitStop(
+            async () =>
+            {
+                // Resume once; later slices only wait, so a held stop is never resumed.
+                var action = first ? "continue" : "list";
+                first = false;
+                return await Ok(server, "live_break", new() { ["session"] = session, ["action"] = action, ["wait"] = true, ["waitSeconds"] = 30 });
+            },
+            async () => (await Events(server, session, log: false)).Split('\n').Length,
+            new StallRule(ServerOptions.StallWindow()));
+    }
+
+    /// <summary>Repeats <paramref name="slice"/> until it returns a stop; ends when <paramref name="eventCount"/> stops growing for the rule's window.</summary>
+    internal static async Task<string> WaitStop(Func<Task<string>> slice, Func<Task<int>> eventCount, StallRule rule)
+    {
+        var seen = -1;
+        while (true)
+        {
+            var stop = await slice();
+            // Matches the idle answer of live_break wait=true (LiveSessionTools).
+            if (!stop.Contains("no stop within", StringComparison.Ordinal)) return stop;
+            var count = await eventCount();
+            if (count != seen) { seen = count; rule.Progress($"{count} event lines"); }
+            else if (rule.Stalled(null)) return $"{stop}{Environment.NewLine}{rule.LastUnitText}";
+        }
+    }
+
     /// <summary>All events of one kind, every page.</summary>
     private protected async Task<string> Events(InProcessServer server, string session, string? kind = null, string? from = null, bool log = true)
     {

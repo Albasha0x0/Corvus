@@ -473,7 +473,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" });
         for (int round = 0; round < 2; round++)
         {
-            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            var stop = await WaitStop(server, "live-1");
             // A missed stop logs the deferred point's state and the session's events.
             if (!Regex.IsMatch(stop, @"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)"))
             {
