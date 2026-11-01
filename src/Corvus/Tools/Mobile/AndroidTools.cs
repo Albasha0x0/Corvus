@@ -289,7 +289,9 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         {
             progress.Report(new ProgressNotificationValue { Progress = 0, Message = decompiler == JavaDecompilerService.Jadx
                 ? "JADX: starting and loading the package (once per package)" : "Vineflower: decompiling the class" });
-            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping, decompiler), cancellationToken);
+            static string Q(string v) => "\"" + v.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            var repeat = $"decompile_java path={Q(path)} symbol={Q(symbol)}" + (javaOnly ? " javaOnly=true" : "") + (mapping != null ? $" mapping={Q(mapping)}" : "");
+            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping, decompiler, new(JavaDecompilerService.LoadWaitDefault, repeat)), cancellationToken);
         }).ConfigureAwait(false);
         return pager.Page(text, offset, maxTokens);
     }

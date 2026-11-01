@@ -2,13 +2,14 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Corvus.Core;
 
 namespace Corvus.Native.Providers.Jadx;
 
 /// <summary>A tool result of the JADX server: its text, and whether the server marked it an error.</summary>
 public sealed record JadxResult(string Text, bool IsError);
 
-/// <summary>The JADX headless server as an MCP stdio child, one package per process; a timed-out call keeps it, only its exit ends the session. It gets a minimal environment and a private temp directory.</summary>
+/// <summary>The JADX headless server as an MCP stdio child, one package per process; a timed-out call keeps it, only its exit or a stalled load ends the session. It gets a minimal environment and a private temp directory.</summary>
 public sealed class JadxServer : IDisposable
 {
     private readonly ChildProcess _process;
@@ -18,6 +19,8 @@ public sealed class JadxServer : IDisposable
     private readonly object _write = new();
     private long _nextId;
     private int _disposed;
+    private long _stderrLines;
+    private string? _pendingNext;
 
     public string Package { get; }
     public Task Loaded { get; private set; } = Task.CompletedTask;
@@ -40,6 +43,7 @@ public sealed class JadxServer : IDisposable
                 while ((line = r.ReadLine()) != null)
                     lock (_stderr)
                     {
+                        _stderrLines++;
                         _stderr.AppendLine(line);
                         if (_stderr.Length > 16_384) _stderr.Remove(0, _stderr.Length - 8_192);
                     }
@@ -48,14 +52,26 @@ public sealed class JadxServer : IDisposable
         });
     }
 
+    /// <summary>The call a client was told to repeat while the package loads; null when none waits.</summary>
+    public string? TakeNext() => Interlocked.Exchange(ref _pendingNext, null);
+
+    /// <summary>Records the call to name in the notice at the end of the load.</summary>
+    public void AskNext(string next) => Volatile.Write(ref _pendingNext, next);
+
+    /// <summary>The lines the server has written to stderr, the progress unit of a load.</summary>
+    public long StderrLines
+    {
+        get { lock (_stderr) return _stderrLines; }
+    }
+
     /// <summary>The last lines the server wrote to stderr.</summary>
     public string StderrTail
     {
         get { lock (_stderr) return string.Join('\n', _stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).TakeLast(8)); }
     }
 
-    /// <summary>Starts the server and begins loading <paramref name="package"/>; <see cref="Loaded"/> completes when it is indexed.</summary>
-    public static JadxServer Start(string java, string jar, string package, TimeSpan loadTimeout, IReadOnlyDictionary<string, string?>? environment = null)
+    /// <summary>Starts the server and begins loading <paramref name="package"/>; <see cref="Loaded"/> completes when it is indexed. The load ends on completion, on exit, or when stderr and CPU show no progress for <paramref name="stallWindow"/>.</summary>
+    public static JadxServer Start(string java, string jar, string package, TimeSpan stallWindow, IReadOnlyDictionary<string, string?>? environment = null, TimeProvider? time = null)
     {
         var temp = PrivateFolder.Create(PrivateFolder.Temp("jadx", $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
         var env = new Dictionary<string, string?>(environment ?? new Dictionary<string, string?>()) { ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp, ["JADX_TMP_DIR"] = temp };
@@ -65,11 +81,11 @@ public sealed class JadxServer : IDisposable
         args.Insert(0, "-Djava.io.tmpdir=" + temp);
         var process = ChildProcess.Start(new ChildProcessStart(java, args) { Environment = ExternalTools.MinimalEnvironment(env), WorkingDirectory = temp });
         var server = new JadxServer(process, package, temp);
-        server.Loaded = server.Initialize(loadTimeout);
+        server.Loaded = server.Initialize(stallWindow, time ?? TimeProvider.System);
         return server;
     }
 
-    private async Task Initialize(TimeSpan loadTimeout)
+    private async Task Initialize(TimeSpan stallWindow, TimeProvider time)
     {
         await Request("initialize", new JsonObject
         {
@@ -78,7 +94,26 @@ public sealed class JadxServer : IDisposable
             ["clientInfo"] = new JsonObject { ["name"] = "corvus", ["version"] = typeof(JadxServer).Assembly.GetName().Version?.ToString(3) ?? "1" },
         }, TimeSpan.FromMinutes(2), CancellationToken.None).ConfigureAwait(false);
         Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" });
-        var load = await Call("load_apk", new JsonObject { ["path"] = Package }, loadTimeout, CancellationToken.None).ConfigureAwait(false);
+        var pending = Call("load_apk", new JsonObject { ["path"] = Package }, Timeout.InfiniteTimeSpan, CancellationToken.None);
+        var rule = new StallRule(stallWindow, time);
+        long seen = -1;
+        while (!pending.IsCompleted)
+        {
+            await Task.WhenAny(pending, Task.Delay(stallWindow / 8, time)).ConfigureAwait(false);
+            if (pending.IsCompleted) break;
+            if (StderrLines is var lines && lines != seen)
+            {
+                seen = lines;
+                rule.Progress($"stderr line {lines}");
+            }
+            if (rule.Stalled(_process.TreeCpuTime()))
+            {
+                // The abandoned call fails when the session is dropped.
+                _ = pending.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
+                throw new TimeoutException($"{StallRule.MessagePrefix}load_apk': no progress and under 1% of a core for {stallWindow.TotalSeconds:0.###} s ({rule.LastUnitText})");
+            }
+        }
+        var load = await pending.ConfigureAwait(false);
         if (load.IsError) throw new InvalidOperationException("the JADX server could not load the package: " + load.Text);
     }
 

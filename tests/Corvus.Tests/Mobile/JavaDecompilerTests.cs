@@ -362,6 +362,71 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
+    public async Task A_load_past_the_wait_answers_not_ready_then_the_repeat_joins_it()
+    {
+        var (_, env) = Fake();
+        using (env)
+        {
+            using var workspace = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
+            using var service = new JavaDecompilerService(new DexService(), workspace) { Environment = _fake.Environment, Cache = null };
+            var apk = Apk();
+            var gate = _dir.File("load.gate");
+            _fake.Set("loadGate", gate);
+            const string repeat = "decompile_java path=\"app.apk\" symbol=\"com.example.app.Main\"";
+            var error = await Assert.ThrowsAsync<ToolError>(() => service.Decompile(apk, "com.example.app.Main", true, default, wait: new(TimeSpan.FromMilliseconds(300), repeat)));
+            Assert.Equal(ErrorCode.Conflict, error.Code);
+            Assert.True(error.Retryable);
+            Assert.Equal(repeat, error.Remediation);
+            File.WriteAllText(gate, "");
+            // The load ends while no call waits, so the notice is sent.
+            var notices = new List<string>();
+            SpinWait.SpinUntil(() => { notices.AddRange(workspace.DrainNotices()); return notices.Count > 0; }, TimeSpan.FromSeconds(10));
+            Assert.Equal($"JADX loaded app.apk. Next: {repeat}", Assert.Single(notices));
+            Assert.Contains("source of", await service.Decompile(apk, "com.example.app.Main", true, default, wait: new(TimeSpan.FromSeconds(30), repeat)));
+            Assert.Single(_fake.Calls.OfType<JsonObject>(), c => (string?)c["tool"] == "load_apk");
+            Assert.Single(_fake.ArgumentLists, a => a.Contains("-jar"));
+        }
+    }
+
+    [Fact]
+    public async Task A_server_exit_during_the_load_names_its_stderr()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            _fake.Set("stderrOnLoad", "java.lang.OutOfMemoryError: heap space");
+            _fake.Set("crashOnLoad", true);
+            var error = await Assert.ThrowsAsync<ToolError>(() => service.Decompile(Apk(), "com.example.app.Main", true, default));
+            Assert.Equal(ErrorCode.ProviderUnavailable, error.Code);
+            Assert.Contains("OutOfMemoryError", error.Message);
+        }
+    }
+
+    [Fact]
+    public async Task A_load_with_no_stderr_output_and_idle_CPU_ends_as_stalled_and_names_the_last_line()
+    {
+        var (_, env) = Fake();
+        using (env)
+        {
+            var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+            using var service = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = null, StallWindow = TimeSpan.FromSeconds(80), Time = time };
+            _fake.Set("stderrOnLoad", "indexing classes");
+            _fake.Set("loadGate", _dir.File("never.gate"));
+            var call = service.Decompile(Apk(), "com.example.app.Main", true, default);
+            while (!call.IsCompleted)
+            {
+                time.Advance(TimeSpan.FromSeconds(10));
+                await Task.Delay(20);
+            }
+            var error = await Assert.ThrowsAsync<ToolError>(() => call);
+            Assert.Equal(ErrorCode.ProviderUnavailable, error.Code);
+            Assert.Contains("stalled on 'load_apk'", error.Message);
+            Assert.Contains("stderr line 1", error.Message);
+        }
+    }
+
+    [Fact]
     public async Task Without_JADX_names_the_variable()
     {
         using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));

@@ -182,6 +182,10 @@ static int Jadx(JsonObject script, string? log)
             var name = request["params"]!["name"]!.GetValue<string>();
             var arguments = request["params"]!["arguments"]?.AsObject() ?? [];
             Log(log, new JsonObject { ["tool"] = name, ["arguments"] = arguments.DeepClone() }.ToJsonString());
+            // The load writes "stderrOnLoad" to stderr, then waits until the "loadGate" file exists.
+            if (name == "load_apk" && script["stderrOnLoad"]?.GetValue<string>() is { } diagnostic) Console.Error.WriteLine(diagnostic);
+            if (name == "load_apk" && script["loadGate"]?.GetValue<string>() is { } gate)
+                while (!File.Exists(gate) && File.Exists(Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT"))) Thread.Sleep(20);
             if (name == "load_apk" && script["crashOnLoad"]?.GetValue<bool>() == true) Environment.Exit(3);
             // A canned answer is text, or an object of answers by class_name ("*" for the rest; "!" before a text marks an error).
             var key = arguments["class_name"]?.GetValue<string>() ?? "";

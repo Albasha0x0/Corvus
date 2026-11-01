@@ -10,9 +10,10 @@ using Corvus.Native.Providers.Jadx;
 namespace Corvus.Services.Mobile;
 
 /// <summary>Java source through the JADX server (one session per unchanged package, two at most); overloads matched by parameter types.</summary>
-public sealed class JavaDecompilerService(DexService dex) : IDisposable
+public sealed class JavaDecompilerService(DexService dex, AssemblyWorkspace? workspace = null) : IDisposable
 {
-    public static readonly TimeSpan LoadTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>How long a call waits for a package to load before answering that the load continues.</summary>
+    public static readonly TimeSpan LoadWaitDefault = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan CallTimeout = TimeSpan.FromMinutes(3);
     private const int MaxSessions = 2;
 
@@ -22,12 +23,25 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     /// <summary>Extra environment for the server process (tests).</summary>
     internal IReadOnlyDictionary<string, string?>? Environment { get; init; }
 
+    /// <summary>The window of no stderr output and idle CPU after which a load is stalled; null: the shared stall window.</summary>
+    internal TimeSpan? StallWindow { get; init; }
+
+    /// <summary>The clock of the load's stall check (tests).</summary>
+    internal TimeProvider? Time { get; init; }
+
     /// <summary>Output kept on disk across servers; null keeps nothing.</summary>
     internal JavaSourceCache? Cache { get; init; } = JavaSourceCache.Default();
 
     public const string Jadx = "jadx", Vineflower = "vineflower";
 
-    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null, string engine = Jadx)
+    /// <summary>A bounded wait for a package to load, and the call a not-ready answer and the end-of-load notice name.</summary>
+    public sealed record LoadWait(TimeSpan Limit, string Next);
+
+    /// <summary>
+    /// The source of a class or method. With <paramref name="wait"/>, a load still running at its limit
+    /// throws a retryable conflict and goes on in the background; null waits for the load to end.
+    /// </summary>
+    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null, string engine = Jadx, LoadWait? wait = null)
     {
         symbol = symbol.Trim();
         bool vineflower = engine == Vineflower;
@@ -36,7 +50,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             ? Cache.Entry(path, build, $"{symbol}|{smaliFallback}", mapping) : null;
         if (JavaSourceCache.Read(entry) is { } cached) return cached;
         var text = vineflower ? await Task.Run(() => DecompileClassFiles(path, symbol, ct), ct).ConfigureAwait(false)
-            : await DecompileUncached(path, symbol, smaliFallback, ct, mapping).ConfigureAwait(false);
+            : await DecompileUncached(path, symbol, smaliFallback, ct, mapping, wait).ConfigureAwait(false);
         JavaSourceCache.Write(entry, text);
         return text;
     }
@@ -96,14 +110,14 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             SafeFile.WritePrivateUnderRoot(root, Blob.SafeRelativePath(name, "class.class", maxParts: 64), bytes, overwrite: true, flush: false);
     }
 
-    private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping)
+    private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping, LoadWait? wait)
     {
         DexIndex index;
         try { index = dex.Index(path, ct); }
-        catch (ToolError e) when (e.Code == ErrorCode.NotFound && ClassFileJar(path) is { } jar) { return await DecompileJar(jar, symbol, smaliFallback, ct).ConfigureAwait(false); }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound && ClassFileJar(path) is { } jar) { return await DecompileJar(jar, symbol, smaliFallback, ct, wait).ConfigureAwait(false); }
         var names = dex.Names(index, mapping, ct);
         symbol = DexService.Resolve(index, names, symbol);
-        var source = await DecompileDex(index, symbol, smaliFallback, ct).ConfigureAwait(false);
+        var source = await DecompileDex(index, symbol, smaliFallback, ct, wait).ConfigureAwait(false);
         return names == null || names.IsEmpty ? source : WithNames(source, names, index, symbol, ct);
     }
 
@@ -120,7 +134,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         return head + "\n" + r.Text;
     }
 
-    private async Task<string> DecompileDex(DexIndex index, string symbol, bool smaliFallback, CancellationToken ct)
+    private async Task<string> DecompileDex(DexIndex index, string symbol, bool smaliFallback, CancellationToken ct, LoadWait? wait)
     {
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
         DexClassEntry? cls = member ? null : index.FindClass(symbol);
@@ -131,7 +145,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             method = index.Methods.GetValueOrDefault(id) ?? throw new ToolError(ErrorCode.NotFound,
                 $"{id} is called by the package but not defined in it (a framework or library method): nothing to decompile.");
         }
-        var server = await Session(index.Path, ct).ConfigureAwait(false);
+        var server = await Session(index.Path, wait, ct).ConfigureAwait(false);
         try
         {
             return method == null ? await ClassSource(server, index, cls!, smaliFallback, 0, ct).ConfigureAwait(false)
@@ -307,7 +321,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     }
 
     /// <summary>A class or method of a jar of .class files: names go to JADX as given (no DEX index to resolve them).</summary>
-    private async Task<string> DecompileJar(string jar, string symbol, bool smaliFallback, CancellationToken ct)
+    private async Task<string> DecompileJar(string jar, string symbol, bool smaliFallback, CancellationToken ct, LoadWait? wait)
     {
         var arrow = symbol.IndexOf("->", StringComparison.Ordinal);
         var colons = symbol.IndexOf("::", StringComparison.Ordinal);
@@ -319,7 +333,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             (owner, member) = dot > 0 ? (symbol[..dot], symbol[(dot + 1)..]) : (symbol, "");
         }
         var className = owner.StartsWith('L') && owner.EndsWith(';') ? DexFile.JavaName(owner) : owner.Replace('/', '.');
-        var server = await Session(jar, ct).ConfigureAwait(false);
+        var server = await Session(jar, wait, ct).ConfigureAwait(false);
         try
         {
             if (member.Length == 0)
@@ -419,7 +433,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         return text;
     }
 
-    private async Task<JadxServer> Session(string path, CancellationToken ct)
+    private async Task<JadxServer> Session(string path, LoadWait? wait, CancellationToken ct)
     {
         var info = new FileInfo(path);
         var key = $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
@@ -448,12 +462,13 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             lock (_lock)
                 if ((server = Find()) == null)
                 {
-                    try { server = JadxServer.Start(java.Path!, jadx.Path!, path, LoadTimeout, Environment); }
+                    try { server = JadxServer.Start(java.Path!, jadx.Path!, path, StallWindow ?? ServerOptions.StallWindow(), Environment, Time); }
                     catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
                     {
                         throw Unavailable($"the JADX server could not be started: {ex.Message}", jadx.Remediation);
                     }
                     _sessions.AddFirst((key, server));
+                    _ = server.Loaded.ContinueWith(t => LoadEnded(server, path, t), TaskScheduler.Default);
                     while (_sessions.Count > MaxSessions)
                     {
                         _sessions.Last!.Value.Server.Dispose();
@@ -461,13 +476,40 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
                     }
                 }
         }
-        try { await server.Loaded.WaitAsync(ct).ConfigureAwait(false); }
+        try
+        {
+            if (wait == null || server.Loaded.IsCompleted) await server.Loaded.WaitAsync(ct).ConfigureAwait(false);
+            else
+                try { await server.Loaded.WaitAsync(wait.Limit, ct).ConfigureAwait(false); }
+                // The deadline ends this wait; the load goes on and a repeat joins it.
+                catch (TimeoutException) when (!server.Loaded.IsCompleted)
+                {
+                    server.AskNext(wait.Next);
+                    if (!server.Loaded.IsCompleted)
+                        throw new ToolError(ErrorCode.Conflict, $"JADX is still loading {Path.GetFileName(path)} ({server.StderrLines} stderr lines so far); the load continues in the background.", wait.Next)
+                        { Retryable = true, Details = new { reason = "loading", stderrLines = server.StderrLines } };
+                    server.TakeNext();
+                    await server.Loaded.WaitAsync(ct).ConfigureAwait(false);
+                }
+        }
         catch (Exception ex) when (ex is JadxExitedException or InvalidOperationException or TimeoutException)
         {
             Drop(path);
             throw new ToolError(ErrorCode.ProviderUnavailable, $"JADX could not load {path}: {ex.Message}", "disassemble_dex gives the smali without JADX");
         }
+        // A caller that got the answer needs no notice.
+        server.TakeNext();
         return server;
+    }
+
+    // Notifies only a client that was told to repeat the call.
+    private void LoadEnded(JadxServer server, string path, Task loaded)
+    {
+        if (workspace == null || server.TakeNext() is not { } next) return;
+        var name = Path.GetFileName(path);
+        workspace.Notify(loaded.IsCompletedSuccessfully
+            ? $"JADX loaded {name}. Next: {next}"
+            : $"JADX could not load {name}: {loaded.Exception?.GetBaseException().Message}. Next: {next} starts the load again; disassemble_dex gives the smali without JADX.");
     }
 
     private static ToolError Unavailable(string message, string remediation) =>
