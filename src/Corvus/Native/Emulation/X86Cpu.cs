@@ -286,6 +286,9 @@ public sealed class X86Cpu : IEmulatorCpu
         Pc = next;
         switch (i.Mnemonic)
         {
+            case Mnemonic.Int3:
+                Pc = i.IP;
+                throw new EmulatorTrapException("int3");
             case Mnemonic.Nop or Mnemonic.Endbr64 or Mnemonic.Endbr32 or Mnemonic.Pause or Mnemonic.Lfence or Mnemonic.Mfence or Mnemonic.Sfence
                 or Mnemonic.Prefetchnta or Mnemonic.Prefetcht0 or Mnemonic.Prefetcht1 or Mnemonic.Prefetcht2 or Mnemonic.Prefetchw or Mnemonic.Vzeroupper:
                 break;

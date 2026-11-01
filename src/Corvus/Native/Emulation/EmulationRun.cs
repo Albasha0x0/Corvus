@@ -35,6 +35,9 @@ internal sealed class EmulationRun(INativeImage image, ulong imageBase, NativeCo
     internal long Executed { get; set; }
     internal int CallCount { get; set; }
     internal ulong LastSite { get; set; } = start;
+
+    /// <summary>Whether the last step was a call answered without entering the callee.</summary>
+    internal bool AfterCall { get; set; }
     internal TimeSpan Elapsed { get; set; }
 
     /// <summary>True when the last stop was a budget or a cancel, so the run can continue.</summary>

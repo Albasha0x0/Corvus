@@ -42,7 +42,12 @@ public static class Targets
         string? notice = Load(workspace, text);
         if (notice != null && workspace.Read(() => Find(workspace, text, kind)) is { } loaded) return loaded with { Notice = notice };
         // Nothing of the kind: the workspace's typed error (wrong kind, missing path, not loaded, no match).
-        return workspace.Read(() => kind == TargetKind.Native
+        // An image parameter that resolves Any names a native image unless the id is a loaded assembly.
+        bool native = kind == TargetKind.Native || (kind == TargetKind.Any
+            && parameter.Contains("image", StringComparison.OrdinalIgnoreCase)
+            && workspace.Natives.Count > 0
+            && workspace.Read(() => Find(workspace, text, TargetKind.Assembly)) is null);
+        return workspace.Read(() => native
             ? new Target(null, workspace.GetNative(text), notice)
             : new Target(workspace.Get(text), null, notice));
     }

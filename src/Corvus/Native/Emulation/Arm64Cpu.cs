@@ -207,6 +207,11 @@ public sealed class Arm64Cpu : IEmulatorCpu
 
         // Hints (NOP, YIELD, PACIASP, AUTIASP, BTI) and barriers have no effect on one emulated thread.
         if ((w & 0xFFFFF01F) == 0xD503201F || (w & 0xFFFFF01F) == 0xD503301F) return new(false, _at, next);
+        if ((w & 0xFFE0001F) == 0xD4200000)
+        {
+            Pc = _at;
+            throw new EmulatorTrapException("brk");
+        }
         // Branches.
         if ((w & 0x7C000000) == 0x14000000)
         {

@@ -8,6 +8,9 @@ public sealed class EmulatorFaultException(ulong address, string message) : Exce
     public ulong Address { get; } = address;
 }
 
+/// <summary>A breakpoint or trap instruction (int3, brk) reached by the run.</summary>
+public sealed class EmulatorTrapException(string message) : Exception(message);
+
 /// <summary>An instruction or operand the emulator does not model.</summary>
 public sealed class EmulatorUnsupportedException(string message) : Exception(message);
 

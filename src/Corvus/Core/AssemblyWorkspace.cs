@@ -486,7 +486,7 @@ public sealed class AssemblyWorkspace : IDisposable
         if (MissingPath(id)) throw Targets.FileNotFound(id);
         if (_natives.Count == 0)
             throw Targets.NotLoaded("No native images are loaded.", LoadNext(id));
-        throw new ToolError(ErrorCode.NotFound, $"No loaded native image matches '{identifier}'. Loaded: {string.Join(", ", _natives.Select(n => n.Id))}",
+        throw new ToolError(ErrorCode.NotFound, $"No loaded native image matches '{identifier}'. Loaded ({_natives.Count}): {IdList(_natives.Select(n => n.Id))}",
             RecordedNext(id) ?? "list_assemblies shows loaded ids; a file path loads the file");
     }
 
@@ -682,7 +682,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble");
         if (MissingPath(id)) throw Targets.FileNotFound(id);
         if (_assemblies.Count == 0) throw NoAssemblies(id);
-        throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", _assemblies.Select(a => a.Id))}",
+        throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded ({_assemblies.Count}): {IdList(_assemblies.Select(a => a.Id))}",
             RecordedNext(id) ?? "list_assemblies shows loaded ids; a file path loads the file");
     }
 
@@ -707,6 +707,15 @@ public sealed class AssemblyWorkspace : IDisposable
 
     /// <summary>The load call for an unknown id: the recorded path, else the id as a path.</summary>
     internal string LoadNext(string id) => RecordedNext(id) ?? $"load_assembly path={id}";
+
+    private const int IdListLimit = 10;
+
+    /// <summary>Joins the first 10 ids and appends "... (+K more)" for the rest; empty for an empty set.</summary>
+    internal static string IdList(IEnumerable<string> ids)
+    {
+        var all = ids.ToList();
+        return string.Join(", ", all.Take(IdListLimit)) + (all.Count > IdListLimit ? $", ... (+{all.Count - IdListLimit} more)" : "");
+    }
 
     /// <summary>A path-like identifier naming nothing on disk.</summary>
     private static bool MissingPath(string id) =>

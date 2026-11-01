@@ -112,6 +112,33 @@ public static class IntegerEmulation
     internal static JsonObject Resume(EmulationRun run, long maxInstructions, double seconds, CancellationToken ct) =>
         Execute(run, maxInstructions, seconds, ct);
 
+    private const ulong NullPageSpan = 0x1000;
+
+    private const string NullPageHint = "args can pass a pointer to a buffer (buf:N)";
+
+    /// <summary>
+    /// Names a fault below the first page as a null page access: the argument
+    /// holding the base and the offset; null for any other fault.
+    /// </summary>
+    private static string? NullPageDetail(EmulatorFaultException f, IEmulatorCpu cpu)
+    {
+        if (f.Address >= (ulong)EmulatorMemory.PageSize) return null;
+        var args = cpu.Arguments(6);
+        // A zero argument is the base; else the nearest value below the address.
+        int pick = -1;
+        ulong pickValue = 0;
+        for (int k = 0; k < args.Count; k++)
+        {
+            if (args[k].Register is not { } r || !cpu.TryGet(r, out var v)) continue;
+            if (v > f.Address || f.Address - v >= NullPageSpan) continue;
+            if (pick < 0 || v == 0 && pickValue != 0) { pick = k; pickValue = v; }
+        }
+        if (pick < 0) return $"{f.Message}: null page";
+        string reg = args[pick].Register!;
+        return $"{f.Message}: null page, argument {pick + 1} ({reg}) plus " +
+            $"0x{f.Address - pickValue:x}; {NullPageHint}";
+    }
+
     private static JsonObject Execute(EmulationRun run, long maxIns, double seconds, CancellationToken ct)
     {
         var (image, imageBase, index, cpu, mem, heap, byAddress, sentinel) = (run.Image, run.ImageBase, run.Index, run.Cpu, run.Mem, run.Heap, run.ByAddress, run.Sentinel);
@@ -123,6 +150,7 @@ public static class IntegerEmulation
         long executed = run.Executed, limit = executed + maxIns;
         int callCount = run.CallCount;
         ulong lastSite = run.LastSite;
+        bool afterCall = run.AfterCall;
         string? stop = null, detail = null;
         ulong? stoppedAt = null;
         mem.Tracking = true;
@@ -196,6 +224,7 @@ public static class IntegerEmulation
             if (byAddress.TryGetValue(pc, out var reached))
             {
                 // Execution reached an import through a slot (a jump stub, a register call): its stub answers it.
+                afterCall = true;
                 string name = NativeCodeIndex.ImportName(reached);
                 string? named = Stub(stubs, name, pc), value = named;
                 if (named == null && Model(name, out var heapFault) is { } modelled)
@@ -247,8 +276,17 @@ public static class IntegerEmulation
             {
                 stop = "memory_fault";
                 stoppedAt = pc;
-                detail = f.Message;
+                detail = NullPageDetail(f, cpu) ?? f.Message;
                 if (traceMax > 0) Trace(trace, traceMax, pc, cpu.LastText);
+                break;
+            }
+            catch (EmulatorTrapException t)
+            {
+                stop = "trap";
+                stoppedAt = pc;
+                detail = afterCall
+                    ? "reached a trap after a call that does not return"
+                    : $"reached a trap instruction ({t.Message})";
                 break;
             }
             catch (EmulatorUnsupportedException u)
@@ -261,6 +299,8 @@ public static class IntegerEmulation
             if (traceMax > 0) Trace(trace, traceMax, pc, cpu.LastText);
             executed++;
             lastSite = pc;
+            // Only a call answered without entering the callee returns to the next instruction.
+            afterCall = step.IsCall && cpu.Pc == step.FallThrough;
             if (!step.IsCall) continue;
             ulong target = cpu.Pc;
             if (byAddress.ContainsKey(target)) continue;
@@ -311,6 +351,7 @@ public static class IntegerEmulation
         run.Executed = executed;
         run.CallCount = callCount;
         run.LastSite = lastSite;
+        run.AfterCall = afterCall;
         run.Elapsed += clock.Elapsed;
         run.Resumable = stop is "instruction_budget" or "time_budget" or "cancelled";
 

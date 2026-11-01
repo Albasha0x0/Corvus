@@ -18,7 +18,7 @@ public interface IEmulatorCpu
 
     ulong Sp { get; set; }
 
-    /// <summary>Executes the instruction at <see cref="Pc"/>; throws <see cref="EmulatorFaultException"/> or <see cref="EmulatorUnsupportedException"/>.</summary>
+    /// <summary>Executes the instruction at <see cref="Pc"/>; throws <see cref="EmulatorFaultException"/>, <see cref="EmulatorTrapException"/> (pc stays on the trap) or <see cref="EmulatorUnsupportedException"/>.</summary>
     EmulatorStep Step(EmulatorMemory m);
 
     /// <summary>The last instruction decoded, as disassembly text.</summary>

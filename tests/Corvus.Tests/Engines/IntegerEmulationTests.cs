@@ -1,4 +1,6 @@
 using Corvus.Core;
+using Corvus.Native;
+using Corvus.Native.Emulation;
 using Corvus.Native.Providers;
 using Corvus.Services;
 using Corvus.Tools;
@@ -172,6 +174,61 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
         Assert.Contains("Deref", e.Message);
         var mapped = await Run("Deref", registers: "rcx=0x10000000", memory: "va:0x10000000=u32:0x1234567");
         Assert.Contains("Return value: RAX = 0x1234567", mapped);
+    }
+
+    // A read at 0x38 through a null second argument.
+    [Fact]
+    public async Task A_null_page_read_names_the_argument_and_the_offset()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("FieldOfSecond", args: "buf:16, 0"));
+        output.WriteLine(e.Message);
+        Assert.Contains("null page, argument 2 (RDX) plus 0x38", e.Message);
+        Assert.Contains("buf:N", e.Message);
+    }
+
+    // A small non-zero first argument precedes the null second one.
+    [Fact]
+    public async Task A_null_page_read_names_the_zero_argument_not_a_small_value()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("FieldOfSecond", args: "0x10, 0"));
+        Assert.Contains("null page, argument 2 (RDX) plus 0x38", e.Message);
+    }
+
+    // An int3 follows a stubbed call.
+    [Fact]
+    public async Task A_trap_after_a_call_is_a_stop_not_an_error()
+    {
+        var text = await Run("TrapAfterCall", stubs: "*=0");
+        Assert.Contains("reached a trap after a call that does not return", text);
+    }
+
+    // One native image is loaded.
+    [Fact]
+    public void A_wrong_image_lists_the_loaded_native_images_with_a_count()
+    {
+        var e = Assert.Throws<ToolError>(() => Targets.Resolve(rig.Workspace, "missing", TargetKind.Any, "image"));
+        output.WriteLine(e.Message);
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+        Assert.Contains("No loaded native image matches 'missing'. Loaded (1): emu.dll", e.Message);
+    }
+
+    [Fact]
+    public void An_id_list_is_bounded_and_counts_the_rest()
+    {
+        var ids = Enumerable.Range(1, 12).Select(i => $"a{i}.dll");
+        Assert.Equal("a1.dll, a2.dll, a3.dll, a4.dll, a5.dll, a6.dll, a7.dll, a8.dll, a9.dll, a10.dll, ... (+2 more)", AssemblyWorkspace.IdList(ids));
+        Assert.Equal("", AssemblyWorkspace.IdList([]));
+    }
+
+    [Fact]
+    public void An_arm64_brk_ends_the_step_with_a_trap_at_its_address()
+    {
+        byte[] code = [0x00, 0x00, 0x20, 0xD4];
+        var image = new RawCodeImage(code, "brk.bin", RawLayout.Parse("arm64", "0x10000", null, code.Length));
+        var memory = new EmulatorMemory(image, 0x10000, 0x7ffe00000000, 0x200000);
+        var cpu = new Arm64Cpu { Pc = 0x10000 };
+        Assert.Throws<EmulatorTrapException>(() => { cpu.Step(memory); });
+        Assert.Equal(0x10000UL, cpu.Pc);
     }
 
     [Fact]
