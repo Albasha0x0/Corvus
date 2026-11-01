@@ -79,6 +79,8 @@ public sealed class EngineScriptToolTests : IDisposable
         var jobs = ((IBackgroundJobs)engines.OpenSession(native)!).Jobs;
         Assert.True(jobs.Running);
         Assert.Contains("already running", await tools.IdaPython(native.Id, "1", background: true));
+        // The job reaches the engine on its own thread (macOS CI on c63cc50e).
+        for (var i = 0; i < 1000 && engine.ScriptLimits.Count == 0; i++) await Task.Delay(10);
         Assert.Single(engine.ScriptLimits);
         engine.ScriptGate.SetResult();
         await jobs.Job!.Task.WaitAsync(TimeSpan.FromSeconds(10));
