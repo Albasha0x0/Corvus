@@ -83,7 +83,9 @@ public sealed class EngineRealDataGhidraTests(ITestOutputHelper output) : Engine
         await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting"));
         var (_, exports) = await _phases.Run("list_exports", () => Call(c, "list_exports", new() { ["image"] = image }));
         var function = exports.GetProperty("items")[0].GetProperty("name").GetString()!;
-        Assert.Contains("returned to the caller", await Log(c, "emulate_native", new() { ["image"] = image, ["address"] = function, ["maxInstructions"] = 1000, ["stubs"] = "*=0", ["engine"] = "ghidra" }));
+        // FreeException returns without a call; the first export allocates, and
+        // since 6b0b94db the *=0 stub no longer skips the allocator in the image.
+        Assert.Contains("returned to the caller", await Log(c, "emulate_native", new() { ["image"] = image, ["address"] = "FreeException", ["maxInstructions"] = 1000, ["stubs"] = "*=0", ["engine"] = "ghidra" }));
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
         // The same source again reuses its compiled bundle: compilation is most of a first run.
         var script = new Dictionary<string, object?> { ["image"] = image, ["code"] = "println(\"functions \" + currentProgram.getFunctionManager().getFunctionCount());", ["engine"] = "ghidra" };
