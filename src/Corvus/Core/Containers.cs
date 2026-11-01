@@ -112,6 +112,8 @@ public static class Containers
         if (kind is "native PE" or "elf" or "mach-o" && GodotPack.Embedded(data) is { } pack) return GodotPack.Open(data, pack, name, allFiles, limits, ct);
         // An executable from Aut2Exe: the interpreter with the script data in a resource.
         if (kind == "native PE" && AutoIt.AutoItScript.Find(data) is >= 0 and var script) return AutoIt.AutoItScript.Open(data, script, name, allFiles, limits, ct);
+        // A script compiled with Ahk2Exe: the interpreter with the script as a resource.
+        if (kind == "native PE" && AutoHotkeyScript.Open(data, limits) is { } ahk) return ahk;
         if ((kind == "gzip" || kind == "data") && WebPlayerData.Decompress(data, name, limits.MaxItemBytes) is { } web)
             return WebPlayerData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;

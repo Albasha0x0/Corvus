@@ -3,7 +3,7 @@ using Corvus.Core.AutoIt;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>Script containers and compression streams found inside a native image, named for the overview.</summary>
+/// <summary>Script containers, Nim runtime names and compressed streams in a native image.</summary>
 internal static class NativeEmbeddedContent
 {
     private const int MaxCandidates = 4096, MaxStreamBytes = 4 << 20, MaxExpandedBytes = 64 << 20;
@@ -11,12 +11,23 @@ internal static class NativeEmbeddedContent
     private const long MaxTriedBytes = 128L << 20;
     private static readonly byte[] GzipMagic = [0x1F, 0x8B, 0x08];
 
-    /// <summary>One line per script container and a line for verified gzip streams; empty when none is found.</summary>
+    private static readonly (string Name, byte[] Bytes)[] NimMarkers =
+        new[] { "NimMainInner", "NimMainModule", "nimGC_setStackBottom", "stdlib_system.nim.c" }
+            .Select(m => (m, System.Text.Encoding.ASCII.GetBytes(m))).ToArray();
+
+    // Two distinct names are required: one can appear in any file that mentions it.
+    private static string[] NimNames(byte[] image) =>
+        NimMarkers.Where(m => image.AsSpan().IndexOf(m.Bytes) >= 0).Select(m => m.Name).ToArray();
+
+    /// <summary>One line per script container, Nim runtime names and verified gzip streams.</summary>
     public static List<string> Highlights(byte[] image, CancellationToken ct)
     {
         var lines = new List<string>();
         if (AutoItScript.Find(image) is >= 0 and var script)
             lines.Add($"Script container: {AutoItScript.Kind} at 0x{script:X}; unpack_container reads the script and its files.");
+        if (AutoHotkeyScript.Find(image) is { } ahk)
+            lines.Add($"Script container: {AutoHotkeyScript.Kind}, resource {ahk.Resource.Name}; unpack_container reads the script.");
+        if (NimNames(image) is { Length: >= 2 } nim) lines.Add($"Nim runtime names found: {string.Join(", ", nim)}.");
         var streams = new List<(int Offset, int Expanded)>();
         var hits = Blob.FindAll(image, GzipMagic, MaxCandidates);
         int unread = 0;

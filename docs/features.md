@@ -319,6 +319,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | GameMaker data file | chunks, code entries, strings, textures, audio |
 | Lua 5.1-5.4 and LuaJIT 2.0/2.1 bytecode | functions with listings and strings |
 | Compiled AutoIt script | the script source, rebuilt for EA06 |
+| Compiled AutoHotkey script | the script resource as `script.ahk` |
 | Frozen Python (PyInstaller, py2exe, cx_Freeze, Nuitka onefile) | modules as `.pyc`, the entry script, the Python version |
 | Node bundles (SEA, pkg, nexe, Bun, Deno) | scripts, assets and code caches |
 | Python zipapp (`python -m zipapp`, shiv, pex) | the interpreter line, the entry module, bundled packages, the shiv or pex entry point |
