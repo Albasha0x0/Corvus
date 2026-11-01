@@ -283,8 +283,9 @@ the server keeps answering.
 |---|---|---|
 | `CORVUS_CHILD_ENV` | unset | comma-separated variables, `*` suffix for a prefix (`PYTHON*`), passed to every child process on top of the minimal environment; environment or a private config file only |
 | `CORVUS_WORKER_HOST` | on | `0`: no workers; files read in the server; `search_container kind=yara` refused |
-| `CORVUS_WORKER_SANDBOX` | on | `0`, `false` or `off`: turns off the Windows sandbox; otherwise the files worker runs at low integrity on a restricted token with mitigation policies and job limits; `unpack_container` fills `outputDirectory` from the server |
+| `CORVUS_WORKER_SANDBOX` | on | `0`, `false` or `off`: turns off the sandbox; otherwise the files worker runs at low integrity on a restricted token with mitigation policies and job limits (Windows), or with no_new_privs, Landlock and no core dumps (Linux; `server_status` workers.filesWorkerSandbox); `unpack_container` fills `outputDirectory` from the server |
 | `CORVUS_WORKER_MEMORY_MB` | ½ of available | memory limit per worker, at least 256; `0`: none |
+| `CORVUS_WORKER_LINUX_SANDBOX` | set by the pool | `1`: the Linux files worker applies its sandbox at start; the pool sets it from `CORVUS_WORKER_SANDBOX` |
 | `CORVUS_WORKER_FIXTURE_OPS` | off | `1`: a worker also answers the tests' fixture ops |
 | `CORVUS_YARA_LIBRARY` | shipped build | path of a libyara_x_capi 1.22.1 build for an unsupported platform; loaded without the SHA-256 check |
 | `CORVUS_CHILD_DATA_KB` | | set by Corvus for a capped Linux child; becomes its RLIMIT_DATA |

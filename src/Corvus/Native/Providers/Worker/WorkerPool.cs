@@ -77,6 +77,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         public readonly SemaphoreSlim Gate = new(1, 1);
         public WorkerConnection? Connection;
         public volatile bool OutOfMemory;
+        public volatile string? Sandbox;
     }
 
     /// <summary>Tests: the requests the workers of every kind are running now.</summary>
@@ -198,6 +199,12 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         await ConnectAsync(kind, SlotOf(kind), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>The restrictions the running files worker reported applying (Linux), or null when none runs or none were applied; never waits for a start.</summary>
+    public string? AppliedSandbox
+    {
+        get { lock (_slots) return _slots.TryGetValue(SandboxedKind, out var slot) && slot.Connection is { IsAlive: true } ? slot.Sandbox : null; }
+    }
+
     private Slot SlotOf(string kind)
     {
         lock (_slots)
@@ -240,6 +247,9 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
                 };
                 start = start with { Sandbox = true, Environment = variables };
             }
+            slot.Sandbox = null;
+            if (kind == SandboxedKind && OperatingSystem.IsLinux() && (_options.Sandbox ?? SandboxOn(Environment.GetEnvironmentVariable(SandboxVariable))))
+                start = start with { Environment = new Dictionary<string, string?>(start.Environment ?? new Dictionary<string, string?>()) { [LinuxSandbox.ApplyVariable] = "1" } };
             if (OperatingSystem.IsMacOS() && start.MemoryLimitBytes is { } bytes)
                 // The watchdog ends the worker; the GC's own limit fails a managed allocation first, which the worker reports.
                 start = start with { Environment = new Dictionary<string, string?>(start.Environment) { ["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X", CultureInfo.InvariantCulture) } };
@@ -248,7 +258,12 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
                 options: new WorkerConnectionOptions { MemoryLimitVariable = MemoryVariable, Concurrent = true, CancelGrace = CancelGrace });
             connection.EventReceived += e => { if (e.Name == WorkerHost.OutOfMemoryEvent) slot.OutOfMemory = true; };
             // A busy machine stretches a start that keeps using CPU, so the start limit counts idle time only.
-            try { await connection.WaitReadyAsync(_options.StartTimeout * 3, cancellationToken, idle: _options.StartTimeout).ConfigureAwait(false); }
+            try
+            {
+                var ready = await connection.WaitReadyAsync(_options.StartTimeout * 3, cancellationToken, idle: _options.StartTimeout).ConfigureAwait(false);
+                if (ready.ValueKind == JsonValueKind.Object && ready.TryGetProperty("sandbox", out var applied) && applied.ValueKind == JsonValueKind.String)
+                    slot.Sandbox = applied.GetString();
+            }
             catch
             {
                 connection.Dispose();

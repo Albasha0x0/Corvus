@@ -28,6 +28,9 @@ public static class WorkerHost
     /// <summary>Set to 1 in the worker's environment to register the fixture ops (tests only).</summary>
     public const string FixtureOpsVariable = "CORVUS_WORKER_FIXTURE_OPS";
 
+    /// <summary>The restrictions this worker applied to itself, named in its ready event; null when none were asked for.</summary>
+    internal static LinuxSandbox.Settings? Applied { get; private set; }
+
     /// <summary>Exit code after an op ran out of memory.</summary>
     public const int OutOfMemoryExitCode = 3;
 
@@ -35,6 +38,8 @@ public static class WorkerHost
     public static int? TryRun(string[] args)
     {
         if (args is not [Command]) return null;
+        // First, so every op runs restricted.
+        if (Environment.GetEnvironmentVariable(LinuxSandbox.ApplyVariable) == "1") Applied = LinuxSandbox.Apply();
         return Serve(Ops(Environment.GetEnvironmentVariable(FixtureOpsVariable) == "1"));
     }
 
@@ -178,6 +183,7 @@ public static class WorkerHost
             ["event"] = "ready",
             ["pid"] = Environment.ProcessId,
             ["ops"] = new JsonArray([.. ops.Keys.Order(StringComparer.Ordinal).Select(k => (JsonNode)k)]),
+            ["sandbox"] = Applied?.Describe(),
         });
         var running = new ConcurrentDictionary<long, CancellationTokenSource>();
         var cancelled = new ConcurrentDictionary<long, bool>();

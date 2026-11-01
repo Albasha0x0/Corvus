@@ -162,7 +162,11 @@ internal sealed class WorkersStatus : IStatusSection
     // Programs listed by name, oldest first; the rest are counted in one field, so a busy server's status keeps its budget.
     internal const int Shown = 3;
 
-    public IEnumerable<StatusField> Fields(IServiceProvider services) => Fields(Native.Providers.ChildProcess.Live());
+    public IEnumerable<StatusField> Fields(IServiceProvider services)
+    {
+        foreach (var field in Fields(Native.Providers.ChildProcess.Live())) yield return field;
+        if (Native.Providers.Worker.WorkerPool.Shared.AppliedSandbox is { } sandbox) yield return new StatusField("filesWorkerSandbox", sandbox);
+    }
 
     /// <summary>One field per program for the first <see cref="Shown"/> programs, then one "more" field counting the rest.</summary>
     internal static IEnumerable<StatusField> Fields(IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> children)
