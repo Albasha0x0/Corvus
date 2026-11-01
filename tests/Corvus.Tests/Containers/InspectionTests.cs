@@ -288,6 +288,19 @@ public class InspectionTests : IDisposable
         Assert.DoesNotContain("rerun with locations", text);
     }
 
+    [Theory]
+    [InlineData("RegionInfo.CurrentRegion.Name", true)]
+    [InlineData("\"\"", false)]
+    public void A_region_read_is_reported_only_with_a_managed_file_delete(string read, bool expected)
+    {
+        var source = "using System.Globalization; using System.IO; public static class Wipe {\n" +
+                     $"public static string Where() => {read};\n" +
+                     "public static void Go() { File.Delete(\"a\"); } }";
+        var report = Inspection.SurveyFeatures(null, Save("Wipe.dll", Compile("Wipe", source)), null, default);
+
+        Assert.Equal(expected, report.Features.Any(f => f.Name == "delete files and read the locale or region"));
+    }
+
     [Fact]
     public void Everyday_framework_APIs_match_their_features_and_not_stronger_ones()
     {

@@ -133,6 +133,28 @@ public class NativeSurveyTests(ITestOutputHelper output)
             or "raise breakpoint exceptions or write debug output" or "run initialization callbacks before the entry point");
     }
 
+    [Theory]
+    [InlineData("GetUserDefaultLCID", "DeleteFileW", true)]
+    [InlineData("GetUserGeoID", "RemoveDirectoryW", true)]
+    [InlineData("GetLocaleInfoW", "DeleteFileW", true)]
+    [InlineData("GetLocaleInfoEx", "DeleteFileW", true)]
+    [InlineData("GetUserDefaultLocaleName", "RemoveDirectoryW", true)]
+    [InlineData("GetUserGeoID", "SHFileOperationW", true)]
+    [InlineData("GetUserDefaultLCID", "CloseHandle", false)]
+    [InlineData("GetTickCount64", "DeleteFileW", false)]
+    public void A_locale_read_is_reported_only_with_a_file_delete(string locale, string delete, bool expected)
+    {
+        var imports = new List<NativeImport>
+        {
+            new("KERNEL32.dll", locale, null, 0, Data, false),
+            new(delete.StartsWith("SH", StringComparison.Ordinal) ? "SHELL32.dll" : "KERNEL32.dll", delete, null, 0, Data + 8, false),
+        };
+        var image = CodeTestImage.Synthetic(NativeArch.X64, [0xC3], null, imports, entry: Code);
+        var found = Features.Detect(new NativeFeatureScan(NativeCodeIndex.Build(image), default), default);
+
+        Assert.Equal(expected, found.Any(f => f.Name == "delete files and read the locale or region"));
+    }
+
     [Fact]
     public void Every_rule_pattern_is_prepared_without_error()
     {

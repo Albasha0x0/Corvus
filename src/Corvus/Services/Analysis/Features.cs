@@ -143,6 +143,20 @@ public static class Features
             "native:kernel32!CheckRemoteDebuggerPresent", "native:ntdll!NtQueryInformationProcess",
             "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugPort", "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugObjectHandle",
             "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugFlags"),
+        // Either side alone is common; the rule needs a locale read
+        // and a file delete in one image.
+        All("delete files and read the locale or region", "environment checks",
+            [
+                "api:System.Globalization.CultureInfo::get_InstalledUICulture", "api:System.Globalization.RegionInfo::get_CurrentRegion",
+                "native:kernel32!GetUserDefaultLCID", "native:kernel32!GetSystemDefaultLCID", "native:kernel32!GetUserDefaultLangID",
+                "native:kernel32!GetSystemDefaultLangID", "native:kernel32!GetUserDefaultUILanguage", "native:kernel32!GetSystemDefaultUILanguage",
+                "native:kernel32!GetUserGeoID", "native:kernel32!GetLocaleInfo*", "native:kernel32!GetUserDefaultLocaleName",
+                "native:kernel32!GetSystemDefaultLocaleName", "native:kernel32!GetUserDefaultGeoName",
+            ],
+            [
+                "api:System.IO.File::Delete", "api:System.IO.Directory::Delete", "api:System.IO.FileInfo::Delete", "api:System.IO.DirectoryInfo::Delete",
+                "native:kernel32!DeleteFile*", "native:kernel32!RemoveDirectory*", "native:shell32!SHFileOperation*",
+            ]),
         Any("exclude threads from debugger notification", "environment checks",
             "arg:ntdll!NtSetInformationThread#1=ThreadHideFromDebugger"),
         Any("run initialization callbacks before the entry point", "environment checks",
