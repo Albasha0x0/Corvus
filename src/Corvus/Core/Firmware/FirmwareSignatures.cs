@@ -126,7 +126,7 @@ internal static class FirmwareSignatures
         list.Add(S("POSIX tar archive", Arc, "ustar", Tar, 257));
         list.Add(S("zip archive", Arc, "PK\u0003\u0004", Zip));
         list.Add(S("RAR archive (v4)", Arc, "Rar!\u001A\u0007\0", (w, at) => w.U8(at + 9) == 0x73 ? Found() : null));
-        list.Add(S("RAR archive (v5)", Arc, "Rar!\u001A\u0007\u0001\0", (w, at) => Found()));
+        list.Add(S("RAR archive (v5)", Arc, "Rar!\u001A\u0007\u0001\0", Rar5));
         list.Add(S("7-Zip archive", Arc, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C], (w, at) => w.U8(at + 6) == 0 && w.U8(at + 7) <= 4
             ? Sized(w, at, 32 + (long)w.Le64(at + 12) + (long)w.Le64(at + 20), $"version 0.{w.U8(at + 7)}") : null));
         list.Add(S("Microsoft cabinet", Arc, "MSCF", (w, at) => w.Le32(at + 4) == 0 && w.U8(at + 25) == 1 && w.U8(at + 24) == 3 ? Sized(w, at, w.Le32(at + 8), $"{w.Le16(at + 28)} files") : null));
@@ -151,13 +151,14 @@ internal static class FirmwareSignatures
             && ~Crc.Raw(0xFFFFFFFF, w.D.AsSpan(at + 6, 2)) == w.Le32(at + 8) ? Found() : null));
         list.Add(S("LZMA compressed data", Comp, [0x5D, 0x00, 0x00], (w, at) => w.Le32(at + 1) is var dict && dict >= 1 << 16 && dict <= 1 << 26 && (dict & (dict - 1)) == 0
             && (long)w.Le64(at + 5) is var unpacked && (unpacked == -1 || unpacked is > 0 and < 1L << 32) ? Found($"dictionary {dict >> 10} KiB" + (unpacked > 0 ? $", {unpacked:N0} bytes unpacked" : "")) : null));
-        list.Add(S("Zstandard compressed data", Comp, [0x28, 0xB5, 0x2F, 0xFD], (w, at) => (w.U8(at + 4) & 0x08) == 0 && w.Has(at, 6) ? Found() : null));
+        list.Add(S("Zstandard compressed data", Comp, [0x28, 0xB5, 0x2F, 0xFD], Zstd));
         list.Add(S("LZ4 compressed data", Comp, [0x04, 0x22, 0x4D, 0x18], Lz4Frame));
         list.Add(S("LZ4 legacy compressed data", Comp, [0x02, 0x21, 0x4C, 0x18], (w, at) => w.Le32(at + 4) is > 0 and <= 8 << 20 ? Found() : null));
         list.Add(S("lzop compressed data", Comp, [0x89, 0x4C, 0x5A, 0x4F, 0x00, 0x0D, 0x0A, 0x1A, 0x0A], (w, at) => w.Be16(at + 9) >= 0x0900 && w.U8(at + 15) is 1 or 2 or 3 ? Found() : null));
         list.Add(S("lzip compressed data", Comp, "LZIP", (w, at) => w.U8(at + 4) == 1 && (w.U8(at + 5) & 0x1F) is >= 12 and <= 29 ? Found() : null));
-        list.Add(S("LZFSE compressed data", Comp, "bvx2", (w, at) => w.Le32(at + 4) is > 0 and < 1 << 28 ? Found() : null));
-        list.Add(S("OpenSSL encrypted data", Key, "Salted__", (w, at) => w.Has(at, 16) ? Found() : null));
+        list.Add(S("LZFSE compressed data", Comp, "bvx2", (w, at) => w.Has(at, 32) && Lzfse.PlausibleV2Block(w.D.AsSpan(at, 32), w.Left(at)) ? Found() : null));
+        // The 16-byte header only means something at file start, where the length rule applies.
+        list.Add(S("OpenSSL encrypted data", Key, "Salted__", (w, at) => w.Origin + at == 0 && w.Length >= 32 && (w.Length - 16) % 16 == 0 ? Found() : null));
 
         // Boot images and firmware headers.
         list.Add(S("U-Boot uImage", Boot, [0x27, 0x05, 0x19, 0x56], (w, at) => w.Has(at, 64) && UImageReader.Looks(w.D.AsSpan(at, 64))
@@ -222,17 +223,16 @@ internal static class FirmwareSignatures
         list.Add(S("DER certificate", Key, [0x30, 0x82], (w, at) => w.Be16(at + 2) is var len && len >= 256 && w.U8(at + 4) == 0x30 && w.U8(at + 5) == 0x82 && w.Be16(at + 6) < len && w.U8(at + 8) == 0xA0
             ? Sized(w, at, 4 + len) : null));
         foreach (var kind in new[] { "ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256" })
-            list.Add(S($"OpenSSH public key ({kind})", Key, kind + " AAAA", (w, at) => Found()));
+            list.Add(S($"OpenSSH public key ({kind})", Key, kind + " AAAA", (w, at) => SshKeyBlob(w, at, kind) ? Found() : null));
 
         // Media and documents.
         list.Add(S("PNG image", Media, [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A], Png));
-        list.Add(S("JPEG image", Media, [0xFF, 0xD8, 0xFF], (w, at) => w.U8(at + 3) is 0xE0 or 0xE1 or 0xDB or 0xEE or 0xE2 && w.Be16(at + 4) >= 2
-            && (w.U8(at + 3) != 0xE0 || w.Is(at + 6, "JFIF\0"u8)) && (w.U8(at + 3) != 0xE1 || w.Is(at + 6, "Exif\0"u8) || w.Is(at + 6, "http"u8)) ? Found() : null));
+        list.Add(S("JPEG image", Media, [0xFF, 0xD8, 0xFF], Jpeg));
         list.Add(S("GIF image", Media, "GIF8", (w, at) => (w.Is(at + 4, "7a"u8) || w.Is(at + 4, "9a"u8)) && w.Le16(at + 6) > 0 && w.Le16(at + 8) > 0 ? Found($"{w.Le16(at + 6)}x{w.Le16(at + 8)}") : null));
         list.Add(S("BMP image", Media, "BM", (w, at) => w.Le32(at + 6) == 0 && w.Le32(at + 14) is 12 or 40 or 52 or 56 or 108 or 124 && w.Le16(at + 26) == 1 && w.Le32(at + 10) < w.Le32(at + 2)
             ? Sized(w, at, w.Le32(at + 2), $"{w.Le32(at + 18)}x{w.Le32(at + 22)}") : null));
-        list.Add(S("TIFF image (little endian)", Media, "II*\0", (w, at) => w.Le32(at + 4) is >= 8 and < 1 << 28 ? Found() : null));
-        list.Add(S("TIFF image (big endian)", Media, "MM\0*", (w, at) => w.Be32(at + 4) is >= 8 and < 1 << 28 ? Found() : null));
+        list.Add(S("TIFF image (little endian)", Media, "II*\0", (w, at) => Tiff(w, at, false)));
+        list.Add(S("TIFF image (big endian)", Media, "MM\0*", (w, at) => Tiff(w, at, true)));
         list.Add(S("WebP image", Media, "WEBP", (w, at) => Riff(w, at, "VP8"), 8));
         list.Add(S("WAVE audio", Media, "WAVE", (w, at) => Riff(w, at, "fmt "), 8));
         list.Add(S("AVI video", Media, "AVI ", (w, at) => Riff(w, at, "LIST"), 8));
@@ -244,16 +244,96 @@ internal static class FirmwareSignatures
         list.Add(S("WOFF font", Media, "wOFF", (w, at) => w.Be16(at + 12) is > 0 and <= 64 ? Sized(w, at, w.Be32(at + 8)) : null));
         list.Add(S("WOFF2 font", Media, "wOF2", (w, at) => w.Be16(at + 12) is > 0 and <= 64 ? Sized(w, at, w.Be32(at + 8)) : null));
         list.Add(S("PDF document", Doc, "%PDF-", (w, at) => w.U8(at + 5) is (byte)'1' or (byte)'2' && w.U8(at + 6) == '.' ? Found($"version {w.Ascii(at + 5, 3)}") : null));
-        list.Add(S("RTF document", Doc, "{\\rtf1", (w, at) => Found()));
+        list.Add(S("RTF document", Doc, "{\\rtf1", (w, at) => w.U8(at + 6) is '\\' or ' ' or '\r' or '\n' or '{' && PlainText(w, at, 24) ? Found() : null));
         list.Add(S("SQLite database", Doc, "SQLite format 3\0", (w, at) => w.Be16(at + 16) is var page && (page == 1 || page >= 512 && (page & (page - 1)) == 0) && w.U8(at + 21) == 64
             ? Sized(w, at, (page == 1 ? 65536L : page) * w.Be32(at + 28)) : null));
         list.Add(S("XML document", Doc, "<?xml version=", (w, at) => w.U8(at + 14) is (byte)'"' or (byte)'\'' ? Found() : null));
-        list.Add(S("HTML document", Doc, "<!DOCTYPE html", (w, at) => Found()));
+        list.Add(S("HTML document", Doc, "<!DOCTYPE html", (w, at) => w.U8(at + 14) is '>' or ' ' or '\t' or '\r' or '\n' && PlainText(w, at, 48) ? Found() : null));
         list.Add(S("VHD disk image", Fs, "conectix", (w, at) => w.Be32(at + 12) == 0x00010000 ? Found($"{(long)w.Be64(at + 48):N0}-byte disk") : null));
         list.Add(S("VMDK sparse extent", Fs, "KDMV", (w, at) => w.Le32(at + 4) is 1 or 2 or 3 ? Found() : null));
         list.Add(S("QEMU QCOW image", Fs, "QFIû", (w, at) => w.Be32(at + 4) is 1 or 2 or 3 ? Found($"version {w.Be32(at + 4)}, {(long)w.Be64(at + 24):N0}-byte disk") : null));
         list.Add(S("Apple disk image (koly)", Fs, "koly", (w, at) => w.Be32(at + 4) == 4 && w.Be32(at + 8) == 512 ? Found() : null));
         return list;
+    }
+
+    private static bool PlainText(Window w, int at, int count)
+    {
+        for (int i = 0; i < count && w.U8(at + i) is var b and >= 0; i++)
+            if (b < 0x20 && b is not (0x09 or 0x0A or 0x0D) || b == 0x7F) return false;
+        return true;
+    }
+
+    private static bool SshKeyBlob(Window w, int at, string kind)
+    {
+        // The blob starts with the key type as a length-prefixed string.
+        int start = at + kind.Length + 1, chars = (4 + kind.Length + 2) / 3 * 4;
+        if (!w.Has(start, chars)) return false;
+        try
+        {
+            var blob = Convert.FromBase64String(Encoding.ASCII.GetString(w.D, start, chars));
+            return BinaryPrimitives.ReadUInt32BigEndian(blob) == kind.Length && blob.AsSpan(4, kind.Length).SequenceEqual(Encoding.ASCII.GetBytes(kind));
+        }
+        catch (FormatException) { return false; }
+    }
+
+    // The first header: type 1 or 4, a size and a CRC-32 over the size onward.
+    private static (long? Size, string? Detail)? Rar5(Window w, int at)
+    {
+        int p = at + 12, n = 0;
+        ulong size = 0;
+        while (true)
+        {
+            int b = w.U8(p + n);
+            if (b < 0 || n == 3) return null;
+            size |= (ulong)(b & 0x7F) << (7 * n++);
+            if ((b & 0x80) == 0) break;
+        }
+        if (size is < 2 or > 1 << 21 || w.U8(p + n) is not (1 or 4)) return null;
+        return w.Read(p, n + (int)size) is { } body && ~Crc.Raw(0xFFFFFFFF, body) == w.Le32(at + 8) ? Found() : null;
+    }
+
+    // The frame header, then chained block headers that fit the file.
+    private static (long? Size, string? Detail)? Zstd(Window w, int at)
+    {
+        int fhd = w.U8(at + 4);
+        if (fhd < 0 || (fhd & 0x08) != 0) return null;
+        int single = (fhd >> 5) & 1;
+        long p = at + 5 + (single ^ 1) + ((fhd & 3) switch { 0 => 0, 1 => 1, 2 => 2, _ => 4 }) + ((fhd >> 6) switch { 0 => single, 1 => 2, 2 => 4, _ => 8 });
+        for (int block = 0; block < 4; block++)
+        {
+            if (w.Read(p, 3) is not { } h) return null;
+            uint v = (uint)(h[0] | h[1] << 8 | h[2] << 16);
+            uint type = v >> 1 & 3, size = v >> 3;
+            if (type == 3 || size > 128 << 10) return null;
+            p += 3 + (type == 1 ? 1 : size);
+            if (w.Left(0) - p < 0) return null;
+            if ((v & 1) != 0) return w.Left(0) - p >= ((fhd & 4) != 0 ? 4 : 0) ? Found() : null;
+        }
+        return Found();
+    }
+
+    // The first directory: an entry count, a defined field type and a count.
+    private static (long? Size, string? Detail)? Tiff(Window w, int at, bool big)
+    {
+        uint ifd = big ? w.Be32(at + 4) : w.Le32(at + 4);
+        if (ifd is < 8 or >= 1 << 28 || w.Read(at + (long)ifd, 14) is not { } e) return null;
+        uint entries = big ? BinaryPrimitives.ReadUInt16BigEndian(e) : BinaryPrimitives.ReadUInt16LittleEndian(e);
+        uint type = big ? BinaryPrimitives.ReadUInt16BigEndian(e.AsSpan(4)) : BinaryPrimitives.ReadUInt16LittleEndian(e.AsSpan(4));
+        uint count = big ? BinaryPrimitives.ReadUInt32BigEndian(e.AsSpan(6)) : BinaryPrimitives.ReadUInt32LittleEndian(e.AsSpan(6));
+        return entries is >= 1 and <= 4096 && type is >= 1 and <= 12 && count > 0 ? Found() : null;
+    }
+
+    // The first segment ends at a marker; a tagged one may end at a truncation.
+    private static (long? Size, string? Detail)? Jpeg(Window w, int at)
+    {
+        int marker = w.U8(at + 3);
+        uint length = w.Be16(at + 4);
+        if (marker is not (0xE0 or 0xE1 or 0xDB or 0xEE or 0xE2) || length < 2) return null;
+        if (marker == 0xE0 && !w.Is(at + 6, "JFIF\0"u8)) return null;
+        if (marker == 0xE1 && !w.Is(at + 6, "Exif\0"u8) && !w.Is(at + 6, "http"u8)) return null;
+        long next = 4 + (long)length;
+        if (w.Left(at) < next + 2) return marker is 0xE0 or 0xE1 ? Found("truncated after the first segment") : null;
+        return w.Read(at + next, 2) is [0xFF, >= 0xC0 and <= 0xFE] ? Found() : null;
     }
 
     private static string CString(Window w, int at, int max, char stop = '\0')

@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 internal static class CountRatchet
 {
     /// <summary>The measured lists; their lines are values, not exemptions (RatchetTests skips them).</summary>
-    public static readonly string[] Names = ["coverage", "duplicate-lines", "mutation-survivors"];
+    public static readonly string[] Names = ["coverage", "detector-instance", "detector-registry", "duplicate-lines", "mutation-survivors"];
 
     private static string PathOf(string name) => Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Ratchets", name + ".txt");
 

@@ -1,0 +1,3 @@
+# registered signatures without a minimal instance in FirmwareSignatureValidityTests may only fall
+# Measured ratchet: values may only fall (tests/Corvus.Tests/Support/CountRatchet.cs).
+signatures = 124

@@ -83,6 +83,17 @@ internal static class Lzfse
         }
     }
 
+    /// <summary>True when the version 2 block fields are in range and the block fits <paramref name="left"/> bytes; false for a head under 32 bytes.</summary>
+    internal static bool PlausibleV2Block(ReadOnlySpan<byte> head, long left)
+    {
+        if (head.Length < 32 || BinaryPrimitives.ReadUInt32LittleEndian(head) != V2) return false;
+        ulong v0 = BinaryPrimitives.ReadUInt64LittleEndian(head[8..]), v1 = BinaryPrimitives.ReadUInt64LittleEndian(head[16..]), v2 = BinaryPrimitives.ReadUInt64LittleEndian(head[24..]);
+        long header = (uint)v2;
+        return BinaryPrimitives.ReadUInt32LittleEndian(head[4..]) > 0 && header >= 32 && header + Field(v0, 20, 20) + Field(v1, 40, 20) <= left
+            && Field(v0, 0, 20) <= LiteralsPerBlock && Field(v0, 40, 20) <= MatchesPerBlock
+            && Field(v2, 32, 10) < LStates && Field(v2, 42, 10) < MStates && Field(v2, 52, 10) < DStates;
+    }
+
     /// <summary>The decoded size the block headers declare; null on a damaged header, unknown magic or missing end block.</summary>
     public static long? DecodedSize(ReadOnlySpan<byte> src)
     {
