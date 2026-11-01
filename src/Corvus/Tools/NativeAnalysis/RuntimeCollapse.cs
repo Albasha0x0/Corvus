@@ -46,10 +46,11 @@ internal static partial class RuntimeCollapse
         var runs = new Dictionary<uint, Run>();
         for (int i = 0; i < lines.Count;)
         {
-            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va) ?? Init(lines, i, va, calls);
-            if (run == null || !Contiguous(lines, i, run.Count)) { i++; continue; }
-            runs[lines[i].Rva] = run;
-            i += run.Count;
+            int lead = 0;
+            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va, out lead) ?? Init(lines, i, va, calls);
+            if (run == null || !Contiguous(lines, i + lead, run.Count)) { i++; continue; }
+            runs[run.Start] = run;
+            i += lead + run.Count;
         }
         return runs;
     }
@@ -106,26 +107,46 @@ internal static partial class RuntimeCollapse
         return Make(lines, i, last + 1 - i + 1, "write barrier", va);
     }
 
-    // Skips exactly one initializer call after a zero check of a static.
-    private static Run? Lazy(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va)
+    // Skips exactly one initializer call after a zero check of a static. The
+    // run starts at the branch, so register moves scheduled after the check
+    // stay listed.
+    private static Run? Lazy(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, out int lead)
     {
+        lead = 0;
         var cmp = lines[i];
         if (Mnemonic(cmp) != "cmp" || !cmp.Facts.MemoryIsRipRelative || !ZeroOperand().IsMatch(Normal(cmp))) return null;
-        if (i + 2 >= lines.Count) return null;
-        var jump = lines[i + 1];
+        int j = i + 1;
+        while (j < lines.Count && j < i + 1 + LazyWindow && IsRegisterMove(lines[j])) j++;
+        if (j + 1 >= lines.Count) return null;
+        var jump = lines[j];
         if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
-        for (int k = i + 2; k < lines.Count && k <= i + 2 + LazyWindow; k++)
+        for (int k = j + 1; k < lines.Count && k <= j + 1 + LazyWindow; k++)
         {
             var l = lines[k];
             if (l.Facts.Flow == FlowKind.Call)
             {
-                if (l.Rva + (uint)l.Facts.Length != skip) return null;
-                return Make(lines, i, k - i + 1, $"lazy initialization of {va(cmp.Facts.MemoryTarget ?? 0)}", va);
+                int last = k;
+                uint end = l.Rva + (uint)l.Facts.Length;
+                // A fence and flag store may precede the skip target.
+                if (end != skip && last + 1 < lines.Count && IsFence(lines[last + 1])) { last++; end = lines[last].Rva + (uint)lines[last].Facts.Length; }
+                if (end != skip && last + 1 < lines.Count && IsFlagStore(lines[last + 1], cmp)) { last++; end = lines[last].Rva + (uint)lines[last].Facts.Length; }
+                if (end != skip) return null;
+                lead = j == i + 1 ? 0 : j - i;
+                return Make(lines, i + lead, last - i - lead + 1, $"lazy initialization of {va(cmp.Facts.MemoryTarget ?? 0)}", va);
             }
             if (Mnemonic(l) is not ("mov" or "lea" or "xor" or "sub" or "add")) return null;
         }
         return null;
     }
+
+    // A move between registers has no memory operand, so it cannot write memory.
+    private static bool IsRegisterMove(DisasmLine l) => Mnemonic(l) == "mov" && l.Facts.Flow == FlowKind.Next && !l.Text.Contains('[') && !l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == null;
+
+    private static bool IsFence(DisasmLine l) => FenceText().IsMatch(Normal(l));
+
+    // A store of 1 to the flag the guard compared.
+    private static bool IsFlagStore(DisasmLine l, DisasmLine cmp) =>
+        Mnemonic(l) == "mov" && l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == cmp.Facts.MemoryTarget && FlagOne().IsMatch(Normal(l));
 
     // Matches calls that name a static-base helper; unnamed targets stay listed.
     private static Run? Init(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls)
@@ -145,6 +166,12 @@ internal static partial class RuntimeCollapse
 
     [GeneratedRegex(@"^cmp [^,]+,(0|0x0+|0+h)$")]
     private static partial Regex ZeroOperand();
+
+    [GeneratedRegex(@"^lock or (?:dword ptr )?\[rsp\],0(?:x0+|0*h)?$")]
+    private static partial Regex FenceText();
+
+    [GeneratedRegex(@"^mov (?:byte ptr )?\[[^\]]+\],(1|0x0*1|0*1h)$")]
+    private static partial Regex FlagOne();
 
     [GeneratedRegex(@"^shr \w+,(12|0xc|0*ch)$")]
     private static partial Regex ShiftBy12();

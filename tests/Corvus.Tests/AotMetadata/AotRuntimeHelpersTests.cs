@@ -31,7 +31,7 @@ public sealed class AotRuntimeHelpersTests : IDisposable
     /// the helper at 0x1380 (a lower address than the usual first target), then the thrower at 0x1500, which
     /// calls 0x1240 and does not return.
     /// </summary>
-    internal static byte[] Image(IReadOnlyList<(string Name, uint Rva)> exports, IReadOnlyList<(uint Start, uint First)> methods)
+    internal static byte[] Image(IReadOnlyList<(string Name, uint Rva)> exports, IReadOnlyList<(uint Start, uint First)> methods, IReadOnlyList<uint>? secondThrowerCallers = null)
     {
         var b = new PeBuilder { ImageBase = 0x180000000 };
         var code = Enumerable.Repeat((byte)0xCC, 0x1000).ToArray();
@@ -47,6 +47,12 @@ public sealed class AotRuntimeHelpersTests : IDisposable
         Put(0x1500, [0xE8, .. Rel(0x1505, 0x1240)]);
         foreach (var (start, first) in methods)
             Put(start, [0xE8, .. Rel(start + 5, first), 0xE8, .. Rel(start + 10, 0x1380), 0xE8, .. Rel(start + 15, 0x1500), 0xC3]);
+        if (secondThrowerCallers != null)
+        {
+            Put(0x1520, [0xE8, .. Rel(0x1525, 0x1240)]);
+            foreach (var start in secondThrowerCallers)
+                Put(start, [0xE8, .. Rel(start + 5, 0x1520), 0xC3]);
+        }
         var text = b.Add(".text", code, 0x60000020);
         b.EntryPoint = text.Rva;
         uint table = 0, tableSize = 0;
@@ -78,10 +84,10 @@ public sealed class AotRuntimeHelpersTests : IDisposable
         return b.Build();
     }
 
-    private NativeCodeIndex Open(out INativeImage image, (string, uint)[] exports, (uint, uint)[]? methods = null)
+    private NativeCodeIndex Open(out INativeImage image, (string, uint)[] exports, (uint, uint)[]? methods = null, uint[]? secondThrowerCallers = null)
     {
         var path = _dir.File("helpers.dll");
-        File.WriteAllBytes(path, Image(exports, methods ?? []));
+        File.WriteAllBytes(path, Image(exports, methods ?? [], secondThrowerCallers));
         image = _env.Workspace.LoadAny(path).Native!.Image;
         return NativeCodeIndex.Build(image);
     }
@@ -171,6 +177,18 @@ public sealed class AotRuntimeHelpersTests : IDisposable
         Assert.Equal(0x1500u, thrower.Rva);
         Assert.Contains("called by 3 named functions", thrower.Evidence);
         Assert.Contains(helpers, h => h is { Rva: 0x1240, Name: "Runtime_RaiseException" });
+    }
+
+    // FT-298 M26: a bounds throw has the same shape as the null throw, so only one is named.
+    [Fact]
+    public void A_second_function_that_only_raises_with_as_many_callers_stays_unnamed()
+    {
+        uint[] second = [0x1900, 0x1920, 0x1940];
+        var index = Open(out var image, WithRaise, ThreeMethods, second);
+        var named = Named(ThreeMethods).Concat(second).ToHashSet();
+        var helpers = AotRuntimeHelpers.Find(image, index, named);
+        Assert.Equal(0x1500u, Assert.Single(helpers, h => h.Name == "Runtime_ThrowNullReference").Rva);
+        Assert.DoesNotContain(helpers, h => h.Rva == 0x1520);
     }
 
     [Fact]

@@ -59,6 +59,101 @@ public class RuntimeCollapseTests
         Assert.Contains("lazy initialization of 0x140003000", run.Note);
     }
 
+    private static DisasmLine[] Scheduled(string[] between, string? fence, string? store, uint skip, uint storeTarget = 0x3000, string? storeText = null)
+    {
+        var l = new List<DisasmLine> { L(0, "cmp byte ptr [140003000h],0", rip: true, mem: 0x3000) };
+        uint at = 4;
+        foreach (var m in between) { l.Add(L(at, m, rip: m.Contains("[rip") , mem: m.Contains("[rip") ? 0x5000u : null)); at += 4; }
+        l.Add(L(at, $"jne 00000001400000{skip:X2}h", FlowKind.ConditionalJump, skip));
+        l.Add(L(at + 4, "lea rcx,[140004000h]"));
+        l.Add(L(at + 8, "call 0000000140001000h", FlowKind.Call, 0x1000, len: 4));
+        at += 12;
+        if (fence != null) { l.Add(L(at, fence)); at += 4; }
+        if (store != null) l.Add(L(at, store, rip: true, mem: storeTarget));
+        return [.. l];
+    }
+
+    private static string[] Moves(int n) => [.. Enumerable.Range(0, n).Select(_ => "mov rbx,rcx")];
+
+    private const string Fence = "lock or dword ptr [rsp],0";
+    private const string Flag = "mov byte ptr [140003000h],1";
+
+    // FT-298 N2: a register move scheduled between the check and the branch.
+    [Fact]
+    public void A_register_move_between_the_check_and_the_branch_stays_listed_outside_the_run()
+    {
+        var lines = Scheduled(Moves(1), null, null, 20);
+        var run = Assert.Single(RuntimeCollapse.Find(lines, Va).Values);
+        Assert.Equal(8u, run.Start);
+        Assert.Equal(3, run.Count);
+    }
+
+    // FT-298 N2: four moves are the most the window allows.
+    [Fact]
+    public void Four_register_moves_between_the_check_and_the_branch_collapse()
+    {
+        var lines = Scheduled(Moves(4), null, null, 32);
+        Assert.Single(RuntimeCollapse.Find(lines, Va).Values);
+    }
+
+    // FT-298 N2: five moves exceed the window.
+    [Fact]
+    public void Five_register_moves_between_the_check_and_the_branch_are_kept()
+    {
+        var lines = Scheduled(Moves(5), null, null, 36);
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
+    // FT-298 N2: a fence and a store of 1 to the compared flag end the block.
+    [Fact]
+    public void A_fence_and_flag_store_after_the_call_collapse_with_the_block()
+    {
+        var lines = Scheduled(Moves(1), Fence, Flag, 28);
+        var run = Assert.Single(RuntimeCollapse.Find(lines, Va).Values);
+        Assert.Equal(5, run.Count);
+        Assert.Equal(28u, run.End);
+    }
+
+    // FT-298 N2: the fence alone may end the block.
+    [Fact]
+    public void A_fence_without_a_flag_store_collapses_when_it_ends_at_the_skip_target()
+    {
+        var lines = Scheduled(Moves(1), Fence, null, 24);
+        Assert.Equal(4, Assert.Single(RuntimeCollapse.Find(lines, Va).Values).Count);
+    }
+
+    // FT-298 N2: the flag store alone may end the block.
+    [Fact]
+    public void A_flag_store_without_a_fence_collapses_when_it_ends_at_the_skip_target()
+    {
+        var lines = Scheduled(Moves(1), null, Flag, 24);
+        Assert.Equal(4, Assert.Single(RuntimeCollapse.Find(lines, Va).Values).Count);
+    }
+
+    // FT-298 N2: the store must target the flag the guard compared.
+    [Fact]
+    public void A_store_to_another_flag_does_not_end_the_block()
+    {
+        var lines = Scheduled(Moves(1), Fence, "mov byte ptr [140003008h],1", 28, storeTarget: 0x3008);
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
+    // FT-298 N2: only a store of 1 marks the flag initialized.
+    [Fact]
+    public void A_store_of_another_value_does_not_end_the_block()
+    {
+        var lines = Scheduled(Moves(1), Fence, "mov byte ptr [140003000h],2", 28);
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
+    // FT-298 N2: a register move first, then a move that writes memory, then the branch.
+    [Fact]
+    public void An_instruction_between_the_check_and_the_branch_that_writes_memory_is_kept()
+    {
+        var lines = Scheduled(["mov rbx,rcx", "mov [rsp+8],rcx"], null, null, 24);
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
     [Fact]
     public void A_zero_check_whose_branch_skips_other_code_is_kept()
     {

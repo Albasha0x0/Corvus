@@ -164,6 +164,22 @@ public sealed class AotNativeNamesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_named_runtime_helper_appears_in_a_call_listing()
+    {
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(_binary)!, "script.json"), """
+            { "ScriptMethod": [
+                { "Address": 6144, "Name": "Fixture.Native.NativeThing$$First" },
+                { "Address": 6176, "Name": "Fixture.Native.NativeThing$$Second" },
+                { "Address": 6208, "Name": "Fixture.Native.NativeThing$$Third" } ] }
+            """);
+        File.WriteAllBytes(_binary, AotRuntimeHelpersTests.Image([("il2cpp_object_new", 0x1000), ("il2cpp_raise_exception", 0x1020)], [(0x1800, 0x1400), (0x1820, 0x1400), (0x1840, 0x1400)]));
+        var (native, index) = await Open();
+        _names.Apply(native, index, _env.Workspace.Assemblies, default);
+        var tools = new NativeCodeTools(_env.Workspace, _code, _env.Pager);
+        Assert.Contains("Runtime_ThrowNullReference", await tools.Disassemble(native.Id, "0x1800"));
+    }
+
+    [Fact]
     public async Task Names_functions_slots_and_strings_and_ranks_below_user_names()
     {
         var (native, index) = await Open();
