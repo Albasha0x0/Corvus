@@ -2627,7 +2627,7 @@ Copy every APK of an installed package (base and splits) into a new or empty dir
 | `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
 | `serial` | string |  |  | Device serial; omit if one device. |
 
-Structured output: `serial`, `package`, `files`, `summary`.
+Structured output: `serial`, `package`, `files`, `summary`, `aotCode`, `next`.
 
 ### pull_android_file
 

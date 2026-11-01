@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using Corvus.Core;
+using Corvus.Core.Mobile;
 using Corvus.Native.Providers;
 
 namespace Corvus.Services.Mobile;
@@ -51,7 +52,12 @@ public sealed record AndroidLogPage(string Serial, IReadOnlyList<AndroidLogLine>
     [property: Description("Lines skipped from the newest end (a page's nextOffset reaches older lines).")] int Offset, int Total);
 
 public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<PulledFile> Files,
-    [property: Description("The base APK read with the package reader: manifest facts, runtimes, signature.")] AndroidPackageFacts? Summary);
+    [property: Description("The base APK read with the package reader: manifest facts, runtimes, signature.")] AndroidPackageFacts? Summary,
+    [property: Description("libil2cpp.so per pulled APK: local path, ABI, unconfirmed when the ELF machine differs.")] IReadOnlyList<string> AotCode,
+    [property: Description("Load call, or the mismatch or unread APKs; null: no AOT code.")] string? Next);
+
+/// <summary>A libil2cpp.so in a pulled APK (File: local path); Confirmed: the ELF machine matches.</summary>
+internal sealed record AotCodeLibrary(string File, string Abi, bool Confirmed);
 
 /// <summary>Runs adb (CORVUS_ADB, PATH, or SDK platform-tools) per operation with the serial pinned; installs and uninstalls need --allow-device-changes.</summary>
 public sealed partial class DeviceService(ServerOptions options, DexService? dex = null)
@@ -404,13 +410,59 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             throw;
         }
         var basePath = files.FirstOrDefault(f => Path.GetFileName(f.Local) == "base.apk")?.Local ?? files[0].Local;
-        return new PulledPackage(s, package, files, Facts(basePath));
+        var (aot, unread) = AotCode(files);
+        string? installAbi = null;
+        try { installAbi = PackageInfo(package, s, ct).PrimaryCpuAbi; }
+        catch (ToolError) { }
+        return new PulledPackage(s, package, files, Facts(basePath),
+            [.. aot.Select(l => $"{l.File} {l.Abi}{(l.Confirmed ? "" : " unconfirmed")}")],
+            AotNext(aot, unread, installAbi));
 
         AndroidPackageFacts? Facts(string apk)
         {
             using var stream = File.OpenRead(apk);
             return AndroidPackageService.Facts(apk, stream, ct);
         }
+    }
+
+    // Splits carry the native libraries, so every pulled APK is read.
+    private static (List<AotCodeLibrary> Libraries, List<string> Unread) AotCode(
+        IReadOnlyList<PulledFile> files)
+    {
+        List<AotCodeLibrary> libraries = [];
+        List<string> unread = [];
+        foreach (var file in files)
+        {
+            try
+            {
+                using var apk = AndroidPackage.Open(file.Local);
+                libraries.AddRange(AndroidRuntime.AotCode(apk)
+                    .Select(a => new AotCodeLibrary(file.Local, a.Abi, a.Confirmed)));
+            }
+            catch (Exception ex) when (ex is ToolError or InvalidDataException or IOException)
+            {
+                unread.Add(file.Local);
+            }
+        }
+        return (libraries, unread);
+    }
+
+    private static string? AotNext(List<AotCodeLibrary> libraries, List<string> unread,
+        string? installAbi)
+    {
+        List<string> parts = [];
+        if (libraries.Count > 0)
+        {
+            var match = libraries.FirstOrDefault(l => l.Confirmed && l.Abi == installAbi);
+            var near = match ?? libraries.FirstOrDefault(l => l.Confirmed) ?? libraries[0];
+            var call = $"load_assembly path=\"{near.File}\" slice={near.Abi}";
+            parts.Add(match != null ? call
+                : $"no confirmed libil2cpp.so for install ABI {installAbi ?? "unknown"}; nearest: {call}");
+        }
+        if (unread.Count > 0)
+            parts.Add($"{unread.Count} APK(s) unread, their code is unknown: "
+                + $"get_android_manifest path=\"{unread[0]}\"");
+        return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 
     private static void TryDelete(string path)

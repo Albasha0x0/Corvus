@@ -140,6 +140,17 @@
         "highlights"
       ]
     },
+    "aotCode": {
+      "description": "libil2cpp.so per pulled APK: local path, ABI, unconfirmed when the ELF machine differs.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next": {
+      "description": "Load call, or the mismatch or unread APKs; null: no AOT code.",
+      "type": "string"
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -162,6 +173,7 @@
   "required": [
     "serial",
     "package",
-    "files"
+    "files",
+    "aotCode"
   ]
 }

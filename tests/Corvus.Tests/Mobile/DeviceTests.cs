@@ -186,6 +186,80 @@ public abstract class DeviceTests : IDisposable
             Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => Service().PullPackage("com.missing", _dir.File("none"), null, default)).Code);
         }
 
+        private static byte[] Elf(byte machine)
+        {
+            var elf = new byte[64];
+            "ELF"u8.CopyTo(elf.AsSpan(1));
+            elf[0] = 0x7F;
+            elf[4] = 2;
+            elf[18] = machine;
+            return elf;
+        }
+
+        private PulledPackage PullSplit(string abi, byte machine, bool dumpsysFails = false, byte[]? split = null)
+        {
+            var fake = new FakeTool();
+            if (dumpsysFails) fake.On(@"dumpsys package com\.example\.app$", stderr: "error", exit: 1);
+            fake.On(@"pull \S+split_config", file: split ?? ContainerFixtures.Zip(
+                ("AndroidManifest.xml", [0x03, 0x00, 0x08, 0x00]), ($"lib/{abi}/libil2cpp.so", Elf(machine))));
+            FakeDevice.Configure(fake, AndroidSamples.Apk());
+            using var _ = fake;
+            var service = new DeviceService(new ServerOptions()) { Environment = fake.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit };
+            return service.PullPackage(FakeDevice.Package, _dir.File("apks"), null, default);
+        }
+
+        private static string Split(PulledPackage pulled) =>
+            pulled.Files.Single(f => f.Local.EndsWith("split_config.arm64_v8a.apk", StringComparison.Ordinal)).Local;
+
+        [Fact]
+        public void Pull_package_names_the_split_library_for_the_install_abi()
+        {
+            // The library is in the config split only.
+            var pulled = PullSplit("arm64-v8a", 183);
+            var split = Split(pulled);
+            Assert.Equal([$"{split} arm64-v8a"], pulled.AotCode);
+            Assert.Equal($"load_assembly path=\"{split}\" slice=arm64-v8a", pulled.Next);
+        }
+
+        [Fact]
+        public void Pull_package_names_the_nearest_library_when_the_install_abi_has_none()
+        {
+            var pulled = PullSplit("x86_64", 62);
+            Assert.Equal($"no confirmed libil2cpp.so for install ABI arm64-v8a; nearest: load_assembly path=\"{Split(pulled)}\" slice=x86_64", pulled.Next);
+        }
+
+        [Fact]
+        public void Pull_package_labels_a_library_whose_machine_does_not_match()
+        {
+            var pulled = PullSplit("arm64-v8a", 62);
+            Assert.EndsWith(" arm64-v8a unconfirmed", Assert.Single(pulled.AotCode));
+            Assert.StartsWith("no confirmed libil2cpp.so for install ABI arm64-v8a; nearest: ", pulled.Next);
+        }
+
+        [Fact]
+        public void Pull_package_reports_an_unknown_install_abi_when_dumpsys_fails()
+        {
+            var pulled = PullSplit("arm64-v8a", 183, dumpsysFails: true);
+            Assert.StartsWith("no confirmed libil2cpp.so for install ABI unknown; nearest: ", pulled.Next);
+        }
+
+        [Fact]
+        public void Pull_package_names_a_split_it_could_not_read_and_still_succeeds()
+        {
+            // The split is not a zip archive.
+            var pulled = PullSplit("arm64-v8a", 183, split: "not a zip"u8.ToArray());
+            Assert.Empty(pulled.AotCode);
+            Assert.Equal($"1 APK(s) unread, their code is unknown: get_android_manifest path=\"{Split(pulled)}\"", pulled.Next);
+        }
+
+        [Fact]
+        public void Pull_package_without_native_code_names_no_next_call()
+        {
+            var pulled = Service().PullPackage(FakeDevice.Package, _dir.File("apks"), null, default);
+            Assert.Empty(pulled.AotCode);
+            Assert.Null(pulled.Next);
+        }
+
         [Fact]
         public void Pull_file_refuses_directories_and_leaves_nothing_on_failure()
         {

@@ -5,6 +5,9 @@ namespace Corvus.Core.Mobile;
 /// <summary>A runtime an Android package carries, with the entries that show it.</summary>
 public sealed record AndroidRuntimeFamily(string Family, IReadOnlyList<string> Evidence, string? Note);
 
+/// <summary>One libil2cpp.so ABI folder; Confirmed: the ELF machine matches it.</summary>
+public sealed record AotCodeAbi(string Abi, string Label, bool Confirmed);
+
 /// <summary>Runtime families decided from package content (native libraries, stores, metadata magic), not from file names alone.</summary>
 public static class AndroidRuntime
 {
@@ -43,10 +46,10 @@ public static class AndroidRuntime
                     : "AOT: the metadata does not start with 0xFAB11BAF (encrypted or tampered)");
             }
             else notes.Add("AOT: no global-metadata.dat in this APK (an asset pack or split may hold it)");
-            var abis = AotCodeAbis(package);
+            var abis = AotCode(package);
             if (abis.Count > 0)
             {
-                var next = abis.FirstOrDefault(a => a.Confirmed).Abi ?? abis[0].Abi;
+                var next = (abis.FirstOrDefault(a => a.Confirmed) ?? abis[0]).Abi;
                 notes.Add($"native code {string.Join(", ", abis.Select(a => a.Label))}; "
                     + $"load_assembly path={package.Path} slice={next} loads its library");
             }
@@ -84,10 +87,12 @@ public static class AndroidRuntime
         return result;
     }
 
-    // The ABI folder names the library; the ELF machine confirms it.
-    // A mismatch or an unreadable header is labelled.
-    private static List<(string Abi, string Label, bool Confirmed)> AotCodeAbis(
-        AndroidPackage package) =>
+    /// <summary>
+    /// Each ABI folder holding libil2cpp.so, in ABI order; empty when none.
+    /// The ELF machine confirms the folder name; a mismatch or an unreadable
+    /// header is labelled.
+    /// </summary>
+    public static IReadOnlyList<AotCodeAbi> AotCode(AndroidPackage package) =>
     [
         .. package.Entries
             .Where(e => e.StartsWith("lib/", StringComparison.Ordinal)
@@ -98,10 +103,10 @@ public static class AndroidRuntime
             {
                 var abi = e.Split('/')[1];
                 var machine = ElfMachine(package.ReadHead(e, 20));
-                if (machine == null) return (abi, $"{abi} (header unreadable)", false);
+                if (machine == null) return new AotCodeAbi(abi, $"{abi} (header unreadable)", false);
                 return machine == abi
-                    ? (abi, abi, true)
-                    : (abi, $"{abi} (ELF machine is {machine})", false);
+                    ? new AotCodeAbi(abi, abi, true)
+                    : new AotCodeAbi(abi, $"{abi} (ELF machine is {machine})", false);
             }),
     ];
 
