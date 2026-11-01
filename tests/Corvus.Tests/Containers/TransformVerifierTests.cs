@@ -259,4 +259,106 @@ public sealed class TransformVerifierTests : IDisposable
         cts.Cancel();
         Assert.ThrowsAny<OperationCanceledException>(() => TransformVerifier.Run(input, "aes-128", "ecb", Parameters(new { key = new string('0', 32), padding = "none" }), cts.Token));
     }
+
+    // FIPS 197 C.1 key and the Blowfish test-set key from the published vectors.
+    private const string AesKey = "000102030405060708090a0b0c0d0e0f";
+    private const string BlowfishKey = "0123456789abcdeff0e1d2c3b4a59687";
+
+    private static byte[] ContainerPlain(int body, uint firstOffset = 20, uint declaredDelta = 0)
+    {
+        var plain = new byte[12 + 8 + body];
+        "FXCT"u8.CopyTo(plain);
+        BitConverter.TryWriteBytes(plain.AsSpan(4), (uint)(plain.Length - 8) + declaredDelta);
+        BitConverter.TryWriteBytes(plain.AsSpan(8), 2u);
+        BitConverter.TryWriteBytes(plain.AsSpan(12), firstOffset);
+        BitConverter.TryWriteBytes(plain.AsSpan(16), (uint)Math.Min(300, body));
+        return plain;
+    }
+
+    private string AesRange(byte[] plain)
+    {
+        using var aes = Aes.Create();
+        aes.Key = Convert.FromHexString(AesKey);
+        return Input(aes.EncryptEcb(plain, PaddingMode.PKCS7));
+    }
+
+    [Fact]
+    public void An_aes_ecb_range_that_decodes_to_a_container_header_names_the_header()
+    {
+        var plain = ContainerPlain(700);
+        var record = TransformVerifier.Run(AesRange(plain), "aes-128", "ecb", Parameters(new { key = AesKey }));
+        Assert.Equal($"container header 'FXCT', 2 entries, declared length {plain.Length - 8}", record.Structure);
+    }
+
+    [Fact]
+    public void A_wrong_key_decodes_to_no_structure_where_the_right_key_names_one()
+    {
+        var path = AesRange(ContainerPlain(700));
+        var wrong = TransformVerifier.Run(path, "aes-128", "ecb", Parameters(new { key = "ffffffffffffffffffffffffffffffff", padding = "none" }));
+        Assert.Null(wrong.Structure);
+        var right = TransformVerifier.Run(path, "aes-128", "ecb", Parameters(new { key = AesKey }));
+        Assert.NotNull(right.Structure);
+    }
+
+    [Fact]
+    public void A_container_header_with_a_short_body_is_named_partial()
+    {
+        var record = TransformVerifier.Run(AesRange(ContainerPlain(100)), "aes-128", "ecb", Parameters(new { key = AesKey }));
+        Assert.EndsWith("(range holds only 100 of the 600 body bytes needed to confirm)", record.Structure);
+    }
+
+    [Fact]
+    public void A_container_header_with_descending_entry_offsets_reports_none()
+    {
+        var plain = ContainerPlain(700);
+        BitConverter.TryWriteBytes(plain.AsSpan(12), 400u);
+        var record = TransformVerifier.Run(AesRange(plain), "aes-128", "ecb", Parameters(new { key = AesKey }));
+        Assert.Null(record.Structure);
+    }
+
+    [Fact]
+    public void A_container_header_declaring_too_small_a_length_reports_none()
+    {
+        var plain = ContainerPlain(700);
+        BitConverter.TryWriteBytes(plain.AsSpan(4), 10u);
+        var record = TransformVerifier.Run(AesRange(plain), "aes-128", "ecb", Parameters(new { key = AesKey }));
+        Assert.Null(record.Structure);
+    }
+
+    [Fact]
+    public void An_encode_run_reports_no_structure()
+    {
+        var record = TransformVerifier.Run(Input(ContainerPlain(700)), "aes-128", "ecb", Parameters(new { key = AesKey, direction = "encode" }));
+        Assert.Null(record.Structure);
+    }
+
+    [Fact]
+    public void A_blowfish_ecb_range_that_decodes_to_an_xalz_block_names_the_expanded_size()
+    {
+        var key = Convert.FromHexString(BlowfishKey);
+        var content = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("fixture text ", 40)));
+        var block = new byte[K4os.Compression.LZ4.LZ4Codec.MaximumOutputSize(content.Length)];
+        int packed = K4os.Compression.LZ4.LZ4Codec.Encode(content, block);
+        var plain = new byte[12 + packed];
+        "XALZ"u8.CopyTo(plain);
+        BitConverter.TryWriteBytes(plain.AsSpan(8), (uint)content.Length);
+        block.AsSpan(0, packed).CopyTo(plain.AsSpan(12));
+        var padded = new byte[(plain.Length / 8 + 1) * 8];
+        plain.CopyTo(padded, 0);
+        Array.Fill(padded, (byte)(padded.Length - plain.Length), plain.Length, padded.Length - plain.Length);
+        using (var bf = new BlowfishCipher(key))
+            for (int at = 0; at < padded.Length; at += 8) bf.EncryptBlock(padded.AsSpan(at, 8), padded.AsSpan(at, 8));
+        var record = TransformVerifier.Run(Input(padded), "blowfish", "ecb", Parameters(new { key = BlowfishKey }));
+        Assert.Equal($"XALZ LZ4 block, {content.Length:N0} bytes expanded", record.Structure);
+    }
+
+    [Fact]
+    public void The_tool_text_and_record_carry_the_structure()
+    {
+        var plain = ContainerPlain(700);
+        var record = TransformVerifier.Run(AesRange(plain), "aes-128", "ecb", Parameters(new { key = AesKey }));
+        var output = ContainerText.Transform(record);
+        Assert.Contains($"Structure: container header 'FXCT', 2 entries, declared length {plain.Length - 8}.", output);
+        Assert.Contains("\"structure\"", System.Text.Json.JsonSerializer.Serialize(record, Corvus.Mcp.ToolOutput.Json));
+    }
 }

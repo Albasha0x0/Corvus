@@ -62,11 +62,25 @@ internal sealed class ContainerHeaderRules : ISurveyRuleProvider
 
     private sealed record Header(string Magic, uint Declared, long Available, int[] Entries, double Entropy);
 
-    private static Header? Read(byte[] bytes, int at)
+    /// <summary>
+    /// Describes the container header at the start of <paramref name="data"/>; null when
+    /// shorter than 12 bytes or the layout does not hold. A body under 600 bytes is named partial.
+    /// </summary>
+    internal static string? DescribeLayout(byte[] data)
+    {
+        if (data.Length < 12 || data.AsSpan(0, 4).IndexOfAnyExcept(MagicBytes) >= 0) return null;
+        if (Read(data, 0, decoded: true) is not { } h) return null;
+        var text = $"container header '{h.Magic}', {h.Entries.Length} entries, declared length {h.Declared}";
+        long body = h.Available - 4 - 4 * h.Entries.Length;
+        return body < MinBody ? $"{text} (range holds only {body} of the {MinBody} body bytes needed to confirm)" : text;
+    }
+
+    // Decoded ranges skip the body entropy test and accept a short body.
+    private static Header? Read(byte[] bytes, int at, bool decoded = false)
     {
         uint declared = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at + 4));
         uint entries = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at + 8));
-        if (entries is 0 or > MaxEntries || declared < 4 + 4 * entries + MinBody) return null;
+        if (entries is 0 or > MaxEntries || declared < 4 + 4 * entries + (decoded ? 0 : MinBody)) return null;
         int tableEnd = at + 12 + 4 * (int)entries;
         if (tableEnd > bytes.Length) return null;
         var offsets = new int[entries];
@@ -79,9 +93,9 @@ internal sealed class ContainerHeaderRules : ISurveyRuleProvider
             previous = offset;
         }
         long bodyEnd = Math.Min((long)at + 8 + declared, bytes.Length);
-        if (bodyEnd - tableEnd < MinBody) return null;
-        double entropy = Blob.Entropy(bytes.AsSpan(tableEnd, (int)(bodyEnd - tableEnd)));
-        if (entropy < BodyEntropy) return null;
+        if (!decoded && bodyEnd - tableEnd < MinBody) return null;
+        double entropy = decoded ? 0 : Blob.Entropy(bytes.AsSpan(tableEnd, (int)(bodyEnd - tableEnd)));
+        if (!decoded && entropy < BodyEntropy) return null;
         return new Header(System.Text.Encoding.ASCII.GetString(bytes, at, 4), declared, bodyEnd - at - 8, offsets, entropy);
     }
 

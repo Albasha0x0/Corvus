@@ -20,6 +20,9 @@ public static class TransformVerifier
     {
         /// <summary>Follow-up notes; null when none.</summary>
         public IReadOnlyList<string>? Notes { get; init; }
+
+        /// <summary>Container header or XALZ block in the output; null when neither.</summary>
+        public string? Structure { get; init; }
     }
 
     /// <summary>Algorithm names the dry run accepts.</summary>
@@ -106,7 +109,7 @@ public static class TransformVerifier
             var validation = match == null ? paddingNote ?? "no expected output given" : paddingNote == null ? match : $"{match}; {paddingNote}";
             return new TransformRecord(alg, md, direction, padding, offset, length, output.Length, vectorText, validation,
                 Convert.ToHexStringLower(SHA256.HashData(output)))
-            { Notes = vectorNote.Length == 0 ? null : vectorNote };
+            { Notes = vectorNote.Length == 0 ? null : vectorNote, Structure = direction == "decode" ? Structure(output) : null };
         }
         finally
         {
@@ -114,6 +117,11 @@ public static class TransformVerifier
             if (iv != null) CryptographicOperations.ZeroMemory(iv);
         }
     }
+
+    // Same readers as the image survey and the XALZ extractor.
+    private static string? Structure(byte[] output) =>
+        ContainerHeaderRules.DescribeLayout(output)
+        ?? (Blob.TryXalz(output, MaxRange) is { } lz4 ? $"XALZ LZ4 block, {lz4.Length:N0} bytes expanded" : null);
 
     private static bool CheckVector(string alg, string mode)
     {

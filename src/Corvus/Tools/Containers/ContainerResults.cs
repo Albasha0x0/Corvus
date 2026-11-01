@@ -259,6 +259,7 @@ internal static class ContainerText
             : $"{t.Algorithm} {t.Mode} {t.Direction}, padding {t.Padding}, offset {t.Offset:N0}, length {t.Length:N0}, output {t.OutputLength:N0} bytes.\n");
         text.Append($"Vector: {t.Vector}. Validation: {t.Validation}.\n");
         if (t.OutputSha256 != null) text.Append($"Output SHA-256: {t.OutputSha256}.\n");
+        if (t.Structure != null) text.Append($"Structure: {t.Structure}.\n");
         foreach (var n in t.Notes ?? []) text.Append("Note: ").Append(n).Append('\n');
         // The dry run shares the unpack result shape; the other fields are unset on purpose.
         var record = new UnpackPage("", "transform", "", [], 0, 0) { Transform = System.Text.Json.JsonSerializer.SerializeToNode(t, ToolOutput.Json) as JsonObject };
