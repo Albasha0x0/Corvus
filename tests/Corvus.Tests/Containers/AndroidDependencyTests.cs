@@ -103,6 +103,39 @@ public sealed class AndroidDependencyTests : IDisposable
         Assert.Contains(facts.All, c => c.Name == "libil2cpp.so");
     }
 
+    [Fact]
+    public void A_version_file_over_the_read_limit_is_counted_and_the_others_still_list()
+    {
+        var facts = Facts("big.apk", AndroidSamples.Apk(30,
+            ("META-INF/maven/com.squareup.okhttp3/okhttp/pom.properties", Text("version=4.12.0\ngroupId=com.squareup.okhttp3\nartifactId=okhttp\n")),
+            ("META-INF/androidx.core_core.version", Text("1.9.0\n" + new string('x', 70 * 1024)))));
+        Assert.Contains(facts.All, c => c.Name == "com.squareup.okhttp3:okhttp");
+        Assert.DoesNotContain(facts.All, c => c.Name == "androidx.core:core");
+        Assert.Contains(facts.Notes, n => n.StartsWith("1 Maven or version file(s) over 64 KiB were not read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_split_that_is_not_a_zip_is_counted_and_the_other_splits_still_list()
+    {
+        var facts = Facts("bad.xapk", ContainerFixtures.Zip(
+            ("base.apk", AndroidSamples.Apk(30,
+                ("META-INF/maven/com.squareup.okhttp3/okhttp/pom.properties", Text("version=4.12.0\ngroupId=com.squareup.okhttp3\nartifactId=okhttp\n")))),
+            ("config.arm64_v8a.apk", Text("not a zip archive"))));
+        Assert.Contains(facts.All, c => c.Name == "com.squareup.okhttp3:okhttp");
+        Assert.Contains(facts.Notes, n => n.StartsWith("1 APK(s) of the split set are not valid zip archives", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Every_split_that_is_not_a_zip_is_counted_in_one_note()
+    {
+        var facts = Facts("bad.xapk", ContainerFixtures.Zip(
+            ("base.apk", AndroidSamples.Apk(30,
+                ("META-INF/maven/com.squareup.okhttp3/okhttp/pom.properties", Text("version=4.12.0\ngroupId=com.squareup.okhttp3\nartifactId=okhttp\n")))),
+            ("config.arm64_v8a.apk", Text("not a zip archive")),
+            ("config.xxhdpi.apk", Text("not a zip archive either"))));
+        Assert.Contains(facts.Notes, n => n.StartsWith("2 APK(s) of the split set are not valid zip archives: their libraries are unknown", StringComparison.Ordinal));
+    }
+
     /// <summary>A split set: base.apk with the Java libraries and a .NET assembly, config.arm64_v8a.apk with the native library.</summary>
     private static byte[] SplitSet()
     {

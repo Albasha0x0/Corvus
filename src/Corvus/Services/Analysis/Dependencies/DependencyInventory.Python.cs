@@ -44,16 +44,26 @@ internal static partial class DependencyInventory
     {
         b.Sources.Add($"{app.Freezer} contents ({app.Kind})");
         var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+        // Unread entries are counted for the notes, not hidden.
+        var unread = new HashSet<string>(StringComparer.Ordinal);
         byte[]? Bytes(FrozenEntry e, int max)
         {
-            if (e.Load != null) return e.Size <= max ? e.Load() : null;
-            if (!e.Role.EndsWith(Beside, StringComparison.Ordinal) || dir == null || e.Path.Split('/').Contains("..")) return null;
+            if (e.Load != null)
+            {
+                if (e.Size <= max) return e.Load();
+                unread.Add(e.Path);
+                return null;
+            }
+            if (!e.Role.EndsWith(Beside, StringComparison.Ordinal)) return null;
+            if (dir == null || e.Path.Split('/').Contains("..")) { unread.Add(e.Path); return null; }
             try
             {
                 var file = Path.Combine(dir, e.Path);
-                return File.Exists(file) && new FileInfo(file).Length <= max ? File.ReadAllBytes(file) : null;
+                if (File.Exists(file) && new FileInfo(file).Length <= max) return File.ReadAllBytes(file);
+                unread.Add(e.Path);
+                return null;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { unread.Add(e.Path); return null; }
         }
 
         var scripts = app.EntryScripts.Select(s => s.EndsWith(".py", StringComparison.OrdinalIgnoreCase) ? s[..^3] : s).ToList();
@@ -162,6 +172,9 @@ internal static partial class DependencyInventory
             b.Notes.Add($"{fromModule} Python package version(s) come from __version__ and the name from the import name (confidence {ModuleVersion})");
         if (unknown > 0)
             b.Notes.Add($"{unknown} Python package(s) are named by import name only: version unknown, no package URL");
+        if (unread.Count > 0)
+            b.Notes.Add($"{unread.Count} Python entries were not read: over {MaxMetadataBytes >> 20} MiB (metadata, modules), "
+                        + $"over {MaxRuntimeBytes >> 20} MiB (runtime) or missing beside the executable");
         if (app.Compiled && app.CompiledModules.Count == 0)
             b.Notes.Add("Nuitka compiled the program's modules to native code and its constants named none: the packages compiled into it are unknown");
     }

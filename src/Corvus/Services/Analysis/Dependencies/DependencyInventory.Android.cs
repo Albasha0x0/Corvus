@@ -57,17 +57,22 @@ internal static partial class DependencyInventory
             if (single) archives.Add((outer, ""));
             else
             {
-                int large = 0;
+                int large = 0, unreadable = 0;
                 foreach (var e in outer.Entries.Where(e => e.FullName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))
                 {
                     ct.ThrowIfCancellationRequested();
                     if (e.Length > MaxSplitBytes) { large++; continue; }
-                    var nested = new ZipArchive(new MemoryStream(ReadBytes(e), writable: false), ZipArchiveMode.Read);
-                    opened.Add(nested);
-                    archives.Add((nested, e.FullName + "!/"));
+                    try
+                    {
+                        var nested = new ZipArchive(new MemoryStream(ReadBytes(e), writable: false), ZipArchiveMode.Read);
+                        opened.Add(nested);
+                        archives.Add((nested, e.FullName + "!/"));
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException) { unreadable++; }
                 }
-                if (archives.Count == 0 && large == 0) return false;
-                if (large > 0) b.Notes.Add($"{large} APKs of the split set over {MaxSplitBytes >> 20} MiB were not read: their libraries are unknown");
+                if (archives.Count == 0 && large == 0 && unreadable == 0) return false;
+                if (unreadable > 0) b.Notes.Add($"{unreadable} APK(s) of the split set are not valid zip archives: their libraries are unknown");
+                if (large > 0) b.Notes.Add($"{large} APK(s) of the split set over {MaxSplitBytes >> 20} MiB were not read: their libraries are unknown");
             }
             b.Sources.Add(single
                 ? $"Android package {Path.GetFileName(input.Path)} (META-INF version files, Maven properties, native libraries)"
@@ -75,6 +80,7 @@ internal static partial class DependencyInventory
             var poms = new List<(string Group, string Artifact, string Version, string Location)>();
             var versionFiles = new List<(string Stem, string Version, string Location)>();
             var libraries = new Dictionary<string, List<(ZipArchiveEntry Entry, string Location)>>(StringComparer.Ordinal);
+            int metadataSkipped = 0;
             foreach (var (zip, prefix) in archives)
                 foreach (var e in zip.Entries)
                 {
@@ -84,13 +90,16 @@ internal static partial class DependencyInventory
                     // An app bundle keeps the files of META-INF under base/root/ and the libraries under base/lib/.
                     var name = e.FullName.StartsWith("base/root/", StringComparison.Ordinal) ? e.FullName["base/root/".Length..]
                         : e.FullName.StartsWith("base/lib/", StringComparison.Ordinal) ? e.FullName["base/".Length..] : e.FullName;
-                    if (name.StartsWith("META-INF/maven/", StringComparison.Ordinal) && name.EndsWith("/pom.properties", StringComparison.Ordinal) && e.Length <= MaxSmallEntry)
+                    bool isPom = name.StartsWith("META-INF/maven/", StringComparison.Ordinal) && name.EndsWith("/pom.properties", StringComparison.Ordinal);
+                    bool isVersion = name.StartsWith("META-INF/", StringComparison.Ordinal) && name.EndsWith(".version", StringComparison.Ordinal) && name.IndexOf('/', 9) < 0;
+                    if ((isPom || isVersion) && e.Length > MaxSmallEntry) { metadataSkipped++; continue; }
+                    if (isPom)
                     {
                         var p = Properties(ReadText(e));
                         if (p.GetValueOrDefault("groupId") is { Length: > 0 } g && p.GetValueOrDefault("artifactId") is { Length: > 0 } a && p.GetValueOrDefault("version") is { Length: > 0 } v)
                             poms.Add((g, a, v, location));
                     }
-                    else if (name.StartsWith("META-INF/", StringComparison.Ordinal) && name.EndsWith(".version", StringComparison.Ordinal) && name.IndexOf('/', 9) < 0 && e.Length <= MaxSmallEntry)
+                    else if (isVersion)
                     {
                         var text = ReadText(e).Trim();
                         versionFiles.Add((name[9..^".version".Length], MavenVersion().IsMatch(text) ? text : "", location));
@@ -103,6 +112,8 @@ internal static partial class DependencyInventory
                         (libraries.TryGetValue(file, out var list) ? list : libraries[file] = []).Add((e, location));
                     }
                 }
+            if (metadataSkipped > 0)
+                b.Notes.Add($"{metadataSkipped} Maven or version file(s) over {MaxSmallEntry >> 10} KiB were not read: their libraries are unknown");
             foreach (var (g, a, v, location) in poms)
                 Add(b, new DependencyComponent(b.NewRef(PurlMaven(g, a, v)), $"{g}:{a}", v, "maven", "library", PurlMaven(g, a, v), Manifest, "manifest-analysis",
                     "Maven pom.properties") { Locations = [location] }, location);

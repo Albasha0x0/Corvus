@@ -86,6 +86,20 @@ public sealed class PythonDependencyTests : IDisposable
         Assert.Equal([("python", "3.12.4"), ("requests", "2.31.0")], facts.All.Select(c => (c.Name, c.Version)));
         Assert.Equal(["_internal/requests-2.31.0.dist-info/METADATA", "PYZ-00.pyz_extracted/requests/__init__.pyc"], Named(facts, "requests").Locations);
         Assert.Equal(["_internal/python312.dll"], Named(facts, "python").Locations);
+        Assert.DoesNotContain(facts.Notes, n => n.Contains("were not read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_metadata_file_beside_the_executable_over_the_read_limit_is_counted_as_not_read()
+    {
+        var dist = Directory.CreateDirectory(Path.Combine(_dir.Path, "_internal", "requests-2.31.0.dist-info")).FullName;
+        File.WriteAllText(Path.Combine(dist, "METADATA"), "Name: requests\nVersion: 2.31.0\n" + new string('x', 2 << 20));
+        var exe = FrozenPythonTests.Launcher("_MEIPASS", FrozenPythonTests.CArchive(
+            ("app", 's', FrozenPythonTests.Code("app.py"), true),
+            ("pyi-contents-directory _internal", 'o', [], false),
+            ("PYZ-00.pyz", 'z', FrozenPythonTests.Pyz(null, ("requests", 1, FrozenPythonTests.Code("requests/__init__.py"))), false)));
+        var facts = Facts("app.exe", exe, out _);
+        Assert.Contains(facts.Notes, n => n.Contains("Python entries were not read", StringComparison.Ordinal));
     }
 
     [Fact]
