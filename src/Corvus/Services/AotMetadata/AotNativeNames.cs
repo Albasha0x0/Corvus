@@ -16,8 +16,35 @@ namespace Corvus.Services;
 /// Names are C identifiers, as IDA accepts them: "Ns.Type$$Method" becomes "Ns_Type__Method"; a name used at another
 /// address gets "_&lt;RVA hex&gt;". Comments keep the readable form and list methods that share the code.
 /// </remarks>
-public sealed class AotNativeNames(AotMetadataService aot, AotNavigator navigator, NativeCodeService code)
+public sealed class AotNativeNames
 {
+    private readonly AotMetadataService aot;
+    private readonly AotNavigator navigator;
+    private readonly NativeCodeService code;
+
+    /// <summary>Creates the service; it answers the lazy restore in <see cref="Of"/> for images its workspace holds.</summary>
+    public AotNativeNames(AotMetadataService aot, AotNavigator navigator, NativeCodeService code)
+    {
+        this.aot = aot;
+        this.navigator = navigator;
+        this.code = code;
+        lock (Instances) Instances.Add(new WeakReference<AotNativeNames>(this));
+    }
+
+    // One process may host several servers; a restore uses the one holding the image.
+    private static readonly List<WeakReference<AotNativeNames>> Instances = [];
+
+    private static AotNativeNames? Owner(LoadedNative native)
+    {
+        lock (Instances)
+        {
+            Instances.RemoveAll(w => !w.TryGetTarget(out _));
+            foreach (var w in Instances)
+                if (w.TryGetTarget(out var names) && names.aot.Holds(native)) return names;
+        }
+        return null;
+    }
+
     /// <summary>Most other methods listed in a shared function's comment.</summary>
     public const int SharedListed = 8;
     private const int MaxCommentText = 200;
@@ -93,22 +120,11 @@ public sealed class AotNativeNames(AotMetadataService aot, AotNavigator navigato
         {
             try
             {
-                var values = dump.Values;
-                var addresses = dump.Addresses;
-                var slots = new List<uint>(values.Length);
-                var texts = new List<string>(values.Length);
-                for (int i = 0; i < values.Length; i++)
+                (literalSlots, literalTexts) = Literals(dump, Mapped, (rva, _) => names.ContainsKey(rva), ref outside, (rva, i, text) =>
                 {
-                    if (addresses[i] > uint.MaxValue || !Mapped((uint)addresses[i])) { outside++; continue; }
-                    uint rva = (uint)addresses[i];
-                    if (names.ContainsKey(rva)) continue;
                     names[rva] = Unique($"StringLiteral_{i}", rva);
-                    comments[rva] = Quote(values[i]);
-                    slots.Add(rva);
-                    texts.Add(values[i]);
-                }
-                literalSlots = slots.ToArray();
-                literalTexts = texts.ToArray();
+                    comments[rva] = Quote(text);
+                });
             }
             catch (ToolError e) { notes.Add(e.Message); }
         }
@@ -166,13 +182,87 @@ public sealed class AotNativeNames(AotMetadataService aot, AotNavigator navigato
         var (sourcePath, identity) = Provenance(image);
         NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Metadata, names, comments, $"AOT metadata ({assemblies})",
             new ImportInfo(sourcePath, identity, DateTime.UtcNow)), index);
-        AppliedTable.AddOrUpdate(native, new Applied(image, assemblies, literalSlots, literalTexts));
+        lock (RestoreLock)
+        {
+            AppliedTable.AddOrUpdate(native, new Applied(image, assemblies, literalSlots, literalTexts));
+            Failed.Remove(native);
+        }
         if (code.SaveImported(native, NativeNameSource.Metadata) is { } problem) notes.Add($"names not saved for the next load: {problem}");
         return new Report(assemblies, image.Dump?.Files.Directory, script != null, functions, notDiscovered, shared, sharedExtra, unnamed, outside,
             suffixed, userKept, literalSlots.Length, metadata, methodInfos, watch.Elapsed, notes);
     }
 
-    /// <summary>The file the names were read from and its SHA-256, saved with the names; nulls when unknown.</summary>
+    /// <summary>
+    /// The literal slots of the dump, in image order, that <paramref name="skip"/> (rva, index) leaves in;
+    /// <paramref name="take"/> sees each kept one.
+    /// </summary>
+    private static (uint[] Slots, string[] Texts) Literals(AotStringIndex dump, Func<uint, bool> mapped, Func<uint, int, bool> skip, ref int outside,
+        Action<uint, int, string> take)
+    {
+        var values = dump.Values;
+        var addresses = dump.Addresses;
+        var slots = new List<uint>(values.Length);
+        var texts = new List<string>(values.Length);
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (addresses[i] > uint.MaxValue || !mapped((uint)addresses[i])) { outside++; continue; }
+            uint rva = (uint)addresses[i];
+            if (skip(rva, i)) continue;
+            take(rva, i, values[i]);
+            slots.Add(rva);
+            texts.Add(values[i]);
+        }
+        return (slots.ToArray(), texts.ToArray());
+    }
+
+    // Serialises Apply and Restore across instances, so a restore never overwrites an applied table.
+    private static readonly object RestoreLock = new();
+
+    // The workspace generation of a failed restore; a retry waits for a load or unload.
+    private static readonly ConditionalWeakTable<LoadedNative, StrongBox<int>> Failed = new();
+
+    /// <summary>
+    /// Rebuilds the applied table of an image whose metadata names came from the saved copy.
+    /// Returns null when the table exists or no names were restored, else the notice naming the restoring calls.
+    /// The literal slots and assembly list are rebuilt from the loaded dummy assemblies, not recorded by the apply.
+    /// </summary>
+    public string? Restore(LoadedNative native, CancellationToken ct = default)
+    {
+        if (NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Metadata) is not { } layer) return null;
+        if (AppliedTable.TryGetValue(native, out _)) return null;
+        int generation = aot.Generation;
+        // Check, build and store under one lock, so a concurrent apply wins.
+        lock (RestoreLock)
+        {
+            if (AppliedTable.TryGetValue(native, out _)) return null;
+            if (!(Failed.TryGetValue(native, out var failed) && failed.Value == generation))
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var image = PickImage(native, aot.Loaded);
+                    var pe = native.Image;
+                    uint[] slots = [];
+                    string[] texts = [];
+                    int outside = 0;
+                    if (image.Dump is { } dump && dump.Files.HasLiterals)
+                        (slots, texts) = Literals(dump, rva => rva < pe.SizeOfImage && pe.SectionAt(rva) != null,
+                            (rva, i) => !(layer.Names.TryGetValue(rva, out var n) &&
+                                          (n == $"StringLiteral_{i}" || n == $"StringLiteral_{i}_{rva:X}")), ref outside, (_, _, _) => { });
+                    AppliedTable.TryAdd(native, new Applied(image, string.Join(", ", image.Assemblies.Select(a => a.Id)), slots, texts));
+                    Failed.Remove(native);
+                    return null;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Failed.Remove(native);
+                    Failed.Add(native, new StrongBox<int>(generation));
+                }
+            }
+        }
+        return $"{native.Id}: metadata names came from the saved copy; field and slot notes need the dummy assemblies: load_assembly the application folder or a dummy assembly folder, or run apply_metadata_names";
+    }
+
     private static (string? Path, string? Sha256) Provenance(AotNavigator.Image image)
     {
         string? path = null;
@@ -207,8 +297,12 @@ public sealed class AotNativeNames(AotMetadataService aot, AotNavigator navigato
     }
 
     /// <summary>The metadata applied to an image, or null.</summary>
-    public static Applied? Of(LoadedNative native) =>
-        AppliedTable.TryGetValue(native, out var applied) && NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Metadata) != null ? applied : null;
+    public static Applied? Of(LoadedNative native)
+    {
+        if (NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Metadata) == null) return null;
+        if (!AppliedTable.TryGetValue(native, out _)) Owner(native)?.Restore(native);
+        return AppliedTable.TryGetValue(native, out var applied) ? applied : null;
+    }
 
     /// <summary>
     /// The dump image made from <paramref name="native"/>, else the only one in scope; refuses when none, several, or one

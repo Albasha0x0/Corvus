@@ -221,9 +221,9 @@ public sealed partial class AotFieldNotesTests : IDisposable
 
     private readonly List<Env> _envs = [];
 
-    private (Env Env, NativeCodeService Service, LoadedNative Native, NativeCodeIndex Index) Open(byte[] code, ushort machine, bool elf = false, string? source = null, bool macho = false)
+    private (Env Env, NativeCodeService Service, LoadedNative Native, NativeCodeIndex Index) Open(byte[] code, ushort machine, bool elf = false, string? source = null, bool macho = false, string? store = null, bool apply = true, bool loadDummies = true)
     {
-        var dump = Path.Combine(_dir.Path, "dump" + _envs.Count);
+        var dump = Path.Combine(_dir.Path, "dump" + (store ?? _envs.Count.ToString()));
         var dummies = Path.Combine(dump, "DummyDll");
         Directory.CreateDirectory(dummies);
         var dll = Path.Combine(dummies, "Fixture.dll");
@@ -253,12 +253,20 @@ public sealed partial class AotFieldNotesTests : IDisposable
             File.WriteAllBytes(binary, b.Build());
         }
 
+        // The binary alone in its own folder: loading it finds no dummy assemblies beside it.
+        if (!loadDummies)
+        {
+            var alone = Path.Combine(_dir.Path, "alone" + (store ?? _envs.Count.ToString()));
+            Directory.CreateDirectory(alone);
+            File.Copy(binary, binary = Path.Combine(alone, Path.GetFileName(binary)), true);
+        }
         var env = new Env(dll);
+        if (!loadDummies) env.Workspace.Unload(env.Fixture);
         _envs.Add(env);
-        var service = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("ann" + _envs.Count)));
+        var service = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("ann" + (store ?? _envs.Count.ToString()))));
         var native = env.Workspace.LoadAny(binary).Native!;
         var index = service.Index(native, null, default).GetAwaiter().GetResult();
-        new AotNativeNames(env.AotMetadata, env.AotNavigator, service).Apply(native, index, env.Workspace.Assemblies, default);
+        if (apply) new AotNativeNames(env.AotMetadata, env.AotNavigator, service).Apply(native, index, env.Workspace.Assemblies, default);
         return (env, service, native, index);
     }
 
@@ -304,6 +312,41 @@ public sealed partial class AotFieldNotesTests : IDisposable
         var (env, service, native, _) = Open(ElfCode, 0, elf: true);
         var listing = await new NativeCodeTools(env.Workspace, service, env.Pager).Disassemble(native.Id, "Fixture_Native_StreamHost__Read");
         Assert.Contains("this->mReadMemStream (StreamHost+0x48)", listing);
+    }
+
+    // R1: the 2.9.0 retest found no notes after a restart until apply_metadata_names ran again.
+    [Fact]
+    public async Task Disassemble_shows_field_notes_from_a_restored_name_layer_without_apply()
+    {
+        Open(ElfCode, 0, elf: true, store: "saved");
+        var (env, service, native, _) = Open(ElfCode, 0, elf: true, store: "saved", apply: false);
+        var tools = new NativeCodeTools(env.Workspace, service, env.Pager, aotNames: new AotNativeNames(env.AotMetadata, env.AotNavigator, service));
+        var listing = await tools.Disassemble(native.Id, "Fixture_Native_StreamHost__Read");
+        Assert.Contains("this->mReadMemStream (StreamHost+0x48)", listing);
+        Assert.DoesNotContain("; note:", listing);
+    }
+
+    // The restored layer is loaded without dummy assemblies; they are loaded after the first disassembly.
+    [Fact]
+    public async Task Disassemble_names_the_restoring_calls_on_every_call_until_the_dummy_assembly_is_loaded()
+    {
+        Open(ElfCode, 0, elf: true, store: "saved");
+        var (env, service, native, _) = Open(ElfCode, 0, elf: true, store: "saved", apply: false, loadDummies: false);
+        var tools = new NativeCodeTools(env.Workspace, service, env.Pager, aotNames: new AotNativeNames(env.AotMetadata, env.AotNavigator, service));
+        var first = await tools.Disassemble(native.Id, "Fixture_Native_StreamHost__Read");
+        Assert.Contains("; note: ", first);
+        Assert.Contains("load_assembly", first);
+        Assert.Contains("apply_metadata_names", first);
+        Assert.DoesNotContain("this->mReadMemStream", first);
+        var paged = await tools.Disassemble(native.Id, "Fixture_Native_StreamHost__Read", offset: 10);
+        Assert.Contains("; note: ", paged);
+        var raw = await tools.Disassemble(native.Id, "0x1000", fromAddress: true);
+        Assert.Contains("; note: ", raw);
+
+        env.Workspace.Load(Path.Combine(_dir.Path, "dumpsaved", "DummyDll", "Fixture.dll"));
+        var restored = await tools.Disassemble(native.Id, "Fixture_Native_StreamHost__Read");
+        Assert.Contains("this->mReadMemStream (StreamHost+0x48)", restored);
+        Assert.DoesNotContain("; note:", restored);
     }
 
     [Fact]

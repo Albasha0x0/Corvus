@@ -179,6 +179,21 @@ public sealed class AotNativeNamesTests : IDisposable
         Assert.Contains("Runtime_ThrowNullReference", await tools.Disassemble(native.Id, "0x1800"));
     }
 
+    // R1: the 2.9.0 retest listed no metadata literals after a restart until apply_metadata_names ran again.
+    [Fact]
+    public async Task Search_native_strings_lists_literal_slots_of_a_restored_name_layer_without_apply()
+    {
+        var (native, index) = await Open();
+        _names.Apply(native, index, _env.Workspace.Assemblies, default);
+        using var env = new Env(Path.Combine(_dir.Path, "dump", "DummyDll", Path.GetFileName(Env.FixturePath)));
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("ann")));
+        var restored = env.Workspace.LoadAny(_binary).Native!;
+        await code.Index(restored, null, default);
+        _ = new AotNativeNames(env.AotMetadata, env.AotNavigator, code);
+        var strings = await new NativeCodeTools(env.Workspace, code, env.Pager).SearchNativeStrings(restored.Id, "hello");
+        Assert.Contains("metadata \"hello aot\"  slot StringLiteral_0", strings);
+    }
+
     [Fact]
     public async Task Names_functions_slots_and_strings_and_ranks_below_user_names()
     {

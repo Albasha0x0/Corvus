@@ -7,6 +7,15 @@ namespace Corvus.Services;
 /// <summary>Reads the [Address], [FieldOffset] and [Token] attributes of dummy assemblies and indexes methods by address.</summary>
 public sealed class AotMetadataService(AssemblyWorkspace workspace)
 {
+    /// <summary>The loaded assemblies of the workspace.</summary>
+    internal IReadOnlyList<LoadedAssembly> Loaded => workspace.Assemblies;
+
+    /// <summary>Changes whenever an assembly is loaded or unloaded.</summary>
+    internal int Generation => workspace.Generation;
+
+    /// <summary>Whether the workspace holds <paramref name="native"/>.</summary>
+    internal bool Holds(LoadedNative native) => workspace.Natives.Contains(native);
+
     private static readonly string[] KnownAttributes =
         ["AddressAttribute", "FieldOffsetAttribute", "TokenAttribute", "MetadataOffsetAttribute", "Il2CppAddressAttribute"];
 

@@ -16,7 +16,7 @@ namespace Corvus.Tools;
 /// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64 / ARM64 / ARM32).</summary>
 [McpServerToolType]
 public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
-    NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
+    NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null, AotNativeNames? aotNames = null)
 {
     /// <summary>Answers through an engine (IDA or Ghidra): for images whose instructions the built-in analysis does not decode, or when the engine preference picks one.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
@@ -222,7 +222,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var rva = Address(index, address);
         var fn = fromAddress ? null : index.FunctionAt(rva);
         if (fold) RuntimeCollapse.RequireFunction(fn != null);
-        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r")}{rva}|{max}|{fold}|{index.Sourced.Version}", () =>
+        var restoreNotice = aotNames?.Restore(native, cancellationToken);
+        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r")}{rva}|{max}|{fold}|{index.Sourced.Version}|{AotNativeNames.Of(native) != null}", () =>
         {
             var sb = new StringBuilder();
             var classifier = new AddressClassifier(index);
@@ -260,7 +261,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             Image = native.Id, Function = fn?.Name, Address = NativeAddress.Va(index.Image, fn?.Start ?? rva), Engine = choice.Engine,
         };
-        return $"; {choice.Line}\n" + Coverage(index) + ToolOutput.Text(pager, text + await BoundImports(native, index, fn, cancellationToken), offset, record, maxTokens);
+        return $"; {choice.Line}\n" + (restoreNotice != null ? $"; note: {restoreNotice}\n" : "") + Coverage(index) + ToolOutput.Text(pager, text + await BoundImports(native, index, fn, cancellationToken), offset, record, maxTokens);
     });
 
     /// <summary>Where the imports a function calls are bound (one line each), for the disassembly footer.</summary>
