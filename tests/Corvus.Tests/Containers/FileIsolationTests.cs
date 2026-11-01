@@ -340,6 +340,21 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
     }
 
     [Fact]
+    public async Task A_linux_files_worker_reports_the_restrictions_its_kernel_applied()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool(sandbox: true);
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        await ReadsAsync(session, zip);
+        var applied = pool.AppliedSandbox;
+        Assert.NotNull(applied);
+        Assert.StartsWith("no_new_privs on, landlock abi ", applied);
+        Assert.Contains("core dump limit 0", applied);
+    }
+
+    [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_warm_worker_adds_little_to_a_small_read()
     {
