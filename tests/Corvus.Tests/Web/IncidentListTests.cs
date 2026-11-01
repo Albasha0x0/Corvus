@@ -74,6 +74,91 @@ public sealed class IncidentListTests : IDisposable
         Assert.Contains(member.Items, i => i.Path.EndsWith("data.bin", StringComparison.Ordinal) && i.Name == Sha(payload));
     }
 
+    private static byte[] Pe(byte[]? table = null, uint? tableSize = null)
+    {
+        var b = new PeBuilder();
+        b.Add(".text", new byte[0x200]);
+        var bare = b.Build();
+        if (table != null) b.Overlay = table;
+        if (table != null || tableSize != null) b.Directories[PeImage.SecurityDirectory] = ((uint)bare.Length, tableSize ?? (uint)table!.Length);
+        return b.Build();
+    }
+
+    /// <summary>The image without CheckSum, the security directory entry and any table, hashed as the Authenticode specification excludes them.</summary>
+    private static string Authenticode(byte[] bare, HashAlgorithmName algorithm)
+    {
+        var pe = PeImage.TryParse(bare)!;
+        int entry = pe.DirectoryEntryOffset(PeImage.SecurityDirectory);
+        var kept = bare.Take(pe.ChecksumOffset).Concat(bare.Skip(pe.ChecksumOffset + 4).Take(entry - pe.ChecksumOffset - 4)).Concat(bare.Skip(entry + 8)).ToArray();
+        return Convert.ToHexStringLower(algorithm == HashAlgorithmName.SHA1 ? SHA1.HashData(kept) : SHA256.HashData(kept));
+    }
+
+    [Fact]
+    public void A_listed_authenticode_sha256_marks_an_image_whether_or_not_a_certificate_table_follows()
+    {
+        var bare = Pe();
+        var withTable = Pe(Enumerable.Range(0, 24).Select(i => (byte)(i + 1)).ToArray());
+        Assert.NotEqual(Sha(bare), Sha(withTable));
+        Write("tree/plain.dll", bare);
+        Write("tree/tabled.dll", withTable);
+        var list = Write("hashes.txt", Authenticode(bare, HashAlgorithmName.SHA256) + " fixture\n");
+        var found = Search(_dir.File("tree"), list);
+        Assert.Equal(["plain.dll", "tabled.dll"], found.Items.Select(i => i.Path).Order(StringComparer.Ordinal));
+        Assert.All(found.Items, i => Assert.StartsWith("listed in hashes.txt, authenticode sha256", i.Detail, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_listed_sha1_marks_the_file_and_the_authenticode_hash_by_name()
+    {
+        var bare = Pe();
+        Write("tree/plain.dll", bare);
+        Write("tree/note.txt", "harmless");
+        var file = Convert.ToHexStringLower(SHA1.HashData(bare));
+        var authenticode = Authenticode(bare, HashAlgorithmName.SHA1);
+        var found = Search(_dir.File("tree"), Write("hashes.txt", $"{file}\n{authenticode}\n"));
+        Assert.Equal([$"listed in hashes.txt, authenticode sha1, {bare.Length:N0} bytes", $"listed in hashes.txt, sha1, {bare.Length:N0} bytes"],
+            found.Items.Select(i => i.Detail!).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void A_certificate_table_outside_the_file_leaves_the_authenticode_hash_unknown_and_named()
+    {
+        Write("tree/broken.dll", Pe(tableSize: 4096));
+        var found = Search(_dir.File("tree"), Write("hashes.txt", new string('a', 64) + "\n"));
+        Assert.Empty(found.Items);
+        Assert.Contains(found.Notes, n => n.Contains("Authenticode hashes are unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_listed_authenticode_sha256_marks_a_member_image_of_an_archive()
+    {
+        var bare = Pe();
+        var zip = _dir.File("bundle.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        using (var s = archive.CreateEntry("inner/tabled.dll").Open())
+            s.Write(Pe(Enumerable.Range(0, 24).Select(i => (byte)(i + 1)).ToArray()));
+        var found = Search(zip, Write("hashes.txt", Authenticode(bare, HashAlgorithmName.SHA256) + "\n"));
+        Assert.Contains(found.Items, i => i.Path.EndsWith("tabled.dll", StringComparison.Ordinal) && i.Detail!.StartsWith("listed in hashes.txt, authenticode sha256", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_package_only_list_computes_no_authenticode_hash()
+    {
+        Write("tree/broken.dll", Pe(tableSize: 4096));
+        var found = Search(_dir.File("tree"), Write("incident.txt", "left-pad@1.1.0\n"));
+        Assert.Empty(found.Items);
+        Assert.DoesNotContain(found.Notes, n => n.Contains("Authenticode", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_sha1_list_names_an_image_whose_certificate_table_is_unreadable()
+    {
+        Write("tree/broken.dll", Pe(tableSize: 4096));
+        var found = Search(_dir.File("tree"), Write("hashes.txt", new string('b', 40) + "\n"));
+        Assert.Empty(found.Items);
+        Assert.Contains(found.Notes, n => n.Contains("broken.dll", StringComparison.Ordinal) && n.Contains("matched by file hash only", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_pack_query_reads_the_lists_of_an_installed_pack()
     {

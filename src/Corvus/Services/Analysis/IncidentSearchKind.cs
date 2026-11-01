@@ -23,7 +23,7 @@ internal sealed class IncidentSearchKind : IContainerSearchKind
             throw new ToolError(ErrorCode.InvalidArgument, "kind=incident takes an incident list as query.", "pass a list file path or pack:<name>");
         var lists = Lists(query.Trim());
         var notes = new List<string>();
-        foreach (var l in lists.Where(l => l.Unreadable > 0)) notes.Add($"{l.Name}: {l.Unreadable} line(s) are neither name@version nor a SHA-256; skipped");
+        foreach (var l in lists.Where(l => l.Unreadable > 0)) notes.Add($"{l.Name}: {l.Unreadable} line(s) are neither name@version, a SHA-256 nor a SHA-1; skipped");
         var rows = new List<ContainerMatch>();
         bool folder = Directory.Exists(source);
         int searched = 0;
@@ -35,14 +35,36 @@ internal sealed class IncidentSearchKind : IContainerSearchKind
                     rows.Add(new ContainerMatch(where, $"{p.Name}@{p.Version}", "incident") { Detail = $"listed in {l.Name}, {lockfile.Format}" });
         }
 
+        var hasSha1 = lists.Any(l => l.HasSha1);
+        var unreadableTables = new SortedSet<string>(StringComparer.Ordinal);
+
         void Hash(string where, byte[] bytes)
         {
+            void Row(IncidentList l, string hash, string what) =>
+                rows.Add(new ContainerMatch(where, hash, "incident") { Detail = $"listed in {l.Name}, {what}, {bytes.Length:N0} bytes" });
+
             var sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
-            foreach (var l in lists.Where(l => l.Lists(sha)))
-                rows.Add(new ContainerMatch(where, sha, "incident") { Detail = $"listed in {l.Name}, sha256, {bytes.Length:N0} bytes" });
+            foreach (var l in lists.Where(l => l.Lists(sha))) Row(l, sha, "sha256");
+            if (hasSha1)
+            {
+                var sha1 = Convert.ToHexStringLower(SHA1.HashData(bytes));
+                foreach (var l in lists.Where(l => l.ListsSha1(sha1))) Row(l, sha1, "sha1");
+            }
+            if (PeImage.TryParse(bytes) == null) return;
+            var any = false;
+            foreach (var (algorithm, name) in new[] { (HashAlgorithmName.SHA256, "sha256"), (HashAlgorithmName.SHA1, "sha1") })
+            {
+                if (algorithm == HashAlgorithmName.SHA1 && !hasSha1) continue;
+                var digest = Certificates.AuthenticodeDigest(bytes, algorithm);
+                if (digest == null) continue;
+                any = true;
+                var hex = Convert.ToHexStringLower(digest);
+                foreach (var l in lists.Where(l => algorithm == HashAlgorithmName.SHA1 ? l.ListsSha1(hex) : l.Lists(hex))) Row(l, hex, $"authenticode {name}");
+            }
+            if (!any) unreadableTables.Add(where);
         }
 
-        var hashes = lists.Any(l => l.HasHashes);
+        var hashes = hasSha1 || lists.Any(l => l.HasHashes);
         if (folder)
         {
             var found = Lockfiles.Find(source, ct, out bool complete);
@@ -79,6 +101,9 @@ internal sealed class IncidentSearchKind : IContainerSearchKind
             }
             if (Lockfiles.Named(name) && Lockfiles.Load(source) is { } own) Packages(name, own);
         }
+        if (unreadableTables.Count > 0)
+            notes.Add($"{unreadableTables.Count} image(s) have a certificate table that cannot be excluded from the hash; matched by file hash only, their Authenticode hashes are unknown: "
+                + $"{string.Join(", ", unreadableTables.Take(5))}; list the file SHA-256 of an affected image to match it");
         var unique = rows.DistinctBy(r => (r.Path, r.Name, r.Detail)).ToList();
         notes.Insert(0, $"{string.Join(", ", lists.Select(l => $"{l.Name} ({l.Count:N0})"))}: {unique.Count} listed; a listing is not a verdict.");
         return UnpackService.Ranked(source, folder ? "folder" : "file", searched, unique, "", offset, limit, notes);

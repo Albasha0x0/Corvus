@@ -4,7 +4,7 @@ using Corvus.Services.Web.Packages;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// An incident list: one <c>name@version</c> or SHA-256 per line, <c>#</c>
+/// An incident list: one <c>name@version</c>, SHA-256 or SHA-1 per line, <c>#</c>
 /// comments; text after the first space is a label and is ignored.
 /// </summary>
 public sealed class IncidentList
@@ -15,20 +15,24 @@ public sealed class IncidentList
     private readonly HashSet<(string Name, string Version)> _packages = [];
     private readonly HashSet<(string Name, string Version)> _normalized = [];
     private readonly HashSet<string> _hashes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _sha1 = new(StringComparer.Ordinal);
 
     private IncidentList(string name) => Name = name;
 
     /// <summary>The file or pack name the list was read from.</summary>
     public string Name { get; }
 
-    /// <summary>Lines that are neither a package nor a SHA-256; they are skipped.</summary>
+    /// <summary>Lines that are neither a package, a SHA-256 nor a SHA-1; they are skipped.</summary>
     public int Unreadable { get; private set; }
 
     /// <summary>The number of listed packages and hashes.</summary>
-    public int Count => _packages.Count + _hashes.Count;
+    public int Count => _packages.Count + _hashes.Count + _sha1.Count;
 
     /// <summary>Whether any SHA-256 is listed.</summary>
     public bool HasHashes => _hashes.Count > 0;
+
+    /// <summary>Whether any SHA-1 is listed.</summary>
+    public bool HasSha1 => _sha1.Count > 0;
 
     /// <summary>Reads <paramref name="bytes"/> as a list named <paramref name="name"/>; bad lines are counted, never thrown.</summary>
     public static IncidentList Parse(byte[] bytes, string name)
@@ -42,6 +46,7 @@ public sealed class IncidentList
             var token = line.Split([' ', '\t'], 2)[0];
             int at = token.LastIndexOf('@');
             if (token.Length == 64 && token.All(Uri.IsHexDigit)) list._hashes.Add(token.ToLowerInvariant());
+            else if (token.Length == 40 && token.All(Uri.IsHexDigit)) list._sha1.Add(token.ToLowerInvariant());
             else if (at > 0 && at < token.Length - 1 && token.IndexOfAny(['*', '?']) < 0)
             {
                 var (n, v) = (token[..at], token[(at + 1)..]);
@@ -59,4 +64,7 @@ public sealed class IncidentList
 
     /// <summary>Whether <paramref name="sha256"/> (hex, any case) is listed.</summary>
     public bool Lists(string sha256) => _hashes.Contains(sha256.ToLowerInvariant());
+
+    /// <summary>Whether <paramref name="sha1"/> (hex, any case) is listed.</summary>
+    public bool ListsSha1(string sha1) => _sha1.Contains(sha1.ToLowerInvariant());
 }

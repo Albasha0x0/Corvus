@@ -395,7 +395,7 @@ Labels:
 - A git or URL source taken on, or an integrity changed for one version, is noteworthy; a newly flagged install script is listed.
 - `compare_folders` on two package versions lists malcontent behaviours added or removed in each changed code file, and build or install steps a `.nupkg` gains.
 - `search_container kind=dependency query=name@version` on a folder names each lockfile that resolves it; `node_modules` and `.git` are skipped.
-- `search_container kind=incident query=<list file or pack:name>` lists lockfile packages, files and archive members that an incident list names (`name@version` or SHA-256 per line); a listing is not a verdict.
+- `search_container kind=incident query=<list file or pack:name>` lists lockfile packages, files and archive members that an incident list names (`name@version`, SHA-256 or SHA-1 per line; a hash also matches a PE's Authenticode hash); a listing is not a verdict.
 
 ### Workflows
 

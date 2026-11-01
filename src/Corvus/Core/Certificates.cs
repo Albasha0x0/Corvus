@@ -180,6 +180,19 @@ public static class Certificates
         return hash.GetHashAndReset();
     }
 
+    /// <summary>Returns the Authenticode digest of a PE under <paramref name="algorithm"/>, signed or not.</summary>
+    /// <remarks>Null when the image or its certificate table is unreadable.</remarks>
+    public static byte[]? AuthenticodeDigest(byte[] file, HashAlgorithmName algorithm)
+    {
+        var pe = PeImage.TryParse(file);
+        if (pe == null) return null;
+        var (offset, size) = pe.Directory(file, SecurityDirectory);
+        if (offset == 0 || size == 0) (offset, size) = ((uint)file.Length, 0);
+        // A table inside the headers or past the end cannot be excluded from the hash.
+        if (offset < pe.DirectoryEntryOffset(SecurityDirectory) + 8 || (long)offset + size > file.Length) return null;
+        return ImageDigest(file.Length, (hash, at, n) => hash.AppendData(file, (int)at, (int)n), pe, offset, size, algorithm);
+    }
+
     /// <summary>Null when the embedded signature is intact, chains to a root of <paramref name="organization"/> and is trusted here for code signing; else why not.</summary>
     public static string? VerifyPublisher(byte[] file, string organization) => VerifyPublisher(file, organization, out _);
 
