@@ -38,7 +38,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public Task<string> SaveSession(
         [Description("Output file path (.json).")] string outputPath,
         [Description("Replace the file if it exists.")] bool overwrite = false,
-        [Description("Comma-separated: edits, patches, annotations, notes or all (default).")] string? include = null,
+        [Description("Comma list: edits, patches, annotations, notes, all (default).")] string? include = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var parts = SessionService.ParseInclude(include);
@@ -61,7 +61,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         [Description("Report only.")] bool dryRun = true,
         [Description("Default same; other: native work needs the old build under searchRoots.")] string? targetBuild = null,
         [Description(";-separated folders searched recursively for moved files, by SHA-256.")] string? searchRoots = null,
-        [Description("Comma-separated: edits, patches, annotations, notes or all (default).")] string? include = null,
+        [Description("Comma list: edits, patches, annotations, notes, all (default).")] string? include = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 2000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,

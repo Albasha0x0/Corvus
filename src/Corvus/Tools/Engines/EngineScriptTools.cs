@@ -33,7 +33,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         [Description("A .py file to run instead of code.")] string? scriptPath = null,
         [Description("Save the database afterwards.")] bool persist = false,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        [Description("Return an exception as the result, not an error.")] bool allowError = false,
+        [Description("Return the exception as the result.")] bool allowError = false,
         [Description(TimeoutDescription)] int? timeoutSeconds = null,
         [Description(BackgroundDescription)] bool background = false,
         RequestContext<CallToolRequestParams> context = null!,
@@ -201,7 +201,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         [Description("java (default) or python (needs CORVUS_GHIDRA_PYTHON); name *.py is Python.")] string? language = null,
         [Description("Default auto.")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        [Description("Return an exception as the result, not an error.")] bool allowError = false,
+        [Description("Return the exception as the result.")] bool allowError = false,
         [Description(BackgroundDescription)] bool background = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

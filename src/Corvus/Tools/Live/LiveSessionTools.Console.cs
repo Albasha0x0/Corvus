@@ -41,7 +41,7 @@ public sealed partial class LiveSessionTools
     [McpServerTool(Name = "live_console", Title = "Scripted console run", UseStructuredContent = true, OutputSchemaType = typeof(LiveConsolePage))]
     [Description("Drive a program with a background script; status shows steps, transcript pages output.")]
     public Task<string> LiveConsole(
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("start: program path.")] string? program = null,
         [Description("start: arguments.")] string[]? arguments = null,
         [Description("start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \\r (Enter), \\n, \\t, \\e, \\xHH.")] string[]? script = null,

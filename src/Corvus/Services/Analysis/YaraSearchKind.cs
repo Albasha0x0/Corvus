@@ -46,13 +46,32 @@ internal sealed class YaraSearchKind : IContainerSearchKind
     internal static YaraScanResult Run(JsonObject request, string target, CancellationToken ct, WorkerPool? pool = null)
     {
         JsonElement answer;
-        try { answer = (pool ?? WorkerPool.Shared).RunAsync("yara", YaraOps.ScanOp, request, Timeout.InfiniteTimeSpan, ct, target, ServerOptions.StallWindow()).GetAwaiter().GetResult(); }
+        try { answer = Call(YaraOps.ScanOp, request, target, ct, pool); }
         catch (ToolError e) when (e.Code == ErrorCode.Timeout && e.Message.Contains(StallRule.MessagePrefix, StringComparison.Ordinal))
         {
             throw Stalled(e, target);
         }
-        return answer.Deserialize<YaraScanResult>(YaraOps.Json) ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
+        return Read<YaraScanResult>(answer);
     }
+
+    /// <summary>Compiles rule text in a yara worker; the result lists the rules that compiled and the errors of those that did not.</summary>
+    internal static YaraCompileResult Compile(string source, CancellationToken ct, WorkerPool? pool = null)
+    {
+        JsonElement answer;
+        try { answer = Call(YaraOps.CompileOp, new JsonObject { ["source"] = source }, "the rules", ct, pool); }
+        catch (ToolError e) when (e.Code == ErrorCode.Timeout && e.Message.Contains(StallRule.MessagePrefix, StringComparison.Ordinal))
+        {
+            throw new ToolError(ErrorCode.Timeout, $"Compiling the rules was stopped: {e.Message}",
+                $"repeat the same make_code_pattern call, or raise {ServerOptions.StallWindowVariable} (seconds without progress)");
+        }
+        return Read<YaraCompileResult>(answer);
+    }
+
+    private static T Read<T>(JsonElement answer) where T : class =>
+        answer.Deserialize<T>(YaraOps.Json) ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
+
+    private static JsonElement Call(string op, JsonObject request, string target, CancellationToken ct, WorkerPool? pool) =>
+        (pool ?? WorkerPool.Shared).RunAsync("yara", op, request, Timeout.InfiniteTimeSpan, ct, target, ServerOptions.StallWindow()).GetAwaiter().GetResult();
 
     /// <summary>The retryable error for a stalled scan of <paramref name="target"/>, naming the call to repeat and the variable to raise.</summary>
     internal static ToolError Stalled(ToolError stalled, string target) =>

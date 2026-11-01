@@ -322,6 +322,83 @@ public class NativeDiffTests
         Assert.Null(code.Annotations(newNative).NameAt(first));
     }
 
+    [YaraFact]
+    public async Task A_yara_pattern_is_a_rule_compiled_in_the_reply()
+    {
+        using var dir = new TempDir();
+        using var env = new Env();
+        var code = new Corvus.Services.NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var tools = new Corvus.Tools.NativeDiffTools(env.Workspace, code);
+        var path = dir.File("a.dll");
+        File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
+        using var pool = new Corvus.Native.Providers.Worker.WorkerPool(new Corvus.Native.Providers.Worker.WorkerPoolOptions
+        {
+            Enabled = true,
+            MemoryLimitBytes = 0,
+            Start = Corvus.Native.Providers.Worker.WorkerPool.OwnCommand() with
+            {
+                Environment = new Dictionary<string, string?> { [Corvus.Native.Providers.Worker.Yara.YaraX.LibraryVariable] = YaraTestTools.Library },
+            },
+        });
+        var ida = await tools.MakePattern(path, "First", anchor: "address");
+        var made = await tools.MakePattern(path, "First", anchor: "address", format: "yara", pool: pool);
+        Assert.True(made.Compiled);
+        Assert.Null(made.CompileError);
+        Assert.Contains($"$p = {{ {ida.Pattern} }}", made.Pattern);
+    }
+
+    private static Corvus.Tools.NativeDiffTools.CodePatternResult Made(string address, string pattern, params string[] references) =>
+        new(address, pattern, 0, 0, true, 1, "address", address, null, null, null, null, null, "", references.Length == 0 ? null : [.. references.Select(r => new Corvus.Tools.NativeDiffTools.ReferencePattern(r, 0, 0, address, address, null, null, null, null, null, "", "ours"))], null);
+
+    private static Corvus.Native.Providers.Worker.WorkerPool YaraPool() => new(new Corvus.Native.Providers.Worker.WorkerPoolOptions
+    {
+        Enabled = true,
+        MemoryLimitBytes = 0,
+        Start = Corvus.Native.Providers.Worker.WorkerPool.OwnCommand() with
+        {
+            Environment = new Dictionary<string, string?> { [Corvus.Native.Providers.Worker.Yara.YaraX.LibraryVariable] = YaraTestTools.Library },
+        },
+    });
+
+    [YaraFact]
+    public void A_rule_that_does_not_compile_is_named_with_its_line_and_the_others_compile()
+    {
+        using var pool = YaraPool();
+        var rules = Corvus.Tools.NativeDiffTools.CompileRules([Made("0x401000", "{ 48 8B }"), Made("0x401010", "{ 48 ZZ }")], pool, default);
+        Assert.True(rules[0].Compiled);
+        Assert.False(rules[1].Compiled);
+        Assert.StartsWith("2:", rules[1].CompileError);
+    }
+
+    [YaraFact]
+    public void A_bad_reference_rule_is_named_and_the_main_rule_still_compiles()
+    {
+        using var pool = YaraPool();
+        var rule = Assert.Single(Corvus.Tools.NativeDiffTools.CompileRules([Made("kernel32+0x10", "{ 48 8B }", "{ 48 ZZ }")], pool, default));
+        Assert.Contains("rule pattern_kernel32_0x10_1 {", rule.References![0].Pattern);
+        Assert.False(rule.Compiled);
+        Assert.StartsWith("pattern_kernel32_0x10_1 2:", rule.CompileError);
+    }
+
+    [YaraFact]
+    public void A_wildcard_at_the_edge_of_a_pattern_is_reported_by_the_compiler()
+    {
+        using var pool = YaraPool();
+        var rule = Assert.Single(Corvus.Tools.NativeDiffTools.CompileRules([Made("0x401000", "{ ?? 48 8B ?? }")], pool, default));
+        Assert.NotNull(rule.Compiled);
+        Assert.Equal(rule.Compiled == false, rule.CompileError != null);
+    }
+
+    [Fact]
+    public void A_worker_that_cannot_run_leaves_the_rules_uncompiled_with_the_reason()
+    {
+        using var pool = new Corvus.Native.Providers.Worker.WorkerPool(new Corvus.Native.Providers.Worker.WorkerPoolOptions { Enabled = false, MemoryLimitBytes = 0 });
+        var rule = Assert.Single(Corvus.Tools.NativeDiffTools.CompileRules([Made("0x401000", "{ 48 8B }")], pool, default));
+        Assert.Null(rule.Compiled);
+        Assert.StartsWith("not compiled: ", rule.CompileError);
+        Assert.Contains("rule pattern_0x401000 {", rule.Pattern);
+    }
+
     [Fact]
     public async Task Code_pattern_formats_and_a_range_pattern()
     {
@@ -338,7 +415,7 @@ public class NativeDiffTests
         Assert.Equal(string.Concat(tokens.Select(t => t == "??" ? "\\x00" : "\\x" + t)) + " " + string.Concat(tokens.Select(t => t == "??" ? '?' : 'x')), mask);
         var bits = (await tools.MakePattern(path, "First", anchor: "address", format: "bitmask")).Pattern;
         Assert.Equal(string.Join(", ", tokens.Select(t => t == "??" ? "0x00" : "0x" + t)) + " 0b" + string.Concat(tokens.Reverse().Select(t => t == "??" ? '0' : '1')), bits);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", format: "yara"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", format: "sig"))).Code);
 
         // Range: the instructions inside [start, end) only, unique or not.
         var range = await tools.MakePattern(path, "First", anchor: "range", end: "+0x4");

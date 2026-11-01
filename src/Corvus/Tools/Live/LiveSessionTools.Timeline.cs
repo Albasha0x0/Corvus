@@ -51,7 +51,7 @@ public sealed partial class LiveSessionTools
     [Description("Trace the files, registry keys, endpoints and child processes a program opens; report counts names, diff compares traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("Run id (tl-1; omitted: the only one); list without it or a filter lists runs.")] string? run = null,
         [Description("diff: first timeline.")] string? a = null,
         [Description("diff: second timeline.")] string? b = null,
@@ -60,7 +60,7 @@ public sealed partial class LiveSessionTools
         [Description("list: cursor of an earlier page; default the oldest entry kept.")] string? cursor = null,
         [Description(ToolSupport.RowOffsetDescription + " (report).")] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
-        [Description("Save this page as JSON to a new file; an existing path is refused.")] string? outputPath = null,
+        [Description("Save as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {

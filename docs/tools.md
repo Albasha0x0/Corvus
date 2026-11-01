@@ -147,7 +147,7 @@ Save loaded files, .NET edits, native patches, names, comments, notes and open d
 |---|---|---|---|---|
 | `outputPath` | string | yes |  | Output file path (.json). |
 | `overwrite` | boolean |  |  | Replace the file if it exists. |
-| `include` | string |  |  | Comma-separated: edits, patches, annotations, notes or all (default). |
+| `include` | string |  |  | Comma list: edits, patches, annotations, notes, all (default). |
 
 Structured output: `outputPath`, `files`, `editedAssemblies`, `edits`, `patchedImages`, `patches`, `names`, `comments`, `notes`.
 
@@ -163,7 +163,7 @@ Restore a save_session file: find each file (recorded path, relative path, else 
 | `dryRun` | boolean |  | `true` | Report only. |
 | `targetBuild` | string |  |  | Default same; other: native work needs the old build under searchRoots. Values: same, other. |
 | `searchRoots` | string |  |  | ;-separated folders searched recursively for moved files, by SHA-256. |
-| `include` | string |  |  | Comma-separated: edits, patches, annotations, notes or all (default). |
+| `include` | string |  |  | Comma list: edits, patches, annotations, notes, all (default). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Items to return (max 2000). |
 
@@ -1031,7 +1031,7 @@ Imports of a native image per library, with the IAT slot code calls through; del
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `library` | string |  |  | Only this library (.dll optional). |
-| `filter` | string |  |  | Name substring (case-insensitive). |
+| `filter` | string |  |  | Name substring, any case. |
 | `bind` | boolean |  |  | Bind each import to its export, or say why not (load_assembly loadProviders=true loads targets). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -1066,7 +1066,7 @@ What a native address is: RVA, VA, file offset, section, nearest symbol, source 
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
+| `addresses` | string[] |  |  | Instead of address: up to 100. |
 
 Structured output: `image`, `rva`, `va`, `fileOffset`, `section`, `access`, `name`, `nameSource`, `import`, `boundTo`, `export`, `function`, `status`, `containingInstruction`, `dataItem`, `comment`, `referencesTo`, `source`, `inlined`, `results`, `failed`.
 
@@ -1155,7 +1155,7 @@ Named data of a native image outside code, from every name source, with type and
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `filter` | string |  |  | Name substring (case-insensitive). |
+| `filter` | string |  |  | Name substring, any case. |
 | `section` | string |  |  | Only this section, e.g. .data. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -1471,7 +1471,7 @@ C++ classes from RTTI with bases and vftables; also Delphi / Free Pascal VMT cla
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `filter` | string |  |  | Name substring (case-insensitive). |
+| `filter` | string |  |  | Name substring, any case. |
 | `slots` | boolean |  |  | Slot addresses (Pascal: methods, fields). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max classes. |
@@ -1936,7 +1936,7 @@ Map old-build addresses (functions, instructions, strings, referenced data) to t
 | `oldImage` | string | yes |  | Old build: image id or path. |
 | `newImage` | string | yes |  | New build: image id or path. |
 | `address` | string |  |  | Old build: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
+| `addresses` | string[] |  |  | Instead of address: up to 100. |
 | `codeOnly` | boolean |  |  | Match by code, not names. |
 
 Structured output: `oldImage`, `newImage`, `results`, `failed`.
@@ -1951,12 +1951,12 @@ Make a byte pattern for an address that survives a rebuild: displacements and re
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `addresses` | string[] |  |  | Instead of address: up to 50. |
+| `addresses` | string[] |  |  | Instead of address; up to 50. |
 | `anchor` | string |  | `auto` | auto: at the address, else at a referencing instruction; xrefs: one per reference; range: [address, end). Values: auto, address, reference, xrefs, range. |
 | `maxBytes` | integer |  | `64` | Longest pattern in bytes (8-512). |
 | `maxPatterns` | integer |  | `8` | anchor=xrefs: most signatures (1-32). |
 | `engine` | string |  |  | anchor=xrefs: ida or ghidra add engine references. Values: auto, ours, ida, ghidra. |
-| `format` | string |  | `ida` | ida, x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
+| `format` | string |  | `ida` | ida, x64dbg, mask (\x48\x00 x?), bitmask (0x48, 0x00 0b01) or yara (rule, compiled). Values: ida, x64dbg, mask, bitmask. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 
 Structured output: `image`, `format`, `results`, `failed`.
@@ -1965,7 +1965,7 @@ Structured output: `image`, `format`, `results`, `failed`.
 
 **Search a code pattern** (read-only, idempotent, long-running)
 
-Find a byte pattern with ?? wildcards (make_code_pattern's format) in the executable sections of loaded native images, with each hit's function and offset.
+Find a byte pattern with ?? wildcards (make_code_pattern's format except yara) in the executable sections of loaded native images, with each hit's function and offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1986,7 +1986,7 @@ Copy names, comments and engine types from the old build to the new one through 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | Older build (image id or path), static library (.lib, .a) or object file: its functions name the starts holding their bytes. |
+| `oldImage` | string | yes |  | Older build (image id or path), static library or object file: its functions name the starts holding their bytes. |
 | `newImage` | string | yes |  | New build: image id or path. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names, identical bytes) to 5 (all). |
@@ -2321,7 +2321,7 @@ Run IDAPython on the image database; returns the last expression's value, stdout
 | `scriptPath` | string |  |  | A .py file to run instead of code. |
 | `persist` | boolean |  |  | Save the database afterwards. |
 | `maxTokens` | integer |  |  |  |
-| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
+| `allowError` | boolean |  |  | Return the exception as the result. |
 | `timeoutSeconds` | integer |  |  | Seconds before it is cancelled; default 120. |
 | `background` | boolean |  |  | Return at once; a notice reports the end. |
 
@@ -2343,7 +2343,7 @@ Run a Java or Python Ghidra script on the image in one transaction: saved on ret
 | `language` | string |  |  | java (default) or python (needs CORVUS_GHIDRA_PYTHON); name *.py is Python. |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 | `maxTokens` | integer |  |  |  |
-| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
+| `allowError` | boolean |  |  | Return the exception as the result. |
 | `background` | boolean |  |  | Return at once; a notice reports the end. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
@@ -2610,7 +2610,7 @@ One installed package (dumpsys package): versions, SDKs, paths, flags, installer
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `package` | string | yes |  | Package name (com.example.app). |
+| `package` | string | yes |  | Package (com.example.app). |
 | `serial` | string |  |  | Device serial; omit if one device. |
 
 Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`.
@@ -2623,7 +2623,7 @@ Copy every APK of an installed package (base and splits) into a new or empty dir
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `package` | string | yes |  | Package name (com.example.app). |
+| `package` | string | yes |  | Package (com.example.app). |
 | `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
 | `serial` | string |  |  | Device serial; omit if one device. |
 
@@ -2687,7 +2687,7 @@ Remove an app (and its data unless keepData) from a device; needs --allow-device
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `package` | string | yes |  | Package name (com.example.app). |
+| `package` | string | yes |  | Package (com.example.app). |
 | `keepData` | boolean |  |  | Keep app data and cache. |
 | `serial` | string |  |  | Device serial; omit if one device. |
 
@@ -2870,7 +2870,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | What to do. Values: list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child, release_child. |
+| `action` | string |  | `list` | Action. Values: list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child, release_child. |
 | `program` | string |  |  | attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
@@ -2892,7 +2892,7 @@ Set, list or clear stop points; continue resumes; wait returns the oldest held s
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Id from live_session. |
-| `action` | string |  | `list` | What to do. Values: list, set, clear, continue. |
+| `action` | string |  | `list` | Action. Values: list, set, clear, continue. |
 | `at` | string |  |  | set: name, module!export, address or file:line. |
 | `stopPoint` | string |  |  | clear: stop point id. |
 | `thread` | string |  |  | continue: thread id; default all. |
@@ -2910,7 +2910,7 @@ Record each call of a function with arguments and result as events (live_events 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Id from live_session. |
-| `action` | string |  | `list` | What to do. Values: list, set, clear. |
+| `action` | string |  | `list` | Action. Values: list, set, clear. |
 | `at` | string |  |  | set: name, module!export or address. |
 | `watch` | string |  |  | clear: watch id. |
 | `rateLimit` | integer |  | `10000` | set: calls/s recorded (1-100000); the rest are counted. |
@@ -2952,7 +2952,7 @@ Page session events by cursor and filter; waitSeconds waits for the next.
 | `limit` | integer |  | `100` |  |
 | `waitSeconds` | integer |  | `0` | Seconds to wait for an event, 1-300; 0 returns at once. |
 | `maxTokens` | integer |  |  |  |
-| `outputPath` | string |  |  | Save this page as JSON to a new file; an existing path is refused. |
+| `outputPath` | string |  |  | Save as JSON to a new file; an existing path is refused. |
 
 Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
 
@@ -2965,7 +2965,7 @@ Load, list or unload a Frida script in a session; its messages are events (live_
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Id from live_session. |
-| `action` | string |  | `list` | What to do. Values: list, load, unload. |
+| `action` | string |  | `list` | Action. Values: list, load, unload. |
 | `source` | string |  |  | load: JavaScript source. |
 | `path` | string |  |  | load: a .js file instead. |
 | `script` | string |  |  | unload: script id. |
@@ -2981,7 +2981,7 @@ Collect code coverage in a session: which functions ran and how often; diff comp
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
-| `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
+| `action` | string |  | `list` | Action. Values: start, stop, list, report, diff. |
 | `run` | string |  |  | Run id (cov-1; omitted: the only run). |
 | `other` | string |  |  | diff: second run. |
 | `match` | string |  |  | Names containing this; start: module!part for another module. |
@@ -2990,7 +2990,7 @@ Collect code coverage in a session: which functions ran and how often; diff comp
 | `format` | string |  | `text` | report: text, or dot (call graph; offset counts characters). Values: text, dot. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
-| `outputPath` | string |  |  | Save this page as JSON to a new file; an existing path is refused. |
+| `outputPath` | string |  |  | Save as JSON to a new file; an existing path is refused. |
 
 Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, `code`, `nextOffset`, `totalChars`, `diff`, `limit`, `totalExact`, `hasMore`.
 
@@ -3003,7 +3003,7 @@ Trace the files, registry keys, endpoints and child processes a program opens; r
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
-| `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
+| `action` | string |  | `list` | Action. Values: start, stop, list, report, diff. |
 | `run` | string |  |  | Run id (tl-1; omitted: the only one); list without it or a filter lists runs. |
 | `a` | string |  |  | diff: first timeline. |
 | `b` | string |  |  | diff: second timeline. |
@@ -3012,7 +3012,7 @@ Trace the files, registry keys, endpoints and child processes a program opens; r
 | `cursor` | string |  |  | list: cursor of an earlier page; default the oldest entry kept. |
 | `offset` | integer |  |  | Rows to skip. (report). |
 | `limit` | integer |  | `100` |  |
-| `outputPath` | string |  |  | Save this page as JSON to a new file; an existing path is refused. |
+| `outputPath` | string |  |  | Save as JSON to a new file; an existing path is refused. |
 
 Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`, `diff`.
 
@@ -3024,7 +3024,7 @@ Drive a program with a background script; status shows steps, transcript pages o
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | What to do. Values: start, stop, list, status, transcript. |
+| `action` | string |  | `list` | Action. Values: start, stop, list, status, transcript. |
 | `program` | string |  |  | start: program path. |
 | `arguments` | string[] |  |  | start: arguments. |
 | `script` | string[] |  |  | start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \r (Enter), \n, \t, \e, \xHH. |

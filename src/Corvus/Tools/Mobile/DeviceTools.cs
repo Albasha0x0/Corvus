@@ -63,7 +63,7 @@ public sealed class DeviceTools(DeviceService devices)
     [McpServerTool(Name = "get_android_package_info", Title = "Installed package info", UseStructuredContent = true)]
     [Description("One installed package (dumpsys package): versions, SDKs, paths, flags, installer, uid, permissions with grant state.")]
     public Task<AndroidPackageDetails> GetAndroidPackageInfo(
-        [Description("Package name (com.example.app).")] string package,
+        [Description("Package (com.example.app).")] string package,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.PackageInfo(package, serial, cancellationToken), cancellationToken);
@@ -72,7 +72,7 @@ public sealed class DeviceTools(DeviceService devices)
     [Description("Copy every APK of an installed package (base and splits) into a new or empty directory, with sizes and SHA-256. " +
                  "A failed pull leaves no files.")]
     public Task<PulledPackage> PullAndroidPackage(
-        [Description("Package name (com.example.app).")] string package,
+        [Description("Package (com.example.app).")] string package,
         [Description("A new or empty directory to write the APKs to.")] string outputDirectory,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
@@ -129,7 +129,7 @@ public sealed class DeviceTools(DeviceService devices)
     [McpServerTool(Name = "uninstall_android_package", Title = "Uninstall package from device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Remove an app (and its data unless keepData) from a device; needs --allow-device-changes.")]
     public Task<string> UninstallAndroidPackage(
-        [Description("Package name (com.example.app).")] string package,
+        [Description("Package (com.example.app).")] string package,
         [Description("Keep app data and cache.")] bool keepData = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>

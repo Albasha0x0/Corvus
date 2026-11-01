@@ -118,7 +118,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [McpServerTool(Name = "live_session", Title = "Session on a program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
     [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
@@ -379,7 +379,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Set, list or clear stop points; continue resumes; wait returns the oldest held stop with its stack.")]
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("set: name, module!export, address or file:line.")] string? at = null,
         [Description("clear: stop point id.")] string? stopPoint = null,
         [Description("continue: thread id; default all.")] string? thread = null,
@@ -528,7 +528,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Record each call of a function with arguments and result as events (live_events from=WATCH).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("set: name, module!export or address.")] string? at = null,
         [Description("clear: watch id.")] string? watch = null,
         [Description("set: calls/s recorded (1-100000); the rest are counted.")] int rateLimit = 10_000,
@@ -593,7 +593,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Load, list or unload a Frida script in a session; its messages are events (live_events from=SCRIPT). Needs --live-scripting.")]
     public Task<string> LiveScriptCalls(
         [Description(SessionDescription)] string session,
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("load: JavaScript source.")] string? source = null,
         [Description("load: a .js file instead.")] string? path = null,
         [Description("unload: script id.")] string? script = null,
@@ -856,7 +856,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description("Seconds to wait for an event, 1-300; 0 returns at once.")] int waitSeconds = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        [Description("Save this page as JSON to a new file; an existing path is refused.")] string? outputPath = null,
+        [Description("Save as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {

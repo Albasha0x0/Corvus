@@ -41,7 +41,7 @@ public sealed partial class NativeCodeTools
                  "defined data with values; get_native_type read=true reads fields.")]
     public Task<string> ListGlobals(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Name substring (case-insensitive).")] string? filter = null,
+        [Description("Name substring, any case.")] string? filter = null,
         [Description("Only this section, e.g. .data.")] string? section = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 200,

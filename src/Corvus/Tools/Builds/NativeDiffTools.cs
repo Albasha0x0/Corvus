@@ -11,7 +11,9 @@ using Corvus.Native.Annotations;
 using Corvus.Native.Code;
 using Corvus.Native.Diff;
 using Corvus.Native.Providers;
+using Corvus.Native.Providers.Worker;
 using Corvus.Services;
+using Corvus.Services.Analysis;
 using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
@@ -100,22 +102,24 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record CodePatternResult(
         string Address,
-        [property: Description("The pattern in the format asked (?? for bytes that change between builds); empty when none could be made.")] string Pattern,
+        [property: Description("The pattern in the format asked (?? for bytes that change between builds); empty if none.")] string Pattern,
         int Length, int FixedBytes, bool Unique,
         [property: Description("Occurrences in the image's executable sections.")] int Hits,
-        [property: Description("address: the pattern starts at the address; reference: at (or shortly before) an instruction referencing it; xrefs; range.")] string Anchor,
-        [property: Description("Where the pattern starts.")] string PatternAddress,
-        [property: Description("Reference anchor: offset of the referencing instruction from the pattern start.")] int? ReferenceOffset,
-        [property: Description("Reference anchor: offset of the address operand from the pattern start.")] int? OperandOffset,
+        [property: Description("address: starts at the address; reference: at or before an instruction referencing it; xrefs; range.")] string Anchor,
+        string PatternAddress,
+        [property: Description("Reference anchor: offset of the referencing instruction.")] int? ReferenceOffset,
+        [property: Description("Reference anchor: offset of the address operand.")] int? OperandOffset,
         int? OperandSize,
         [property: Description("relative, rip_relative or absolute.")] string? OperandKind,
-        [property: Description("Reference anchor: offset of the end of the referencing instruction (relative operands count from it).")] int? InstructionEnd,
+        [property: Description("Reference anchor: end offset of the referencing instruction.")] int? InstructionEnd,
         string Note,
-        [property: Description("anchor=xrefs: a unique pattern at each referencing instruction, shortest first.")] IReadOnlyList<ReferencePattern>? References,
-        [property: Description("anchor=xrefs: where the references came from.")] string? Engine)
+        [property: Description("anchor=xrefs: a unique pattern per referencing instruction, shortest first.")] IReadOnlyList<ReferencePattern>? References,
+        string? Engine)
     {
+        [Description("format=yara: compiled in YARA-X; null otherwise.")] public bool? Compiled { get; init; }
+        [Description("format=yara: first error as line:column: code message, or why it was not compiled.")] public string? CompileError { get; init; }
         [Description("The address as given (addresses[]).")] public string? Target { get; init; }
-        [Description("Why no pattern was made for this address; the others still are.")] public BatchError? Error { get; init; }
+        [Description("Why no pattern was made here; the others still are.")] public BatchError? Error { get; init; }
     }
 
     public sealed record CodePatternResults(string Image, string Format, IReadOnlyList<CodePatternResult> Results,
@@ -123,17 +127,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record ReferencePattern(
         string Pattern, int Length, int FixedBytes,
-        [property: Description("Where the pattern starts.")] string PatternAddress,
-        [property: Description("The instruction that references the address.")] string ReferenceAddress,
+        string PatternAddress,
+        string ReferenceAddress,
         string? Function,
-        [property: Description("Offset of the address operand from the pattern start.")] int? OperandOffset,
+        [property: Description("Offset of the address operand.")] int? OperandOffset,
         int? OperandSize,
         [property: Description("relative, rip_relative or absolute.")] string? OperandKind,
         int? InstructionEnd, string Note,
         [property: Description("ours (a reference the built-in index has), or ida or ghidra (one only that engine has).")] string Source);
 
     public sealed record FunctionDiffRow(
-        [property: Description("= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped (pseudocode: a hunk header).")] string Op,
+        [property: Description("= same, ~ same shape with other operands, - old only, + new only, … skipped rows (pseudocode: a hunk header).")] string Op,
         string? OldAddress, string? NewAddress, string? OldText, string? NewText);
 
     /// <summary>One function of an addresses[] batch: what changed, or why there is no diff.</summary>
@@ -147,7 +151,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("asm or pseudocode.")] string View,
         [property: Description("What differs, or why there is no diff (function_not_matched, ambiguous, not_in_a_function).")] string? Summary,
         int Same, int Changed, int Removed, int Added,
-        [property: Description("The aligned rows of the changed regions with context (pseudocode: the unified diff's lines).")] IReadOnlyList<FunctionDiffRow> Items,
+        [property: Description("The aligned rows of the changed regions with context (pseudocode: unified diff lines).")] IReadOnlyList<FunctionDiffRow> Items,
         int Offset, int Total,
         [property: Description("Candidate counterparts when ambiguous.")] IReadOnlyList<MatchCandidate>? Candidates,
         [property: Description("addresses[]: one summary per function; rows with address.")] IReadOnlyList<FunctionDiffSummary>? Functions,
@@ -361,7 +365,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description("Old build: " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Instead of address: up to 100 addresses.")] string[]? addresses = null,
+        [Description("Instead of address: up to 100.")] string[]? addresses = null,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -593,7 +597,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("Copy names, comments and engine types from the old build to the new one through the function match, as undoable " +
                  "edits. Never replaces the new build's user annotations.")]
     public Task<string> MigrateNativeNames(
-        [Description("Older build (image id or path), static library (.lib, .a) or object file: its functions name the starts holding their bytes.")] string oldImage,
+        [Description("Older build (image id or path), static library or object file: its functions name the starts holding their bytes.")] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Weakest match tier accepted: 1 (names, identical bytes) to 5 (all).")] int minTier = 5,
@@ -772,12 +776,12 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public Task<string> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
-        [Description("Instead of address: up to 50.")] string[]? addresses = null,
+        [Description("Instead of address; up to 50.")] string[]? addresses = null,
         [Description("auto: at the address, else at a referencing instruction; xrefs: one per reference; range: [address, end).")] string anchor = "auto",
         [Description("Longest pattern in bytes (8-512).")] int maxBytes = 64,
         [Description("anchor=xrefs: most signatures (1-32).")] int maxPatterns = 8,
         [Description("anchor=xrefs: ida or ghidra add engine references.")] string? engine = null,
-        [Description("ida, x64dbg, mask (\\x48\\x00 x?) or bitmask (0x48, 0x00 0b01).")] string format = "ida",
+        [Description("ida, x64dbg, mask (\\x48\\x00 x?), bitmask (0x48, 0x00 0b01) or yara (rule, compiled).")] string format = "ida",
         [Description("anchor=range: exclusive end, an address or +length.")] string? end = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -789,24 +793,97 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var fmt = PatternFormat(format);
         var (native, _) = await pairs.Open(image, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         var batch = BatchResult.ThrowIfAllFailed(await BatchResult.RunAsync(addresses ?? [address!], a =>
-            MakePattern(native.Id, a.Trim(), anchor, maxBytes, maxPatterns, engine, fmt, end, cancellationToken), "make_code_pattern"));
+            MakePatternFormatted(native.Id, a.Trim(), anchor, maxBytes, maxPatterns, engine, fmt, end, cancellationToken), "make_code_pattern"));
         var results = batch.Items.Select(i => i.Value is { } r ? r with { Target = addresses != null ? i.Target.Trim() : null }
             : new CodePatternResult("", "", 0, 0, false, 0, "", "", null, null, null, null, null, "", null, null) { Target = i.Target.Trim(), Error = i.Error }).ToList();
+        if (fmt == "yara")
+        {
+            var made = results.Where(r => r.Error == null).ToList();
+            var compiled = CompileRules(made, null, cancellationToken);
+            results = results.Select(r => r.Error == null ? compiled[made.IndexOf(r)] : r).ToList();
+        }
         var text = new System.Text.StringBuilder(batch.Failed > 0 ? $"{results.Count} addresses, {batch.Failed} failed.\n" : "");
         foreach (var r in results)
         {
             if (r.Error is { } e) { text.Append($"{r.Target}: error {e.Code}: {e.Message}\n"); continue; }
             text.Append(r.Pattern.Length == 0 ? $"{r.Target ?? r.Address}: no pattern: {r.Note}\n"
                 : $"{r.Target ?? r.Address}: {r.Pattern}\n  {r.Length} bytes, {r.FixedBytes} fixed, {(r.Unique ? "unique" : $"{r.Hits} hits")}, {r.Anchor} at {r.PatternAddress}" +
-                  (r.OperandOffset is { } off ? $", operand +{off} ({r.OperandSize} bytes, {r.OperandKind})" : "") + $"; {r.Note}\n");
+                  (r.OperandOffset is { } off ? $", operand +{off} ({r.OperandSize} bytes, {r.OperandKind})" : "") + $"; {r.Note}" +
+                  (r.Compiled is { } ok ? (ok ? "; compiled" : $"; does not compile: {r.CompileError}") : r.CompileError is { } why ? $"; {why}" : "") + "\n");
             foreach (var x in r.References ?? []) text.Append($"  {x.ReferenceAddress} ({x.Function ?? "-"}, {x.Source}): {x.Pattern}\n");
         }
         return ToolOutput.Report(text.ToString(), new CodePatternResults(native.Id, fmt, results, batch.Failed));
     });
 
-    /// <summary>make_code_pattern for one address.</summary>
+    /// <summary>make_code_pattern for one address; format=yara also compiles the rule.</summary>
     internal async Task<CodePatternResult> MakePattern(string image, string address, string anchor = "auto", int maxBytes = 64, int maxPatterns = 8, string? engine = null,
-        string format = "ida", string? end = null, CancellationToken cancellationToken = default)
+        string format = "ida", string? end = null, CancellationToken cancellationToken = default, WorkerPool? pool = null)
+    {
+        var made = await MakePatternFormatted(image, address, anchor, maxBytes, maxPatterns, engine, format, end, cancellationToken);
+        return PatternFormat(format) == "yara" ? CompileRules([made], pool, cancellationToken)[0] : made;
+    }
+
+    /// <summary>
+    /// Wraps each pattern in a rule and compiles all rules in one worker call; each result names its own first error.
+    /// A worker failure keeps the rules, leaves Compiled null and names the reason in CompileError.
+    /// </summary>
+    internal static List<CodePatternResult> CompileRules(IReadOnlyList<CodePatternResult> mades, WorkerPool? pool, CancellationToken ct)
+    {
+        var used = new HashSet<string>();
+        var rules = new List<(int Item, string Name, string Text)>();
+        var named = new List<(string? Main, List<string> Refs)>();
+        for (var i = 0; i < mades.Count; i++)
+        {
+            var made = mades[i];
+            var stem = "pattern_" + System.Text.RegularExpressions.Regex.Replace(made.Address, "[^A-Za-z0-9]", "_").Trim('_');
+            if (!used.Add(stem)) stem += "_" + i;
+            string? main = null;
+            if (made.Pattern.Length > 0) { main = stem; rules.Add((i, stem, made.Pattern)); }
+            var refs = new List<string>();
+            for (var j = 0; j < (made.References?.Count ?? 0); j++)
+            {
+                refs.Add($"{stem}_{j + 1}");
+                rules.Add((i, refs[j], made.References![j].Pattern));
+            }
+            named.Add((main, refs));
+        }
+        if (rules.Count == 0) return [.. mades];
+        var errors = new Dictionary<int, string>();
+        string? shared = null;
+        string? unavailable = null;
+        try
+        {
+            var result = YaraSearchKind.Compile(string.Join('\n', rules.Select(r => Rule(r.Name, r.Text))), ct, pool);
+            foreach (var e in result.Errors)
+            {
+                var index = e.Line is >= 1 && e.Line <= rules.Count ? e.Line - 1 : rules.FindIndex(r => r.Name == e.Rule);
+                var text = $"{e.Line}:{e.Column}: {e.Code} {e.Message}";
+                if (index < 0) shared ??= text;
+                else errors.TryAdd(index, rules[index].Name == named[rules[index].Item].Main ? text : $"{rules[index].Name} {text}");
+            }
+        }
+        catch (ToolError e) when (e.Code != ErrorCode.Cancelled)
+        {
+            unavailable = $"not compiled: {e.Message} ({e.NextFor("make_code_pattern")})";
+        }
+        return mades.Select((made, i) =>
+        {
+            if (rules.All(r => r.Item != i)) return made;
+            var own = errors.Where(x => rules[x.Key].Item == i).OrderBy(x => x.Key).Select(x => x.Value).FirstOrDefault() ?? shared;
+            return made with
+            {
+                Pattern = named[i].Main is { } m ? Rule(m, made.Pattern) : "",
+                References = made.References?.Select((x, j) => x with { Pattern = Rule(named[i].Refs[j], x.Pattern) }).ToList(),
+                Compiled = unavailable != null ? null : own == null,
+                CompileError = unavailable ?? own,
+            };
+        }).ToList();
+
+        static string Rule(string name, string hex) => $"rule {name} {{ strings: $p = {hex} condition: $p }}";
+    }
+
+    private async Task<CodePatternResult> MakePatternFormatted(string image, string address, string anchor, int maxBytes, int maxPatterns, string? engine,
+        string format, string? end, CancellationToken cancellationToken)
     {
         var a = (string.IsNullOrWhiteSpace(anchor) ? "auto" : anchor).Trim().ToLowerInvariant();
         if (a is not ("auto" or "address" or "reference" or "xrefs" or "range"))
@@ -869,7 +946,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         "x64dbg" => "x64dbg",
         "mask" => "mask",
         "bitmask" => "bitmask",
-        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "use ida, x64dbg, mask or bitmask"),
+        "yara" => "yara",
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "use ida, x64dbg, mask, bitmask or yara"),
     };
 
     /// <summary>A pattern in a signature tool's syntax; ida and x64dbg both read "??" as one wildcard byte.</summary>
@@ -878,6 +956,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         "mask" => string.Concat(Enumerable.Range(0, p.Length).Select(i => $"\\x{(p.Mask[i] ? p.Bytes[i] : 0):X2}")) + " " + string.Concat(p.Mask.Select(m => m ? 'x' : '?')),
         // Bit i of the mask is byte i, so the string reads last byte first.
         "bitmask" => string.Join(", ", Enumerable.Range(0, p.Length).Select(i => $"0x{(p.Mask[i] ? p.Bytes[i] : 0):X2}")) + " 0b" + string.Concat(p.Mask.Reverse().Select(m => m ? '1' : '0')),
+        "yara" => "{ " + p + " }",
         _ => p.ToString(),
     };
 
@@ -910,7 +989,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(PatternSearch))]
-    [Description("Find a byte pattern with ?? wildcards (make_code_pattern's format) in the executable sections of loaded native " +
+    [Description("Find a byte pattern with ?? wildcards (make_code_pattern's format except yara) in the executable sections of loaded native " +
                  "images, with each hit's function and offset.")]
     public Task<string> SearchCodePattern(
         [Description("Hex bytes with ?? wildcards.")] string pattern,

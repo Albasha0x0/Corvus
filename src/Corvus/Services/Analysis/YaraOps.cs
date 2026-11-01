@@ -21,6 +21,9 @@ public sealed record YaraScanResult(int Rules, int RuleFiles, IReadOnlyList<Yara
     public int Regions { get; init; }
 }
 
+/// <summary>A worker compile's answer: rules that compiled and the errors of those that did not.</summary>
+public sealed record YaraCompileResult(int Rules, IReadOnlyList<YaraRuleError> Errors);
+
 /// <summary>The worker ops of YARA scanning; their arguments are paths, as bytes never cross the worker pipe.</summary>
 internal sealed class YaraOps : IWorkerOps
 {
@@ -29,7 +32,17 @@ internal sealed class YaraOps : IWorkerOps
     /// <summary>Server and worker read and write the result with these options.</summary>
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public IReadOnlyDictionary<string, WorkerOp> Ops => new Dictionary<string, WorkerOp> { [ScanOp] = Scan };
+    /// <summary>The op that compiles rule text and answers its errors.</summary>
+    public const string CompileOp = "yara_compile";
+
+    public IReadOnlyDictionary<string, WorkerOp> Ops => new Dictionary<string, WorkerOp> { [ScanOp] = Scan, [CompileOp] = Compile };
+
+    /// <summary>Compiles the rule text in <c>source</c>; answers the compiled count and the errors, never throws for a rule that is wrong.</summary>
+    public static Task<JsonNode?> Compile(JsonObject args, CancellationToken cancellationToken)
+    {
+        using var rules = YaraRules.CompileText(Arg(args, "source", CompileOp));
+        return Task.FromResult(JsonSerializer.SerializeToNode(new YaraCompileResult(rules.Count, rules.Errors), Json));
+    }
 
     /// <summary>Largest file whose container members are read; a larger one is scanned as one file.</summary>
     public static long MaxWalkBytes => AnalysisLimits.Default.MaxItemBytes;
@@ -88,8 +101,8 @@ internal sealed class YaraOps : IWorkerOps
         }
     }
 
-    private static string Arg(JsonObject args, string name) =>
+    private static string Arg(JsonObject args, string name, string op = ScanOp) =>
         args[name]?.GetValueKind() == JsonValueKind.String && args[name]!.GetValue<string>() is { Length: > 0 } value
             ? value
-            : throw new ToolError(ErrorCode.InvalidArgument, $"{ScanOp} needs '{name}'.");
+            : throw new ToolError(ErrorCode.InvalidArgument, $"{op} needs '{name}'.");
 }

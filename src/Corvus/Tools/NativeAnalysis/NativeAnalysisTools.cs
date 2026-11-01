@@ -62,7 +62,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
                  "engine=ida or ghidra lists that engine's classes.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Name substring (case-insensitive).")] string? filter = null,
+        [Description("Name substring, any case.")] string? filter = null,
         [Description("Slot addresses (Pascal: methods, fields).")] bool slots = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max classes.")] int limit = 100,

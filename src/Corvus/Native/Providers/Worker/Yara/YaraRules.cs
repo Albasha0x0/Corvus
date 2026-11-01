@@ -57,8 +57,7 @@ internal sealed partial class YaraRules : IDisposable
     /// <summary>Compiles rule text as origin <see cref="QueryOrigin"/>; no resulting rule is an invalid argument naming the first error.</summary>
     public static YaraRules CompileSource(string source)
     {
-        YaraX.Load();
-        var rules = Build([(QueryOrigin, Encoding.UTF8.GetBytes(source))], []);
+        var rules = CompileText(source);
         if (rules.Count > 0) return rules;
         var first = rules.Errors.FirstOrDefault();
         rules.Dispose();
@@ -66,6 +65,13 @@ internal sealed partial class YaraRules : IDisposable
             "query names no rule file or folder, and as rule source it compiled to no rules"
             + (first != null ? $": {QueryOrigin}:{first.Line}:{first.Column}: {first.Code} {first.Message}" : "."),
             "pass rule text, or the path of an existing .yar file or folder of rules");
+    }
+
+    /// <summary>Compiles rule text as origin <see cref="QueryOrigin"/>; rules that fail are in <see cref="Errors"/>, none compiling is not an error.</summary>
+    public static YaraRules CompileText(string source)
+    {
+        YaraX.Load();
+        return Build([(QueryOrigin, Encoding.UTF8.GetBytes(source))], []);
     }
 
     private static YaraRules Build(List<(string Origin, byte[] Text)> sources, List<string> notes)

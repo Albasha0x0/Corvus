@@ -16,7 +16,7 @@
             "type": "string"
           },
           "pattern": {
-            "description": "The pattern in the format asked (?? for bytes that change between builds); empty when none could be made.",
+            "description": "The pattern in the format asked (?? for bytes that change between builds); empty if none.",
             "type": "string"
           },
           "length": {
@@ -33,19 +33,18 @@
             "type": "integer"
           },
           "anchor": {
-            "description": "address: the pattern starts at the address; reference: at (or shortly before) an instruction referencing it; xrefs; range.",
+            "description": "address: starts at the address; reference: at or before an instruction referencing it; xrefs; range.",
             "type": "string"
           },
           "patternAddress": {
-            "description": "Where the pattern starts.",
             "type": "string"
           },
           "referenceOffset": {
-            "description": "Reference anchor: offset of the referencing instruction from the pattern start.",
+            "description": "Reference anchor: offset of the referencing instruction.",
             "type": "integer"
           },
           "operandOffset": {
-            "description": "Reference anchor: offset of the address operand from the pattern start.",
+            "description": "Reference anchor: offset of the address operand.",
             "type": "integer"
           },
           "operandSize": {
@@ -56,14 +55,14 @@
             "type": "string"
           },
           "instructionEnd": {
-            "description": "Reference anchor: offset of the end of the referencing instruction (relative operands count from it).",
+            "description": "Reference anchor: end offset of the referencing instruction.",
             "type": "integer"
           },
           "note": {
             "type": "string"
           },
           "references": {
-            "description": "anchor=xrefs: a unique pattern at each referencing instruction, shortest first.",
+            "description": "anchor=xrefs: a unique pattern per referencing instruction, shortest first.",
             "type": "array",
             "items": {
               "type": "object",
@@ -78,18 +77,16 @@
                   "type": "integer"
                 },
                 "patternAddress": {
-                  "description": "Where the pattern starts.",
                   "type": "string"
                 },
                 "referenceAddress": {
-                  "description": "The instruction that references the address.",
                   "type": "string"
                 },
                 "function": {
                   "type": "string"
                 },
                 "operandOffset": {
-                  "description": "Offset of the address operand from the pattern start.",
+                  "description": "Offset of the address operand.",
                   "type": "integer"
                 },
                 "operandSize": {
@@ -122,7 +119,14 @@
             }
           },
           "engine": {
-            "description": "anchor=xrefs: where the references came from.",
+            "type": "string"
+          },
+          "compiled": {
+            "description": "format=yara: compiled in YARA-X; null otherwise.",
+            "type": "boolean"
+          },
+          "compileError": {
+            "description": "format=yara: first error as line:column: code message, or why it was not compiled.",
             "type": "string"
           },
           "target": {
@@ -130,7 +134,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why no pattern was made for this address; the others still are.",
+            "description": "Why no pattern was made here; the others still are.",
             "type": "object",
             "properties": {
               "code": {

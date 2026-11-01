@@ -49,7 +49,7 @@ public sealed partial class LiveSessionTools
     [Description("Collect code coverage in a session: which functions ran and how often; diff compares runs.")]
     public Task<string> LiveCoverage(
         [Description("Session id; start only.")] string? session = null,
-        [Description("What to do.")] string action = "list",
+        [Description("Action.")] string action = "list",
         [Description("Run id (cov-1; omitted: the only run).")] string? run = null,
         [Description("diff: second run.")] string? other = null,
         [Description("Names containing this; start: module!part for another module.")] string? match = null,
@@ -58,7 +58,7 @@ public sealed partial class LiveSessionTools
         [Description("report: text, or dot (call graph; offset counts characters).")] string format = "text",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
-        [Description("Save this page as JSON to a new file; an existing path is refused.")] string? outputPath = null,
+        [Description("Save as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {

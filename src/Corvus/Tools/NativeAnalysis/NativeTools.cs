@@ -260,7 +260,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     public async Task<string> ListImports(
         [Description(ImageDescription)] string image,
         [Description("Only this library (.dll optional).")] string? library = null,
-        [Description("Name substring (case-insensitive).")] string? filter = null,
+        [Description("Name substring, any case.")] string? filter = null,
         [Description("Bind each import to its export, or say why not (load_assembly loadProviders=true loads targets).")] bool bind = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 200,
@@ -380,7 +380,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string? address = null,
-        [Description("Instead of address: up to 100 addresses.")] string[]? addresses = null,
+        [Description("Instead of address: up to 100.")] string[]? addresses = null,
         CancellationToken cancellationToken = default) => AfterNames(image, addresses ?? (string?[])[address], cancellationToken, () => OnImage(image, native =>
     {
         if ((addresses is { Length: > 0 }) == !string.IsNullOrWhiteSpace(address))

@@ -50,13 +50,13 @@
       "type": "integer"
     },
     "items": {
-      "description": "The aligned rows of the changed regions with context (pseudocode: the unified diff's lines).",
+      "description": "The aligned rows of the changed regions with context (pseudocode: unified diff lines).",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "op": {
-            "description": "= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped (pseudocode: a hunk header).",
+            "description": "= same, ~ same shape with other operands, - old only, + new only, … skipped rows (pseudocode: a hunk header).",
             "type": "string"
           },
           "oldAddress": {
