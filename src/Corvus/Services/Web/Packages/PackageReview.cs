@@ -988,7 +988,10 @@ public static partial class PackageReview
 
     private static readonly Regex SpreadToken = R(@"(?:process\.env|os\.environ|os\.getenv)[^\n]{0,24}?\b(?:NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN)\b|\$\{?(?:NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN)\b");
     // Cloud SDKs name the metadata endpoint; it counts only beside another step.
-    private static readonly Regex SpreadMetadata = R(@"169\.254\.169\.254|metadata\.google\.internal");
+    // Forms: dotted, decimal, hex, octal, IPv4-mapped and the IPv6 endpoint.
+    private static readonly Regex SpreadMetadata = R(@"169\.254\.169\.254|\b2852039166\b|\b0x(?i:a9fea9fe)\b|\b0251\.0376\.0251\.0376\b|::(?i:ffff:a9fe:a9fe)|(?i:fd00:ec2::254)|metadata\.google\.internal");
+    // Quoted pieces joined with + read as one literal.
+    private static readonly Regex AdjacentLiterals = R(@"'\s*\+\s*'|""\s*\+\s*""|`\s*\+\s*`");
     private static readonly Regex SpreadScanner = R(@"github\.com/(?:trufflesecurity/trufflehog|gitleaks/gitleaks)/releases/download");
     private static readonly Regex SpreadRepository = R(@"api\.github\.com/(?:user/repos|orgs/[^/'""`\s]+/repos|repos/[^'""`\s]+/(?:contents/\.github/workflows|actions/secrets))");
     private static readonly Regex SpreadPublish = R(@"\bnpm\s+publish\b|registry\.npmjs\.org/-/|\bnpm\.publish\(");
@@ -996,6 +999,7 @@ public static partial class PackageReview
     /// <summary>The self-spreading steps a file names (token, metadata, scanner, repository, publish); empty when none.</summary>
     private static HashSet<string> SpreadKinds(string text)
     {
+        text = AdjacentLiterals.Replace(text, "");
         var kinds = new HashSet<string>(StringComparer.Ordinal);
         if (SpreadToken.IsMatch(text)) kinds.Add("token");
         if (SpreadMetadata.IsMatch(text)) kinds.Add("metadata");

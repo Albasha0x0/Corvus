@@ -202,6 +202,9 @@ public static partial class PackageReview
 
     private const int MinHiddenRun = 8;
 
+    // Ordinary characters between carriers that still join one run.
+    private const int MaxHiddenGap = 3;
+
     /// <summary>The byte a variation selector (0..15, then 16..255) or private-use code point (low byte) carries; group 1 or 2, else 0.</summary>
     private static int CarriedByte(int cp, out int group)
     {
@@ -214,15 +217,18 @@ public static partial class PackageReview
         return 0;
     }
 
-    /// <summary>Runs of 8 or more variation selectors or private-use code points, read as bytes; the decoded text is also scanned for code rules.</summary>
+    /// <summary>Runs of 8 or more variation selectors or private-use code points, read as bytes; up to 3 ordinary characters between carriers join a run. The decoded text is also scanned for code rules.</summary>
     internal static List<PackageFinding> HiddenBytes(string line, CancellationToken ct = default)
     {
         var findings = new List<PackageFinding>();
         var run = new List<byte>();
-        int group = 0;
+        int group = 0, gap = 0;
+        bool spanned = false;
         void Flush()
         {
-            if (run.Count >= MinHiddenRun)
+            // A run joined across gaps needs mostly printable bytes,
+            // so emoji selectors in prose stay out.
+            if (run.Count >= MinHiddenRun && (!spanned || run.Count(b => b >= 0x20) * 2 >= run.Count))
             {
                 var decoded = Encoding.UTF8.GetString([.. run]);
                 var what = group == 1 ? "variation selector(s)" : "private-use character(s)";
@@ -233,15 +239,24 @@ public static partial class PackageReview
             }
             run.Clear();
             group = 0;
+            gap = 0;
+            spanned = false;
         }
         for (int i = 0; i < line.Length; i++)
         {
             int cp = char.IsHighSurrogate(line[i]) && i + 1 < line.Length && char.IsLowSurrogate(line[i + 1]) ? char.ConvertToUtf32(line[i], line[i + 1]) : line[i];
             int b = CarriedByte(cp, out int g);
             if (cp > 0xFFFF) i++;
+            if (g == 0 && run.Count > 0 && gap < MaxHiddenGap)
+            {
+                gap++;
+                continue;
+            }
             if (g == 0 || g != group && group != 0) Flush();
             if (g == 0) continue;
             group = g;
+            if (gap > 0) spanned = true;
+            gap = 0;
             run.Add((byte)b);
         }
         Flush();
