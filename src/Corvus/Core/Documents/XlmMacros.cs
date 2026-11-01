@@ -385,7 +385,7 @@ internal sealed class XlmMacros
     }
 
     // BIFF12 record ids of the binary workbook and its sheets.
-    private const int BrtRowHdr = 0, BrtFmlaString = 8, BrtFmlaNum = 9, BrtFmlaBool = 10, BrtFmlaError = 11, BrtName = 39, BrtBundleSh = 156;
+    private const int BrtRowHdr = 0, BrtFmlaString = 8, BrtFmlaNum = 9, BrtFmlaBool = 10, BrtFmlaError = 11, BrtName = 39, BrtBundleSh = 156, BrtArrFmla = 426, BrtShrFmla = 427;
 
     /// <summary>The macro sheets of an .xlsb: workbook.bin for sheets and names, xl/macrosheets/*.bin for formulas decoded from BIFF12 records.</summary>
     private static XlmMacros FromXlsb(System.IO.Compression.ZipArchive zip, System.IO.Compression.ZipArchiveEntry book, CancellationToken ct)
@@ -432,22 +432,51 @@ internal sealed class XlmMacros
         {
             if (zip.GetEntry(part) is not { } entry) { x.Notes.Add($"macro sheet {sheet}: part {part} is missing"); continue; }
             int row = 0;
+            // A cell whose formula is a PtgExp token takes the text of the
+            // shared or array formula whose range holds it.
+            var pending = new List<(int Index, int Row, int Col)>();
+            var ranges = new List<(int R1, int R2, int C1, int C2, string Text)>();
             foreach (var (id, d) in Records12(Read12(entry), ct))
             {
                 if (id == BrtRowHdr && d.Length >= 4) { row = (int)BinaryPrimitives.ReadUInt32LittleEndian(d); continue; }
+                if (id is BrtArrFmla or BrtShrFmla)
+                {
+                    int from = id == BrtArrFmla ? 17 : 16;
+                    if (d.Length >= from)
+                    {
+                        int fat = from;
+                        ranges.Add((U32(d, 0), U32(d, 4), U32(d, 8), U32(d, 12), ParsedFormula(d, ref fat)));
+                    }
+                    continue;
+                }
                 // Bytes before the grbit: a number, a flag or an error code.
                 int value = id switch { BrtFmlaNum => 8, BrtFmlaBool or BrtFmlaError => 1, _ => 0 };
                 if (id is not (BrtFmlaString or BrtFmlaNum or BrtFmlaBool or BrtFmlaError) || d.Length < 8 + value + 2) continue;
-                if (x.Cells.Count >= MaxCells) { x.Notes.Add($"stopped at {MaxCells:N0} formula cells"); return x; }
+                if (x.Cells.Count >= MaxCells) { Resolve(); x.Notes.Add($"stopped at {MaxCells:N0} formula cells"); return x; }
                 int col = (int)BinaryPrimitives.ReadUInt32LittleEndian(d);
                 int at = 8 + value;
                 if (id == BrtFmlaString) WideString(d, ref at);
                 at += 2;
+                // PtgExp: a 5-byte formula whose only token (0x01) points at the shared record.
+                if (at + 5 <= d.Length && d[at + 4] == 0x01 && BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(at)) == 5) pending.Add((x.Cells.Count, row, col));
                 x.Cells.Add(new XlmCell(sheet, Cell(row, col), ParsedFormula(d, ref at)));
+            }
+            Resolve();
+
+            void Resolve()
+            {
+                int unresolved = 0;
+                foreach (var (index, r, c) in pending)
+                    if (ranges.FirstOrDefault(g => r >= g.R1 && r <= g.R2 && c >= g.C1 && c <= g.C2) is { Text: not null } g)
+                        x.Cells[index] = x.Cells[index] with { Formula = g.Text };
+                    else unresolved++;
+                if (unresolved > 0) x.Notes.Add($"macro sheet {sheet}: {unresolved} shared-formula cells have no shared record");
             }
         }
         return x;
     }
+
+    private static int U32(byte[] d, int o) => (int)BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(o));
 
     private static byte[] Read12(System.IO.Compression.ZipArchiveEntry entry) => ReadPart(entry);
 

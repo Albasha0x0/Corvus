@@ -407,6 +407,41 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
+    public void An_xlsb_cell_takes_the_text_of_the_shared_formula_that_holds_it()
+    {
+        // Cell A1 is a PtgExp token; the shared record after it covers A1:A1.
+        var f = XlsbView(XlsbBook(), ExpSheet(XlsbRec(427, XlsbU32(0), XlsbU32(0), XlsbU32(0), XlsbU32(0), XlsbU32(XlsbExec.Length), XlsbExec, XlsbU32(0))))!;
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
+    }
+
+    [Fact]
+    public void An_xlsb_cell_takes_the_text_of_the_array_formula_that_holds_it()
+    {
+        // Cell A1 is a PtgExp token; the array record has a flag byte after its range.
+        var f = XlsbView(XlsbBook(), ExpSheet(XlsbRec(426, XlsbU32(0), XlsbU32(0), XlsbU32(0), XlsbU32(0), new byte[] { 0 }, XlsbU32(XlsbExec.Length), XlsbExec, XlsbU32(0))))!;
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "EXEC" });
+    }
+
+    [Fact]
+    public void An_xlsb_cell_outside_every_shared_range_stays_empty_and_is_noted()
+    {
+        // The shared record covers B2:B2 only.
+        var f = XlsbView(XlsbBook(), ExpSheet(XlsbRec(427, XlsbU32(1), XlsbU32(1), XlsbU32(1), XlsbU32(1), XlsbU32(XlsbExec.Length), XlsbExec, XlsbU32(0))))!;
+        Assert.DoesNotContain(f.Findings, r => r.Keyword == "EXEC");
+        Assert.Contains(f.Notes!, n => n.Contains("1 shared-formula cells have no shared record"));
+    }
+
+    [Fact]
+    public void An_xlsb_shared_record_shorter_than_its_range_is_skipped()
+    {
+        // The record holds 12 bytes, so no range is read.
+        var f = XlsbView(XlsbBook(), ExpSheet(XlsbRec(427, XlsbU32(0), XlsbU32(0), XlsbU32(0))))!;
+        Assert.Contains(f.Notes!, n => n.Contains("1 shared-formula cells have no shared record"));
+    }
+
+    private static byte[] ExpSheet(byte[] record) => XlsbSheet(XlsbCell(8, 0, [0x01, 0, 0, 0, 0])).Concat(record).ToArray();
+
+    [Fact]
     public void An_xlsb_workbook_without_sheet_records_is_reported_as_unread()
     {
         using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(Ooxml(("xl/workbook.bin", Array.Empty<byte>()))));
