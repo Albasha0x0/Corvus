@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Emulation;
 using Corvus.Native.Providers;
@@ -344,9 +345,15 @@ public sealed class Arm64CpuDifferentialTests(ITestOutputHelper output)
         {
             var path = dir.File($"driver-{run++}.elf");
             File.WriteAllBytes(path, DriverImage(code, input));
-            var result = ExternalTools.Run(tool, ExternalTools.Arguments(ExternalTools.QemuUser, "run", ("file", path)), TimeSpan.FromSeconds(60), 1 << 16, default);
-            Assert.True(result.ExitCode == 0 && result.Output.Length == StateBytes && !result.TimedOut && !result.Truncated,
-                $"exit {result.ExitCode}, {result.Output.Length} bytes, timed out {result.TimedOut}, truncated {result.Truncated}: {result.Stderr}{result.StartError}");
+            var result = ExternalTools.Run(
+                tool,
+                ExternalTools.Arguments(ExternalTools.QemuUser, "run", ("file", path)),
+                Timeout.InfiniteTimeSpan,
+                1 << 16,
+                default,
+                watch: new ExternalTools.Watch(new StallRule(ServerOptions.StallWindow())));
+            Assert.True(result.ExitCode == 0 && result.Output.Length == StateBytes && result.StalledAt is null && !result.Truncated,
+                $"exit {result.ExitCode}, {result.Output.Length} bytes, stalled at {result.StalledAt}, truncated {result.Truncated}: {result.Stderr}{result.StartError}");
             return result.Output;
         });
     }
