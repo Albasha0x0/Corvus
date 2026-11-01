@@ -120,7 +120,16 @@ public static class Containers
         if (kind is "text" or "data" && Python.FrozenPython.OpenZipApp(data, name, allFiles, limits, ct) is { } zipapp) return zipapp;
         if (kind == "python bytecode")
             return new ContainerContents("none", [], [$"A compiled Python module (.pyc, Python {Python.PyVersion.Label(Python.PyVersion.FromMagic(data)!.Value)}): code, not a container."]);
-        if (kind == "zip") return Python.FrozenPython.OpenZipApp(data, name, allFiles, limits, ct) ?? Python.FrozenPython.OpenLibraryZip(data, name, allFiles, limits, ct) ?? OpenZip(data, name, limits, ct, allFiles);
+        // A second archive laid before or after the first is opened as its own part.
+        if (kind is "zip" or "7z" && Archives.AppendedArchive.Split(data, kind) is { } parts)
+            return Archives.AppendedArchive.Join(data, parts, name, allFiles, limits, ct);
+        if (kind == "zip")
+        {
+            var zip = Python.FrozenPython.OpenZipApp(data, name, allFiles, limits, ct)
+                ?? Python.FrozenPython.OpenLibraryZip(data, name, allFiles, limits, ct)
+                ?? OpenZip(data, name, limits, ct, allFiles);
+            return Archives.AppendedArchive.WithUnlisted(zip, data, allFiles, limits, ct);
+        }
         if (kind == "jmod") return OpenZip(data[4..], name, limits, ct) with { Kind = "JMOD (Java module)" };
         if (kind == "wasm" && WebAssembly.WasmComponent.Looks(data))
         {
@@ -644,6 +653,15 @@ public static class Containers
         }
         if (items.Count == 0) notes.Add("No assemblies or nested packages found in the archive.");
         return new ContainerContents(kind, items, notes) { Names = MemberNames.Issues(paths) };
+    }
+
+    /// <summary>The CRC-checked local entries of a region of local headers; an empty listing with notes when none reads.</summary>
+    internal static ContainerContents ReadLocalHeaders(byte[] region, AnalysisLimits limits, CancellationToken ct, bool allFiles)
+    {
+        var (recovered, skipped, _) = RecoverLocalEntries(region, limits, ct);
+        var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct, allFiles);
+        contents.Notes.InsertRange(0, skipped);
+        return contents;
     }
 
     /// <summary>Walks CRC-checked local file headers without a central directory; Complete when it reached the directory or the end.</summary>
