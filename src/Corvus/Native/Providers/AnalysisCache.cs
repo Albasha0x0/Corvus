@@ -286,10 +286,29 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
         {
             var owner = Owner(dir);
             var who = owner == null ? "another session or process" : owner == Environment.ProcessId ? "another session of this process" : $"process {owner}";
-            throw new LockedError(new LockedEntry(dir, owner, new ToolError(ErrorCode.Conflict, $"The analysis database in {dir} is open in {who}.",
-                "Close the other session, work in it, or retry after details.retryAfterMs.")
+            var progress = ReadProgress(dir, owner);
+            var message = $"The analysis database in {dir} is open in {who}.";
+            var next = "Close the other session, work in it, or retry after details.retryAfterMs.";
+            var retry = LockRetryAfter;
+            if (progress != null)
             {
-                RetryAfter = LockRetryAfter,
+                var elapsed = Math.Max(0, Math.Round((DateTime.UtcNow - progress.Started).TotalSeconds));
+                message += $" It is in {progress.Stage} for {elapsed} s";
+                if (progress.ExpectedSeconds is { } expected)
+                {
+                    var left = Math.Max(0, Math.Round(expected - elapsed));
+                    var basis = progress.FromHistory ? "earlier opens" : "the default rate";
+                    message += $" of about {Math.Round(expected)} s expected from {basis}.";
+                    retry = TimeSpan.FromSeconds(Math.Clamp(left, 5, 300));
+                    next = left > 0
+                        ? $"Retry in about {left} s (details.retryAfterMs), or work in the other session."
+                        : $"The open is past the expected {Math.Round(expected)} s; retry in {retry.TotalSeconds} s (details.retryAfterMs), or work in the other session.";
+                }
+                else message += ".";
+            }
+            throw new LockedError(new LockedEntry(dir, owner, new ToolError(ErrorCode.Conflict, message, next)
+            {
+                RetryAfter = retry,
                 Retryable = true,
             }));
         }
@@ -313,6 +332,46 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
     private sealed class LockedError(LockedEntry entry) : Exception(entry.Conflict.Message)
     {
         public LockedEntry Entry { get; } = entry;
+    }
+
+    /// <summary>The open stage of the process holding an entry, read for its conflict.</summary>
+    private sealed record OpenProgress(int Pid, string Stage, DateTime Started, double? ExpectedSeconds, bool FromHistory);
+
+    private const string ProgressFile = ".progress";
+
+    /// <summary>Records the holder's open stage, start and expected seconds beside <see cref="OwnerFile"/>; a failed write is skipped.</summary>
+    internal static void WriteProgress(string dir, string stage, DateTime startedUtc, double? expectedSeconds, bool fromHistory = false)
+    {
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, ProgressFile),
+                System.Text.Json.JsonSerializer.Serialize(new OpenProgress(Environment.ProcessId, stage, startedUtc, expectedSeconds, fromHistory)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) 
+        {
+            // Only quoted in another session's conflict, so a failed write is skipped.
+        }
+    }
+
+    /// <summary>Removes the open stage once the open ends.</summary>
+    internal static void ClearProgress(string dir)
+    {
+        try { File.Delete(Path.Combine(dir, ProgressFile)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) 
+        {
+            // A stale file names a stage of an ended open and is ignored.
+        }
+    }
+
+    // A file from another owner is stale and ignored.
+    private static OpenProgress? ReadProgress(string dir, int? owner)
+    {
+        try
+        {
+            var p = System.Text.Json.JsonSerializer.Deserialize<OpenProgress>(File.ReadAllText(Path.Combine(dir, ProgressFile)));
+            return p != null && p.Pid == owner && p.Stage != null ? p : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { return null; }
     }
 
     private static int? Owner(string dir)

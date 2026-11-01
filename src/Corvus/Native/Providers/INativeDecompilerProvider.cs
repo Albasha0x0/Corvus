@@ -270,6 +270,10 @@ public sealed record NativeOpenOptions
     public EngineOverrides? Overrides { get; init; }
     /// <summary>The image's PDB as located by the server (verified by GUID and age); the engine looks there first. Ignored with <see cref="SymbolMode.Off"/>.</summary>
     public string? PdbPath { get; init; }
+    /// <summary>The expected seconds of a first analysis, quoted to another session that finds the entry held; null when unknown.</summary>
+    public double? ExpectedSeconds { get; init; }
+    /// <summary>Whether <see cref="ExpectedSeconds"/> comes from measured opens, not the default rate.</summary>
+    public bool ExpectedFromHistory { get; init; }
     /// <summary>Limit for engine start plus loading or auto-analysis; <see cref="Timeout.InfiniteTimeSpan"/> (the default) sets none.</summary>
     public TimeSpan OpenTimeout { get; init; } = Timeout.InfiniteTimeSpan;
     /// <summary>A first analysis's time limit; by default what <see cref="OpenTimeout"/> leaves after start and import, less time to save.</summary>

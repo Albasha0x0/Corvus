@@ -172,7 +172,17 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         new(EventStage(body, fallback), elapsed);
 
     /// <summary>Notes the worker's progress stage while the session starts (open, load, analysis).</summary>
-    protected void StartStage(string stage) => _startStage = stage;
+    protected void StartStage(string stage)
+    {
+        _startStage = stage;
+        // Written only while the open runs, so a late callback cannot recreate it.
+        if (Entry is { SnapshotOf: null } entry && _starting is { } starting)
+        {
+            // Only a first analysis has an estimate; loading a saved database takes seconds.
+            var expected = stage == "analysis" ? Options.ExpectedSeconds : null;
+            AnalysisCache.WriteProgress(entry.Directory, stage, starting.Since, expected, Options.ExpectedFromHistory);
+        }
+    }
 
     /// <summary>Locks the cache entry for the image (runs on the thread pool).</summary>
     protected abstract CacheEntry AcquireEntry(string imagePath, string? sha256);
@@ -219,7 +229,11 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         Interlocked.Increment(ref _generation);
         if (!firstOpen) Interlocked.Increment(ref _restarts);
         try { await StartCoreAsync(firstOpen, cancellationToken).ConfigureAwait(false); }
-        finally { _starting = null; }
+        finally
+        {
+            _starting = null;
+            if (Entry is { SnapshotOf: null } entry) AnalysisCache.ClearProgress(entry.Directory);
+        }
     }
 
     private async Task StartCoreAsync(bool firstOpen, CancellationToken cancellationToken)

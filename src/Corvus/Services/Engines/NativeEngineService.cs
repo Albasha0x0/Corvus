@@ -281,13 +281,23 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>What decides an engine's answers besides its database: its build and analysis settings.</summary>
     internal string OutputIdentity(string id) => Identity(id) is var i ? $"{i.Engine}|{i.Build}|{i.Profile}" : id;
 
-    private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        new()
+    // The history is advisory: a failure leaves the estimate out of the conflict another session reads.
+    private (double? Seconds, bool FromHistory) ExpectedSeconds(LoadedNative native, string id)
+    {
+        try { var e = Estimates.Seconds(id, OpenEstimate.CodeBytes(native.Image)); return (e.Seconds, e.FromHistory); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return (null, false); }
+    }
+
+    private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath)
+    {
+        var (expected, fromHistory) = ExpectedSeconds(native, id);
+        return new NativeOpenOptions
         {
             // A raw layout and import overrides are databases of their own, with their own answers.
             OutputCache = OutputCache,
             OutputIdentity = OutputIdentity(id) + ((native.Image as Native.RawCodeImage)?.Layout.Key is { } raw ? "|raw " + raw : "") +
                              (native.Overrides is { } ov ? "|" + ov.Key : ""),
+            ExpectedSeconds = expected, ExpectedFromHistory = fromHistory,
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, AnalysisStall = AnalysisStall, Analysis = _analysis,
             Raw = (native.Image as Native.RawCodeImage)?.Layout,
             Overrides = native.Overrides,
@@ -295,6 +305,7 @@ public sealed class NativeEngineService : IDisposable
             ThumbCode = native.Image.Arch == Native.NativeArch.Arm && _code != null ? ct => ThumbCode(native, ct) : null,
             KnownStart = _code != null ? async (rva, ct) => (await _code.Index(native, null, ct).ConfigureAwait(false)).FunctionByStart(rva) != null : null,
         };
+    }
 
     /// <summary>The Thumb functions' byte ranges in the server's index, merged.</summary>
     private async Task<IReadOnlyList<(uint Start, uint End)>> ThumbCode(LoadedNative native, CancellationToken ct)
