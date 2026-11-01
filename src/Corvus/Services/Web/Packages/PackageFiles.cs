@@ -40,6 +40,12 @@ internal sealed class PackageFiles
     /// <summary>Files past <see cref="MaxEntries"/>: neither listed nor read.</summary>
     public int Unlisted { get; private set; }
 
+    /// <summary>Top folders of a tar in archive order; more than one means npm merges them on extraction.</summary>
+    public List<string> TarRoots { get; } = [];
+
+    /// <summary>Regular tar entries by path with the first component stripped; the later entry wins, listed or not.</summary>
+    public Dictionary<string, string> Stripped { get; } = new(StringComparer.Ordinal);
+
     /// <summary>The CRX header when the package is a Chrome extension file.</summary>
     public CrxHeader? Crx { get; private set; }
 
@@ -279,8 +285,22 @@ internal sealed class PackageFiles
                 ReadTar(gz, ct, prefix: GemData);
                 continue;
             }
-            Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream, ownsOpened: false);
+            // Gem data tars are not extracted by npm, so they are not tracked.
+            var name = e.Name;
+            if (!gem && prefix.Length == 0) name = TrackStripped(name);
+            Add(prefix + name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream, ownsOpened: false);
         }
+    }
+
+    // Returns the entry path without empty and "." segments; records it by npm's stripped path.
+    private string TrackStripped(string name)
+    {
+        var parts = name.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries).Where(p => p != ".").ToArray();
+        var path = string.Join('/', parts);
+        if (parts.Length < 2) return path;
+        if (!TarRoots.Contains(parts[0])) TarRoots.Add(parts[0]);
+        Stripped[string.Join('/', parts[1..])] = path;
+        return path;
     }
 
     private void ReadFolder(string root, CancellationToken ct, string? only = null)

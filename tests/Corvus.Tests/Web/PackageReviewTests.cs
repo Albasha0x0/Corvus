@@ -1960,6 +1960,48 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_tarball_with_two_top_folders_is_reviewed_as_npm_extracts_it()
+    {
+        // Review item NW-10: the later top folder decides the manifest, not the first in sort order.
+        var r = Review(Tgz("twin-1.0.0.tgz",
+            ("other/package.json", """{"name":"twin","version":"1.0.0"}"""),
+            ("package/package.json", """{"name":"twin","version":"1.0.0","scripts":{"postinstall":"node a.js"}}""")));
+        var found = Assert.Single(r.Findings, f => f.Rule == "package/multiple-roots");
+        Assert.Equal("package/package.json", found.Path);
+        Assert.Contains(r.Findings, f => f.Rule == "package/install-script");
+    }
+
+    [Fact]
+    public void A_tarball_with_two_top_folders_reads_the_later_entry_in_either_order()
+    {
+        var r = Review(Tgz("twin-1.0.0.tgz",
+            ("package/package.json", """{"name":"twin","version":"1.0.0","scripts":{"postinstall":"node a.js"}}"""),
+            ("other/package.json", """{"name":"twin","version":"1.0.0"}""")));
+        var found = Assert.Single(r.Findings, f => f.Rule == "package/multiple-roots");
+        Assert.Equal("other/package.json", found.Path);
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/install-script");
+    }
+
+    [Fact]
+    public void A_dot_prefixed_entry_shares_its_top_folder_with_a_plain_one()
+    {
+        var r = Review(Tgz("dot-1.0.0.tgz",
+            ("./package/package.json", """{"name":"dot","version":"1.0.0"}"""),
+            ("package/index.js", "module.exports = 1;")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/multiple-roots");
+    }
+
+    [Fact]
+    public void A_tarball_with_no_root_manifest_after_stripping_names_the_fallback()
+    {
+        var r = Review(Tgz("deep-1.0.0.tgz",
+            ("a/x/package.json", """{"name":"deep","version":"1.0.0"}"""),
+            ("b/y/package.json", """{"name":"deep","version":"1.0.0"}""")));
+        var found = Assert.Single(r.Findings, f => f.Rule == "package/multiple-roots");
+        Assert.Contains("no root package.json after stripping", found.Detail);
+    }
+
+    [Fact]
     public void A_package_that_lists_its_own_name_as_a_dependency_is_review()
     {
         var r = Review(Tgz("scan-1.0.1.tgz", ("package/package.json", """{"name":"workspace-scan","version":"1.0.1","dependencies":{"workspace-scan":"^1.0.0","left-pad":"^1.3.0"}}""")));

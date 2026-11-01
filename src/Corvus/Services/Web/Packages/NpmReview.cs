@@ -16,15 +16,28 @@ public static partial class PackageReview
 
     private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`'""])(?:[\w.-]*/)*(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
+    // The package.json npm extracts from a multi-folder tar; null otherwise.
+    private static string? ExtractedManifest(PackageFiles files) =>
+        files.TarRoots.Count > 1 && files.Stripped.TryGetValue("package.json", out var path) ? path : null;
+
     private static PackageReport? Npm(PackageFiles files, CancellationToken ct)
     {
-        var manifestPath = Root(files, "package.json")!;
+        var extracted = ExtractedManifest(files);
+        var manifestPath = extracted is { } x && files.Has(x) ? x : Root(files, "package.json")!;
         var root = Folder(manifestPath);
         if (Json(files, manifestPath) is not { ValueKind: JsonValueKind.Object } pkg) return null;
         var name = Str(pkg, "name");
         var findings = new List<PackageFinding>();
         var notes = new List<string>();
         var scripts = new List<PackageScript>();
+        if (files.TarRoots.Count > 1)
+        {
+            var roots = $"{files.TarRoots.Count} top folders ({string.Join(", ", files.TarRoots.Take(5))}); npm merges them";
+            var detail = extracted == null ? $"{roots}, no root package.json after stripping; reviewed {manifestPath}"
+                : manifestPath == extracted ? $"{roots}, so {manifestPath} is extracted"
+                : $"{roots}, so {extracted} is extracted but unlisted past {PackageFiles.MaxEntries:N0} files; reviewed {manifestPath}";
+            findings.Add(new PackageFinding("package/multiple-roots", "review", "archive", detail + "; files of the other folders are not scanned", manifestPath));
+        }
         bool source = files.Container is "folder" or "zip";
         if (pkg.TryGetProperty("scripts", out var s) && s.ValueKind == JsonValueKind.Object)
             foreach (var p in s.EnumerateObject())
