@@ -39,6 +39,39 @@ public sealed class PageRedirectTests
             x => x.Rule == "page/script-redirect");
 
     [Fact]
+    public void A_script_assigning_a_fragment_yields_nothing() =>
+        Assert.Empty(Read("<!doctype html><html><body><script>\nlocation.href = '#top';\n</script></body></html>"));
+
+    [Fact]
+    public void Commented_out_script_lines_yield_nothing() =>
+        Assert.Empty(Read("<!doctype html><html><body><script>\n// location.replace('https://other.example/');\n/* location = 'https://other.example/'; */\n</script></body></html>"));
+
+    [Fact]
+    public void A_redirect_after_a_slash_slash_inside_a_string_yields_a_finding() =>
+        Assert.Contains(Read("<!doctype html><html><body><script>\nvar a = 'https://x.example/'; location.replace('https://other.example/');\n</script></body></html>"),
+            x => x is { Rule: "page/script-redirect", Location: "<script> line 2" });
+
+    [Fact]
+    public void A_redirect_after_a_multiline_block_comment_keeps_its_line() =>
+        Assert.Contains(Read("<!doctype html><html><body><script>\n/* a\nb\nc */\nlocation.replace('https://other.example/');\n</script></body></html>"),
+            x => x is { Rule: "page/script-redirect", Location: "<script> line 5" });
+
+    [Fact]
+    public void A_redirect_after_a_regex_literal_holding_a_quote_yields_a_finding() =>
+        Assert.Contains(Read("<!doctype html><html><body><script>\nvar r=/'/; location.replace('https://evil.example/')\n</script></body></html>"),
+            x => x.Rule == "page/script-redirect");
+
+    [Fact]
+    public void A_redirect_after_a_template_literal_holding_slashes_yields_a_finding() =>
+        Assert.Contains(Read("<!doctype html><html><body><script>\nvar t=`http://a.example`; location.replace('https://other.example/');\n</script></body></html>"),
+            x => x.Rule == "page/script-redirect");
+
+    [Fact]
+    public void A_fragment_with_leading_space_is_skipped_and_a_later_redirect_is_reported() =>
+        Assert.Single(Read("<!doctype html><html><body><script>\nlocation = ' #a'; location.replace('https://other.example/');\n</script></body></html>"),
+            x => x.Rule == "page/script-redirect");
+
+    [Fact]
     public void An_article_with_links_and_a_get_search_form_yields_nothing() =>
         Assert.Empty(Read("<!doctype html><html><body><a href=\"https://other.example/\">x</a><form method=\"get\" action=\"https://search.example/q\"><input name=\"q\"></form>" +
             "<script>if (location.href == \"https://a.example/\") { run(); }</script></body></html>"));

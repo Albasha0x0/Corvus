@@ -40,8 +40,15 @@ internal static partial class PageRedirects
         {
             ct.ThrowIfCancellationRequested();
             var body = m.Groups[1].Value;
+            // Comment spans only suppress a call they fully contain, so a misread token cannot hide one.
+            var comments = ScriptTokens().Matches(body).Where(t => t.Value[0] is '/').ToList();
             foreach (Match r in LocationCall().Matches(body))
+            {
+                // A fragment-only target stays on the page.
+                if (r.Groups[1].Value.TrimStart().StartsWith('#')) continue;
+                if (comments.Any(c => c.Index <= r.Index && r.Index + r.Length <= c.Index + c.Length)) continue;
                 Add("page/script-redirect", "redirect", $"sends the browser to {Clip(r.Groups[1].Value)}", "<script>", m.Groups[1].Index + r.Index);
+            }
         }
         return found;
     }
@@ -88,6 +95,10 @@ internal static partial class PageRedirects
 
     [GeneratedRegex(@"<script\b[^>]*>(.*?)</script\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking)]
     private static partial Regex ScriptElement();
+
+    // String literals match first so a // inside one is not read as a comment. Regex literals are not tokenized.
+    [GeneratedRegex(@"""(?:[^""\\\n]|\\.)*""|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`|//[^\n]*|/\*.*?\*/", RegexOptions.Singleline | RegexOptions.NonBacktracking)]
+    private static partial Regex ScriptTokens();
 
     [GeneratedRegex(@"\blocation(?:\s*\.\s*(?:href\s*=|replace\s*\(|assign\s*\()|\s*=)\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking)]
     private static partial Regex LocationCall();
