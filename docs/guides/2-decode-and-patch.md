@@ -99,6 +99,8 @@ Edits written: Notes#1 (73a90c814517d45c), Notes#2 (2597468d97f6c120), Notes#3 (
 === [8/8] export_edits
 Exported 3 edit(s) of Notes to samples/Notes/v1/bin/patched/notes-v1.edits.json.
 Bound to the build: sha256 <sha256-1>, MVID <guid-1>, Notes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null. apply_edits refuses other builds unless targetBuild=other.
+simplify_methods: [0] started
+simplify_methods: [0/1] 0 of 1 methods simplified
 ```
 
 All three decoder calls fold; the valid code is `EARLY-` followed by `7F3A91C2`.
