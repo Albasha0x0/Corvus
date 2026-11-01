@@ -37,9 +37,22 @@ public class ReleaseSigningTests
     private static (bool Passed, string Output) Verify(byte[]? signature, string publicKey, Installation.GhRunner gh, string? require = null)
     {
         var output = new StringWriter();
-        var passed = Installation.VerifyDownload(output, "corvus-linux-x64.tar.gz", Archive, Manifest(Archive), signature, publicKey,
+        var passed = Installation.VerifyDownload(output, output, "corvus-linux-x64.tar.gz", Archive, Manifest(Archive), signature, publicKey,
             "owner/name", "v2.0.0", require, gh);
         return (passed, output.ToString());
+    }
+
+    [Fact]
+    public void A_refused_signature_is_written_to_error_and_not_to_output()
+    {
+        using var key = NewKey();
+        using var other = NewKey();
+        StringWriter output = new(), error = new();
+        var passed = Installation.VerifyDownload(output, error, "corvus-linux-x64.tar.gz", Archive, Manifest(Archive), Sign(other, Manifest(Archive)),
+            PublicKeyOf(key), "owner/name", "v2.0.0", null, _ => (0, ""));
+        Assert.False(passed);
+        Assert.Contains("does not verify with the release key", error.ToString());
+        Assert.DoesNotContain("does not verify", output.ToString());
     }
 
     [Fact]

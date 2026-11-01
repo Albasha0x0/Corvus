@@ -32,9 +32,30 @@ public sealed class SetupTests : IDisposable
     private (int Code, string Output) Run(params string[] args)
     {
         var output = new StringWriter();
-        var code = SetupCli.TryRun(args, output, _env, Launch);
+        var code = SetupCli.TryRun(args, output, _env, Launch, output);
         Assert.NotNull(code);
         return (code!.Value, output.ToString());
+    }
+
+    [Fact]
+    public void A_failed_json_install_reports_on_stderr_and_leaves_stdout_empty()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var code = SetupCli.TryRun(["install", "--json", "--no-check", "--client", "no-such-client"], output, _env, Launch, error);
+        Assert.Equal(2, code);
+        Assert.Equal("", output.ToString());
+        Assert.Contains("Unknown client 'no-such-client'", error.ToString());
+    }
+
+    [Fact]
+    public void A_usage_error_goes_to_stderr()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        Assert.Equal(2, SetupCli.TryRun(["update", "cursor"], output, _env, Launch, error));
+        Assert.Equal("", output.ToString());
+        Assert.Contains("update takes no client names", error.ToString());
     }
 
     private static JsonNode ReadJson(string path) =>

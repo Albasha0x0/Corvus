@@ -502,6 +502,12 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(TraceArgsVariable)?.Trim() is "1" or "true" or "on") TraceArguments = true;
     }
 
+    /// <summary>
+    /// The window of <see cref="StallWindowVariable"/>, 600 s when unset;
+    /// throws <see cref="ArgumentException"/> on a bad value.
+    /// </summary>
+    public static TimeSpan StallWindow() => TimeSpan.FromSeconds(Seconds(StallWindowVariable, new ServerOptions().StallSeconds));
+
     /// <summary>A positive number of seconds from <paramref name="variable"/>, or <paramref name="fallback"/> when it is unset.</summary>
     private static int Seconds(string variable, int fallback, string? note = null)
     {

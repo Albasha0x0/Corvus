@@ -310,7 +310,7 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Equal(_home.Path(".local", "share", "Corvus"), Installation.DefaultRoot(linux));
         Assert.Equal(_home.Path("mine"), Installation.DefaultRoot(_home.Env(variables: new Dictionary<string, string> { ["CORVUS_HOME"] = _home.Path("mine") })));
         // The test process does not run from an install.
-        Assert.Null(LegacyInstall.Relocate(["install"], new StringWriter(), windows));
+        Assert.Null(LegacyInstall.Relocate(["install"], new StringWriter(), new StringWriter(), windows));
 
         // The build is copied without the program's old name, once.
         var build = _home.Path("old", "versions", "1.2.0");

@@ -182,6 +182,8 @@ without an agent. Nothing in the file runs; no network calls are made.
 | 124 | `timeout`, as `timeout(1)` |
 | 130 | Ctrl+C: the first cancels the call and waits; a second ends the process |
 
+`install`, `uninstall`, `status`, `config` and `update` print failures and usage errors to stderr; stdout keeps results and the `--json` report.
+
 ## Examples
 
 ```sh

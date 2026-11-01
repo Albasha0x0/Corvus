@@ -170,6 +170,13 @@ internal static class Installation
     public static string ReleaseApi(string repo, string? version) =>
         version is { Length: > 0 } v ? $"https://api.github.com/repos/{repo}/releases/tags/v{v.TrimStart('v')}" : $"https://api.github.com/repos/{repo}/releases/latest";
 
+    /// <summary>
+    /// The failure line of a download that ended with <paramref name="ex"/>,
+    /// naming the call that retries release <paramref name="version"/>.
+    /// </summary>
+    internal static string DownloadFailure(Exception ex, string version) =>
+        $"Download failed: {ex.Message.TrimEnd('.', ' ')}. Run: {UpdateCommand("script", version)}";
+
     /// <summary>A warning when <paramref name="target"/> is older than the running <paramref name="current"/>, else null.</summary>
     public static string? DowngradeWarning(string current, string target) =>
         System.Version.TryParse(target.TrimStart('v'), out var t) && System.Version.TryParse(current, out var c) && t < c
@@ -178,21 +185,22 @@ internal static class Installation
             : null;
 
     /// <summary>Installs the latest release or <paramref name="version"/> (older: a rollback) and refreshes registrations; dryRun only reports.</summary>
-    public static int Update(TextWriter output, string? version = null, bool dryRun = false, string? installKind = null)
+    public static int Update(TextWriter output, TextWriter error, string? version = null, bool dryRun = false, string? installKind = null)
     {
         if (Root() is not { } root)
         {
-            output.WriteLine(NotSelfUpdating(installKind ?? Mcp.ServerIdentity.InstallKind, version));
+            error.WriteLine(NotSelfUpdating(installKind ?? Mcp.ServerIdentity.InstallKind, version));
             return 1;
         }
         var repo = Environment.GetEnvironmentVariable(RepositoryVariable) is { Length: > 0 } r ? r : DefaultRepository;
         using var http = GitHubHttp.Create("Corvus/" + Version, Environment.GetEnvironmentVariable("GITHUB_TOKEN"));
 
         JsonNode release;
-        try { release = JsonNode.Parse(http.GetStringAsync(ReleaseApi(repo, version)).GetAwaiter().GetResult())!; }
+        using var metadata = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        try { release = JsonNode.Parse(http.GetStringAsync(ReleaseApi(repo, version), metadata.Token).GetAwaiter().GetResult())!; }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            output.WriteLine($"Could not read {(version == null ? "the latest release" : $"release v{version.TrimStart('v')}")} of {repo}: {ex.Message}");
+            error.WriteLine($"Could not read {(version == null ? "the latest release" : $"release v{version.TrimStart('v')}")} of {repo}: {ex.Message}");
             return 1;
         }
         var tag = release["tag_name"]?.GetValue<string>() ?? "";
@@ -205,7 +213,7 @@ internal static class Installation
         }
         if (System.Version.TryParse(latest, out var requested) && requested < FirstRelease)
         {
-            output.WriteLine($"Release {tag} predates Corvus ({FirstRelease} is the first); it cannot replace this install.");
+            error.WriteLine($"Release {tag} predates Corvus ({FirstRelease} is the first); it cannot replace this install.");
             return 1;
         }
         if (DowngradeWarning(Version, latest) is { } warning) output.WriteLine(warning);
@@ -213,12 +221,12 @@ internal static class Installation
         var asset = Asset(AssetName);
         if (asset == null)
         {
-            output.WriteLine($"Release {tag} has no build for {Rid} ({AssetName}).");
+            error.WriteLine($"Release {tag} has no build for {Rid} ({AssetName}).");
             return 1;
         }
         if (Asset(ChecksumManifest) is not { } sumsAsset)
         {
-            output.WriteLine($"Release {tag} has no {ChecksumManifest} manifest; refusing to install an unverified build.");
+            error.WriteLine($"Release {tag} has no {ChecksumManifest} manifest; refusing to install an unverified build.");
             return 1;
         }
         var signatureAsset = Asset(ReleaseSigning.SignatureAsset);
@@ -230,15 +238,16 @@ internal static class Installation
             return 0;
         }
 
-        output.WriteLine($"Downloading {tag} ({AssetName})...");
-        byte[] Download(JsonNode item)
+        TimeSpan window;
+        try { window = Corvus.Core.ServerOptions.StallWindow(); }
+        catch (ArgumentException ex)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, item["url"]!.GetValue<string>());
-            request.Headers.Accept.ParseAdd("application/octet-stream");
-            using var response = http.Send(request);
-            response.EnsureSuccessStatusCode();
-            return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+            error.WriteLine(ex.Message);
+            return 2;
         }
+        output.WriteLine($"Downloading {tag} ({AssetName})...");
+        byte[] Download(JsonNode item) =>
+            GitHubHttp.DownloadAsync(http, item["url"]!.GetValue<string>(), new Corvus.Core.StallRule(window), TimeProvider.System, default).GetAwaiter().GetResult();
         byte[] archive, manifest;
         byte[]? signature;
         try
@@ -247,12 +256,12 @@ internal static class Installation
             manifest = Download(sumsAsset);
             signature = signatureAsset != null ? Download(signatureAsset) : null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
         {
-            output.WriteLine($"Download failed: {ex.Message}");
+            error.WriteLine(DownloadFailure(ex, latest));
             return 1;
         }
-        if (!VerifyDownload(output, AssetName, archive, manifest, signature, ReleaseSigning.PublicKey, repo, tag,
+        if (!VerifyDownload(output, error, AssetName, archive, manifest, signature, ReleaseSigning.PublicKey, repo, tag,
                 Environment.GetEnvironmentVariable(RequireAttestationVariable), RunGh)) return 1;
 
         var versions = Path.Combine(root, "versions");
@@ -286,16 +295,16 @@ internal static class Installation
     /// the archive's SHA-256 in it, then its build provenance through
     /// <paramref name="gh"/>. Prints a line per check; false when one refuses.
     /// </summary>
-    internal static bool VerifyDownload(TextWriter output, string assetName, byte[] archive, byte[] manifest, byte[]? signature, string publicKey,
+    internal static bool VerifyDownload(TextWriter output, TextWriter error, string assetName, byte[] archive, byte[] manifest, byte[]? signature, string publicKey,
         string repo, string? tag, string? require, GhRunner gh)
     {
         // The signature comes first: SHA256SUMS is trusted only once it is.
         var signed = ReleaseSigning.Check(manifest, signature, publicKey, require);
-        output.WriteLine(signed.Message);
+        (signed.State == ReleaseSigning.SignatureState.Refused ? error : output).WriteLine(signed.Message);
         if (signed.State == ReleaseSigning.SignatureState.Refused) return false;
         if (VerifyChecksum(System.Text.Encoding.UTF8.GetString(manifest), assetName, archive) is { } mismatch)
         {
-            output.WriteLine(mismatch);
+            error.WriteLine(mismatch);
             return false;
         }
         // The attestation ties the archive to this repository's workflow.
@@ -308,7 +317,7 @@ internal static class Installation
             provenance = CheckProvenance(check, assetName, repo, tag, require, gh);
         }
         finally { try { Directory.Delete(Path.GetDirectoryName(check)!, recursive: true); } catch (IOException) { } }
-        output.WriteLine(provenance.Message);
+        (provenance.State == ProvenanceState.Refused ? error : output).WriteLine(provenance.Message);
         return provenance.State != ProvenanceState.Refused;
     }
 

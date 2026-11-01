@@ -35,7 +35,7 @@ internal sealed class SetupHome : IDisposable
     public (int Code, string Output) Run(SetupEnvironment env, params string[] args)
     {
         var output = new StringWriter();
-        var code = SetupCli.TryRun(args, output, env, Launch);
+        var code = SetupCli.TryRun(args, output, env, Launch, output);
         Assert.NotNull(code);
         return (code!.Value, output.ToString());
     }

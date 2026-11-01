@@ -23,11 +23,16 @@ internal static class SetupCli
     /// <summary>The command words (no flag spellings).</summary>
     public static IEnumerable<string> Words => Commands.Where(c => char.IsLetter(c[0]));
 
-    /// <summary>Runs a setup command and returns its exit code, or null when the arguments start the server.</summary>
-    public static int? TryRun(string[] args, TextWriter? output = null, SetupEnvironment? env = null, ServerLaunch? launch = null)
+    /// <summary>
+    /// Runs a setup command and returns its exit code, or null when the
+    /// arguments start the server. Results go to <paramref name="output"/>,
+    /// failures to <paramref name="error"/>; null writes to the console.
+    /// </summary>
+    public static int? TryRun(string[] args, TextWriter? output = null, SetupEnvironment? env = null, ServerLaunch? launch = null, TextWriter? error = null)
     {
         if (args.Length == 0 || !Commands.Contains(args[0], StringComparer.OrdinalIgnoreCase)) return null;
         output ??= Console.Out;
+        error ??= Console.Error;
         env ??= SetupEnvironment.Current();
         launch ??= Installation.Launch();
         var command = args[0].ToLowerInvariant() is "doctor" ? "status" : args[0].ToLowerInvariant();
@@ -35,23 +40,23 @@ internal static class SetupCli
         try { parsed = SetupArgs.Parse(args.Skip(1), Accepted.GetValueOrDefault(command, [])); }
         catch (ArgumentException ex)
         {
-            output.WriteLine($"{ex.Message} Run: corvus help");
+            error.WriteLine($"{ex.Message} Run: corvus help");
             return 2;
         }
         // A copy started from the install layout used before the rename moves itself first.
-        if (command is "install" or "update" && !parsed.Has("--dry-run") && LegacyInstall.Relocate(args, output, env) is { } moved) return moved;
+        if (command is "install" or "update" && !parsed.Has("--dry-run") && LegacyInstall.Relocate(args, output, error, env) is { } moved) return moved;
         switch (command)
         {
-            case "install": return Install(output, env, launch, parsed);
-            case "uninstall": return Uninstall(output, env, parsed);
-            case "status": return Status(output, env, launch, parsed);
+            case "install": return Install(output, error, env, launch, parsed);
+            case "uninstall": return Uninstall(output, error, env, parsed);
+            case "status": return Status(output, error, env, launch, parsed);
             case "config":
-                if (DevReload(output, env, launch, parsed, dryRun: false) is not { } configured) return 2;
-                return Config(output, env, configured, parsed.Clients);
+                if (DevReload(error, env, launch, parsed, dryRun: false) is not { } configured) return 2;
+                return Config(output, error, env, configured, parsed.Clients);
             case "update" when parsed.Clients.Count > 0:
-                output.WriteLine("update takes no client names; it refreshes every existing registration.");
+                error.WriteLine("update takes no client names; it refreshes every existing registration.");
                 return 2;
-            case "update": return Installation.Update(output, parsed.Value("--version"), parsed.Has("--dry-run"));
+            case "update": return Installation.Update(output, error, parsed.Value("--version"), parsed.Has("--dry-run"));
             case "version" or "--version" or "-v": output.WriteLine(Installation.Version); return 0;
             default: output.WriteLine(HelpText(env)); return 0;
         }
@@ -163,7 +168,7 @@ internal static class SetupCli
     }
 
     /// <summary>The named clients, or null after reporting an unknown name.</summary>
-    private static List<McpClient>? Named(TextWriter output, IReadOnlyList<McpClient> all, IEnumerable<string> names)
+    private static List<McpClient>? Named(TextWriter error, IReadOnlyList<McpClient> all, IEnumerable<string> names)
     {
         var chosen = new List<McpClient>();
         foreach (var name in names)
@@ -171,7 +176,7 @@ internal static class SetupCli
             var match = all.FirstOrDefault(c => c.Matches(name));
             if (match == null)
             {
-                output.WriteLine($"Unknown client '{name}'. Known: {string.Join(", ", all.Select(c => c.Id))}");
+                error.WriteLine($"Unknown client '{name}'. Known: {string.Join(", ", all.Select(c => c.Id))}");
                 return null;
             }
             if (!chosen.Contains(match)) chosen.Add(match);
@@ -180,17 +185,17 @@ internal static class SetupCli
     }
 
     /// <summary>With --dev-reload DIR, the relay for DIR from a staged copy of the program; else <paramref name="launch"/>; null after a usage error.</summary>
-    private static ServerLaunch? DevReload(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a, bool dryRun)
+    private static ServerLaunch? DevReload(TextWriter error, SetupEnvironment env, ServerLaunch launch, SetupArgs a, bool dryRun)
     {
         if (a.Value("--dev-reload") is not { } target) return launch;
         target = Path.GetFullPath(target);
         if (!Directory.Exists(target))
         {
-            output.WriteLine($"--dev-reload: {target} does not exist; publish first (./publish.ps1).");
+            error.WriteLine($"--dev-reload: {target} does not exist; publish first (./publish.ps1).");
             return null;
         }
-        var (relayed, error) = RelayLaunch(env, launch, target, dryRun);
-        if (error != null) output.WriteLine($"--dev-reload: {error}");
+        var (relayed, problem) = RelayLaunch(env, launch, target, dryRun);
+        if (problem != null) error.WriteLine($"--dev-reload: {problem}");
         return relayed;
     }
 
@@ -263,11 +268,11 @@ internal static class SetupCli
     private static LaunchReport Describe(ServerLaunch launch) => new(launch.Command, launch.Args);
 
     /// <summary>install --set/--unset --project: the switches of one folder's Claude Code local entry, made from the global one when absent.</summary>
-    private static int ProjectSwitches(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a, string folder, bool dryRun)
+    private static int ProjectSwitches(TextWriter output, TextWriter error, SetupEnvironment env, ServerLaunch launch, SetupArgs a, string folder, bool dryRun)
     {
-        if (launch.Set.Count + launch.Unset.Count == 0) { output.WriteLine("--project needs --set or --unset."); return 2; }
-        if (a.Clients.Any(c => !c.Equals("claude-code", StringComparison.OrdinalIgnoreCase))) { output.WriteLine("--project applies to Claude Code only."); return 2; }
-        if (!Directory.Exists(folder)) { output.WriteLine($"--project: no folder {folder}."); return 2; }
+        if (launch.Set.Count + launch.Unset.Count == 0) { error.WriteLine("--project needs --set or --unset."); return 2; }
+        if (a.Clients.Any(c => !c.Equals("claude-code", StringComparison.OrdinalIgnoreCase))) { error.WriteLine("--project applies to Claude Code only."); return 2; }
+        if (!Directory.Exists(folder)) { error.WriteLine($"--project: no folder {folder}."); return 2; }
         var claude = ClientCatalog.All(env).Single(c => c.Id == "claude-code");
         var (key, target) = ClientCatalog.ProjectTarget(claude, folder, env.Os);
         var global = (claude.Target switch { ClaudeCliTarget c => c.File, JsonTarget j => j, _ => null })?.Existing(ClientCatalog.ServerName);
@@ -307,7 +312,7 @@ internal static class SetupCli
     }
 
     /// <summary>The security switches an option names (with or without the leading dashes; repeatable or comma-separated), or null after reporting an unknown one.</summary>
-    private static List<string>? Switches(TextWriter output, SetupArgs a, string option)
+    private static List<string>? Switches(TextWriter error, SetupArgs a, string option)
     {
         var result = new List<string>();
         foreach (var name in a.Values(option).SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
@@ -315,7 +320,7 @@ internal static class SetupCli
             var switchName = name.StartsWith("--", StringComparison.Ordinal) ? name : "--" + name;
             if (!Core.ServerOptions.Switches.ContainsKey(switchName))
             {
-                output.WriteLine($"{option}: unknown switch '{name}'; use one of {string.Join(", ", Core.ServerOptions.Switches.Keys.Select(k => k[2..]))}.");
+                error.WriteLine($"{option}: unknown switch '{name}'; use one of {string.Join(", ", Core.ServerOptions.Switches.Keys.Select(k => k[2..]))}.");
                 return null;
             }
             result.Add(Core.ServerOptions.Switches.Keys.First(k => k.Equals(switchName, StringComparison.OrdinalIgnoreCase)));
@@ -339,7 +344,7 @@ internal static class SetupCli
         return made != null;
     }
 
-    private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
+    private static int Install(TextWriter output, TextWriter error, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
         bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), refreshOnly = a.Has("--refresh-only");
         bool yes = a.Has("--yes") || a.Has("-y") || env.Variable("CORVUS_YES") is "1" or "true";
@@ -348,14 +353,14 @@ internal static class SetupCli
         if (a.Value("--command") is { } command) launch = new ServerLaunch(Path.GetFullPath(command), []);
         // Old entries are re-staged from the program itself: their relays keep their own target folders.
         var program = launch;
-        if (DevReload(output, env, launch, a, dryRun) is not { } relayed) return 2;
-        if (Switches(output, a, "--set") is not { } setSwitches || Switches(output, a, "--unset") is not { } unset) return 2;
+        if (DevReload(error, env, launch, a, dryRun) is not { } relayed) return 2;
+        if (Switches(error, a, "--set") is not { } setSwitches || Switches(error, a, "--unset") is not { } unset) return 2;
         if (a.Has("--with-live") && !setSwitches.Contains(Core.ServerOptions.LiveInstallFridaOption)) setSwitches.Add(Core.ServerOptions.LiveInstallFridaOption);
         launch = relayed with { Set = setSwitches, Unset = unset };
-        if (a.Value("--project") is { } project) return ProjectSwitches(output, env, launch, a, project, dryRun);
+        if (a.Value("--project") is { } project) return ProjectSwitches(output, error, env, launch, a, project, dryRun);
         var text = json ? TextWriter.Null : output;
         var all = ClientCatalog.All(env);
-        if (Named(output, all, a.Clients) is not { } named) return 2;
+        if (Named(error, all, a.Clients) is not { } named) return 2;
         var report = new SetupReport { Command = refreshOnly ? "update" : "install", Launch = Describe(launch), DryRun = dryRun };
         int Finish(int code)
         {
@@ -542,17 +547,17 @@ internal static class SetupCli
         }
     }
 
-    private static int Uninstall(TextWriter output, SetupEnvironment env, SetupArgs a)
+    private static int Uninstall(TextWriter output, TextWriter error, SetupEnvironment env, SetupArgs a)
     {
         bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), purgeData = a.Has("--purge-data");
         bool keepFiles = a.Has("--keep-files") || a.Clients.Count > 0;
         if (purgeData && keepFiles)
         {
-            output.WriteLine("--purge-data deletes the program files too; it cannot be combined with --keep-files or client names.");
+            error.WriteLine("--purge-data deletes the program files too; it cannot be combined with --keep-files or client names.");
             return 2;
         }
         var all = ClientCatalog.All(env);
-        if (Named(output, all, a.Clients) is not { } named) return 2;
+        if (Named(error, all, a.Clients) is not { } named) return 2;
         var text = json ? TextWriter.Null : output;
         var report = new SetupReport { Command = "uninstall", Launch = Describe(Installation.Launch()), DryRun = dryRun };
         // Entries under the name used before the rename go too.
@@ -625,16 +630,16 @@ internal static class SetupCli
     }
 
     /// <summary>Read-only status; without a scope only a broken registration or server fails, with one only the scoped checks.</summary>
-    private static int Status(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
+    private static int Status(TextWriter output, TextWriter error, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
         bool json = a.Has("--json"), deep = a.Has("--deep");
         var all = ClientCatalog.All(env);
-        if (Named(output, all, a.Clients) is not { } named) return 2;
+        if (Named(error, all, a.Clients) is not { } named) return 2;
         var engines = a.Values("--engine").SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Select(e => e.ToLowerInvariant()).Distinct().ToList();
         if (engines.FirstOrDefault(e => e != "all" && !Doctor.Engines.Contains(e)) is { } unknown)
         {
-            output.WriteLine($"Unknown engine '{unknown}'. Known: {string.Join(", ", Doctor.Engines)}, all");
+            error.WriteLine($"Unknown engine '{unknown}'. Known: {string.Join(", ", Doctor.Engines)}, all");
             return 2;
         }
         if (engines.Contains("all")) engines = [.. Doctor.Engines];
@@ -717,7 +722,7 @@ internal static class SetupCli
         return failed ? 1 : 0;
     }
 
-    private static int Config(TextWriter output, SetupEnvironment env, ServerLaunch launch, IReadOnlyList<string> names)
+    private static int Config(TextWriter output, TextWriter error, SetupEnvironment env, ServerLaunch launch, IReadOnlyList<string> names)
     {
         var options = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
         if (names.Count == 0)
@@ -727,7 +732,7 @@ internal static class SetupCli
             output.WriteLine(json.ToJsonString(options));
             return 0;
         }
-        if (Named(output, ClientCatalog.All(env), names) is not { } clients) return 2;
+        if (Named(error, ClientCatalog.All(env), names) is not { } clients) return 2;
         foreach (var client in clients)
         {
             output.WriteLine($"{client.Name}: {client.Target.Path}");

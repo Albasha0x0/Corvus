@@ -49,7 +49,7 @@ public partial class ToolPackageTests
         foreach (var (kind, expected) in new[] { ("dotnet-tool", "dotnet tool update -g CorvusRE"), ("dnx", "dnx CorvusRE --yes"), ("scoop", "managed by scoop, which updates it: scoop update corvus"), ("source", "not installed by the install script") })
         {
             using var output = new StringWriter();
-            Assert.Equal(1, Installation.Update(output, installKind: kind));
+            Assert.Equal(1, Installation.Update(output, output, installKind: kind));
             Assert.Contains(expected, output.ToString(), StringComparison.Ordinal);
         }
     }

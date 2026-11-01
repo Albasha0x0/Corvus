@@ -14,7 +14,7 @@ internal static class LegacyInstall
     public static bool IsRoot(SetupEnvironment env, string root) => SamePath(root, Root(env));
 
     /// <summary>From the old layout: copies the build to the current layout, runs <paramref name="args"/> there and removes the old files; else null.</summary>
-    public static int? Relocate(string[] args, TextWriter output, SetupEnvironment env)
+    public static int? Relocate(string[] args, TextWriter output, TextWriter error, SetupEnvironment env)
     {
         if (Installation.Root() is not { } root || !IsRoot(env, root)) return null;
         var newRoot = Installation.DefaultRoot(env);
@@ -28,7 +28,7 @@ internal static class LegacyInstall
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            output.WriteLine($"Could not move the program to {newRoot}: {ex.Message}");
+            error.WriteLine($"Could not move the program to {newRoot}: {ex.Message}");
             return 1;
         }
         var start = new ProcessStartInfo(Path.Combine(newRoot, "current", Installation.ExeName)) { UseShellExecute = false };
