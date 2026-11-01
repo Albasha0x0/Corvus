@@ -27,6 +27,7 @@ public static class Certificates
     private const int SecurityDirectory = 4;
     private const ushort WinCertTypePkcsSignedData = 2;
     private const string CodeSigning = "1.3.6.1.5.5.7.3.3";
+    private const string TimeStamping = "1.3.6.1.5.5.7.3.8";
 
     public static CertificateInfo Read(byte[] file) => Read(file, out _);
 
@@ -110,30 +111,61 @@ public static class Certificates
         try { signer.CheckSignature(verifySignatureOnly: true); valid = true; }
         catch (CryptographicException) { valid = false; }
 
-        var timestamp = SigningTime(signer);
+        var timestamp = SigningTime(signer, cms.Certificates);
         return new CertificateInfo(true, cert?.Subject, cert?.Issuer, cert?.Thumbprint, cert?.NotBefore.ToUniversalTime(), cert?.NotAfter.ToUniversalTime(),
             algorithm != null ? HashName(algorithm)?.Name ?? algorithm : null, matches, valid, cert == null ? null : DescribeChain(cert, cms.Certificates, timestamp),
             Timestamp: timestamp);
     }
 
-    /// <summary>Timestamp from an RFC 3161 token or a legacy countersignature; null when absent.</summary>
-    private static DateTime? SigningTime(SignerInfo signer)
+    /// <summary>Returns the time of a verified token or countersignature; null when absent or unverified.</summary>
+    internal static DateTime? SigningTime(SignerInfo signer, X509Certificate2Collection certificates, X509Certificate2Collection? roots = null)
     {
-        try
-        {
-            foreach (var attribute in signer.UnsignedAttributes)
-                if (attribute.Oid.Value == "1.3.6.1.4.1.311.3.3.1")
-                    foreach (var value in attribute.Values)
-                        if (Rfc3161TimestampToken.TryDecode(value.RawData, out var token, out _))
-                            return token!.TokenInfo.Timestamp.UtcDateTime;
-            foreach (var counter in signer.CounterSignerInfos)
-                foreach (var attribute in counter.SignedAttributes)
-                    foreach (var value in attribute.Values)
-                        if (value is Pkcs9SigningTime time)
-                            return time.SigningTime.ToUniversalTime();
-        }
-        catch (Exception ex) when (ex is CryptographicException or AsnContentException) { }
+        // Each candidate is checked alone, so one malformed attribute hides no valid one.
+        foreach (var attribute in signer.UnsignedAttributes)
+            if (attribute.Oid.Value == "1.3.6.1.4.1.311.3.3.1")
+                foreach (var value in attribute.Values)
+                    try
+                    {
+                        if (!Rfc3161TimestampToken.TryDecode(value.RawData, out var token, out _)) continue;
+                        var time = token!.TokenInfo.Timestamp.UtcDateTime;
+                        if (token.VerifySignatureForSignerInfo(signer, out var tsa) && tsa != null
+                            && TrustedAt(tsa, token.AsSignedCms().Certificates, time, TimeStamping, roots)) return time;
+                    }
+                    catch (Exception ex) when (ex is CryptographicException or AsnContentException) { }
+        foreach (var counter in signer.CounterSignerInfos)
+            foreach (var attribute in counter.SignedAttributes)
+                foreach (var value in attribute.Values)
+                    try
+                    {
+                        if (value is not Pkcs9SigningTime signed) continue;
+                        var time = signed.SigningTime.ToUniversalTime();
+                        counter.CheckSignature(verifySignatureOnly: true);
+                        if (counter.Certificate is { } cert && TrustedAt(cert, certificates, time, null, roots)) return time;
+                    }
+                    catch (Exception ex) when (ex is CryptographicException or AsnContentException) { }
         return null;
+    }
+
+    // A timestamp signer is trusted by chain and lifetime at the stamped
+    // time, not by revocation. A time after now is refused.
+    private static bool TrustedAt(X509Certificate2 cert, X509Certificate2Collection extra, DateTime time, string? usage, X509Certificate2Collection? roots)
+    {
+        if (time > DateTime.UtcNow) return false;
+        if (usage != null ? !AllowsUsage(cert, usage) : !AllowsUsage(cert, CodeSigning) && !AllowsUsage(cert, TimeStamping)) return false;
+        using var chain = Chain(extra, time, X509RevocationMode.NoCheck);
+        if (roots != null)
+        {
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            chain.ChainPolicy.CustomTrustStore.AddRange(roots);
+        }
+        return chain.Build(cert);
+    }
+
+    // A certificate without an extended key usage extension allows any usage.
+    private static bool AllowsUsage(X509Certificate2 cert, string usage)
+    {
+        var ekus = cert.Extensions.OfType<X509EnhancedKeyUsageExtension>().ToList();
+        return ekus.Count == 0 || ekus.Any(e => e.EnhancedKeyUsages.Cast<Oid>().Any(o => o.Value == usage));
     }
 
     /// <summary>Digest algorithm OID and digest from SpcIndirectDataContent { data, DigestInfo { algorithm, digest } }.</summary>
@@ -223,7 +255,7 @@ public static class Certificates
             if (Organization(cert) != organization) return $"signed by '{cert.Subject}', not {organization}";
             if (!AllowsCodeSigning(cert)) return $"the signer certificate '{cert.Subject}' is not issued for code signing";
             bool offline = ReferencePacks.Offline;
-            using var chain = Chain(cms.Certificates, SigningTime(signer), revocation: offline ? X509RevocationMode.Offline : X509RevocationMode.Online);
+            using var chain = Chain(cms.Certificates, SigningTime(signer, cms.Certificates), revocation: offline ? X509RevocationMode.Offline : X509RevocationMode.Online);
             chain.ChainPolicy.ApplicationPolicy.Add(new Oid(CodeSigning));
             chain.Build(cert);
             var status = chain.ChainStatus.Select(s => s.Status).Where(s => s != X509ChainStatusFlags.NoError).ToHashSet();

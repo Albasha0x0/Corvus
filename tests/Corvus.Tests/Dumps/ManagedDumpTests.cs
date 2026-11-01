@@ -1,5 +1,8 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Cryptography.Pkcs;
+using System.Security.Cryptography.X509Certificates;
 using Corvus.Core;
 using Corvus.Native.Dump;
 using Corvus.Native.Dump.Managed;
@@ -138,6 +141,52 @@ public sealed class ManagedDumpTests
         Assert.False(Certificates.AllowsCodeSigning(Signer("1.3.6.1.5.5.7.3.1")));
         Assert.False(Certificates.AllowsCodeSigning(Signer()));
         Assert.True(Certificates.AllowsCodeSigning(Signer("1.3.6.1.5.5.7.3.3")));
+    }
+
+    private static (SignedCms Cms, X509Certificate2 Root) CountersignedBy()
+    {
+        using var rootKey = ECDsa.Create();
+        var rootRequest = new CertificateRequest("CN=Test Root", rootKey, HashAlgorithmName.SHA256);
+        rootRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        var root = rootRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-5), DateTimeOffset.UtcNow.AddYears(5));
+        using var key = ECDsa.Create();
+        var request = new CertificateRequest("CN=Counter", key, HashAlgorithmName.SHA256);
+        using var issued = request.Create(root, DateTimeOffset.UtcNow.AddYears(-2), DateTimeOffset.UtcNow.AddYears(1), new byte[] { 1, 2, 3, 4 });
+        using var leaf = issued.CopyWithPrivateKey(key);
+        var cms = new SignedCms(new ContentInfo(new byte[] { 1, 2, 3 }));
+        cms.ComputeSignature(new CmsSigner(leaf));
+        var counter = new CmsSigner(leaf);
+        counter.SignedAttributes.Add(new Pkcs9SigningTime(DateTime.UtcNow.AddYears(-1)));
+        cms.SignerInfos[0].ComputeCounterSignature(counter);
+        return (cms, root);
+    }
+
+    [Fact]
+    public void A_signer_without_a_countersignature_has_no_signing_time()
+    {
+        using var key = ECDsa.Create();
+        using var cert = new CertificateRequest("CN=Plain", key, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var cms = new SignedCms(new ContentInfo(new byte[] { 1, 2, 3 }));
+        cms.ComputeSignature(new CmsSigner(cert));
+        Assert.Null(Certificates.SigningTime(cms.SignerInfos[0], cms.Certificates));
+    }
+
+    // Regression for the signing-time fix: an unverified countersignature once set the time.
+    [Fact]
+    public void A_countersignature_time_from_an_untrusted_signer_is_not_used()
+    {
+        var (cms, _) = CountersignedBy();
+        Assert.Null(Certificates.SigningTime(cms.SignerInfos[0], cms.Certificates));
+    }
+
+    [Fact]
+    public void A_countersignature_time_from_a_trusted_signer_is_used()
+    {
+        var (cms, root) = CountersignedBy();
+        var time = Certificates.SigningTime(cms.SignerInfos[0], cms.Certificates, new X509Certificate2Collection(root));
+        Assert.NotNull(time);
+        Assert.True(time < DateTime.UtcNow.AddMonths(-11));
     }
 
     [Fact]
