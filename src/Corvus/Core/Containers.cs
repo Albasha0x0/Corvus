@@ -777,7 +777,9 @@ public static class Containers
         return c;
     }).ToArray();
 
-    private static uint Crc32(byte[] bytes)
+    private static uint Crc32(byte[] bytes) => Crc32(bytes.AsSpan());
+
+    private static uint Crc32(ReadOnlySpan<byte> bytes)
     {
         uint c = 0xFFFFFFFF;
         foreach (var b in bytes) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
@@ -863,9 +865,9 @@ public static class Containers
     private static (byte[] Bytes, int Length)? GzipStreamAt(byte[] data, int at, long maxBytes, out bool tooLarge)
     {
         tooLarge = false;
-        // Reserved flag bits must be clear. The smallest member is a
-        // 10-byte header, 2 deflate bytes and the 8-byte trailer.
-        if (at + 20 > data.Length || (data[at + 3] & 0xE0) != 0) return null;
+        // The smallest member is a 10-byte header, 2 deflate bytes and the
+        // 8-byte trailer.
+        if (at + 20 > data.Length) return null;
         int body = GzipHeaderEnd(data, at);
         if (body < 0) return null;
         try
@@ -894,9 +896,40 @@ public static class Containers
         catch (IOException) { return null; }
     }
 
-    // The offset after the optional header fields of a member; -1 when truncated.
-    private static int GzipHeaderEnd(byte[] data, int at)
+    /// <summary>Bytes of a gzip member <see cref="GzipDecodes"/> reads at most.</summary>
+    internal const int GzipProbeBytes = 64 << 10;
+
+    /// <summary>
+    /// True when <paramref name="head"/>, the start of a gzip member, has a
+    /// valid header and its deflate data decodes to 4 KiB or to its end;
+    /// false on null, a bad header or a decode error.
+    /// </summary>
+    internal static bool GzipDecodes(byte[]? head)
     {
+        if (head == null) return false;
+        int body = GzipHeaderEnd(head, 0);
+        if (body < 0) return false;
+        try
+        {
+            using var z = new DeflateStream(new MemoryStream(head, body, head.Length - body, writable: false), CompressionMode.Decompress);
+            Span<byte> buffer = stackalloc byte[4096];
+            int total = 0, n;
+            while (total < buffer.Length && (n = z.Read(buffer[total..])) > 0) total += n;
+            return true;
+        }
+        catch (InvalidDataException) { return false; }
+    }
+
+    /// <summary>
+    /// The offset after the header fields of the gzip member at
+    /// <paramref name="at"/>, which must index a gzip signature; -1 when
+    /// <paramref name="at"/> is out of range, a reserved flag is set, a field
+    /// is truncated or longer than 64 KiB, or the header CRC fails.
+    /// </summary>
+    internal static int GzipHeaderEnd(byte[] data, int at)
+    {
+        const int FieldLimit = 65536;
+        if (at < 0 || at + 10 > data.Length || (data[at + 3] & 0xE0) != 0) return -1;
         int flags = data[at + 3], p = at + 10;
         if ((flags & 4) != 0)
         {
@@ -906,11 +939,20 @@ public static class Containers
         foreach (int bit in new[] { 8, 16 })
         {
             if ((flags & bit) == 0) continue;
-            int zero = p < data.Length ? Array.IndexOf(data, (byte)0, p) : -1;
+            if (p >= data.Length) return -1;
+            int zero = data.AsSpan(p, Math.Min(FieldLimit, data.Length - p)).IndexOf((byte)0);
             if (zero < 0) return -1;
-            p = zero + 1;
+            p += zero + 1;
         }
-        if ((flags & 2) != 0) p += 2;
+        if ((flags & 2) != 0)
+        {
+            if (p + 2 > data.Length) return -1;
+            // FHCRC is the low 16 bits of the CRC-32 of the header before it.
+            ushort stored = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p));
+            ushort expected = (ushort)Crc32(data.AsSpan(at, p - at));
+            if (stored != expected) return -1;
+            p += 2;
+        }
         return p + 10 <= data.Length ? p : -1;
     }
 

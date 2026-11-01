@@ -99,7 +99,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
         if (walked.Container == "none" && walked.Items.Count == 0 && kind != DotNet && !NativeKinds.Contains(kind))
             throw new ToolError(ErrorCode.Unsupported, $"{source} is not a known container ({kind}): nothing to unpack.",
-                $"summarize_file path={source} says what the file holds");
+                $"extract_strings path={source} lists the text the file holds");
         var root = PrepareOutput(outputDirectory ?? DefaultOutput(source, sha), source, sha);
         var notes = walked.Notes;
         var files = new List<UnpackedFile>();

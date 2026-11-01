@@ -14,7 +14,7 @@ public partial class UnpackTests
         var data = Save("blob.tar.xz", [0x4E, 0x4F, 0x54, 0x41, 0x52, 0x43, .. new byte[200]]);
         var ex = Assert.Throws<ToolError>(() => Unpack(data));
         Assert.Equal(ErrorCode.Unsupported, ex.Code);
-        Assert.StartsWith($"summarize_file path={data}", ex.Remediation);
+        Assert.StartsWith($"extract_strings path={data}", ex.Remediation);
         // The hint names no format as unread: tar and gzip unpack.
         Assert.DoesNotContain("not read", ex.Remediation);
         using (var tar = new MemoryStream())

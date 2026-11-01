@@ -27,8 +27,15 @@ public sealed class FirmwareViewTests
         // An ELF64 x86-64 executable header and a gzip member.
         d[0x8000] = 0x7F; "ELF"u8.CopyTo(d.AsSpan(0x8001)); d[0x8004] = 2; d[0x8005] = 1; d[0x8006] = 1;
         d[0x8010] = 2; d[0x8012] = 62; d[0x8034] = 64;
-        d[0xA000] = 0x1F; d[0xA001] = 0x8B; d[0xA002] = 8;
+        Gzip(Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("firmware text ", 400)))).CopyTo(d, 0xA000);
         return d;
+    }
+
+    private static byte[] Gzip(byte[] data)
+    {
+        using var output = new MemoryStream();
+        using (var z = new System.IO.Compression.GZipStream(output, System.IO.Compression.CompressionLevel.Optimal)) z.Write(data);
+        return output.ToArray();
     }
 
     private static FirmwareFileView.Facts? Facts(byte[] d) =>
@@ -50,5 +57,20 @@ public sealed class FirmwareViewTests
     {
         var failures = FormatFuzz.Run(Image(), b => Facts(b), 300);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+    [Fact]
+    public void A_gzip_header_followed_by_data_that_does_not_inflate_is_not_listed()
+    {
+        // The retest on 106651bf: a valid header inside compressed data was listed.
+        var d = Image();
+        var noise = new byte[0x1000];
+        new Random(11).NextBytes(noise);
+        noise[0] = 0x1F; noise[1] = 0x8B; noise[2] = 8; noise[3] = 0; noise[9] = 3;
+        // A stored block whose length check fails.
+        noise[10] = 0x01; noise[11] = 0x10; noise[12] = 0x00; noise[13] = 0x10; noise[14] = 0x00;
+        noise.CopyTo(d, 0xC000);
+        var hits = Facts(d)!.Signatures.Select(h => h.Offset).ToList();
+        Assert.Contains("0xA000", hits);
+        Assert.DoesNotContain("0xC000", hits);
     }
 }

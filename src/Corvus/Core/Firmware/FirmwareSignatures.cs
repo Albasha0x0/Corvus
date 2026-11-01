@@ -142,6 +142,7 @@ internal static class FirmwareSignatures
 
         // Compressed streams.
         list.Add(S("gzip compressed data", Comp, [0x1F, 0x8B, 0x08], (w, at) => (w.U8(at + 3) & 0xE0) == 0 && w.U8(at + 9) is <= 13 or 255
+            && Containers.GzipDecodes(w.Read(at, (int)Math.Min(w.Left(at), Containers.GzipProbeBytes)))
             ? Found((w.U8(at + 3) & 8) != 0 ? $"original name '{CString(w, at + 10, 64)}'" : null) : null));
         list.Add(S("bzip2 compressed data", Comp, "BZh", (w, at) => w.U8(at + 3) is >= (byte)'1' and <= (byte)'9' && w.Is(at + 4, [0x31, 0x41, 0x59, 0x26, 0x53, 0x59])
             ? Found($"{(w.U8(at + 3) - '0') * 100} KiB blocks") : null));

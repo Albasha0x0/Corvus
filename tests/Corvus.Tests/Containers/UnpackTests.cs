@@ -704,6 +704,83 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.DoesNotContain(c.Items, i => i.Name == "carved_0x0.dll");
     }
 
+    // A member with the given FLG, optional extra field and name, and a caller-chosen header CRC.
+    private static byte[] GzipWithHeader(string text, byte flags, byte[]? extra, bool name, bool validCrc)
+    {
+        var plain = GzipOf(text);
+        var header = new List<byte> { 0x1F, 0x8B, 0x08, flags, 0, 0, 0, 0, 0, 0xFF };
+        if (extra != null) { header.Add((byte)extra.Length); header.Add(0); header.AddRange(extra); }
+        if (name) header.AddRange([(byte)'a', (byte)'.', (byte)'t', 0]);
+        if ((flags & 2) != 0)
+        {
+            uint c = 0xFFFFFFFF;
+            foreach (var b in header)
+            {
+                c ^= b;
+                for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+            }
+            ushort crc = (ushort)(c ^ 0xFFFFFFFF);
+            if (!validCrc) crc ^= 0xFFFF;
+            header.Add((byte)crc);
+            header.Add((byte)(crc >> 8));
+        }
+        return [.. header, .. plain.AsSpan(10).ToArray()];
+    }
+
+    private static string CarveAndHighlight(byte[] stream, out int items)
+    {
+        var blob = Noise(0x300 + stream.Length + 0x100);
+        stream.CopyTo(blob, 0x300);
+        items = Containers.Carve(blob, "chance.bin", "data", AnalysisLimits.Default, default).Items.Count;
+        return string.Join(" ", NativeEmbeddedContent.Highlights("chance.bin", blob, default));
+    }
+
+    [Theory]
+    [InlineData(0x06, false, false)]
+    [InlineData(0x07, true, false)]
+    [InlineData(0x0A, false, true)]
+    public void A_gzip_header_with_a_wrong_header_checksum_is_not_reported(int flags, bool extra, bool name)
+    {
+        // Regression for 1F 8B 08 07 chance matches: FHCRC was skipped.
+        var stream = GzipWithHeader("header payload ", (byte)flags, extra ? [1, 2, 3] : flags == 0x06 ? [] : null, name, validCrc: false);
+        var text = CarveAndHighlight(stream, out int items);
+
+        Assert.Equal(0, items);
+        Assert.DoesNotContain("gzip", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0x06, false, false)]
+    [InlineData(0x07, true, false)]
+    [InlineData(0x0A, false, true)]
+    public void A_gzip_header_with_a_valid_header_checksum_is_reported(int flags, bool extra, bool name)
+    {
+        var stream = GzipWithHeader("header payload ", (byte)flags, extra ? [1, 2, 3] : flags == 0x06 ? [] : null, name, validCrc: true);
+        var text = CarveAndHighlight(stream, out int items);
+
+        Assert.Equal(1, items);
+        Assert.Contains("gzip stream(s) at 0x300", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_gzip_header_with_a_truncated_extra_field_or_name_is_not_a_header()
+    {
+        byte[] extra = [0x1F, 0x8B, 0x08, 0x04, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF];
+        byte[] name = [0x1F, 0x8B, 0x08, 0x08, 0, 0, 0, 0, 0, 0xFF, 1, 2, 3, 4];
+
+        Assert.Equal(-1, Containers.GzipHeaderEnd(extra, 0));
+        Assert.Equal(-1, Containers.GzipHeaderEnd(name, 0));
+        Assert.Equal(-1, Containers.GzipHeaderEnd(name, 100));
+    }
+
+    [Fact]
+    public void An_unpack_refusal_for_an_unknown_file_points_to_extract_strings()
+    {
+        var e = Assert.Throws<ToolError>(() => Unpack(Save("plain.bin", Noise(0x400))));
+
+        Assert.StartsWith("extract_strings path=", e.NextFor(null), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_gzip_stream_found_at_an_offset_in_an_unknown_blob_unpacks()
     {
