@@ -12,6 +12,7 @@ using Corvus.Tools;
 namespace Corvus.Tests;
 
 /// <summary>summarize_file view=dependencies on Go and Rust programs, and the CycloneDX file sbomPath writes.</summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class DependencyInventoryTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -141,6 +142,23 @@ public sealed class DependencyInventoryTests : IDisposable
         Assert.Equal(("Unity", null, null), (engine.Name, engine.Version, engine.Purl));
         Assert.Equal("Assembly-CSharp", facts.Subject!.Name);
         Assert.Contains(facts.Notes, n => n.Contains("engine version is unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_dependencies_view_reports_a_go_module_advisory_from_the_osv_folder()
+    {
+        using var db = new TempDir();
+        Directory.CreateDirectory(Path.Combine(db.Path, "Go"));
+        File.WriteAllText(Path.Combine(db.Path, "Go", "GO-1.json"),
+            """{"id":"GO-1","summary":"s","affected":[{"package":{"ecosystem":"Go","name":"golang.org/x/sys"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"0.21.0"}]}]}]}""");
+        using var env = new EnvironmentScope().Set(OsvAdvisories.DatabaseVariable, db.Path);
+        var path = _dir.File("tool");
+        File.WriteAllBytes(path, GoProgram());
+        var summary = new InspectionService(_workspace).Summarize(null, path, default, new FileViewOptions("dependencies"));
+        var advisories = Facts(summary).Advisories!;
+        Assert.Equal("in process", advisories.Checker);
+        var finding = Assert.Single(advisories.Findings);
+        Assert.Equal(("pkg:golang/golang.org/x/sys@v0.20.0", "GO-1", "0.21.0"), (finding.Component, finding.Id, Assert.Single(finding.Fixed)));
     }
 
     [Fact]
