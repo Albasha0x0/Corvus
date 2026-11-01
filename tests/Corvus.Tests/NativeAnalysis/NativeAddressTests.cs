@@ -135,6 +135,39 @@ public class NativeAddressTests
         Assert.Null(NativeAddress.DefaultName("switchD_140001010"));
     }
 
+    [Fact]
+    public void Every_default_function_name_form_resolves_to_one_address_through_the_index()
+    {
+        // Default name forms: sub_ by RVA, sub_ by VA, FUN_ by VA, FUN_ by RVA, any case.
+        var index = NativeCodeIndex.Build(Image(exports: false));
+        foreach (var name in new[] { "sub_1010", "SUB_1010", "sub_140001010", "Sub_140001010", "FUN_140001010", "fun_140001010", "FUN_1010" })
+        {
+            Assert.Equal(Second, NativeCodeTools.Address(index, name));
+            Assert.Equal(Second, Assert.Single(index.AddressesOfName(name)).Rva);
+        }
+        Assert.Empty(index.AddressesOfName("sub_150001010"));
+        // An RVA that starts no function is neither an RVA nor a VA here.
+        Assert.Empty(index.AddressesOfName("sub_1018"));
+    }
+
+    [Fact]
+    public void A_real_name_that_looks_like_a_default_name_wins_over_the_default_form()
+    {
+        var index = NativeCodeIndex.Build(Image(exports: false));
+        index.SetSourceName(Third, "sub_1010", NativeNameSource.User);
+        Assert.Equal(Third, NativeCodeTools.Address(index, "sub_1010"));
+        index.SetSourceName(Third, "Real_name", NativeNameSource.User);
+        Assert.Equal(Third, NativeCodeTools.Address(index, "Real_name"));
+    }
+
+    [Fact]
+    public void A_default_name_denotes_the_function_at_its_start()
+    {
+        var index = NativeCodeIndex.Build(Image(exports: false));
+        Assert.Equal(Second, index.DefaultFunctionStart("sub_140001010"));
+        Assert.Null(index.DefaultFunctionStart("Real_name"));
+    }
+
     [Theory]
     [InlineData(NativeArch.X64)]
     [InlineData(NativeArch.Arm64)]

@@ -615,13 +615,26 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return -1;
     }
 
-    /// <summary>Every address <paramref name="name"/> is in effect at; an unmatched C-decorated name falls back to its undecorated form.</summary>
+    /// <summary>Every address <paramref name="name"/> is in effect at; falls back to the undecorated form, then to the function a sub_ or FUN_ name denotes.</summary>
     public IReadOnlyList<AddressCandidate> AddressesOfName(string name)
     {
         var exact = AddressesOfExactName(name);
+        if (exact.Count == 0 && DefaultFunctionStart(name) is { } start) return [new(start, "function")];
         if (exact.Count == 0 && name.Length > 1 && name[0] != '?' && Corvus.Native.Pdb.PdbNaming.Display(name) is var plain && plain != name)
             return AddressesOfExactName(plain);
         return exact;
+    }
+
+    /// <summary>The function start a sub_ (RVA or VA) or FUN_ (VA, else RVA) default name denotes, case-insensitive; null for any other name or an address outside the image.</summary>
+    public uint? DefaultFunctionStart(string name)
+    {
+        bool ghidra = name.StartsWith("FUN_", StringComparison.OrdinalIgnoreCase);
+        if (!ghidra && !name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase)) return null;
+        if (NativeAddress.Number(name[4..]) is not { } n) return null;
+        uint? va = n >= Image.ImageBase && n - Image.ImageBase < Image.SizeOfImage ? (uint)(n - Image.ImageBase) : null;
+        uint? rva = n < Image.SizeOfImage && FunctionByStart((uint)n) != null ? (uint)n : null;
+        // Ghidra names are always VAs; IDA-style sub_ also carries an RVA that starts a function.
+        return ghidra ? va ?? rva : rva ?? va;
     }
 
     private List<AddressCandidate> AddressesOfExactName(string name)

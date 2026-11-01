@@ -31,15 +31,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return (n, index, "");
     }
 
-    private static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, name =>
-    {
-        if (name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase) && NativeAddress.Number(name[4..]) is { } n)
-        {
-            if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return [new((uint)n, "function")];
-            if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return [new((uint)(n - index.Image.ImageBase), "function")];
-        }
-        return index.AddressesOfName(name);
-    });
+    private static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, index.AddressesOfName);
 
     private const string RelocationsDescription =
         "PE relocations: auto (default) keeps valid, clears stale, adds new; neutralize clears all.";

@@ -51,15 +51,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             workspace.Notify($"{native.Id}: {index.SupportNote}");
     }
 
-    internal static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, name =>
-    {
-        if (name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase) && NativeAddress.Number(name[4..]) is { } n)
-        {
-            if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return [new((uint)n, "function")];
-            if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return [new((uint)(n - index.Image.ImageBase), "function")];
-        }
-        return index.AddressesOfName(name);
-    });
+    internal static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, index.AddressesOfName);
 
     private static NativeFunction FunctionAt(NativeCodeIndex index, uint rva) =>
         index.FunctionAt(rva) ?? throw (index.Image.Imports.FirstOrDefault(i => i.SlotRva == rva) is { } slot
@@ -142,7 +134,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             throw new ToolError(ErrorCode.InvalidArgument, "hasType needs an engine's types; the built-in index has none.", "pass engine=ida or engine=ghidra");
         // Library names of an IDA session already open (none is started for this).
         if (engines?.LibraryNames(native) is { IsCompleted: false } importing) await importing.WaitAsync(cancellationToken);
-        var functions = query.Apply(index.Functions, f => f.Start, f => f.Size, f => f.Name, f => index.CountRefsTo(f.Start), null);
+        // A default name in another engine's form also matches the function it denotes.
+        var denoted = query.Filter != null ? index.DefaultFunctionStart(query.Filter.Text) : null;
+        var functions = query.Apply(index.Functions, f => f.Start, f => f.Size, f => f.Name, f => index.CountRefsTo(f.Start), null,
+            f => f.Start == denoted ? query.Filter!.Text : null);
         string Sources(NativeFunction f) => f.Sources + (EngineLibraryNames.IsLibrary(index, f.Start) ? ", ida" : "");
         var rows = functions.Select(f => $"{NativeAddress.Va(index.Image, f.Start)}  {f.Size,7}  {f.Name}{Flags(f, index)}  ({Sources(f)}; {index.CountRefsTo(f.Start)} refs)").ToList();
         var s = index.Stats;
