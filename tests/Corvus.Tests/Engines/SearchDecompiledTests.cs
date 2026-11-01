@@ -135,9 +135,75 @@ public sealed class SearchDecompiledTests : IDisposable
     {
         var (tools, _, native) = Setup(Forty);
         var text = await tools.SearchDecompiled(native.Id, "no_such_call", maxFunctions: 10);
-        Assert.Contains("not absence from the image", text);
+        Assert.Contains("absence from the image is unknown", text);
         Assert.Contains("No hit in the 10 functions searched; 29 of 39 functions in scope are not searched yet", text);
         Assert.Contains("offset=10", text);
+    }
+
+    // Forty functions in scope, maxFunctions=10, so the scan stops partway.
+    [Fact]
+    public async Task A_partial_reply_names_the_continuation_and_the_whole_scope_call()
+    {
+        var (tools, _, native) = Setup(Forty);
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call", maxFunctions: 10, filter: "/^f_/");
+        var call = $"search_decompiled image={native.Id} pattern=\"no_such_call\" filter=\"/^f_/\"";
+        Assert.Contains($"Next: {call} offset=10 maxFunctions=10 continues from function 10 of 39.", text);
+        Assert.Contains($"Search every function: {call} maxFunctions=39 timeoutSeconds=600", text);
+    }
+
+    [Fact]
+    public async Task The_continuation_call_keeps_the_engine_and_the_callers_limits()
+    {
+        var (tools, _, native) = Setup(Forty);
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call", engine: "ida", maxFunctions: 10, limit: 7, timeoutSeconds: 30);
+        var call = $"search_decompiled image={native.Id} pattern=\"no_such_call\" engine=ida";
+        Assert.Contains($"Next: {call} offset=10 limit=7 maxFunctions=10 timeoutSeconds=30 continues", text);
+        Assert.Contains($"Search every function: {call} limit=7 maxFunctions=39 timeoutSeconds=600", text);
+    }
+
+    [Fact]
+    public async Task A_hit_limit_stop_offers_a_higher_limit_and_no_whole_scope_call()
+    {
+        var (tools, _, native) = Setup(Forty);
+        var text = await tools.SearchDecompiled(native.Id, "memcpy", limit: 2);
+        Assert.Contains("limit=2 hits", text);
+        Assert.Contains("offset=", text);
+        Assert.Contains(" limit=2000", text);
+        Assert.DoesNotContain("Search every function", text);
+    }
+
+    [Fact]
+    public async Task A_time_stop_raises_the_time_budget_in_the_whole_scope_call()
+    {
+        var (tools, _, native) = Setup(e =>
+        {
+            Forty(e);
+            e.Slow[0x1000 + 30 * 0x10] = 5;
+        });
+        var text = await tools.SearchDecompiled(native.Id, "memcpy", offset: 10, timeoutSeconds: 1);
+        Assert.Contains("timeoutSeconds=1 used", text);
+        Assert.Contains("maxFunctions=29 timeoutSeconds=600", text);
+    }
+
+    [Fact]
+    public async Task A_pattern_with_a_quote_and_a_backslash_is_written_as_a_json_string()
+    {
+        var (tools, _, native) = Setup(Forty);
+        var text = await tools.SearchDecompiled(native.Id, "it's\\d", maxFunctions: 10);
+        Assert.Contains("pattern=\"it's\\\\d\" offset=10", text);
+    }
+
+    [Fact]
+    public async Task A_scope_over_the_function_cap_names_a_paged_call_in_place_of_the_whole_scope_call()
+    {
+        var (tools, _, native) = Setup(e =>
+        {
+            for (uint i = 0; i < 20_050; i++) e.Add(0x1000 + i * 0x10, 0x10, $"g_{i}", NativeFunctionFlags.None, [$"int g_{i}(void)", "{", "}"]);
+        });
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call", maxFunctions: 1);
+        Assert.DoesNotContain("Search every function", text);
+        Assert.Contains("Search more per call:", text);
+        Assert.Contains("offset=1 maxFunctions=20000 timeoutSeconds=600", text);
     }
 
     [Fact]

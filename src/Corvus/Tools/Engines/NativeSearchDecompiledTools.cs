@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -48,6 +49,27 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
     /// <summary>Functions asked of the engine per request: small enough to stop near the budget, large enough to amortize the round trip.</summary>
     private const int Chunk = 8;
 
+    /// <summary>Upper bound of functions per call.</summary>
+    private const int MaxFunctionsCap = 20_000;
+
+    /// <summary>Upper bound of the time budget, in seconds.</summary>
+    private const int MaxTimeoutSeconds = 600;
+
+    /// <summary>Upper bound of hits per call.</summary>
+    private const int MaxHitLimit = 2000;
+
+    private const int DefaultMaxFunctions = 500, DefaultTimeoutSeconds = 60, DefaultHitLimit = 100;
+
+    // JSON string form is the argument syntax of a tool call, so a quote or backslash in a regex survives.
+    private static string Quote(string value) => JsonSerializer.Serialize(value, QuoteOptions);
+
+    private static readonly JsonSerializerOptions QuoteOptions = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    private static string Options(int limit, int maxFunctions, int timeoutSeconds) =>
+        (limit != DefaultHitLimit ? $" limit={limit}" : "") +
+        (maxFunctions != DefaultMaxFunctions ? $" maxFunctions={maxFunctions}" : "") +
+        (timeoutSeconds != DefaultTimeoutSeconds ? $" timeoutSeconds={timeoutSeconds}" : "");
+
     [McpServerTool(Name = "search_decompiled", Title = "Search native pseudocode", UseStructuredContent = true, OutputSchemaType = typeof(SearchDecompiledReport))]
     [Description("Search the IDA or Ghidra pseudocode of every function, line by line, in address order. Stops at maxFunctions, " +
                  "timeoutSeconds or limit hits; continue with nextOffset.")]
@@ -72,8 +94,8 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         var nameFilter = NameFilter.Parse(filter);
         int cursor = offset;
         if (cursor < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {cursor}.");
-        int max = Math.Clamp(maxFunctions, 1, 20_000), hitLimit = Math.Clamp(limit, 1, 2000);
-        var budget = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, 600));
+        int max = Math.Clamp(maxFunctions, 1, MaxFunctionsCap), hitLimit = Math.Clamp(limit, 1, MaxHitLimit);
+        var budget = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, MaxTimeoutSeconds));
         long started = _time.GetTimestamp();
 
         EngineChoice.Mode(engine, engines);
@@ -176,7 +198,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
                 ? $"No hit in the {searched - failures.Count} of {Plural(searched, "function")} searched that decompiled;"
                 : $"No hit in the {Plural(searched, "function")} searched;";
             if (nextCursor != null)
-                sb.Append($"{searchedText} {scope.Count - end} of {scope.Count} functions in scope are not searched yet, so this is not absence from the image.{unknown}\n");
+                sb.Append($"{searchedText} {scope.Count - end} of {scope.Count} functions in scope are not searched yet, so absence from the image is unknown.{unknown}\n");
             else if (cursor > 0)
                 sb.Append($"{searchedText} functions before offset {cursor} are not searched in this call.{unknown}\n");
             else if (failures.Count > 0)
@@ -197,8 +219,25 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
             if (failures.Count > 10) sb.Append($"  ... {failures.Count - 10} more\n");
         }
         if (nextCursor is { } nc)
+        {
             sb.Append($"Stopped ({stoppedBy switch { "hits" => $"limit={hitLimit} hits", "time" => $"timeoutSeconds={(int)budget.TotalSeconds} used", _ => $"maxFunctions={max}" }}); " +
                       $"[More: offset={nc}]\n");
+            string call = $"search_decompiled image={native.Id} pattern={Quote(pattern)}" + (engine != null ? $" engine={engine}" : "") +
+                          (filter != null ? $" filter={Quote(filter)}" : "");
+            int seconds = (int)budget.TotalSeconds;
+            sb.Append($"Next: {call} offset={nc}{Options(hitLimit, max, seconds)} continues from function {nc} of {scope.Count}.\n");
+            if (stoppedBy == "hits")
+            {
+                if (hitLimit < MaxHitLimit)
+                    sb.Append($"Raise the hit limit: {call} offset={nc}{Options(MaxHitLimit, max, seconds)}\n");
+            }
+            else if (stoppedBy == "time" && seconds >= MaxTimeoutSeconds)
+                sb.Append($"timeoutSeconds is at its maximum ({MaxTimeoutSeconds}); continue with the Next call.\n");
+            else if (scope.Count - cursor <= MaxFunctionsCap)
+                sb.Append($"Search every function: {call}{(cursor > 0 ? $" offset={cursor}" : "")}{Options(hitLimit, scope.Count - cursor, Math.Max(seconds, MaxTimeoutSeconds))}\n");
+            else if (max < MaxFunctionsCap)
+                sb.Append($"Search more per call: {call} offset={nc}{Options(hitLimit, MaxFunctionsCap, Math.Max(seconds, MaxTimeoutSeconds))}\n");
+        }
         else sb.Append("Every function in scope was searched.\n");
         string[] regexLimit = timeouts.Count > 0 ? [Limitations.Id(Limitation.RegexTimeouts)] : [];
         if (nextCursor != null)
