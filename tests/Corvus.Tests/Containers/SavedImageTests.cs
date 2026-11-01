@@ -238,6 +238,58 @@ public sealed class SavedImageTests
     }
 
     [Fact]
+    public void A_layer_with_a_non_tar_media_type_is_named_and_not_read()
+    {
+        var data = Tar(
+            ("oci-layout", Text("{}")),
+            ("index.json", Text("""{"manifests":[{"digest":"sha256:m1"}]}""")),
+            ("blobs/sha256/m1", Text("""{"config":{"digest":"sha256:c1"},"layers":[{"mediaType":"application/vnd.example.signature","digest":"sha256:l1"}]}""")),
+            ("blobs/sha256/c1", Text(Config)), ("blobs/sha256/l1", Text("sig")));
+        var c = Containers.Open(data, "sig.tar", AnalysisLimits.Default, default);
+        Assert.Contains("not a file system layer", c.Entries!.Single(e => e.Path == "layer 1").Detail);
+        Assert.DoesNotContain(c.Entries!, e => e.Path.StartsWith("layer 1/"));
+    }
+
+    [Fact]
+    public void A_nested_oci_index_is_followed_to_its_manifest()
+    {
+        var data = Tar(
+            ("oci-layout", Text("{}")),
+            ("index.json", Text("""{"manifests":[{"digest":"sha256:idx"}]}""")),
+            ("blobs/sha256/idx", Text("""{"manifests":[{"digest":"sha256:m1","platform":{"os":"linux","architecture":"arm64","variant":"v8"}}]}""")),
+            ("blobs/sha256/m1", Text("""{"config":{"digest":"sha256:c1"},"layers":[]}""")),
+            ("blobs/sha256/c1", Text(Config)));
+        var c = Containers.Open(data, "nested.tar", AnalysisLimits.Default, default);
+        Assert.Contains("image: (untagged) (linux/arm64/v8)", c.Notes);
+    }
+
+    [Fact]
+    public void A_docker_save_archive_of_two_images_prefixes_each_image()
+    {
+        var (lower, _) = Layers();
+        var data = Tar(
+            ("manifest.json", Text("""[{"Config":"a.json","RepoTags":["a:1"],"Layers":["a/layer.tar"]},{"Config":"b.json","RepoTags":["b:1"],"Layers":["b/layer.tar"]}]""")),
+            ("a.json", Text(Config)), ("b.json", Text(Config)), ("a/layer.tar", lower), ("b/layer.tar", lower));
+        var c = Containers.Open(data, "two.tar", AnalysisLimits.Default, default);
+        Assert.Contains("image 1/image: a:1", c.Notes);
+        Assert.Contains("image 2/image: b:1", c.Notes);
+        Assert.Contains(c.Entries!, e => e.Path == "image 2/layer 1/bin/app");
+    }
+
+    [Fact]
+    public void Labels_a_root_whiteout_and_a_history_record_without_a_command_are_listed()
+    {
+        var cfg = """{"config":{"Labels":{"maintainer":"ops"}},"history":[{"empty_layer":true}]}""";
+        var data = Tar(
+            ("manifest.json", Text("""[{"Config":"cfg.json","Layers":["l1/layer.tar"]}]""")),
+            ("cfg.json", Text(cfg)), ("l1/layer.tar", Tar((".wh.top", []))));
+        var c = Containers.Open(data, "labels.tar", AnalysisLimits.Default, default);
+        Assert.Contains("labels: maintainer=ops", c.Notes);
+        Assert.Equal("whiteout: removes /top of the lower layers", c.Entries!.Single(e => e.Path == "layer 1/.wh.top").Detail);
+        Assert.Equal("(no command recorded); no layer", c.Entries!.Single(e => e.Path == "history/1").Detail);
+    }
+
+    [Fact]
     [FuzzEntry(typeof(ContainerImage))]
     public void Fuzzed_image_archives_never_throw_unexpectedly()
     {
