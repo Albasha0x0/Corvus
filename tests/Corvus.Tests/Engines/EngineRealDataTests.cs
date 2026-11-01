@@ -62,6 +62,8 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : EngineRealDa
         await Log(c, "define_native", On(("address", function), ("kind", "code")));
         await Log(c, "search_decompiled", On(("pattern", "return"), ("maxFunctions", 20), ("limit", 3)));
         await Log(c, "reanalyze_native", On(("from", function)));
+        // A reanalysis may go on in the background; its Next names this wait.
+        await Log(c, "get_engine_status", new() { ["image"] = image, ["waitSeconds"] = 600 });
         Assert.Contains(function, await Log(c, "ida_python", On(("code", "import idc\nprint(idc.get_func_name(idc.get_name_ea_simple('" + function + "')))"))));
         await Log(c, "export_engine_database", On(("outputPath", _dir.File("jit.i64"))));
         await Log(c, "set_native_stack_var", On(("function", function), ("variable", "arg_0"), ("newName", "saved_rbx")));
