@@ -15,6 +15,9 @@
 #                                         #   the CI and release workflow results on GitHub (gh), unknown without gh
 #         ./test.ps1 -Wait                # returns when the background run and any run queued behind it end: 0 passed, 1 not
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
+#         ./test.ps1 -Fuzz nightly|sweep [-FuzzSeconds n]  # the night's rotation or the weekly sweep of tools/Fuzz
+#                                         #   under afl-fuzz (CORVUS_AFL_FUZZ). A -Full -Whole run (nightly) runs
+#                                         #   the rotation after its tests, the sweep on Sundays.
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -RemoteRun -Group sweep -Shard 0/2  # CI: one shard of a group a push run offloads (test-remote.psm1)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
@@ -41,6 +44,8 @@ param(
     [string[]]$Target,
     [switch]$Stamp,
     [switch]$Perf,
+    [ValidateSet('nightly', 'sweep')][string]$Fuzz,
+    [int]$FuzzSeconds = 300,
     [switch]$RemoteRun,
     [string]$Group = '',
     [string]$Shard = '0/1',
@@ -216,6 +221,64 @@ function Get-NotRun([string]$trx) {
     $notRun = @(if (Test-Path $trx) { Get-PermitSkips $trx })
     if ($notRun) { Write-Host "Not run, their permits held elsewhere past the wait limit: $($notRun -join ', '); their families stay unrecorded." -ForegroundColor Yellow }
     $notRun
+}
+
+# Runs the rotation or the sweep of tools/Fuzz under afl-fuzz, one process per
+# target.
+# Needs CORVUS_AFL_FUZZ and the sharpfuzz tool on PATH, else it reports a skip.
+# Writes failing inputs as fixtures in .git/corvus-fuzz-fixtures, never committed.
+# Returns 0 when clean or skipped, 1 when fixtures were written, 2 when tooling
+# failed.
+function Invoke-FuzzQueue([string]$mode, [int]$seconds) {
+    if (-not $env:CORVUS_AFL_FUZZ) { Write-Host "Fuzz $mode run skipped: CORVUS_AFL_FUZZ is not set."; return 0 }
+    if (-not (Get-Command sharpfuzz -ErrorAction SilentlyContinue)) { Write-Host "Fuzz $mode run skipped: the sharpfuzz tool is not on PATH."; return 0 }
+    $work = Join-Path $gitDir 'corvus-fuzz'
+    $bin = Join-Path $work 'bin'
+    $fixtures = Join-Path $gitDir 'corvus-fuzz-fixtures'
+    Remove-Item $bin -Recurse -Force -ErrorAction SilentlyContinue
+    & dotnet publish (Join-Path $root 'tools/Fuzz') --nologo @buildPriority -c Release -o $bin -v q | Out-Host
+    if ($LASTEXITCODE -ne 0) { Write-Host 'Fuzz run: publishing tools/Fuzz failed.' -ForegroundColor Red; return 2 }
+    & sharpfuzz (Join-Path $bin 'Corvus.dll') | Out-Host
+    if ($LASTEXITCODE -ne 0) { Write-Host 'Fuzz run: instrumenting Corvus.dll failed.' -ForegroundColor Red; return 2 }
+    $tool = Join-Path $bin 'Corvus.Fuzz.dll'
+    # The date is passed so the rotation night follows the local day the script tests.
+    $queue = @(& dotnet $tool queue $mode --date (Get-Date -Format 'yyyy-MM-dd'))
+    if ($LASTEXITCODE -ne 0) { Write-Host "Fuzz run: the $mode queue is unknown (exit $LASTEXITCODE)." -ForegroundColor Red; return 2 }
+    if (-not $queue) { Write-Host "Fuzz $mode run: no targets tonight."; return 0 }
+    $seed = Join-Path $work 'seed'
+    New-Item -ItemType Directory -Force $seed | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $seed 'zero.bin'), [byte[]]@(0))
+    Write-Host "Fuzz $mode run: $($queue.Count) targets, $seconds s each."
+    $written = 0
+    $unreproduced = 0
+    foreach ($target in $queue) {
+        $out = Join-Path $work "out-$target"
+        Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+        & $env:CORVUS_AFL_FUZZ -i $seed -o $out -V $seconds -m none -t 10000 -- dotnet $tool run $target *> $null
+        if (-not (Test-Path (Join-Path $out 'default/fuzzer_stats'))) {
+            Write-Host "Fuzz run: afl-fuzz did not start on target $target." -ForegroundColor Red
+            return 2
+        }
+        foreach ($crash in @(Get-ChildItem (Join-Path $out 'default/crashes') -File -Filter 'id*' -ErrorAction SilentlyContinue)) {
+            & dotnet $tool fixture $target $crash.FullName --out $fixtures | Out-Host
+            if ($LASTEXITCODE -eq 0) { $written++ }
+            elseif ($LASTEXITCODE -eq 3) { $unreproduced++ }
+        }
+    }
+    if ($written -or $unreproduced) {
+        Write-Host "Fuzz $mode run: $written fixtures in $fixtures, $unreproduced unreproduced. Next: copy them to the container fixtures, then dotnet $tool replay <folder>." -ForegroundColor Red
+        return $(if ($written) { 1 } else { 0 })
+    }
+    Write-Host "Fuzz $mode run: no failing input."
+    return 0
+}
+
+if ($Fuzz) {
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $fuzzLock = "corvus-fuzz-$PID"
+    $heavy = Enter-HeavyLock $fuzzLock
+    try { exit (Invoke-FuzzQueue $Fuzz $FuzzSeconds) }
+    finally { Exit-HeavyLock $fuzzLock }
 }
 
 # Perf run: Perf=Timing tests with budgets enforced, one at a time, under the heavy lock and every permit.
@@ -957,6 +1020,11 @@ try {
     if ($wholeSuite -and -not $Coverage -and $env:CORVUS_SECOND_GHIDRA_DIR) {
         $code = Invoke-SecondGhidra
         if ($code -ne 0) { exit $code }
+    }
+    if ($Whole -and $wholeSuite -and -not $Coverage) {
+        # The fuzz result is printed; the exit code stays the tests' code, which the stamp already records.
+        $fuzzCode = Invoke-FuzzQueue $(if ((Get-Date).DayOfWeek -eq 'Sunday') { 'sweep' } else { 'nightly' }) $FuzzSeconds
+        Write-Host "Fuzz step exit $fuzzCode (0 clean or skipped, 1 fixtures written, 2 tooling failed)."
     }
 }
 finally {

@@ -10,7 +10,7 @@ static int Execute(string[] args)
     var positional = new List<string>();
     for (int i = 1; i < args.Length; i++)
     {
-        if (args[i] is "--timeout" or "--max-runs" or "--out")
+        if (args[i] is "--timeout" or "--max-runs" or "--out" or "--date")
         {
             if (i + 1 >= args.Length) return Fail($"{args[i]} needs a value. Next: Corvus.Fuzz {command} ... {args[i]} <value>");
             flags[args[i]] = args[++i];
@@ -33,6 +33,8 @@ static int Execute(string[] args)
             return Target(name) is { } check ? Check(check, file, timeout) : 2;
         case "fixture" when positional is [var name, var file]:
             return Target(name) is { } fix ? Fixture(fix, file, flags.GetValueOrDefault("--out", "."), maxRuns, timeout) : 2;
+        case "queue" when positional is [var mode]:
+            return Queue(mode, flags.GetValueOrDefault("--date"));
         case "replay" when positional is [var folder]:
             return Replay(folder, timeout);
         default:
@@ -49,10 +51,23 @@ static int Usage()
           check <target> <file>                 exit 0 when the read passes, 1 when it fails
           fixture <target> <file> [--out dir]   reduce a failing file to <target>-<hash>.bin
                                                 exit 0 written, 3 the file does not fail
+          queue nightly|sweep [--date yyyy-MM-dd]
+                                                the targets of that night's rotation, or every target; starts no run
           replay <folder>                       read every <target>-<hash>.bin; exit 1 when one fails
         Exit 2: bad arguments or a missing target, file or folder.
         """);
     return 2;
+}
+
+static int Queue(string mode, string? date)
+{
+    var day = DateOnly.FromDateTime(DateTime.UtcNow);
+    if (date != null && !DateOnly.TryParseExact(date, "yyyy-MM-dd", out day))
+        return Fail($"--date is yyyy-MM-dd, not '{date}'. Next: Corvus.Fuzz queue {mode} --date {DateTime.UtcNow:yyyy-MM-dd}");
+    if (FuzzRotation.Queue(mode, day) is not { } queue)
+        return Fail($"No queue '{mode}'. Next: Corvus.Fuzz queue {string.Join("|", FuzzRotation.Modes)}");
+    foreach (var t in queue) Console.WriteLine(t.Name);
+    return 0;
 }
 
 static int Fail(string message)

@@ -153,4 +153,51 @@ public sealed class FuzzHarnessTests
         Assert.Same(target, FuzzTargets.OfFixture(name));
         Assert.Null(FuzzTargets.OfFixture("no-such-target-00000000.bin"));
     }
+
+    [Fact]
+    public void The_sweep_queue_lists_each_target_once()
+    {
+        var names = FuzzRotation.Queue("sweep", new DateOnly(2026, 11, 1))!.Select(t => t.Name).ToList();
+        Assert.Equal(FuzzTargets.All.Select(t => t.Name), names);
+        Assert.Equal(names.Count, names.Distinct().Count());
+    }
+
+    [Fact]
+    public void A_week_of_nightly_queues_covers_each_target_once()
+    {
+        var first = new DateOnly(2026, 11, 1);
+        var names = Enumerable.Range(0, FuzzRotation.Nights)
+            .SelectMany(d => FuzzRotation.Queue("nightly", first.AddDays(d))!.Select(t => t.Name)).ToList();
+        Assert.Equal(FuzzTargets.All.Select(t => t.Name).Order(), names.Order());
+    }
+
+    [Fact]
+    public void A_nightly_queue_is_the_same_on_every_read_of_a_date()
+    {
+        var date = new DateOnly(2026, 11, 3);
+        Assert.Equal(FuzzRotation.Queue("nightly", date)!.Select(t => t.Name), FuzzRotation.Queue("nightly", date)!.Select(t => t.Name));
+    }
+
+    [Fact]
+    public void An_unknown_queue_mode_has_no_queue()
+    {
+        Assert.Null(FuzzRotation.Queue("weekly", new DateOnly(2026, 11, 1)));
+    }
+
+    [Fact]
+    public void Two_dates_of_one_week_give_disjoint_nightly_queues()
+    {
+        var a = FuzzRotation.Queue("nightly", new DateOnly(2026, 11, 1))!.Select(t => t.Name);
+        var b = FuzzRotation.Queue("nightly", new DateOnly(2026, 11, 2))!.Select(t => t.Name);
+        Assert.Empty(a.Intersect(b));
+    }
+
+    [Fact]
+    public void The_queue_command_exits_2_for_a_bad_date_or_a_bad_mode()
+    {
+        var entry = typeof(FuzzTargets).Assembly.EntryPoint!;
+        Assert.Equal(2, entry.Invoke(null, [new[] { "queue", "nightly", "--date", "11/01/2026" }]));
+        Assert.Equal(2, entry.Invoke(null, [new[] { "queue", "weekly" }]));
+        Assert.Equal(0, entry.Invoke(null, [new[] { "queue", "nightly", "--date", "2026-11-01" }]));
+    }
 }
