@@ -186,6 +186,38 @@ public sealed class OsvAdvisoriesTests
         Assert.Throws<OperationCanceledException>(() => OsvAdvisories.Check([Nuget("Pkg", "1.0.0")], cts.Token));
     }
 
+    [Fact]
+    public void A_database_folder_that_does_not_exist_is_named_and_nothing_is_checked()
+    {
+        using var dir = new TempDir();
+        using var env = new EnvironmentScope().Set(OsvAdvisories.DatabaseVariable, Path.Combine(dir.Path, "absent"));
+        var a = OsvAdvisories.Check([Nuget("Pkg", "1.0.0")], default);
+        Assert.Equal(("not checked", 0, 1), (a.State, a.Checked, a.NotChecked));
+        Assert.Contains("names a folder that does not exist", a.Note);
+    }
+
+    [Fact]
+    public void An_archive_with_no_records_checks_the_component_with_no_findings()
+    {
+        using var dir = new TempDir();
+        WriteZip(dir.Path, "NuGet");
+        using var env = new EnvironmentScope().Set(OsvAdvisories.DatabaseVariable, dir.Path);
+        var a = OsvAdvisories.Check([Nuget("Pkg", "1.0.0")], default);
+        Assert.Equal(("checked", 1), (a.State, a.Checked));
+        Assert.Empty(a.Findings);
+    }
+
+    [Fact]
+    public void A_rewritten_archive_is_read_again()
+    {
+        using var dir = new TempDir();
+        WriteZip(dir.Path, "NuGet", Record("GHSA-a", "NuGet", "Pkg", Range));
+        using var env = new EnvironmentScope().Set(OsvAdvisories.DatabaseVariable, dir.Path);
+        Assert.Single(OsvAdvisories.Check([Nuget("Pkg", "1.0.0")], default).Findings);
+        WriteZip(dir.Path, "NuGet", Record("GHSA-a", "NuGet", "Pkg", """{"introduced":"0"},{"fixed":"0.5"}"""));
+        Assert.Empty(OsvAdvisories.Check([Nuget("Pkg", "1.0.0")], default).Findings);
+    }
+
     [Theory]
     [InlineData("NuGet", "1.0", "1.0.0.0", 0)]
     [InlineData("NuGet", "1.0.0-BETA", "1.0.0-beta", 0)]
@@ -207,6 +239,12 @@ public sealed class OsvAdvisoriesTests
     [InlineData("Maven", "1.0-rc1", "1.0", -1)]
     [InlineData("Maven", "1.0-sp1", "1.0", 1)]
     [InlineData("Maven", "1.10", "1.9", 1)]
+    [InlineData("Maven", "1.0-SNAPSHOT", "1.0", -1)]
+    [InlineData("NuGet", "1.0.99999999999999999999999", "1.0.100000000000000000000000", -1)]
+    [InlineData("PyPI", "1.0a1", "1.0alpha1", 0)]
+    [InlineData("PyPI", "1.0.0.0.0", "1", 0)]
+    [InlineData("Go", "v1.0.0-rc.1", "v1.0.0", -1)]
+    [InlineData("Go", "v1.0.0+incompatible", "v1.0.0", 0)]
     public void Versions_order_as_their_ecosystem_orders_them(string ecosystem, string a, string b, int expected)
     {
         Assert.Equal(expected, VersionOrder.Compare(ecosystem, a, b));
