@@ -16,12 +16,18 @@ internal static partial class ToolCli
     public const string SessionVariable = "CORVUS_SESSION";
 
     /// <summary>
-    /// The pipe name of a session. Throws UsageException unless the name is
-    /// 1 to 64 letters, digits, '.', '_' or '-'; never returns null.
+    /// The pipe name of a session; on POSIX the socket path under
+    /// /tmp/corvus-&lt;uid&gt;, kept private. Throws UsageException unless the
+    /// name is 1 to 64 letters, digits, '.', '_' or '-'; never returns null.
     /// </summary>
-    internal static string SessionPipe(string name) =>
-        SessionName().IsMatch(name) ? "corvus-session-" + name
-        : throw new UsageException("A session name is 1 to 64 letters, digits, '.', '_' or '-'.");
+    internal static string SessionPipe(string name)
+    {
+        if (!SessionName().IsMatch(name)) throw new UsageException("A session name is 1 to 64 letters, digits, '.', '_' or '-'.");
+        if (OperatingSystem.IsWindows()) return "corvus-session-" + name;
+        // A socket path is at most 104 bytes on macOS; TMPDIR there leaves too
+        // few for a 64-character name, and .NET uses a rooted name as the path.
+        return Path.Combine(Native.Providers.PrivateFolder.Ensure(Path.Combine("/tmp", Native.Providers.PrivateFolder.TempRootName)), "session-" + name);
+    }
 
     [GeneratedRegex("^[A-Za-z0-9._-]{1,64}$")]
     private static partial Regex SessionName();

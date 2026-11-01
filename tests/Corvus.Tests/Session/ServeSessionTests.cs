@@ -165,6 +165,15 @@ public class ServeSessionTests
     public void A_session_name_outside_the_allowed_characters_is_a_usage_error(string name) =>
         Assert.Throws<UsageException>(() => ToolCli.SessionPipe(name));
 
+    // Regression: every ServeSessionTests host failed on macOS CI since the
+    // session pipe was added; its TMPDIR left too few bytes for the socket.
+    [Fact]
+    public void The_socket_of_a_64_character_session_name_fits_the_unix_path_limit()
+    {
+        var pipe = ToolCli.SessionPipe(new string('a', 64));
+        Assert.True(OperatingSystem.IsWindows() || System.Text.Encoding.UTF8.GetByteCount(pipe) < 104, pipe);
+    }
+
     [Fact]
     public async Task Serve_without_a_session_name_is_a_usage_error()
     {
