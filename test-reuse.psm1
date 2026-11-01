@@ -418,7 +418,8 @@ function Split-Quarantined([string[]]$failed, $entries, [datetime]$today) {
 }
 
 # Takes the machine-wide heavy lock; returns whether it was taken. CORVUS_HEAVY_LOCK names a script taking
-# `heavy <name> -OwnerPid <pid>` (waits, then holds it) and `release <name>`; unset means no lock.
+# `heavy <name> -OwnerPid <pid>` (waits, then holds it), `shared <name> -OwnerPid <pid>` and `release <name>`;
+# unset means no lock.
 function Enter-HeavyLock([string]$name) {
     if (-not $env:CORVUS_HEAVY_LOCK) { return $false }
     Write-Host "Waiting for the heavy lock ($env:CORVUS_HEAVY_LOCK)."
@@ -448,10 +449,14 @@ function Save-QueuedRun([string]$file, [string]$strength, [string]$commit) {
     $asked
 }
 
-# Whole-suite heavy lock: runs without reuse wait for it; push runs take none, as permits bound them. True when taken.
+# Whole-suite heavy lock: a run without reuse takes it exclusive, a push run (reuse) shared. True when taken.
 function Enter-RunLock([string]$name, [bool]$reuse) {
-    if ($reuse) { return $false }
-    Enter-HeavyLock $name
+    if (-not $reuse) { return Enter-HeavyLock $name }
+    if (-not $env:CORVUS_HEAVY_LOCK) { return $false }
+    # A push run holds the lock shared: it waits out a nightly or perf hold
+    # and they wait for it, so neither run's permit waits time out.
+    & $env:CORVUS_HEAVY_LOCK shared $name -OwnerPid $PID | Out-Host
+    return $true
 }
 
 # Appends a whole-suite pass ("<commit> <tree> <mode>[ reused] <time>") to the ledger, keeping its last 200 lines.

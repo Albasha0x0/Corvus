@@ -283,7 +283,7 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void The_heavy_lock_script_is_called_to_take_and_release_but_not_for_a_push_run()
+    public void The_heavy_lock_script_is_taken_exclusive_for_a_whole_run_and_shared_for_a_push_run()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
         var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
@@ -314,9 +314,9 @@ public class TestReuseTests
             string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
             Assert.Equal("False", Line("unset"));
             Assert.Equal("True", Line("set"));
-            Assert.Equal(("False", "True"), (Line("push"), Line("nightly")));
-            // A push run relies on the machine-wide permits: only the run without reuse calls the lock script.
-            Assert.Equal([$"heavy run {Line("pid")}", "release run 0", $"heavy nightly {Line("pid")}"], File.ReadAllLines(calls));
+            Assert.Equal(("True", "True"), (Line("push"), Line("nightly")));
+            // Regression: the nightly on b94853a9 failed 547 tests on permit waits behind a push run.
+            Assert.Equal([$"heavy run {Line("pid")}", "release run 0", $"shared push {Line("pid")}", $"heavy nightly {Line("pid")}"], File.ReadAllLines(calls));
             Assert.Equal("False", Line("keyed")); // the lock does not change what a family pass proves
         }
         finally { Directory.Delete(dir, true); }
