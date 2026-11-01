@@ -246,7 +246,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
     {
         var clock = Stopwatch.StartNew();
         Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
-        var worker = c.Connect(provider.Options.StartTimeout, new WorkerConnectionOptions { CancelGrace = provider.Options.CancelGrace });
+        var worker = c.Connect(new WorkerConnectionOptions { CancelGrace = provider.Options.CancelGrace });
         SetWorker(worker);
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
         provider.CheckVersion(await worker.RequestAsync("hello", null, Options.OpenTimeout, cancellationToken, quiet: provider.Options.StartTimeout).ConfigureAwait(false));

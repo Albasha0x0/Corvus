@@ -59,20 +59,22 @@ internal sealed record IdaConnection(string File, int Port, string Token, int Pi
     }
 
     /// <summary>A worker connection to the served database; its first line is the token.</summary>
-    public WorkerConnection Connect(TimeSpan timeout, WorkerConnectionOptions options)
+    public WorkerConnection Connect(WorkerConnectionOptions options)
     {
         var client = new TcpClient { NoDelay = true };
         try
         {
-            if (!client.ConnectAsync(IPAddress.Loopback, Port).Wait(timeout))
-                throw new ToolError(ErrorCode.Timeout, $"IDA (process {Pid}) did not accept a connection on port {Port} within {timeout.TotalSeconds:0} s.");
+            // A blocking connect: a loopback connect to a listening port completes
+            // in the kernel, and a wait on ConnectAsync stalled on a starved thread
+            // pool (macOS CI on 75c15090).
+            client.Connect(IPAddress.Loopback, Port);
             var line = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { token = Token }) + "\n");
             client.GetStream().Write(line);
         }
-        catch (Exception ex) when (ex is SocketException or IOException or AggregateException)
+        catch (Exception ex) when (ex is SocketException or IOException)
         {
             client.Dispose();
-            throw new ToolError(ErrorCode.ProviderUnavailable, $"IDA (process {Pid}) refused the connection on port {Port}: {(ex as AggregateException)?.InnerException?.Message ?? ex.Message}",
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"IDA (process {Pid}) refused the connection on port {Port}: {ex.Message}",
                 "run corvus_connect.py in IDA again (corvus ida-script writes it)");
         }
         catch
