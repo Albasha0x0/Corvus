@@ -362,8 +362,7 @@ public sealed class DexService
         int other = folds.Sites.Count(s => s.Evaluated && s.Fold.Status != DexFoldStatus.Simplified);
         if (recovered > 0 || other > 0)
             notes.Add($"{recovered} matching string(s) recovered from decoder calls; {other} constant-argument call(s) not simplified (disassemble_dex format=simplified says why).");
-        if (folds.MethodsLeft > 0)
-            notes.Add($"{folds.MethodsLeft} method(s) with decoder calls not evaluated within {DexStringFolding.PackageTimeLimit.TotalSeconds:0} s; search again to continue.");
+        if (folds.Note("search again to continue") is { } stalled) notes.Add(stalled);
     }
 
     /// <summary>The raw values a const instruction would hold for <paramref name="text"/>: integers, and float / double bit patterns.</summary>

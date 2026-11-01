@@ -182,6 +182,76 @@ public sealed class DexStringFoldingTests : IDisposable
         return DexStringFolding.For(index).Method(index.Methods[index.ResolveMethod(Main + "->" + method)]);
     }
 
+    private DexStringFolding Fresh(string name) =>
+        DexStringFolding.For(DexIndex.Load(Save(_dir, name, _bytes), Core.AnalysisLimits.Default, default));
+
+    // Stalls after the first methods are reached, then holds the worker.
+    private static DexPackageFolds StallAfter(DexStringFolding folding, int reached)
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var rule = new Core.StallRule(TimeSpan.FromSeconds(10), clock);
+        using var gate = new ManualResetEventSlim();
+        // An idle first sample, so the window is covered once the clock moves.
+        rule.Stalled(TimeSpan.Zero);
+        try
+        {
+            return folding.Package(default, rule, () => TimeSpan.Zero, i =>
+            {
+                if (i != reached) return;
+                clock.Advance(TimeSpan.FromSeconds(11));
+                gate.Wait(TimeSpan.FromSeconds(30));
+            });
+        }
+        finally { gate.Set(); }
+    }
+
+    [Fact]
+    public void A_pass_that_stalls_first_reports_no_methods_scanned()
+    {
+        var stalled = StallAfter(Fresh("first.dex"), 0);
+        Assert.Empty(stalled.Sites);
+        Assert.True(stalled.Methods > 0 && stalled.MethodsLeft == stalled.Methods);
+        Assert.Contains($"scanned 0 of {stalled.Methods} methods", stalled.Note("search again"));
+    }
+
+    [Fact]
+    public void A_pass_stalled_after_one_method_keeps_its_sites_and_counts_the_rest()
+    {
+        var stalled = StallAfter(Fresh("partial.dex"), 1);
+        Assert.NotEmpty(stalled.Sites);
+        Assert.Equal(stalled.Methods - 1, stalled.MethodsLeft);
+        Assert.Contains($"scanned 1 of {stalled.Methods} methods", stalled.Note("search again"));
+    }
+
+    [Fact]
+    public void A_later_pass_finishes_the_methods_a_stalled_pass_left()
+    {
+        var folding = Fresh("later.dex");
+        StallAfter(folding, 1);
+        var done = folding.Package(default);
+        Assert.Equal(0, done.MethodsLeft);
+        Assert.Null(done.Note("search again"));
+        Assert.NotEmpty(done.Sites);
+    }
+
+    [Fact]
+    public void A_pass_that_reports_progress_is_not_stopped_however_far_the_clock_moves()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var rule = new Core.StallRule(TimeSpan.FromSeconds(10), clock);
+        var done = Fresh("progress.dex").Package(default, rule, () => TimeSpan.Zero, _ => clock.Advance(TimeSpan.FromSeconds(11)));
+        Assert.Equal(0, done.MethodsLeft);
+        Assert.NotEmpty(done.Sites);
+    }
+
+    [Fact]
+    public void The_survey_note_for_a_stalled_pass_names_the_survey_rules()
+    {
+        var note = new DexPackageFolds([], 2, 3, "last progress: m").Note(Corvus.Services.Analysis.DexRuleScan.StalledNext);
+        Assert.Contains("scanned 1 of 3 methods", note);
+        Assert.Contains("survey rules", note);
+    }
+
     private static string Value(DexFoldSite site) => site.Fold.Status == DexFoldStatus.Simplified ? site.Fold.Value! : $"{site.Fold.Status}: {site.Fold.Reason}";
 
     [Fact]

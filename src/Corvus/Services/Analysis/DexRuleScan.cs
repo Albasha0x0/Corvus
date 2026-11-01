@@ -15,8 +15,7 @@ internal sealed class DexRuleScan
     private const int MaxStringChars = 512;
     private const int MaxLocations = Corvus.Services.Analysis.Evidence.MaxLocations;
 
-    /// <summary>The time decoder calls may take within a survey; a search or a later survey continues the pass.</summary>
-    internal static readonly TimeSpan FoldTimeLimit = TimeSpan.FromSeconds(2);
+    internal const string StalledNext = "their strings are unknown to the survey rules; search_dex kind=string continues the pass";
 
     private sealed record CallFeature(string Feature, string Needle, Regex Target, int Arg, string? ArgKind, Regex? ArgText, long ArgInt);
 
@@ -45,7 +44,7 @@ internal sealed class DexRuleScan
     private readonly DexStringFolding _folding;
     private readonly List<string> _notes = [];
 
-    /// <summary>What the scan could not read: decoder calls left unevaluated by the time limit.</summary>
+    /// <summary>What the scan could not read: decoder calls left unevaluated by a stalled pass.</summary>
     public IReadOnlyList<string> Notes => _notes;
 
     /// <summary>Scans this thread built, and the methods they decoded (only those whose raw code touches a feature).</summary>
@@ -85,7 +84,7 @@ internal sealed class DexRuleScan
     /// <summary>str: features over the strings decoder calls return, at the call.</summary>
     private void Recovered(CancellationToken ct)
     {
-        var folds = _folding.Package(ct, FoldTimeLimit);
+        var folds = _folding.Package(ct);
         foreach (var site in folds.Sites)
         {
             if (site.Fold is not { Status: DexFoldStatus.Simplified, Value: { Length: > 0 and <= MaxStringChars } value }) continue;
@@ -93,8 +92,7 @@ internal sealed class DexRuleScan
             foreach (var (f, regex) in _strings)
                 if (regex.IsMatch(value)) _hits[f].Add(library, $"{site.Method} +0x{site.Offset:x}: \"{Clip(value)}\" from {site.Decoder}");
         }
-        if (folds.MethodsLeft > 0)
-            _notes.Add($"{folds.MethodsLeft} method(s) with string decoder calls not evaluated within {FoldTimeLimit.TotalSeconds:0} s; their strings are unknown to the dex rules (search_dex kind=string continues).");
+        if (folds.Note(StalledNext) is { } stalled) _notes.Add(stalled);
     }
 
     /// <summary>The evidence of one feature, or null when nothing matched.</summary>

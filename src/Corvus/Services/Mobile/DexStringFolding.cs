@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using Corvus.Core;
 using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
@@ -8,15 +9,17 @@ namespace Corvus.Services.Mobile;
 /// <remarks><see cref="Wrapper"/> names the String call that turns an array decoder's result into a string; null and -1 otherwise.</remarks>
 public sealed record DexFoldSite(string Method, int Offset, string Decoder, DexFold Fold, bool Evaluated = true, string? Wrapper = null, int WrapperOffset = -1);
 
-/// <summary>The decoder calls of a package, with the methods that were not reached within the time limit.</summary>
-public sealed record DexPackageFolds(IReadOnlyList<DexFoldSite> Sites, int MethodsLeft);
+/// <summary>The decoder calls of a package, and how many caller methods a stalled pass left.</summary>
+public sealed record DexPackageFolds(IReadOnlyList<DexFoldSite> Sites, int MethodsLeft, int Methods, string LastProgress)
+{
+    /// <summary>The note for a stalled pass naming the call that continues it; null when the pass finished.</summary>
+    public string? Note(string next) => MethodsLeft == 0 ? null
+        : $"scanned {Methods - MethodsLeft} of {Methods} methods with decoder calls; stalled for {ServerOptions.StallWindow().TotalSeconds:0.###} s, {LastProgress}; {next}; raise {ServerOptions.StallWindowVariable}.";
+}
 
 /// <summary>Finds and evaluates a package's string decoder calls with constant arguments and computed String[] table reads; results kept per package.</summary>
 public sealed class DexStringFolding
 {
-    /// <summary>The time one package-wide pass may take; a later pass continues where it stopped.</summary>
-    public static readonly TimeSpan PackageTimeLimit = TimeSpan.FromSeconds(10);
-
     private const int MaxArrayLiteral = 65_536;
     private static readonly ConditionalWeakTable<DexIndex, DexStringFolding> Cache = [];
 
@@ -168,25 +171,61 @@ public sealed class DexStringFolding
         }
     }
 
-    /// <summary>The decoder calls of every method; methods not reached within <paramref name="limit"/> (default <see cref="PackageTimeLimit"/>) are counted.</summary>
-    public DexPackageFolds Package(CancellationToken ct, TimeSpan? limit = null)
+    /// <summary>The decoder calls of every method; a stalled pass reports the methods left.</summary>
+    public DexPackageFolds Package(CancellationToken ct) =>
+        Package(ct, new StallRule(ServerOptions.StallWindow()), ProcessCpu, null);
+
+    // The caller watches the stall rule while a worker evaluates, so one long
+    // method cannot hide a stall. A stopped worker keeps the methods it held.
+    internal DexPackageFolds Package(CancellationToken ct, StallRule rule, Func<TimeSpan?> cpu, Action<int>? beforeMethod)
     {
         _index.EnsureCode(ct);
         var callers = _index.Refs.Where(r => r.Kind == DexRefKind.Call && IsCall(r.Opcode) && Decodes(_index.KeyText(r.Target))
                 || r.Kind == DexRefKind.Read && r.Opcode == 0x62 && IsTable(_index.KeyText(r.Target)))
             .Select(r => r.From).Distinct().Select(_index.KeyText).Order(StringComparer.Ordinal).ToList();
         var sites = new List<DexFoldSite>();
-        var clock = Stopwatch.StartNew();
-        int left = 0;
-        foreach (var caller in callers)
+        int reached = 0;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var worker = Task.Run(() =>
         {
-            ct.ThrowIfCancellationRequested();
-            bool done;
-            lock (_lock) done = _methods.ContainsKey(caller);
-            if (!done && clock.Elapsed > (limit ?? PackageTimeLimit)) { left++; continue; }
-            if (_index.Methods.TryGetValue(caller, out var m)) sites.AddRange(Method(m));
+            for (int i = 0; i < callers.Count; i++)
+            {
+                stop.Token.ThrowIfCancellationRequested();
+                beforeMethod?.Invoke(i);
+                var found = _index.Methods.TryGetValue(callers[i], out var m) ? Method(m) : [];
+                lock (sites)
+                {
+                    sites.AddRange(found);
+                    reached++;
+                    rule.Progress(callers[i]);
+                }
+            }
+        }, stop.Token);
+        try
+        {
+            while (!worker.Wait(StallPoll, ct))
+            {
+                bool stalled;
+                lock (sites) stalled = rule.Stalled(cpu());
+                if (stalled) break;
+            }
         }
-        return new DexPackageFolds(sites, left);
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            stop.Cancel();
+            throw;
+        }
+        if (worker.IsCompleted) worker.GetAwaiter().GetResult();
+        else stop.Cancel();
+        lock (sites) return new DexPackageFolds([.. sites], callers.Count - reached, callers.Count, rule.LastUnitText);
+    }
+
+    private static readonly TimeSpan StallPoll = TimeSpan.FromMilliseconds(500);
+
+    private static TimeSpan? ProcessCpu()
+    {
+        try { using var self = Process.GetCurrentProcess(); return self.TotalProcessorTime; }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
     }
 
     private List<DexFoldSite> Scan(DexMethodEntry m)
