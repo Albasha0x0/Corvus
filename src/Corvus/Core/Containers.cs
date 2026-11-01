@@ -505,8 +505,12 @@ public static class Containers
             {
                 archive ??= SharpCompress.Archives.ArchiveFactory.OpenArchive(new MemoryStream(data!, writable: false), new SharpCompress.Readers.ReaderOptions { Password = password });
                 var entry = archive.Entries.First(e => !e.IsDirectory && e.Key?.Replace('\\', '/') == name);
-                using var s = entry.OpenEntryStream();
-                return Blob.ReadBounded(s, limits.MaxItemBytes);
+                byte[]? bytes;
+                using (var s = entry.OpenEntryStream()) bytes = Blob.ReadBounded(s, limits.MaxItemBytes);
+                // A wrong ZipCrypto key passes its one-byte check once in 256; the
+                // CRC refuses it. AE-2 entries store 0 and are checked by their MAC.
+                if (bytes != null && entry.Crc != 0 && Crc32(bytes) != (uint)entry.Crc) throw new EntryLockedException(true);
+                return bytes;
             }
             // A wrong password surfaces as a cipher, checksum or format fault depending on the scheme.
             catch (Exception ex) when (ex is not (OperationCanceledException or ToolError or OutOfMemoryException))

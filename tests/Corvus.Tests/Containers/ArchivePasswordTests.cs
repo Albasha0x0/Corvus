@@ -17,14 +17,17 @@ public sealed class ArchivePasswordTests
     private static readonly (string Name, byte[] Data)[] Files = [("lib/app.dll", Assembly), ("readme.txt", "hello"u8.ToArray())];
 
     /// <summary>A zip with every entry encrypted: ZipCrypto (APPNOTE 6.1) or WinZip AES-256 AE-2, stored without compression.</summary>
-    internal static byte[] Zip(string password, bool aes, params (string Name, byte[] Data)[] files)
+    internal static byte[] Zip(string password, bool aes, params (string Name, byte[] Data)[] files) => Zip(password, aes, null, files);
+
+    /// <summary>As <see cref="Zip(string, bool, (string, byte[])[])"/>; a ZipCrypto header also passes the check byte under <paramref name="passes"/>.</summary>
+    internal static byte[] Zip(string password, bool aes, string? passes, params (string Name, byte[] Data)[] files)
     {
         var output = new MemoryStream();
         var central = new MemoryStream();
         foreach (var (name, data) in files)
         {
             uint crc = aes ? 0 : Crc(data);
-            var body = aes ? AesBody(data, password) : CryptoBody(data, password, crc);
+            var body = aes ? AesBody(data, password) : CryptoBody(data, password, crc, passes);
             var nameBytes = Encoding.UTF8.GetBytes(name);
             // 0x9901: AE-2, vendor AE, strength 3 (256-bit), stored.
             byte[] extra = aes ? [0x01, 0x99, 7, 0, 2, 0, (byte)'A', (byte)'E', 3, 0, 0] : [];
@@ -67,6 +70,32 @@ public sealed class ArchivePasswordTests
         crc ^= b;
         for (int i = 0; i < 8; i++) crc = (crc & 1) != 0 ? crc >> 1 ^ 0xEDB88320 : crc >> 1;
         return crc;
+    }
+
+    private static byte[] CryptoBody(byte[] data, string password, uint crc, string? passes)
+    {
+        // A random header passes another password's one-byte check about once in 256 tries.
+        while (true)
+        {
+            var body = CryptoBody(data, password, crc);
+            if (passes == null || CheckByte(body, passes) == (byte)(crc >> 24)) return body;
+        }
+    }
+
+    private static byte CheckByte(byte[] body, string password)
+    {
+        uint k0 = 0x12345678, k1 = 0x23456789, k2 = 0x34567890;
+        void Update(byte c)
+        {
+            k0 = Step(k0, c);
+            k1 = (k1 + (k0 & 0xFF)) * 134775813 + 1;
+            k2 = Step(k2, (byte)(k1 >> 24));
+        }
+        byte Next() { uint t = (k2 | 2) & 0xFFFF; return (byte)(t * (t ^ 1) >> 8); }
+        foreach (var c in Encoding.UTF8.GetBytes(password)) Update(c);
+        byte plain = 0;
+        for (int i = 0; i < 12; i++) { plain = (byte)(body[i] ^ Next()); Update(plain); }
+        return plain;
     }
 
     private static byte[] CryptoBody(byte[] data, string password, uint crc)
@@ -141,6 +170,15 @@ public sealed class ArchivePasswordTests
         Assert.Contains("lib/app.dll: not read (the password did not decrypt it).", contents.Notes);
         Assert.Contains("readme.txt: not read (the password did not decrypt it).", contents.Notes);
         Assert.DoesNotContain(contents.Notes, n => n.Contains("another password") || n.Contains(Secret));
+    }
+
+    // Regression: CI on f825521a read a wrong ZipCrypto password's output once.
+    [Fact]
+    public void A_wrong_password_that_passes_the_check_byte_is_refused_by_the_crc()
+    {
+        var contents = Open(Zip(Secret, aes: false, passes: "another password", Files), "another password");
+        Assert.Empty(contents.Items);
+        Assert.Contains("readme.txt: not read (the password did not decrypt it).", contents.Notes);
     }
 
     [Fact]
