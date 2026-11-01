@@ -88,6 +88,19 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeJs(js, "flow", query: "nothingHere"))).Code);
     }
 
+    // Regression: the walk checked the stack depth, not a node count, and ran on
+    // after a cancel (Windows CI on 6510ccfe, view=secrets).
+    [Fact]
+    public void A_cancelled_walk_stops_within_4096_nodes()
+    {
+        var js = _dir.File("flat.js");
+        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 20_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
+        var program = JsAnalysis.Program(js, default);
+        int visited = 0;
+        Assert.ThrowsAny<OperationCanceledException>(() => program.Walk((_, _) => visited++, new CancellationToken(canceled: true)));
+        Assert.InRange(visited, 1, 4096);
+    }
+
     // The token cancels 5 ms into the walk of a 20,000-function bundle.
     [Theory]
     [InlineData("flow", "sinks")]

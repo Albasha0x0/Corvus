@@ -131,8 +131,10 @@ internal sealed class JsProgram
         var stack = new Stack<(Node Node, JsScope Scope)>();
         stack.Push((root, rootScope));
         var children = new List<Node>();
+        int n = 0;
         while (stack.Count > 0)
         {
+            if ((++n & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
             var (node, scope) = stack.Pop();
             if (node.UserData is JsScope own) scope = own;
             visit(node, scope);
@@ -140,7 +142,6 @@ internal sealed class JsProgram
             foreach (var c in node.ChildNodes)
                 if (c != null) children.Add(c);
             for (int i = children.Count - 1; i >= 0; i--) stack.Push((children[i], scope));
-            if ((stack.Count & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
         }
     }
 
