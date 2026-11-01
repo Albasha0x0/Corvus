@@ -62,6 +62,23 @@ public sealed class NativeEmbeddedContentTests
     }
 
     [Fact]
+    public void The_gzip_stream_line_names_the_call_that_extracts_it()
+    {
+        // The stream sits at 0x100 in a section of a host with a spaced path.
+        var data = new byte[0x200 + 0x100];
+        Gzip(500).CopyTo(data, 0x100);
+        var pe = new PeBuilder();
+        pe.Add(".rdata", data);
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.File("host dir"), "host.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, pe.Build());
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var line = Assert.Single(new InspectionService(workspace).Summarize(null, path, default).Highlights, h => h.StartsWith("Compression stream", StringComparison.Ordinal));
+        Assert.EndsWith($"unpack_container path=\"{path}\" extracts them.", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_gzip_stream_alone_is_named_in_the_overview()
     {
         var data = new byte[0x200 + 0x100];

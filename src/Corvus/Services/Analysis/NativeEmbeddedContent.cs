@@ -19,8 +19,8 @@ internal static class NativeEmbeddedContent
     private static string[] NimNames(byte[] image) =>
         NimMarkers.Where(m => image.AsSpan().IndexOf(m.Bytes) >= 0).Select(m => m.Name).ToArray();
 
-    /// <summary>One line per script container, Nim runtime names and verified gzip streams.</summary>
-    public static List<string> Highlights(byte[] image, CancellationToken ct)
+    /// <summary>One line per script container, Nim runtime name and verified gzip stream, the last naming its unpack_container call.</summary>
+    public static List<string> Highlights(string path, byte[] image, CancellationToken ct)
     {
         var lines = new List<string>();
         if (AutoItScript.Find(image) is >= 0 and var script)
@@ -54,7 +54,7 @@ internal static class NativeEmbeddedContent
             var limit = unread > 0 || capped
                 ? $"; some candidates not read (limits: {MaxStreamBytes >> 20} MiB read and {MaxExpandedBytes >> 20} MiB expanded per stream, {MaxTriedBytes >> 20} MiB read in total, {MaxCandidates} magic hits)"
                 : "";
-            if (streams.Count > 0 || limit.Length > 0) lines.Add($"Compression stream: {text}{limit}.");
+            if (streams.Count > 0 || limit.Length > 0) lines.Add($"Compression stream: {text}{limit}.{(streams.Count > 0 ? $" unpack_container path={(path.Any(char.IsWhiteSpace) ? $"\"{path}\"" : path)} extracts them." : "")}");
         }
         return lines;
     }

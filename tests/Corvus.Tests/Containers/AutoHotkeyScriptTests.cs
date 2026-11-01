@@ -55,7 +55,7 @@ public sealed class AutoHotkeyScriptTests
     {
         var pe = new PeBuilder();
         pe.Add(".rdata", Encoding.ASCII.GetBytes("\0NimMainInner\0nimGC_setStackBottom\0"));
-        var text = string.Join(" ", NativeEmbeddedContent.Highlights(pe.Build(), default));
+        var text = string.Join(" ", NativeEmbeddedContent.Highlights("sample.exe", pe.Build(), default));
         Assert.Contains("Nim runtime names found: NimMainInner, nimGC_setStackBottom.", text, StringComparison.Ordinal);
     }
 
@@ -64,14 +64,14 @@ public sealed class AutoHotkeyScriptTests
     {
         var pe = new PeBuilder();
         pe.Add(".rdata", Encoding.ASCII.GetBytes("\0NimMainInner\0"));
-        var text = string.Join(" ", NativeEmbeddedContent.Highlights(pe.Build(), default));
+        var text = string.Join(" ", NativeEmbeddedContent.Highlights("sample.exe", pe.Build(), default));
         Assert.DoesNotContain("Nim", text, StringComparison.Ordinal);
     }
 
     [Fact]
     public void The_overview_names_the_script_resource()
     {
-        var text = string.Join(" ", NativeEmbeddedContent.Highlights(Executable("ExitApp"u8.ToArray()), default));
+        var text = string.Join(" ", NativeEmbeddedContent.Highlights("sample.exe", Executable("ExitApp"u8.ToArray()), default));
         Assert.Contains("Script container: AutoHotkey compiled script, resource >AUTOHOTKEY SCRIPT<; unpack_container reads the script.", text, StringComparison.Ordinal);
     }
 

@@ -705,6 +705,20 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
+    public void A_gzip_stream_found_at_an_offset_in_an_unknown_blob_unpacks()
+    {
+        // The gzip stream starts at 0x400 in noise with no container header.
+        var stream = GzipOf("offset payload ");
+        var blob = Noise(0x400 + stream.Length + 0x100);
+        stream.CopyTo(blob, 0x400);
+
+        var r = Unpack(Save("offset.bundle", blob));
+
+        var file = Assert.Single(r.Files);
+        Assert.Contains("gzip stream at 0x400", file.Origin, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Nine_embedded_native_images_list_eight_and_count_the_rest()
     {
         var inner = NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1);
