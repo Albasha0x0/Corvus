@@ -79,7 +79,11 @@ public sealed class TempDir : IDisposable
 {
     public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
 
-    public TempDir() => Directory.CreateDirectory(Path);
+    public TempDir()
+    {
+        Directory.CreateDirectory(Path);
+        LeakGuard.Owners[System.IO.Path.GetFullPath(Path)] = new StackFrame(1).GetMethod()?.DeclaringType is { } t ? (t.DeclaringType ?? t).Name : "?";
+    }
 
     /// <summary>A directory at <paramref name="path"/> (fixtures written beside the test binaries).</summary>
     public TempDir(string path)

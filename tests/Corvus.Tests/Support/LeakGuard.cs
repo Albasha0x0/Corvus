@@ -162,12 +162,16 @@ internal static class LeakGuard
         try
         {
             if (Directory.Exists(path))
-                return $"{name}/ [{string.Join(", ", Directory.EnumerateFileSystemEntries(path).Take(3).Select(Path.GetFileName))}]"
+                return $"{name}/ [{string.Join(", ", Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories).Take(3).Select(e => Path.GetRelativePath(path, e)))}]"
+                    + (Owners.TryGetValue(Path.GetFullPath(path), out var owner) ? $" from {owner}" : "")
                     + (DeleteFailures.TryGetValue(Path.GetFullPath(path), out var failure) ? $" ({failure})" : "");
             return $"{name} ({new FileInfo(path).Length} bytes)";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return name; }
     }
+
+    /// <summary>The test class that created each test folder, by path; names the owner of a leftover.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Owners = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The last error of a test folder whose deletion gave up, by path.</summary>
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> DeleteFailures = new(StringComparer.OrdinalIgnoreCase);
