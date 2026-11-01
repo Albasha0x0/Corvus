@@ -136,7 +136,8 @@ public sealed class AndroidPackageTests : IDisposable
         var a = summary.Android!;
         Assert.Equal(("apk", "com.example.app", "1.2", 24, 30), (a.Kind, a.Package, a.VersionName, a.MinSdk, a.TargetSdk));
         Assert.Equal(["dotnet-android", "aot", "flutter", "react-native", "kotlin"], a.Runtimes.Select(r => r.Family));
-        Assert.Equal("AOT: metadata header readable", a.Runtimes[1].Note);
+        Assert.Equal("AOT: metadata header readable, version 31; native code arm64-v8a (header unreadable), armeabi-v7a (header unreadable); "
+            + $"load_assembly path={path} slice=arm64-v8a loads its library", a.Runtimes[1].Note);
         Assert.Contains("assets/bin/Data/Managed/Metadata/global-metadata.dat", a.Runtimes[1].Evidence);
         Assert.StartsWith("React Native: Hermes bytecode bundle;", a.Runtimes[3].Note);
         Assert.Equal(["arm64-v8a", "armeabi-v7a"], a.Abis);
@@ -149,5 +150,56 @@ public sealed class AndroidPackageTests : IDisposable
         var tampered = Apk(31, ("lib/arm64-v8a/libil2cpp.so", [0x7F]), ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [1, 2, 3, 4]));
         var aot = new InspectionService(workspace).Summarize(null, tampered, default).Android!.Runtimes.Single();
         Assert.Contains("encrypted or tampered", aot.Note);
+    }
+
+    // The x86_64 folder holds an arm64 library.
+    [Fact]
+    public void An_ELF_machine_that_differs_from_its_ABI_folder_is_labelled()
+    {
+        static byte[] Elf(ushort machine)
+        {
+            var b = new byte[64];
+            "ELF"u8.CopyTo(b.AsSpan(1));
+            b[0] = 0x7F;
+            b[4] = 2;
+            b[18] = (byte)machine;
+            b[19] = (byte)(machine >> 8);
+            return b;
+        }
+        var path = Apk(30, ("lib/arm64-v8a/libil2cpp.so", Elf(183)),
+            ("lib/x86_64/libil2cpp.so", Elf(183)),
+            ("assets/bin/Data/Managed/Metadata/global-metadata.dat",
+                [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0]));
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var aot = new InspectionService(workspace).Summarize(null, path, default)
+            .Android!.Runtimes.Single();
+        Assert.Equal("AOT: metadata header readable, version 29; "
+            + "native code arm64-v8a, x86_64 (ELF machine is arm64-v8a); "
+            + $"load_assembly path={path} slice=arm64-v8a loads its library", aot.Note);
+    }
+
+    // The metadata file is shorter than its 8-byte header.
+    [Fact]
+    public void A_metadata_file_shorter_than_its_header_gives_no_version()
+    {
+        var path = Apk(30, ("assets/bin/Data/Managed/Metadata/global-metadata.dat",
+            [0xAF, 0x1B, 0xB1, 0xFA]));
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var aot = new InspectionService(workspace).Summarize(null, path, default)
+            .Android!.Runtimes.Single();
+        Assert.Equal("AOT: metadata header readable", aot.Note);
+    }
+
+    // The package holds the native library and no metadata file.
+    [Fact]
+    public void A_library_without_a_metadata_file_names_both_facts()
+    {
+        var path = Apk(30, ("lib/arm64-v8a/libil2cpp.so", new byte[4]));
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var aot = new InspectionService(workspace).Summarize(null, path, default)
+            .Android!.Runtimes.Single();
+        Assert.Equal("AOT: no global-metadata.dat in this APK (an asset pack or split may hold it); "
+            + $"native code arm64-v8a (header unreadable); load_assembly path={path} "
+            + "slice=arm64-v8a loads its library", aot.Note);
     }
 }

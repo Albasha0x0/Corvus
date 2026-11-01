@@ -172,6 +172,24 @@ public sealed class AndroidPackage : IDisposable
         }
     }
 
+    /// <summary>
+    /// The first <paramref name="count"/> bytes of an entry: fewer when the entry
+    /// is shorter, empty when it is absent, unreadable or <paramref name="count"/> is not positive.
+    /// </summary>
+    public byte[] ReadHead(string name, int count)
+    {
+        if (!_entries.TryGetValue(ToArchive(name), out var e)) return [];
+        try
+        {
+            using var s = e.Open();
+            var buffer = new byte[(int)Math.Min(Math.Max(count, 0), Math.Max(e.Length, 0))];
+            int read = 0, n;
+            while (read < buffer.Length && (n = s.Read(buffer, read, buffer.Length - read)) > 0) read += n;
+            return buffer[..read];
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException) { return []; }
+    }
+
     private AxmlDocument? _manifest;
     private IResourceTable? _resources;
     private bool _resourcesRead;
