@@ -91,6 +91,22 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         return sb.ToString();
     }
 
+    /// <summary>The sites inside one function and a note naming the scope.</summary>
+    internal static (IReadOnlyList<VirtualCallSite> Sites, string Note) Scope(NativeCodeIndex index, string function)
+    {
+        var rva = NativeCodeTools.Address(index, function);
+        var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
+            "list_functions shows the functions");
+        var sites = index.Ranges(fn).SelectMany(r => index.VirtualCalls.SitesIn(r.Start, r.End)).ToList();
+        var total = index.VirtualCalls.Sites.Count;
+        var partial = index.VirtualCalls.Stats.FunctionsNotConverged > 0;
+        var note = sites.Count == 0
+            ? $"function {fn.Name}: no virtual call site {(partial ? "reported (the analysis is partial, so none is unknown)" : "found")}; "
+              + $"the totals cover the whole image ({total:N0} sites). Call find_virtual_calls without function to list them"
+            : $"function {fn.Name}: {sites.Count:N0} of {total:N0} sites; the totals cover the whole image";
+        return (sites, note);
+    }
+
     /// <summary>find_virtual_calls' report as fields.</summary>
     internal Task<VirtualCallReport> Report(string image, string? function = null, string? status = null, int offset = 0, int limit = 100, bool crossCheck = false,
         int sampleFunctions = 100, int seconds = 300, RequestContext<CallToolRequestParams> context = null!, CancellationToken cancellationToken = default) =>
@@ -117,15 +133,16 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
 
         var set = index.VirtualCalls;
         IEnumerable<VirtualCallSite> sites = set.Sites;
+        string? scopeNote = null;
         if (!string.IsNullOrWhiteSpace(function))
         {
-            var rva = NativeCodeTools.Address(index, function);
-            var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
-                "list_functions shows the functions");
-            sites = index.Ranges(fn).SelectMany(r => set.SitesIn(r.Start, r.End));
+            var scope = Scope(index, function);
+            sites = scope.Sites;
+            scopeNote = scope.Note;
         }
         if (wanted is { } w) sites = sites.Where(s => s.Status == w);
         var list = sites.ToList();
+        if (scopeNote != null && wanted != null) scopeNote += $"; status={status!.Trim().ToLowerInvariant()} keeps {list.Count:N0} of them";
 
         var rtti = list.Any(s => s.ClassTypeDescriptor != 0) ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken)) : null;
         var classNames = rtti?.Classes.GroupBy(c => c.TypeDescriptorRva).ToDictionary(g => g.Key, g => g.First().Name) ?? [];
@@ -145,6 +162,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         }).ToList();
 
         var notes = new List<string>(set.Notes);
+        if (scopeNote != null) notes.Add(scopeNote);
         if (start + page.Count < list.Count) notes.Add($"{list.Count - start - page.Count} more: offset={start + page.Count}");
         // Sites in functions whose data flow did not settle are not reported: the counts are lower bounds.
         if (set.Stats.FunctionsNotConverged > 0)

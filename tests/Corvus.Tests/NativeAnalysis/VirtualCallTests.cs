@@ -249,6 +249,30 @@ public class VirtualCallTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Sites_in_a_named_function_are_listed_with_the_image_wide_total()
+    {
+        // Fixture: the synthetic image has nine sites in total, one in Leaf_g.
+        var (image, _) = Synthetic();
+        var index = NativeCodeIndex.Build(image);
+        var scope = NativeVirtualCallTools.Scope(index, "Leaf_g");
+        Assert.Equal(At("Leaf_g"), scope.Sites.Single().Function);
+        Assert.Contains("1 of 9", scope.Note);
+        Assert.Contains("totals cover the whole image", scope.Note);
+    }
+
+    [Fact]
+    public void A_function_without_sites_names_the_total_and_the_next_call()
+    {
+        // Fixture: purecall holds no virtual call site.
+        var (image, _) = Synthetic();
+        var index = NativeCodeIndex.Build(image);
+        var scope = NativeVirtualCallTools.Scope(index, "purecall");
+        Assert.Empty(scope.Sites);
+        Assert.Contains("no virtual call site", scope.Note);
+        Assert.Contains("find_virtual_calls without function", scope.Note);
+    }
+
+    [Fact]
     public void Decorated_names_give_parameter_and_return_classes()
     {
         var x64 = new MsvcDemangleOptions();
