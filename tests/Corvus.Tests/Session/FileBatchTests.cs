@@ -503,8 +503,12 @@ public class FileBatchTests
         File.WriteAllText(plain, "plain text");
         var (_, document, _) = await Batch("--file", plain);
         Assert.Equal(Corvus.Services.Analysis.FindingRules.Digest, (string?)document!["ruleTable"]);
-        var installed = Corvus.Core.RulePacks.Installed(Corvus.Core.RulePacks.Root).Select(p => $"{p.Name} {p.Version} {p.Digest ?? "unknown"}");
-        Assert.Equal(installed, document["rulePacks"]!.AsArray().Select(p => $"{(string?)p!["name"]} {(string?)p["version"]} {(string?)p["digest"]}"));
+        // Pack tests in other classes install and remove fixture-* packs in the
+        // shared root while this runs (Windows CI on 2a655c2b).
+        var installed = Corvus.Core.RulePacks.Installed(Corvus.Core.RulePacks.Root).Where(p => !p.Name.StartsWith("fixture-", StringComparison.Ordinal))
+            .Select(p => $"{p.Name} {p.Version} {p.Digest ?? "unknown"}");
+        Assert.Equal(installed, document["rulePacks"]!.AsArray().Where(p => (string?)p!["name"] is { } n && !n.StartsWith("fixture-", StringComparison.Ordinal))
+            .Select(p => $"{(string?)p!["name"]} {(string?)p["version"]} {(string?)p["digest"]}"));
     }
 
     [Fact]
