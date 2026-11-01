@@ -39,7 +39,7 @@ public static class ServerHost
                     Title = ServerIdentity.Product,
                     Version = typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
                 };
-                o.ServerInstructions = instructions;
+                o.ServerInstructions = ResultFence.Append(options, instructions);
             });
         transport(server);
         server

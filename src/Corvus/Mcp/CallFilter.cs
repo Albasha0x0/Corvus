@@ -71,6 +71,8 @@ internal static partial class CallFilter
             recent.Add(CallLog.Origin(tool, request?.Arguments) with { Inputs = ToolOutput.Inputs(request?.Arguments, services.GetService<AssemblyWorkspace>()) }, result);
         if (options != null && services!.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, output.Tokens > 0 ? output.Tokens : Budget(tool, null, client), store, request);
+        // Fenced last, on a copy: a page, a kept result and the recorded call stay unfenced, and a cut never splits a fence.
+        if (options != null && tool != null && !output.JsonMode) result = ResultFence.Wrap(options, tool, result);
         string? answerSha256 = null;
         if (services?.GetService<AssemblyWorkspace>()?.DrainNotices() is { Count: > 0 } notices)
         {

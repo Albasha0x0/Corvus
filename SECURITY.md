@@ -111,6 +111,7 @@ Each needs a server option or environment variable set by the person running the
   - `--allow-live-attach` (`CORVUS_ALLOW_LIVE_ATTACH=1`): attach to a running program. `--live-allow` limits attach and start to named programs or folders.
   - `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`): `live_session` and `live_console` start a program `--live-allow` names (`*`: any program).
 - `--live-install-frida` (`CORVUS_LIVE_INSTALL_FRIDA=1`): with no tested Frida found, the first session installs the pinned Frida into a private Python environment with pip (hash-checked wheels).
+- `--fence-file-text` (`CORVUS_FENCE_FILE_TEXT=1`): the text of each successful file-reading result sits in a per-session fence. Errors, notices, `--json` output, `structuredContent` and resources stay unfenced.
 - `--allow-window-capture` (`CORVUS_ALLOW_WINDOW_CAPTURE=1`): `inspect_process view=windows` reads window titles, control text and a picture of a window.
 - `--toolsets` limits what is registered; without it every tool is registered, `inspect_process` included.
 

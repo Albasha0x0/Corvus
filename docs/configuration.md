@@ -32,6 +32,7 @@ Server options, environment variables and security switches. Setup: [installatio
 | `--allow-replace-original` | `CORVUS_ALLOW_REPLACE_ORIGINAL` | `save_assembly` and `save_native` with `replaceOriginal=true`; without it they write new files only |
 | `--allow-remote-paths` | `CORVUS_ALLOW_REMOTE_PATHS` | UNC paths and network drives in call arguments; paths named inside a file stay local; off under `CORVUS_OFFLINE` |
 | `--allow-device-changes` | `CORVUS_ALLOW_DEVICE_CHANGES` | `install_android_package`, `uninstall_android_package`; other device tools only read |
+| `--fence-file-text` | `CORVUS_FENCE_FILE_TEXT` | wrap result text in a per-session `[file-text <id>]` fence; the instructions name it |
 | `--trace-args` | `CORVUS_TRACE_ARGS` | argument values in the `--trace` file; secrets masked, best effort |
 | `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | file and dump reads in the server process, not a worker |
 | | `CORVUS_LIVE_MAX_MINUTES` | minutes a session may sit unused before it closes (default 30) |
