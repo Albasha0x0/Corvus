@@ -150,7 +150,7 @@
       }
     },
     "edges": {
-      "description": "Edges with either end on this page.",
+      "description": "Edges with both ends on this page.",
       "type": "array",
       "items": {
         "description": "A data-flow edge, From's value flows to To.",
@@ -179,7 +179,7 @@
       }
     },
     "frontier": {
-      "description": "Unexplored items, each with its follow-up call.",
+      "description": "Unexplored items of this page's nodes, each with its follow-up call.",
       "type": "array",
       "items": {
         "description": "Something a budget left unexplored.",
@@ -231,6 +231,38 @@
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "pendingEdges": {
+      "description": "Edges with one end on another page, with its row offset.",
+      "type": "array",
+      "items": {
+        "description": "An edge with one end on another page.",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "integer"
+          },
+          "to": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "offset": {
+            "description": "Offset of the page holding the end that is not on this page.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "kind",
+          "offset"
+        ]
       }
     },
     "notices": {

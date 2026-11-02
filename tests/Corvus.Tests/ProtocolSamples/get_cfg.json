@@ -35,6 +35,7 @@
       "unresolvedJumps": 0,
       "cyclomatic": 1
     },
+    "pendingEdges": [],
     "limit": 150,
     "totalExact": true,
     "hasMore": false

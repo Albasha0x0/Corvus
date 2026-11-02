@@ -217,6 +217,36 @@
         "cyclomatic"
       ]
     },
+    "pendingEdges": {
+      "description": "Successors on another page, with their row offset.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "Block on this page (VA).",
+            "type": "string"
+          },
+          "to": {
+            "description": "Block on another page (VA).",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "offset": {
+            "description": "Offset of the page holding the target block.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "kind",
+          "offset"
+        ]
+      }
+    },
     "limit": {
       "type": "integer"
     },

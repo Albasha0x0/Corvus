@@ -68,6 +68,39 @@ public sealed class ValueTraceImagesTests : IDisposable
         NativeLinkTests.Has(text, "-> sink: argument 1 dwMilliseconds of KERNEL32!Sleep");
     }
 
+    // Regression: a page returned an edge to node 15 that it did not return.
+    [Fact]
+    public async Task A_page_lists_edges_between_its_own_nodes_and_names_the_cut_ones_as_pending()
+    {
+        var (tools, ws) = Rig();
+        using var _ = ws;
+        var all = await tools.TraceNativeValues("app.dll", "0x180001004", location: "rcx", direction: "forward");
+        int total = System.Text.RegularExpressions.Regex.Count(all, @"(?m)^\s+#\d+ (?:<- |-> )?\w+:");
+        Assert.True(total > 2);
+        bool cut = false;
+        for (int offset = 0; offset < total; offset += 2)
+        {
+            var collector = Corvus.Mcp.ToolOutput.Collect();
+            var text = await tools.TraceNativeValues("app.dll", "0x180001004", location: "rcx", direction: "forward", offset: offset, limit: 2);
+            var report = Assert.IsType<NativeTraceTools.ValueTraceReport>(collector.Value);
+            var onPage = report.Nodes.Select(n => n.Id).ToHashSet();
+            Assert.All(report.Edges, e => Assert.True(onPage.Contains(e.From) && onPage.Contains(e.To)));
+            Assert.All(report.PendingEdges, e => Assert.NotEqual(onPage.Contains(e.From), onPage.Contains(e.To)));
+            Assert.All(report.PendingEdges, e => Assert.True(e.Offset < report.Offset || e.Offset >= report.Offset + report.Nodes.Count));
+            Assert.All(report.Frontier, f => Assert.Contains(f.Node, onPage));
+            var nodes = System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^\s+#(\d+) (?:<- |-> )?\w+:").Select(m => m.Groups[1].Value).ToHashSet();
+            var pendingAt = text.IndexOf("Pending edges", StringComparison.Ordinal);
+            var edges = System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^\s+#(\d+) -> #(\d+) ");
+            foreach (System.Text.RegularExpressions.Match e in edges)
+            {
+                bool both = nodes.Contains(e.Groups[1].Value) && nodes.Contains(e.Groups[2].Value);
+                Assert.Equal(both, pendingAt < 0 || e.Index < pendingAt);
+            }
+            cut |= pendingAt >= 0;
+        }
+        Assert.True(cut);
+    }
+
     [Fact]
     public async Task Backward_parameter_of_an_export_binds_to_the_importers_arguments()
     {

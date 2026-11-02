@@ -52,6 +52,10 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("copy, merge, loop, field, use, argument (caller to parameter), parameter (into a callee), return, store, load.")] string Kind,
         [property: Description("The call, store or load instruction (VA), when the edge crosses one.")] string? Site);
 
+    [Description("An edge with one end on another page.")]
+    public sealed record TracePendingEdge(int From, int To, string Kind, string? Site,
+        [property: Description("Offset of the page holding the end that is not on this page.")] int Offset);
+
     [Description("Something a budget left unexplored.")]
     public sealed record TraceFrontierRecord(
         [property: Description("The node it continues from.")] int Node,
@@ -72,14 +76,18 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("backward, forward or both.")] string Direction,
         [property: Description("Whole graph: distinct values (backward) or API arguments reached (forward).")] IReadOnlyList<TraceValueRecord> Values,
         [property: Description("Nodes of this page, in discovery order.")] IReadOnlyList<TraceNodeRecord> Nodes,
-        [property: Description("Edges with either end on this page.")] IReadOnlyList<TraceEdgeRecord> Edges,
-        [property: Description("Unexplored items, each with its follow-up call.")] IReadOnlyList<TraceFrontierRecord> Frontier,
+        [property: Description("Edges with both ends on this page.")] IReadOnlyList<TraceEdgeRecord> Edges,
+        [property: Description("Unexplored items of this page's nodes, each with its follow-up call.")] IReadOnlyList<TraceFrontierRecord> Frontier,
         int TotalNodes,
         int TotalEdges,
         [property: Description("Functions sliced.")] int Functions,
         [property: Description("Index of the first node on this page.")] int Offset,
         [property: Description("More nodes follow (call again with offset).")] bool Truncated,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        [Description("Edges with one end on another page, with its row offset.")]
+        public IReadOnlyList<TracePendingEdge> PendingEdges { get; init; } = [];
+    }
 
     private const string LocationHelp = "a register (rdx, xmm1, x1, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) " +
                                         "or result (the call's return)";
@@ -354,6 +362,11 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         var page = g.Nodes.Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
         var ids = page.Select(n => n.Id).ToHashSet();
         var s = g.Seed;
+        TraceEdgeRecord Edge(TraceEdge e) => new(e.From, e.To, e.Kind, e.Site != 0 ? Va(e.Site, e.Image) : null);
+        var position = new Dictionary<int, int>();
+        for (int i = 0; i < g.Nodes.Count; i++) position.TryAdd(g.Nodes[i].Id, i);
+        TracePendingEdge Pending(TraceEdge e) =>
+            new(e.From, e.To, e.Kind, e.Site != 0 ? Va(e.Site, e.Image) : null, position.GetValueOrDefault(ids.Contains(e.From) ? e.To : e.From));
         return new ValueTraceReport(Path.GetFileName(index.Image.Path), g.Engine,
             new TraceSeedRecord(s.Kind.ToString().ToLowerInvariant(), Va(s.Address), s.Function is { } sf ? Format.Within(sf.Name, sf.Start, s.Address) : null, s.Location, s.Description),
             g.Options.Direction.ToString().ToLowerInvariant(),
@@ -361,9 +374,12 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             page.Select(n => new TraceNodeRecord(n.Id, Kind(n.Kind), Va(n.Address, n.Image), n.Image == 0 ? null : g.Images[n.Image].Id, Where(n), n.Location, n.Text,
                 n.Value is { } v ? $"0x{v:X}" : null, n.ValueRva is { } r ? Va(r, n.Image) : null, n.Decoded, n.Depth, n.Parent, n.Backward ? "backward" : "forward",
                 n.Derivation)).ToList(),
-            g.Edges.Where(e => ids.Contains(e.From) || ids.Contains(e.To)).Select(e => new TraceEdgeRecord(e.From, e.To, e.Kind, e.Site != 0 ? Va(e.Site, e.Image) : null)).ToList(),
-            g.Frontier.Select(f => new TraceFrontierRecord(f.Node, f.Reason, f.Detail, f.Next)).ToList(),
-            g.Nodes.Count, g.Edges.Count, g.Functions, start, start + page.Count < g.Nodes.Count, g.Notes);
+            g.Edges.Where(e => ids.Contains(e.From) && ids.Contains(e.To)).Select(Edge).ToList(),
+            g.Frontier.Where(f => ids.Contains(f.Node)).Select(f => new TraceFrontierRecord(f.Node, f.Reason, f.Detail, f.Next)).ToList(),
+            g.Nodes.Count, g.Edges.Count, g.Functions, start, start + page.Count < g.Nodes.Count, g.Notes)
+        {
+            PendingEdges = g.Edges.Where(e => ids.Contains(e.From) != ids.Contains(e.To)).Select(Pending).ToList(),
+        };
     }
 
     private static string Text(NativeCodeIndex index, ValueTraceGraph g, ValueTraceReport r)
@@ -403,6 +419,12 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             sb.AppendLine("Other edges:");
             foreach (var e in other) sb.AppendLine($"  #{e.From} -> #{e.To} {Edge(e)}");
+        }
+        if (r.PendingEdges.Count > 0)
+        {
+            sb.AppendLine("Pending edges (one end on another page):");
+            foreach (var e in r.PendingEdges.Take(50)) sb.AppendLine($"  #{e.From} -> #{e.To} {(e.Site != null ? $"{e.Kind} at {e.Site}" : e.Kind)} (offset {e.Offset})");
+            if (r.PendingEdges.Count > 50) sb.AppendLine($"  ... {r.PendingEdges.Count - 50} more (structured output)");
         }
         if (r.Frontier.Count > 0)
         {

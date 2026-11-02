@@ -20,7 +20,14 @@ public sealed record CfgReport(
     IReadOnlyList<CfgUnresolvedJump> UnresolvedJumps,
     [property: Description("Targets of tail calls (VA); first page.")] IReadOnlyList<string> TailCalls,
     [property: Description("The function was cut at the instruction limit.")] bool Cut,
-    [property: Description("Whole function: edges, switches, unresolved jumps, cyclomatic complexity.")] CfgSummary Summary);
+    [property: Description("Whole function: edges, switches, unresolved jumps, cyclomatic complexity.")] CfgSummary Summary)
+{
+    [Description("Successors on another page, with their row offset.")]
+    public IReadOnlyList<CfgPendingEdge> PendingEdges { get; init; } = [];
+}
+
+public sealed record CfgPendingEdge([property: Description("Block on this page (VA).")] string From, [property: Description("Block on another page (VA).")] string To,
+    string Kind, [property: Description("Offset of the page holding the target block.")] int Offset);
 
 public sealed record CfgSummary(int Blocks, int Edges, int Switches, int UnresolvedJumps, int Cyclomatic);
 
@@ -108,12 +115,21 @@ public sealed partial class NativeCodeTools
                    (offset == 0 && tailCalls.Count > 0 ? $"tail calls to {string.Join(", ", tailCalls.Take(20))}{(tailCalls.Count > 20 ? ", ..." : "")}\n" : "");
         offset = Math.Max(0, offset);
         var page = rows.Skip(offset).Take(Math.Max(1, limit)).ToList();
-        return ToolOutput.List(page, offset, limit, rows.Count, r => r.Line, shown =>
+        var index = new Dictionary<string, int>();
+        for (int i = 0; i < rows.Count; i++) index.TryAdd(rows[i].Block.Start, i);
+        // Tail calls name other functions, so only successors that are blocks of this function can be cut.
+        List<CfgPendingEdge> Pending(IReadOnlyList<CfgRow> shown) =>
+            [.. shown.SelectMany(r => r.Block.Successors.Where(e => index.TryGetValue(e.To, out var at) && !shown.Any(x => x.Block.Start == e.To))
+                .Select(e => new CfgPendingEdge(r.Block.Start, e.To, e.Kind, index[e.To])))];
+        var pagePending = Pending(page);
+        string RowText(CfgRow r) => r.Line + string.Concat(pagePending.Where(p => p.From == r.Block.Start)
+            .Select(p => $"\n  off page: {p.To} {p.Kind} (offset {p.Offset})"));
+        return ToolOutput.List(page, offset, limit, rows.Count, RowText, shown =>
             {
                 bool In(uint at) => shown.Any(r => at >= r.Start && at < r.End);
                 return new CfgReport(image, function, address, choice.Engine, shown.Select(r => r.Block).ToList(), offset, rows.Count,
                     switches.Where(s => In(s.Jump)).Select(s => s.Switch).ToList(), unresolved.Where(u => In(u.At)).Select(u => u.Jump).ToList(),
-                    offset == 0 ? tailCalls : [], cut, summary);
+                    offset == 0 ? tailCalls : [], cut, summary) { PendingEdges = Pending(shown) };
             }, "block", head);
     }
 

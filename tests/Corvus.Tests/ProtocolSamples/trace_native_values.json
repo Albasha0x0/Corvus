@@ -61,6 +61,7 @@
     "functions": 1,
     "offset": 0,
     "truncated": false,
-    "notes": []
+    "notes": [],
+    "pendingEdges": []
   }
 }

@@ -93,6 +93,25 @@
       "description": "Edges into images still indexing are not yet known.",
       "type": "string"
     },
+    "pendingParents": {
+      "description": "Parents on another page, with their row offset.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "node": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node",
+          "offset"
+        ]
+      }
+    },
     "limit": {
       "type": "integer"
     },

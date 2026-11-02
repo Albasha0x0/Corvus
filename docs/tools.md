@@ -1239,7 +1239,7 @@ Basic blocks of the native function at an address, paged: range, successors, swi
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `engine` | string |  |  | auto (default): IDA or Ghidra if analyzed, else ours. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `function`, `address`, `engine`, `items`, `switches`, `unresolvedJumps`, `tailCalls`, `cut`, `summary`.
+Structured output: `image`, `function`, `address`, `engine`, `items`, `switches`, `unresolvedJumps`, `tailCalls`, `cut`, `summary`, `pendingEdges`.
 
 ### find_xrefs
 
@@ -1281,7 +1281,7 @@ Callers or callees of a native function across loaded images, thunks and import 
 | `engine` | string |  |  | auto (default): IDA or Ghidra if analyzed, else ours. Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `image`, `root`, `direction`, `items`, `frontier`, `engine`, `engineNote`, `partial`.
+Structured output: `image`, `root`, `direction`, `items`, `frontier`, `engine`, `engineNote`, `partial`, `pendingParents`.
 
 ### find_virtual_calls
 
@@ -1363,7 +1363,7 @@ Trace a value through native code across functions and images: backward to the c
 | `engine` | string |  |  | Slice engine (default auto: an engine that analyzed the image, else ours). Values: auto, ours, ida, ghidra. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
-Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`.
+Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`, `pendingEdges`.
 
 ### resolve_call_targets
 
@@ -1708,7 +1708,7 @@ Structured output: `outputPath`, `format`, `names`, `comments`, `pseudoComments`
 
 **Patch native bytes** (destructive, long-running)
 
-Replace bytes at a native address in memory as an undoable edit. Unsafe sites need allowUnsafe; encrypted bytes are refused; signatures become invalid.
+Replace bytes at a native address in memory as an undoable edit. Unsafe sites need allowUnsafe; encrypted bytes are refused; signatures become invalid. Warnings (writable_executable_section, high_entropy_section, signature_invalidated) name the site and the file.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1730,7 +1730,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Assemble and patch native code** (destructive, long-running)
 
-Assemble x86/x64 instructions and write them at a native address in memory. Safety rules and undo as patch_bytes; PE absolute addresses get relocations.
+Assemble x86/x64 instructions and write them at a native address in memory. Safety rules and undo as patch_bytes; PE absolute addresses get relocations. Warnings as patch_bytes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1779,7 +1779,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Save patched native image** (destructive, idempotent, long-running)
 
-Write the patched native image to a new file; the PE checksum is recomputed and a signature becomes invalid. replaceOriginal=true keeps a .bak and refuses a file changed on disk.
+Write the patched native image to a new file; the PE checksum is recomputed and a signature becomes invalid. replaceOriginal=true keeps a .bak and refuses a file changed on disk. Warnings as patch_bytes; stripSignature=true drops signature_invalidated.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

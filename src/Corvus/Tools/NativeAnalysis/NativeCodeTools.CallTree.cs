@@ -20,7 +20,13 @@ public sealed record NativeCallTreeResult(
     [property: Description(EngineDoc.Note)] string? EngineNote)
 {
     [Description("Edges into images still indexing are not yet known.")] public string? Partial { get; init; }
+
+    [Description("Parents on another page, with their row offset.")]
+    public IReadOnlyList<NativeTreePending>? PendingParents { get; init; }
 }
+
+/// <summary>A node id named as a parent on a page but returned on another, with the offset that reads it.</summary>
+public sealed record NativeTreePending(int Node, int Offset);
 
 /// <summary>A tree node with its text line (indented by depth).</summary>
 internal sealed record TreeRow(NativeTreeNode Node, string Line);
@@ -33,9 +39,19 @@ public sealed partial class NativeCodeTools
         // The page's frontier: a whole tree's can hold thousands of nodes.
         static List<string>? Frontier(IEnumerable<TreeRow> page) =>
             page.Where(r => r.Node.Flags?.Contains("more") == true && r.Node.Address != null).Select(r => r.Node.Address!).Distinct().ToList() is { Count: > 0 } f ? f : null;
+        var at = new Dictionary<int, int>();
+        for (int i = 0; i < rows.Count; i++) at.TryAdd(rows[i].Node.Id, i);
+        List<NativeTreePending>? Pending(IReadOnlyList<TreeRow> page)
+        {
+            var onPage = page.Select(r => r.Node.Id).ToHashSet();
+            var cut = page.Select(r => r.Node.Parent).OfType<int>().Distinct().Where(p => !onPage.Contains(p) && at.ContainsKey(p))
+                .Select(p => new NativeTreePending(p, at[p])).ToList();
+            return cut.Count > 0 ? cut : null;
+        }
         return ToolOutput.List(rows, Math.Max(0, offset), ClampLimit(limit), r => r.Line,
             page => new NativeCallTreeResult(native.Id, root, direction, page.Select(r => r.Node).ToList(), Math.Max(0, offset), rows.Count,
-                Frontier(page), choice.Engine, choice.Note) { Partial = partial.Length > 0 ? partial.TrimEnd() : null }, "node", choice.Line + "\n" + partial + header);
+                Frontier(page), choice.Engine, choice.Note) { Partial = partial.Length > 0 ? partial.TrimEnd() : null, PendingParents = Pending(page) },
+            "node", choice.Line + "\n" + partial + header);
     }
 
     /// <summary>Rows of a link-service tree: its text lines beside the rows it wrote.</summary>
