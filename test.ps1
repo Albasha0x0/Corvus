@@ -155,6 +155,8 @@ function Start-RunTiming([string]$mode) {
     $script:loadJob = try { Start-MachineLoad } catch { $null }
     $env:CORVUS_PERMIT_LOG = Join-Path $tempRoot "corvus-permits-$PID.tsv"
     Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue
+    # Every test process of this run names it, so a sibling's permit is its own.
+    $env:CORVUS_PERMIT_RUN = "$PID"
 }
 
 # Builds the test project and adds its seconds to $buildSeconds.
@@ -208,6 +210,7 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
     finally {
         # Later test runs of this script (a failure rerun) log no waits.
         if ($env:CORVUS_PERMIT_LOG) { Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue; Remove-Item Env:CORVUS_PERMIT_LOG }
+        Remove-Item Env:CORVUS_PERMIT_RUN -ErrorAction SilentlyContinue
     }
 }
 

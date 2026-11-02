@@ -50,6 +50,14 @@ public static class MachinePermits
     /// </summary>
     public static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(25);
 
+    /// <summary>
+    /// The run this process belongs to: CORVUS_PERMIT_RUN, which test.ps1 sets for every test process it starts, else
+    /// the process itself. A holder of the same run does not count against a waiter's <see cref="RunMaxWait"/>.
+    /// </summary>
+    public static string RunId { get; } = Environment.GetEnvironmentVariable("CORVUS_PERMIT_RUN") is { Length: > 0 } run
+        ? run
+        : Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
+
     /// <summary>The run's wait bound: CORVUS_PERMIT_MAX_WAIT (a time span, which test.ps1 sets from its hang limit), else <see cref="MaxWait"/>.</summary>
     public static TimeSpan RunMaxWait => MaxWaitFrom(Environment.GetEnvironmentVariable("CORVUS_PERMIT_MAX_WAIT"));
 
@@ -115,13 +123,14 @@ public static class MachinePermits
     internal static async Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
         IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null, TimeSpan? heartbeat = null,
         Func<TimeSpan>? clock = null, Action? polled = null, Func<string, IReadOnlyList<(int Pid, string? CommandLine)>>? holders = null,
-        TimeSpan? holderLookupLimit = null, TimeSpan? maxWait = null)
+        TimeSpan? holderLookupLimit = null, TimeSpan? maxWait = null, string? run = null)
     {
+        run ??= RunId;
         var watch = Stopwatch.StartNew();
         clock ??= () => watch.Elapsed;
         var lookup = holders ?? FileHolders.Of;
         var lookupLimit = holderLookupLimit ?? HolderLookupLimit;
-        var held = new PermitHandle(heartbeat);
+        var held = new PermitHandle(heartbeat, run);
         try
         {
             foreach (var resource in resources)
@@ -131,20 +140,28 @@ public static class MachinePermits
                 var count = counts[resource];
                 var started = clock();
                 var quietSince = started;
+                // The cap counts only time with no slot held by this run: its own
+                // classes queue for the same permits and finish by themselves, so
+                // a queue of them is no starvation by another process.
+                var foreign = TimeSpan.Zero;
+                var lastTick = started;
                 var seen = Owners(dir, count);
                 Task<string>? named = null;
                 FileStream? slot;
                 while ((slot = TryTake(dir, count)) == null)
                 {
+                    var tick = clock();
+                    if (!HeldBy(dir, count, run)) foreign += tick - lastTick;
+                    lastTick = tick;
                     if (maxWait is { } cap)
                     {
                         // The holder lookup starts one lookup bound before the cap,
                         // so its answer is in when the wait ends at the cap.
-                        var left = cap - clock();
+                        var left = cap - foreign;
                         if (named == null && (lookupLimit == Timeout.InfiniteTimeSpan || left <= lookupLimit)) named = Holders(dir, count, lookup, lookupLimit);
                         if (left < TimeSpan.Zero)
                             throw new PermitWaitEndedException(
-                                $"{NotRunPrefix}{resource} held for {(clock() - started).TotalMinutes:0.##} min ({await named!}); not run.", watch.Elapsed);
+                                $"{NotRunPrefix}{resource} held for {foreign.TotalMinutes:0.##} min ({await named!}); not run.", watch.Elapsed);
                     }
                     // A permit changing hands or a holder's progress restarts the limit; one holder keeping its
                     // permit without either fails the wait.
@@ -199,20 +216,29 @@ public static class MachinePermits
         }));
     }
 
-    /// <summary>Owner records of a resource's slots: "pid test token progress" or "pid script"; a record being rewritten reads unknown.</summary>
-    private static string Owners(string dir, int count) => string.Join("|", Enumerable.Range(0, count).Select(i =>
+    // A slot's owner record; empty when there is none, "?" while its holder rewrites it.
+    private static string ReadOwner(string dir, int slot)
     {
-        string record;
         try
         {
-            using var reader = new StreamReader(new FileStream(Path.Combine(dir, $"slot-{i}{OwnerSuffix}"), FileMode.Open, FileAccess.Read,
+            using var reader = new StreamReader(new FileStream(Path.Combine(dir, $"slot-{slot}{OwnerSuffix}"), FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete));
-            record = reader.ReadToEnd();
+            return reader.ReadToEnd();
         }
         catch (FileNotFoundException) { return ""; }
         catch (DirectoryNotFoundException) { return ""; }
         catch (IOException) { return "?"; }
         catch (UnauthorizedAccessException) { return "?"; }
+    }
+
+    // Whether a slot's record names the run as its holder's.
+    private static bool HeldBy(string dir, int count, string run) =>
+        Enumerable.Range(0, count).Any(i => ReadOwner(dir, i).Split(' ') is [_, "test", _, _, var holder] && holder == run);
+
+    /// <summary>Owner records of a resource's slots: "pid test token progress run" or "pid script"; a record being rewritten reads unknown.</summary>
+    private static string Owners(string dir, int count) => string.Join("|", Enumerable.Range(0, count).Select(i =>
+    {
+        var record = ReadOwner(dir, i);
         return record.Split(' ') is [var pid, "script"] && int.TryParse(pid, out var id) && Alive(id) ? record + " " + Stopwatch.GetTimestamp() : record;
     }));
 
@@ -253,11 +279,13 @@ public sealed class PermitHandle : IDisposable
     private readonly List<(FileStream Slot, string Owner)> _slots = [];
     private readonly string _token = Guid.NewGuid().ToString("N");
     private readonly Timer? _heartbeat;
+    private readonly string _run;
     private long _progress;
 
-    /// <summary>Holds no permit yet; <paramref name="heartbeat"/> null reports progress only through <see cref="Progress"/>.</summary>
-    public PermitHandle(TimeSpan? heartbeat = null)
+    /// <summary>Holds no permit yet; <paramref name="heartbeat"/> null reports progress only through <see cref="Progress"/>, <paramref name="run"/> null names <see cref="MachinePermits.RunId"/> as the holder's run.</summary>
+    public PermitHandle(TimeSpan? heartbeat = null, string? run = null)
     {
+        _run = run ?? MachinePermits.RunId;
         if (heartbeat is { } every) _heartbeat = new Timer(_ => Progress(), null, every, every);
     }
 
@@ -285,7 +313,7 @@ public sealed class PermitHandle : IDisposable
         {
             using var stream = new FileStream(owner, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
             using var writer = new StreamWriter(stream);
-            writer.Write($"{Environment.ProcessId} test {_token} {Interlocked.Read(ref _progress)}");
+            writer.Write($"{Environment.ProcessId} test {_token} {Interlocked.Read(ref _progress)} {_run}");
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }

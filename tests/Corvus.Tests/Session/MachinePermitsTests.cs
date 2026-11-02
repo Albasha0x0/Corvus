@@ -208,6 +208,52 @@ public class MachinePermitsTests
         finally { steps.Delete(); }
     }
 
+    // Starved full runs: 3 of 7 for 2.10.0 left live classes unrun.
+    [Fact]
+    public async Task A_wait_behind_a_holder_of_the_same_run_does_not_run_out_its_bound()
+    {
+        using var steps = new SteppedWait();
+        try
+        {
+            var (held, _) = await MachinePermits.TakeAsync(["one"], steps.Folder, steps.Counts, default);
+            using (held)
+            {
+                var waiter = steps.Wait(maxWait: TimeSpan.FromMilliseconds(1800), holderLookupLimit: Timeout.InfiniteTimeSpan);
+                for (int i = 0; i < 4; i++)
+                {
+                    await steps.Advance(TimeSpan.FromMilliseconds(500), held.Progress);
+                    Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
+                }
+                held.Dispose();
+                (await waiter).Held.Dispose();
+            }
+        }
+        finally { steps.Delete(); }
+    }
+
+    // Starved full runs: 3 of 7 for 2.10.0 left live classes unrun.
+    [Fact]
+    public async Task A_wait_behind_a_holder_of_another_run_runs_out_its_bound()
+    {
+        using var steps = new SteppedWait();
+        try
+        {
+            var (held, _) = await MachinePermits.TakeAsync(["one"], steps.Folder, steps.Counts, default, run: "another-run");
+            using (held)
+            {
+                var waiter = steps.Wait(maxWait: TimeSpan.FromMilliseconds(1800), holderLookupLimit: Timeout.InfiniteTimeSpan);
+                for (int i = 0; i < 3; i++)
+                {
+                    await steps.Advance(TimeSpan.FromMilliseconds(500), held.Progress);
+                    Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
+                }
+                steps.Pass(TimeSpan.FromMilliseconds(500));
+                await Assert.ThrowsAsync<PermitWaitEndedException>(() => waiter);
+            }
+        }
+        finally { steps.Delete(); }
+    }
+
     [Fact]
     public async Task A_wait_outlasts_its_limit_while_the_holder_is_alive_in_one_long_test()
     {
