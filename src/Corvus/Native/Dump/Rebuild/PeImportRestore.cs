@@ -26,6 +26,7 @@ public static class PeImportRestore
 
         int width = is64 ? 8 : 4;
         int modules = 0, restored = 0, unresolved = 0;
+        List<(uint Rva, ulong Value)> pending = [];
         string? stopped = null;
         long count = dirSize / DescriptorSize;
         for (long i = 0; i < count; i++)
@@ -59,16 +60,33 @@ public static class PeImportRestore
                     Write(image, (int)slotAt, width, entry);
                     restored++;
                 }
-                else unresolved++;
+                else
+                {
+                    unresolved++;
+                    if (slotAt + width <= image.Length) pending.Add(((uint)slotAt, Read(image, (int)slotAt, width)));
+                }
             }
         }
 
-        var summary = new ImportSummary(modules, restored, 0, unresolved, false);
-        if (stopped == null && unresolved == 0)
+        var names = Name(pending, memory);
+        unresolved -= names.Count;
+        var summary = new ImportSummary(modules, restored, names.Count, unresolved, false) { Names = names };
+        if (stopped == null && unresolved == 0 && names.Count == 0)
             checks.Add(RebuildCheck.Ok("imports", $"{restored} slots restored from {modules} modules"));
         else
-            checks.Add(RebuildCheck.Partial("imports", $"{restored} slots restored, {unresolved} unresolved in {modules} modules" + (stopped == null ? "" : $"; {stopped}")));
+            checks.Add(RebuildCheck.Partial("imports", $"{restored} slots restored, {names.Count} named from exports, {unresolved} unresolved in {modules} modules" + (stopped == null ? "" : $"; {stopped}")));
         return summary;
+    }
+
+    // The map is built only when a slot is left, as it reads every module's exports.
+    private static IReadOnlyList<ResolvedImport> Name(List<(uint Rva, ulong Value)> pending, IProcessMemory memory)
+    {
+        if (pending.Count == 0 || memory == null) return [];
+        var map = new ExportMap(memory);
+        List<ResolvedImport> named = [];
+        foreach (var (rva, value) in pending)
+            if (map.NameAt(value) is { } name) named.Add(new ResolvedImport($"0x{rva:X}", name));
+        return named;
     }
 
     private static bool TryDirectory(byte[] image, out bool is64, out uint rva, out uint size)

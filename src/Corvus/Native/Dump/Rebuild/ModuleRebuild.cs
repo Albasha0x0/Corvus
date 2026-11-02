@@ -50,7 +50,14 @@ public sealed record CapturedImage(RebuildTarget Target, byte[] Image, bool[] Ca
 }
 
 /// <summary>The import address table after a rebuild: entries named from intact name tables, named from exports, and left as addresses.</summary>
-public sealed record ImportSummary(int Modules, int Restored, int Resolved, int Unresolved, bool DirectoryRebuilt);
+public sealed record ImportSummary(int Modules, int Restored, int Resolved, int Unresolved, bool DirectoryRebuilt)
+{
+    /// <summary>The slots named from exports, in image order; empty when none was.</summary>
+    public IReadOnlyList<ResolvedImport> Names { get; init; } = [];
+}
+
+/// <summary>An import address table slot and the export it points at: slot RVA as hex text, and <c>module!name</c>.</summary>
+public sealed record ResolvedImport(string Slot, string Name);
 
 /// <summary>A difference between a rebuilt image and its file on disk: section, RVA range, and whether it is code.</summary>
 public sealed record DiskDifference(string Section, string Start, int Length, bool Code);
