@@ -69,6 +69,85 @@ public class MsvcRttiTests(ITestOutputHelper output)
         Assert.Equal(0, result.Stats.Locators);
     }
 
+    [Fact]
+    public void Descriptors_sharing_a_vftable_value_outside_the_image_are_recovered()
+    {
+        var image = new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL);
+        var result = MsvcRtti.Analyze(image);
+        Assert.Equal(["A", "B"], result.Classes.Select(c => c.Name).Order());
+        Assert.All(result.Classes, c => Assert.Single(c.Vtables));
+    }
+
+    [Fact]
+    public void Descriptors_with_distinct_vftable_values_outside_the_image_are_rejected()
+    {
+        var image = new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL, odd: 0x1_8022_0000UL);
+        var result = MsvcRtti.Analyze(image);
+        Assert.Empty(result.Classes);
+        Assert.Contains(result.Skipped, k => k.Reason.Contains("outside the image"));
+    }
+
+    /// <summary>A 64-bit image of two classes whose type descriptors hold a vftable value outside it.</summary>
+    private sealed class ExternalVftableImage : INativeImage
+    {
+        private const ulong Base = 0x1_4000_0000UL;
+        private const uint Data = 0x1000, Code = 0x2000;
+        private readonly byte[] bytes = new byte[0x2100];
+
+        public ExternalVftableImage(ulong vftableValue, ulong? odd = null)
+        {
+            Emit(0x1000, "A", 0x2000, vftableValue);
+            Emit(0x1200, "B", 0x2010, odd ?? vftableValue);
+            Sections =
+            [
+                new NativeSection(".rdata", Data, 0x500, Data, 0x500, SectionAccess.Read, 0),
+                new NativeSection(".text", Code, 0x100, Code, 0x100, SectionAccess.Read | SectionAccess.Execute | SectionAccess.Code, 0),
+            ];
+        }
+
+        private void Emit(int at, string name, uint method, ulong tdVftable)
+        {
+            void U32(int o, uint v) => BitConverter.TryWriteBytes(bytes.AsSpan(at + o), v);
+            void U64(int o, ulong v) => BitConverter.TryWriteBytes(bytes.AsSpan(at + o), v);
+            uint rva(int o) => (uint)(at + o);
+            U64(0, tdVftable);
+            Encoding.ASCII.GetBytes($".?AV{name}@@").CopyTo(bytes, at + 0x10);
+            U32(0x30 + 8, 1); U32(0x30 + 12, rva(0x50)); // Hierarchy: one base.
+            U32(0x50, rva(0x70));
+            U32(0x70, rva(0)); U32(0x74, 0); U32(0x78, 0); U32(0x7C, 0xFFFFFFFF); U32(0x80, 0); U32(0x84, 0); U32(0x88, rva(0x30));
+            U32(0xA0, 1); U32(0xA4, 0); U32(0xA8, 0); U32(0xAC, rva(0)); U32(0xB0, rva(0x30)); U32(0xB4, rva(0xA0));
+            U64(0xC0, Base + rva(0xA0));
+            U64(0xC8, Base + method);
+            U64(0xD0, Base + method + 8);
+        }
+
+        public string Path => "";
+        public string Sha256 => "";
+        public NativeArch Arch => NativeArch.X64;
+        public bool Is64Bit => true;
+        public bool IsDll => false;
+        public ulong ImageBase => Base;
+        public uint EntryPointRva => 0;
+        public uint SizeOfImage => 0x3000;
+        public IReadOnlyList<NativeSection> Sections { get; }
+        public IReadOnlyList<NativeImport> Imports => [];
+        public IReadOnlyList<NativeExport> Exports => [];
+        public IReadOnlyList<RuntimeFunction> RuntimeFunctions => [];
+        public IReadOnlyList<uint> RelocationRvas => [];
+        public IReadOnlyList<uint> TlsCallbackRvas => [];
+        public IReadOnlyList<ParseIssue> Issues => [];
+        public int Read(uint rva, Span<byte> destination)
+        {
+            if (rva >= bytes.Length) return 0;
+            int n = Math.Min(destination.Length, bytes.Length - (int)rva);
+            bytes.AsSpan((int)rva, n).CopyTo(destination);
+            return n;
+        }
+        public bool TryRvaToFileOffset(uint rva, out long fileOffset) { fileOffset = rva; return rva < bytes.Length; }
+        public bool TryFileOffsetToRva(long fileOffset, out uint rva) { rva = (uint)fileOffset; return fileOffset < bytes.Length; }
+        public NativeSection? SectionAt(uint rva) => Sections.FirstOrDefault(s => s.Contains(rva));
+    }
+
     /// <summary>Structural invariants every result must satisfy.</summary>
     internal static void CheckInvariants(INativeImage image, MsvcRttiResult result)
     {

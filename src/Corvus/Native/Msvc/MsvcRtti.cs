@@ -159,6 +159,8 @@ public static class MsvcRtti
         private HashSet<uint> codeReferences = [];
         private int tdRejected, colRejected, colWithoutVtable;
         private long bytesScanned;
+        /// <summary>The type_info vftable value outside the image that most descriptors hold; null when descriptors point inside it.</summary>
+        private ulong? sharedExternalVftable;
 
         private bool UseRelocations => relocations.Count > 0;
 
@@ -267,8 +269,38 @@ public static class MsvcRtti
                 skipped.Add(new MsvcRttiSkip(rva, kind, reason));
         }
 
+        /// <summary>Finds the type_info vftable value shared by most descriptors when it lies outside the image (imported from the runtime); null when none.</summary>
+        private void FindSharedExternalVftable()
+        {
+            ReadOnlySpan<byte> marker = ".?A"u8;
+            var counts = new Dictionary<ulong, int>();
+            int candidates = 0;
+            foreach (var (s, buffer) in data)
+            {
+                int at = 0;
+                while (at < buffer.Length)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int k = buffer.AsSpan(at).IndexOf(marker);
+                    if (k < 0) break;
+                    int nameOffset = at + k;
+                    at = nameOffset + 1;
+                    long tdOffset = nameOffset - 2L * ptr;
+                    if (tdOffset < 0 || tdOffset % ptr != 0) continue;
+                    uint rva = s.Rva + (uint)tdOffset;
+                    if (!TryPointer(rva, out var vfptr) || !TryPointer(rva + (uint)ptr, out var spare) || spare != 0) continue;
+                    candidates++;
+                    if (vfptr == 0 || TryVaToRva(vfptr, out _)) continue;
+                    counts[vfptr] = counts.GetValueOrDefault(vfptr) + 1;
+                }
+            }
+            foreach (var (value, n) in counts)
+                if (n >= 2 && n * 2 > candidates) sharedExternalVftable = value;
+        }
+
         private void FindTypeDescriptors()
         {
+            FindSharedExternalVftable();
             ReadOnlySpan<byte> marker = ".?A"u8;
             foreach (var (s, buffer) in data)
             {
@@ -314,7 +346,7 @@ public static class MsvcRtti
             reason = null;
             if (rva % ptr != 0) { reason = "not pointer-aligned"; return null; }
             if (!TryPointer(rva, out var vfptr) || !TryPointer(rva + (uint)ptr, out var spare)) { reason = "unreadable"; return null; }
-            if (!TryVaToRva(vfptr, out _)) { reason = $"type_info vftable pointer 0x{vfptr:X} is outside the image"; return null; }
+            if (!TryVaToRva(vfptr, out _) && vfptr != sharedExternalVftable) { reason = $"type_info vftable pointer 0x{vfptr:X} is outside the image"; return null; }
             if (spare != 0) { reason = "runtime cache field is not zero"; return null; }
             var name = ReadName(rva + 2u * (uint)ptr, out reason);
             if (name == null) return null;
