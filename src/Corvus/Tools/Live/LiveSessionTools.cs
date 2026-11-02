@@ -292,12 +292,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         LiveSessionService.Live(s);
         if (s.ScriptRuntime is { } runtime) throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a {runtime.Kind} session: save_modules rebuilds native modules.", $"live_session action=attach program={s.ProcessId} opens a process session");
-        // Pack rejects a bad option before the process is opened.
-        var save = MinidumpService.ModuleSave.Unpack(MinidumpService.ModuleSave.Pack(
-            string.IsNullOrWhiteSpace(outputPath)
-                ? Native.Providers.PrivateFolder.Temp("modules", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}")
-                : outputPath, modules, layout, imports, @base));
-        var root = SafeFile.Output(save.Folder);
+        // Parse rejects a bad option before the process is opened.
+        var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base);
+        var root = SafeFile.Output(string.IsNullOrWhiteSpace(outputPath)
+            ? Native.Providers.PrivateFolder.Temp("modules", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}")
+            : outputPath);
         if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <program>-modules");
         using var process = Native.Live.LiveProcess.Attach(s.ProcessId, ct);

@@ -255,42 +255,36 @@ public sealed partial class MinidumpService
     private static bool IsWow64Process(MinidumpFile d) =>
         d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Which modules view=modules saves and how: carried in the output path, which is the one text field the worker arguments hold.</summary>
-    public sealed record ModuleSave(string Folder, string Module, OutputLayout Layout, ImportMode Imports, BaseMode Base)
+    /// <summary>Which modules view=modules or save_modules rebuild and how; <see cref="Parse"/> checks the option text.</summary>
+    public sealed record ModuleOptions(string Module, OutputLayout Layout, ImportMode Imports, BaseMode Base)
     {
-        private const char Separator = '\n';
+        /// <summary>The defaults: every listed module, file layout, imports restored, loaded base.</summary>
+        public static ModuleOptions Default { get; } = new("all", OutputLayout.File, ImportMode.Restore, BaseMode.Loaded);
 
-        /// <summary>The folder and options as one text; rejects a value outside the documented set (InvalidArgument).</summary>
-        public static string Pack(string folder, string? modules, string? layout, string? imports, string? @base)
+        /// <summary>The options of the given texts, null or blank meaning the default; rejects a value outside the documented set (InvalidArgument).</summary>
+        public static ModuleOptions Parse(string? module, string? layout, string? imports, string? @base)
         {
-            var m = string.IsNullOrWhiteSpace(modules) ? "all" : modules.Trim();
-            if (m.Contains(Separator)) throw new ToolError(ErrorCode.InvalidArgument, "modules is a file name, a 0x address, all or unlisted.");
-            var l = Choice("layout", layout, "file", "mapped");
-            var i = Choice("imports", imports, "restore", "keep");
-            var b = Choice("base", @base, "loaded", "preferred");
-            return string.Join(Separator, folder, m, l, i, b);
+            var m = string.IsNullOrWhiteSpace(module) ? "all" : module.Trim();
+            return new ModuleOptions(m,
+                Choice("layout", layout, OutputLayout.File, OutputLayout.Mapped),
+                Choice("imports", imports, ImportMode.Restore, ImportMode.Keep),
+                Choice("base", @base, BaseMode.Loaded, BaseMode.Preferred));
         }
 
-        /// <summary>The options a packed text holds; a plain folder gets the defaults.</summary>
-        public static ModuleSave Unpack(string packed)
+        private static T Choice<T>(string name, string? value, T first, T second) where T : struct, Enum
         {
-            var p = packed.Split(Separator);
-            if (p.Length != 5) return new ModuleSave(packed, "all", OutputLayout.File, ImportMode.Restore, BaseMode.Loaded);
-            return new ModuleSave(p[0], p[1], p[2] == "mapped" ? OutputLayout.Mapped : OutputLayout.File,
-                p[3] == "keep" ? ImportMode.Keep : ImportMode.Restore, p[4] == "preferred" ? BaseMode.Preferred : BaseMode.Loaded);
-        }
-
-        private static string Choice(string name, string? value, string first, string second)
-        {
-            var v = string.IsNullOrWhiteSpace(value) ? first : value.Trim().ToLowerInvariant();
-            if (v != first && v != second) throw new ToolError(ErrorCode.InvalidArgument, $"{name} '{value}' is not {first} or {second}.", $"pass {name} as {first} or {second}");
-            return v;
+            var v = string.IsNullOrWhiteSpace(value) ? first.ToString().ToLowerInvariant() : value.Trim().ToLowerInvariant();
+            var a = first.ToString().ToLowerInvariant();
+            var b = second.ToString().ToLowerInvariant();
+            if (v == a) return first;
+            if (v == b) return second;
+            throw new ToolError(ErrorCode.InvalidArgument, $"{name} '{value}' is not {a} or {b}.", $"pass {name} as {a} or {b}");
         }
     }
 
     /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here and the metadata state of each .NET image.</summary>
-    /// <remarks>With <paramref name="outputPath"/>, the page's images go to that new or empty folder, returned as Folder; a core file refuses it.</remarks>
-    public (string Id, IReadOnlyList<CheckedModule> Rows, int Total, string? Folder) Modules(string path, string? imageDirectories, int offset, int limit, string? outputPath = null, CancellationToken ct = default)
+    /// <remarks>With <paramref name="outputPath"/>, the page's images go to that new or empty folder, returned as Folder, rebuilt as <paramref name="rebuild"/> says (default: all listed modules); a core file refuses it.</remarks>
+    public (string Id, IReadOnlyList<CheckedModule> Rows, int Total, string? Folder) Modules(string path, string? imageDirectories, int offset, int limit, string? outputPath = null, CancellationToken ct = default, ModuleOptions? rebuild = null)
     {
         using var s = Open(path, imageDirectories);
         if (s.Core is { } core)
@@ -306,8 +300,8 @@ public sealed partial class MinidumpService
         string? folder = null;
         if (outputPath != null)
         {
-            var save = ModuleSave.Unpack(outputPath);
-            var root = SafeFile.Output(save.Folder);
+            var save = rebuild ?? ModuleOptions.Default;
+            var root = SafeFile.Output(outputPath);
             if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
                 throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <dump>-modules");
             var targets = ModuleRebuild.Select(d, save.Module, ct);

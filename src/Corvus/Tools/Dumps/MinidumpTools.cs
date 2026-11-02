@@ -49,12 +49,23 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (filter != "all" && v != "memory") throw new ToolError(ErrorCode.InvalidArgument, "regionFilter goes with view=memory.");
         if (!string.IsNullOrWhiteSpace(yara) && filter != "unbacked") throw new ToolError(ErrorCode.InvalidArgument, "yara goes with regionFilter=unbacked.");
         if (!string.IsNullOrWhiteSpace(outputPath) && v != "modules") throw new ToolError(ErrorCode.InvalidArgument, "outputPath goes with view=modules.", "pass view=modules");
-        var save = string.IsNullOrWhiteSpace(outputPath) ? null : MinidumpService.ModuleSave.Pack(outputPath, modules, layout, imports, @base);
-        if (save == null && new[] { modules, layout, imports, @base }.Any(o => !string.IsNullOrWhiteSpace(o)))
+        var saving = !string.IsNullOrWhiteSpace(outputPath);
+        if (!saving && new[] { modules, layout, imports, @base }.Any(o => !string.IsNullOrWhiteSpace(o)))
             throw new ToolError(ErrorCode.InvalidArgument, "modules, layout, imports and base go with outputPath.", "pass outputPath");
+        var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base);
+        // A sandboxed worker writes only under labelled folders: it rebuilds into staging and the server fills the named folder.
+        var staging = saving && FileIsolation.PoolFor(Isolation, workers) is { Sandboxed: true } ? FileWork.NewModuleStaging() : null;
+        var final = saving ? SafeFile.Output(outputPath!) : null;
+        if (staging != null) FileWork.RequireFreshFolder(final!);
         var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
-            string.IsNullOrWhiteSpace(yara) ? null : yara, save);
-        var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
+            string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving ? save.Module : null, save.Layout, save.Imports, save.Base);
+        FileWork.DumpViewResult r;
+        try
+        {
+            r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
+            if (staging != null) r = FileWork.PlaceModules(r, staging, final!);
+        }
+        finally { if (staging != null) FileWork.DeleteStaging(staging); }
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
         if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");

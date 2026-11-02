@@ -330,7 +330,13 @@ public static class FileWork
     /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
     public sealed record DumpTarget(string Id, string Path, string? ImageDirectories);
 
-    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null, string? OutputPath = null);
+    /// <summary>
+    /// <paramref name="OutputPath"/> is the folder view=modules writes rebuilt images into; <paramref name="Module"/>,
+    /// <paramref name="Layout"/>, <paramref name="Imports"/> and <paramref name="Base"/> say which and how.
+    /// </summary>
+    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null, string? OutputPath = null,
+        string? Module = null, Native.Dump.Rebuild.OutputLayout Layout = Native.Dump.Rebuild.OutputLayout.File,
+        Native.Dump.Rebuild.ImportMode Imports = Native.Dump.Rebuild.ImportMode.Restore, Native.Dump.Rebuild.BaseMode Base = Native.Dump.Rebuild.BaseMode.Loaded);
 
     public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
 
@@ -411,6 +417,35 @@ public static class FileWork
         return dumps;
     }
 
+    /// <summary>A new folder under the low-labelled scratch folder, for the worker to rebuild modules into.</summary>
+    internal static string NewModuleStaging() => System.IO.Path.Combine(Native.Providers.WindowsSandbox.Scratch(), "modules-" + Guid.NewGuid().ToString("N"));
+
+    /// <summary>Refuses a target that exists and is not an empty folder (Conflict), before a worker is started.</summary>
+    internal static void RequireFreshFolder(string folder)
+    {
+        if (File.Exists(folder) || Directory.Exists(folder) && Directory.EnumerateFileSystemEntries(folder).Any())
+            throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {folder}.", "pass outputPath as a new folder, e.g. <dump>-modules");
+    }
+
+    /// <summary>Moves the images <paramref name="staging"/> holds into <paramref name="target"/> and names the target in the result's notes.</summary>
+    internal static DumpViewResult PlaceModules(DumpViewResult result, string staging, string target)
+    {
+        RequireFreshFolder(target);
+        Directory.CreateDirectory(target);
+        // The worker is untrusted: a link in staging must not make the server move files from elsewhere.
+        var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
+        foreach (var file in Directory.EnumerateFiles(staging, "*", options))
+            SafeFile.MoveToOutput(file, SafeFile.OutputUnderRoot(target, System.IO.Path.GetRelativePath(staging, file)), overwrite: false);
+        return result with { Notes = result.Notes?.Select(n => n.Replace(staging, target, StringComparison.OrdinalIgnoreCase)).ToList() };
+    }
+
+    /// <summary>Deletes a staging folder; one that stays is left to the scratch folder's own cleanup.</summary>
+    internal static void DeleteStaging(string staging)
+    {
+        try { Directory.Delete(staging, recursive: true); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
     /// <summary>One open_minidump view through <paramref name="dumps"/>, which knows the dump by <see cref="DumpTarget.Id"/>.</summary>
     public static DumpViewResult ViewOf(MinidumpService dumps, DumpViewArgs a, CancellationToken ct)
     {
@@ -422,7 +457,8 @@ public static class FileWork
                 var report = dumps.Summarize(id, directories, new DacRequest(string.IsNullOrWhiteSpace(a.DacPath) ? null : a.DacPath, a.DownloadDac), ct).GetAwaiter().GetResult();
                 return new DumpViewResult(report, null, 0);
             case "modules":
-                var (mId, modules, mTotal, folder) = dumps.Modules(id, directories, a.Offset, a.Limit, a.OutputPath, ct);
+                var (mId, modules, mTotal, folder) = dumps.Modules(id, directories, a.Offset, a.Limit, a.OutputPath, ct,
+                    new MinidumpService.ModuleOptions(string.IsNullOrWhiteSpace(a.Module) ? "all" : a.Module, a.Layout, a.Imports, a.Base));
                 var written = modules.Count(m => m.ImageFile != null);
                 return new DumpViewResult(null, mId, mTotal)
                 {
