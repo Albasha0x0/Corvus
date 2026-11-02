@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using Corvus.Native;
+using Corvus.Native.Code;
+using Corvus.Native.Itanium;
 using Corvus.Native.Msvc;
 using Corvus.Native.Pe;
 using Xunit.Abstractions;
@@ -69,51 +71,98 @@ public class MsvcRttiTests(ITestOutputHelper output)
         Assert.Equal(0, result.Stats.Locators);
     }
 
+    private const ulong External = 0x1_8011_30D0UL;
+
+    // Two descriptors hold the same value outside the image.
     [Fact]
     public void Descriptors_sharing_a_vftable_value_outside_the_image_are_recovered()
     {
-        var image = new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL);
-        var result = MsvcRtti.Analyze(image);
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(External, External));
         Assert.Equal(["A", "B"], result.Classes.Select(c => c.Name).Order());
         Assert.All(result.Classes, c => Assert.Single(c.Vtables));
     }
 
+    // The relocation table holds one entry for two locators.
     [Fact]
     public void A_relocation_table_smaller_than_the_locator_count_is_not_used()
     {
-        var result = MsvcRtti.Analyze(new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL, stubRelocations: true));
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(External, External) { StubRelocations = true });
         Assert.All(result.Classes, c => Assert.Single(c.Vtables));
         Assert.Equal(2, result.Classes.Count);
         Assert.False(result.Stats.UsedRelocations);
     }
 
+    // Two descriptors hold different values outside the image.
     [Fact]
     public void Descriptors_with_distinct_vftable_values_outside_the_image_are_rejected()
     {
-        var image = new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL, odd: 0x1_8022_0000UL);
-        var result = MsvcRtti.Analyze(image);
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(External, 0x1_8022_0000UL));
         Assert.Empty(result.Classes);
         Assert.Contains(result.Skipped, k => k.Reason.Contains("outside the image"));
     }
 
-    /// <summary>A 64-bit image of two classes whose type descriptors hold a vftable value outside it.</summary>
-    private sealed class ExternalVftableImage : INativeImage
+    // Four descriptors: two share a value, two hold others (exactly half).
+    [Fact]
+    public void A_value_held_by_exactly_half_of_the_descriptors_is_rejected()
+    {
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(External, External, 0x1_8022_0000UL, 0x1_8033_0000UL));
+        Assert.Empty(result.Classes);
+    }
+
+    // One descriptor holds a value outside the image.
+    [Fact]
+    public void A_single_descriptor_outside_the_image_is_rejected()
+    {
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(External));
+        Assert.Empty(result.Classes);
+    }
+
+    // Both descriptors hold a null vftable value.
+    [Fact]
+    public void A_null_vftable_value_is_not_a_shared_value()
+    {
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(0, 0));
+        Assert.Empty(result.Classes);
+    }
+
+    // Three descriptors: two hold the shared value, one points inside the image.
+    [Fact]
+    public void Descriptors_inside_and_outside_the_image_are_recovered_together()
+    {
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(External, External, 0x1_4000_1000UL));
+        Assert.Equal(["A", "B", "C"], result.Classes.Select(c => c.Name).Order());
+    }
+
+    // Reads the classes through the code index, the class listing entry point and the virtual call counts.
+    [Fact]
+    public void The_code_index_and_class_listing_see_classes_with_an_outside_vftable()
+    {
+        var image = new ExternalVftableImage(External, External);
+        Assert.Equal(2, CppRtti.Analyze(image).Classes.Count);
+        var index = NativeCodeIndex.Build(image);
+        Assert.Equal(2, index.VirtualCalls.Stats.RttiClasses);
+    }
+
+    /// <summary>A 64-bit image of one class per value, whose type descriptors hold that vftable value.</summary>
+    internal sealed class ExternalVftableImage : INativeImage
     {
         private const ulong Base = 0x1_4000_0000UL;
-        private const uint Data = 0x1000, Code = 0x2000;
-        private readonly byte[] bytes = new byte[0x2100];
+        private const uint Data = 0x1000, Code = 0x3000;
+        private readonly byte[] bytes = new byte[0x3100];
+        private bool stub;
 
-        public ExternalVftableImage(ulong vftableValue, ulong? odd = null, bool stubRelocations = false)
+        public ExternalVftableImage(params ulong[] vftableValues)
         {
-            RelocationRvas = stubRelocations ? [0x2080u] : [];
-            Emit(0x1000, "A", 0x2000, vftableValue);
-            Emit(0x1200, "B", 0x2010, odd ?? vftableValue);
+            for (int i = 0; i < vftableValues.Length; i++)
+                Emit(0x1000 + 0x200 * i, ((char)('A' + i)).ToString(), Code + 0x10u * (uint)i, vftableValues[i]);
             Sections =
             [
-                new NativeSection(".rdata", Data, 0x500, Data, 0x500, SectionAccess.Read, 0),
+                new NativeSection(".rdata", Data, 0x1800, Data, 0x1800, SectionAccess.Read, 0),
                 new NativeSection(".text", Code, 0x100, Code, 0x100, SectionAccess.Read | SectionAccess.Execute | SectionAccess.Code, 0),
             ];
         }
+
+        public bool StubRelocations { set => stub = value; }
 
         private void Emit(int at, string name, uint method, ulong tdVftable)
         {
@@ -138,12 +187,12 @@ public class MsvcRttiTests(ITestOutputHelper output)
         public bool IsDll => false;
         public ulong ImageBase => Base;
         public uint EntryPointRva => 0;
-        public uint SizeOfImage => 0x3000;
+        public uint SizeOfImage => 0x4000;
         public IReadOnlyList<NativeSection> Sections { get; }
         public IReadOnlyList<NativeImport> Imports => [];
         public IReadOnlyList<NativeExport> Exports => [];
         public IReadOnlyList<RuntimeFunction> RuntimeFunctions => [];
-        public IReadOnlyList<uint> RelocationRvas { get; }
+        public IReadOnlyList<uint> RelocationRvas => stub ? [0x2080u] : [];
         public IReadOnlyList<uint> TlsCallbackRvas => [];
         public IReadOnlyList<ParseIssue> Issues => [];
         public int Read(uint rva, Span<byte> destination)

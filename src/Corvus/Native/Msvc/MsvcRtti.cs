@@ -159,12 +159,10 @@ public static class MsvcRtti
         private HashSet<uint> codeReferences = [];
         private int tdRejected, colRejected, colWithoutVtable;
         private long bytesScanned;
-        /// <summary>The type_info vftable value outside the image that most descriptors hold; null when descriptors point inside it.</summary>
+        // The type_info vftable value outside the image that most descriptors hold.
         private ulong? sharedExternalVftable;
-
-        private bool useRelocations;
-
-        private bool UseRelocations => useRelocations;
+        // Set once locators are known: a stub table is not used.
+        private bool UseRelocations { get; set; }
 
         public void Run()
         {
@@ -177,7 +175,7 @@ public static class MsvcRtti
             FindTypeDescriptors();
             FindLocators();
             // Each vftable holds a relocated locator pointer; fewer relocations than locators is a stub table.
-            useRelocations = relocations.Count > 0 && relocations.Count >= locators.Count;
+            UseRelocations = relocations.Count > 0 && relocations.Count >= locators.Count;
             FindVtables();
         }
 
@@ -273,10 +271,11 @@ public static class MsvcRtti
                 skipped.Add(new MsvcRttiSkip(rva, kind, reason));
         }
 
-        /// <summary>Finds the type_info vftable value shared by most descriptors when it lies outside the image (imported from the runtime); null when none.</summary>
-        private void FindSharedExternalVftable()
+        // Scans once for descriptor candidates and finds the type_info vftable value outside the image that most hold.
+        private void FindTypeDescriptors()
         {
             ReadOnlySpan<byte> marker = ".?A"u8;
+            var found = new List<uint>();
             var counts = new Dictionary<ulong, int>();
             int candidates = 0;
             foreach (var (s, buffer) in data)
@@ -290,9 +289,10 @@ public static class MsvcRtti
                     int nameOffset = at + k;
                     at = nameOffset + 1;
                     long tdOffset = nameOffset - 2L * ptr;
-                    if (tdOffset < 0 || tdOffset % ptr != 0) continue;
+                    if (tdOffset < 0) continue;
                     uint rva = s.Rva + (uint)tdOffset;
-                    if (!TryPointer(rva, out var vfptr) || !TryPointer(rva + (uint)ptr, out var spare) || spare != 0) continue;
+                    found.Add(rva);
+                    if (rva % ptr != 0 || !TryPointer(rva, out var vfptr) || !TryPointer(rva + (uint)ptr, out var spare) || spare != 0) continue;
                     candidates++;
                     if (vfptr == 0 || TryVaToRva(vfptr, out _)) continue;
                     counts[vfptr] = counts.GetValueOrDefault(vfptr) + 1;
@@ -300,33 +300,15 @@ public static class MsvcRtti
             }
             foreach (var (value, n) in counts)
                 if (n >= 2 && n * 2 > candidates) sharedExternalVftable = value;
-        }
-
-        private void FindTypeDescriptors()
-        {
-            FindSharedExternalVftable();
-            ReadOnlySpan<byte> marker = ".?A"u8;
-            foreach (var (s, buffer) in data)
+            foreach (var rva in found)
             {
-                int at = 0;
-                while (at < buffer.Length)
+                if (typeDescriptors.ContainsKey(rva)) continue;
+                var td = ReadTypeDescriptor(rva, out var reason);
+                typeDescriptors[rva] = td;
+                if (td == null)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    int k = buffer.AsSpan(at).IndexOf(marker);
-                    if (k < 0) break;
-                    int nameOffset = at + k;
-                    at = nameOffset + 1;
-                    long tdOffset = nameOffset - 2L * ptr;
-                    if (tdOffset < 0) continue;
-                    uint rva = s.Rva + (uint)tdOffset;
-                    if (typeDescriptors.ContainsKey(rva)) continue;
-                    var td = ReadTypeDescriptor(rva, out var reason);
-                    typeDescriptors[rva] = td;
-                    if (td == null)
-                    {
-                        tdRejected++;
-                        Skip(rva, TypeDescriptorKind, reason!);
-                    }
+                    tdRejected++;
+                    Skip(rva, TypeDescriptorKind, reason!);
                 }
             }
         }
