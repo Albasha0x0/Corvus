@@ -40,11 +40,11 @@ internal static class AotVtables
                 {
                     long at = (long)d.VtableStart + k;
                     if (at < 0 || at >= meta.VTableMethodIndices.Length) { bad++; continue; }
-                    // Source-derived layout, not tested against a real build:
-                    // (kind << 29) | index, kind 3 a method definition, 0 an empty slot.
+                    // Kind in bits 29-31, 3 a method definition, 0 an empty slot. From
+                    // metadata v27 bit 0 is a flag and the index sits in bits 1-28.
                     uint encoded = meta.VTableMethodIndices[at];
-                    if (encoded == 0) continue;
-                    uint index = encoded & 0x1FFFFFFF;
+                    uint index = meta.MetadataVersion >= 27 ? (encoded & 0x1FFFFFFE) >> 1 : encoded & 0x1FFFFFFF;
+                    if (encoded >> 29 == 0 && index == 0) continue;
                     if (encoded >> 29 != MethodDefKind) { generic++; continue; }
                     if (index >= meta.methodDefs.Length) { bad++; continue; }
                     var method = meta.methodDefs[index];
