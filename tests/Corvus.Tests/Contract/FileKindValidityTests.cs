@@ -421,19 +421,12 @@ public sealed class FileViewValidityTests : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>Views the check cannot apply to, with the reason.</summary>
-    private static readonly Dictionary<string, string> Exempt = new()
-    {
-        ["raw"] = "reads headerless code by instruction statistics; no magic exists, so random data is not a planted case (it can read as code: listed in the report)",
-    };
-
     /// <summary>Views that apply to a magic planted in random data, with the first case that did.</summary>
     private SortedDictionary<string, string> PlantedHits()
     {
         var hits = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var view in Providers.Of<IFileSummaryView>())
         {
-            if (Exempt.ContainsKey(view.Name)) continue;
             var folder = Directory.CreateDirectory(_dir.File(view.Name)).FullName;
             foreach (var (kind, magic) in FileKindValidityTests.Magics)
                 foreach (int size in new[] { 4099, 70_001 })
@@ -470,7 +463,7 @@ public sealed class FileViewValidityTests : IDisposable
     public void Every_view_has_a_minimal_instance()
     {
         var instances = FileViewInstances.All();
-        var missing = Providers.Of<IFileSummaryView>().Where(v => !instances.ContainsKey(v.Name) && !Exempt.ContainsKey(v.Name)).Select(v => v.Name).Order(StringComparer.Ordinal).ToList();
+        var missing = Providers.Of<IFileSummaryView>().Where(v => !instances.ContainsKey(v.Name)).Select(v => v.Name).Order(StringComparer.Ordinal).ToList();
         Assert.True(missing.Count == 0, "no minimal instance for: " + string.Join(", ", missing));
     }
 
@@ -517,6 +510,161 @@ public sealed class FileViewValidityTests : IDisposable
     {
         var hits = PlantedHits();
         Assert.True(hits.Count == 0, string.Join("\n", hits.Select(h => $"{h.Key}: {h.Value}")));
+    }
+}
+
+/// <summary>Code built by a compiler for each instruction set the raw view reports, from the ISA fixtures.</summary>
+internal static class RawCodeFixtures
+{
+    /// <summary>Size built code is repeated to, 4 KiB.</summary>
+    public const int FileSize = 4096;
+
+    /// <summary>Fixtures without an instruction set in the raw view, with the reason.</summary>
+    public static readonly IReadOnlyDictionary<string, string> NotReported = new Dictionary<string, string>
+    {
+        ["armbe.elf"] = "big-endian ARM is not an instruction set the raw view loads",
+        ["m6502.bin"] = "6502 has no signature in RawCandidates.NotChecked",
+        ["nrom.nes"] = "6502 has no signature in RawCandidates.NotChecked",
+    };
+
+    /// <summary>Instruction sets of the raw view without a fixture, with the reason.</summary>
+    public static readonly IReadOnlyDictionary<string, string> NoFixture = new Dictionary<string, string>
+    {
+        ["arm"] = "no 32-bit ARM fixture; the signatures are checked on thumb and arm64 builds",
+        ["mips64"] = "no 64-bit MIPS big-endian fixture",
+        ["mips64el"] = "no 64-bit MIPS little-endian fixture",
+        ["ppc64le"] = "no little-endian PowerPC fixture",
+    };
+
+    private static readonly (string File, string Arch)[] Files =
+    [
+        ("mips32be.elf", "mips"), ("mips32be-got.elf", "mips"), ("mips32be-plt.elf", "mips"), ("mips32le.elf", "mipsel"), ("ppc32.elf", "ppc"),
+        ("ppc64.elf", "ppc64"), ("ppc64v1.elf", "ppc64"), ("riscv32.elf", "riscv32"), ("riscv64.elf", "riscv64"), ("emu-x86.elf", "x86"),
+        ("emu-x64.elf", "x64"), ("emu-arm64.elf", "arm64"), ("cortexm.bin", "thumb"), ("m68k.bin", "m68k"),
+    ];
+
+    /// <summary>The code of each fixture with its instruction set.</summary>
+    public static IEnumerable<(string File, string Arch, byte[] Code)> Built()
+    {
+        foreach (var (file, arch) in Files)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", file);
+            if (file == "cortexm.bin") { yield return (file, arch, File.ReadAllBytes(path)[256..]); continue; }
+            if (file == "m68k.bin") { yield return (file, arch, File.ReadAllBytes(path)); continue; }
+            var image = Corvus.Native.NativeImageLoader.Open(path);
+            var code = new List<byte>();
+            foreach (var section in image.Sections.Where(x => x.IsExecutable))
+            {
+                var bytes = new byte[section.RawSize];
+                image.Read(section.Rva, bytes);
+                code.AddRange(bytes);
+            }
+            yield return (file, arch, [.. code]);
+        }
+    }
+
+    /// <summary>The code repeated to <see cref="FileSize"/> bytes at least.</summary>
+    public static byte[] Repeated(byte[] code)
+    {
+        var d = new List<byte>();
+        while (d.Count < FileSize) d.AddRange(code);
+        return [.. d];
+    }
+}
+
+/// <summary>The raw view reads built code for every instruction set it reports and never reads random data as code.</summary>
+public sealed class RawCodeValidityTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+
+    public void Dispose() => _dir.Dispose();
+
+    private static readonly int[] Sizes = [4096, 16_384, 65_536, 262_144, 1 << 20];
+
+    private static byte[] Random(int size, int seed)
+    {
+        var d = new byte[size];
+        new System.Random(seed).NextBytes(d);
+        return d;
+    }
+
+    private string? Viewed(byte[] d)
+    {
+        var path = _dir.File("sample.bin");
+        File.WriteAllBytes(path, d);
+        var view = new RawCodeFileView().Inspect(new FileInput(path, d, Blob.Identify(d)), default);
+        return view == null ? null
+            : string.Join(" ", ((RawCodeFileView.Facts)view.Detail).Regions.SelectMany(r => r.Isas).Select(i => i.Arch));
+    }
+
+    [Fact]
+    public void Random_data_of_every_size_and_seed_is_not_read_as_code()
+    {
+        double worst = 0;
+        var read = new List<string>();
+        foreach (int size in Sizes)
+            for (int seed = 1; seed <= 24; seed++)
+            {
+                var d = Random(size, seed);
+                worst = Math.Max(worst, Corvus.Native.RawCandidates.Score(d)[0].Score);
+                if (Viewed(d) != null) read.Add($"size {size}, seed {seed}");
+            }
+        output.WriteLine($"highest random score {worst} (reported from {Corvus.Native.RawCandidates.MinScore})");
+        Assert.True(worst < Corvus.Native.RawCandidates.MinScore / 2, $"highest random score {worst}");
+        Assert.True(read.Count == 0, string.Join(", ", read));
+    }
+
+    [Fact]
+    public void Built_code_of_every_reported_instruction_set_is_read_as_code()
+    {
+        double lowest = double.MaxValue;
+        var missed = new List<string>();
+        foreach (var (file, arch, code) in RawCodeFixtures.Built())
+        {
+            var d = RawCodeFixtures.Repeated(code);
+            var isas = Corvus.Native.RawCandidates.Isas(d);
+            double score = isas.FirstOrDefault(i => i.Arch == arch)?.Score ?? 0;
+            lowest = Math.Min(lowest, score);
+            output.WriteLine($"{file}: {arch} {score}");
+            if (score < Corvus.Native.RawCandidates.MinScore || Viewed(d)?.Contains(arch, StringComparison.Ordinal) != true) missed.Add($"{file}: {arch}");
+        }
+        output.WriteLine($"lowest built score {lowest}");
+        Assert.True(lowest >= Corvus.Native.RawCandidates.MinScore, $"lowest built score {lowest}");
+        Assert.True(missed.Count == 0, string.Join(", ", missed));
+    }
+
+    [Fact]
+    public void Unrepeated_built_code_of_1_KiB_is_read_as_its_instruction_set()
+    {
+        var missed = new List<string>();
+        // Mostly padding or, for emu-x86.elf, no frame prologue in the first KiB.
+        foreach (var (file, arch, code) in RawCodeFixtures.Built().Where(b => b.Code.Length >= 1024 && b.Code[..1024].Count(x => x == 0) < 256 && b.File != "emu-x86.elf"))
+        {
+            var d = code[..1024];
+            double score = Corvus.Native.RawCandidates.Isas(d).FirstOrDefault(i => i.Arch == arch)?.Score ?? 0;
+            output.WriteLine($"{file}: {arch} {score}");
+            if (score == 0) missed.Add($"{file}: {arch}");
+        }
+        Assert.True(missed.Count == 0, string.Join(", ", missed));
+    }
+
+    [Fact]
+    public void Every_instruction_set_without_a_built_row_names_its_reason()
+    {
+        var built = RawCodeFixtures.Built().Select(b => b.Arch).ToHashSet();
+        var unlisted = Corvus.Native.RawCandidates.Score(new byte[4096]).Select(c => c.Arch)
+            .Where(a => !built.Contains(a) && !RawCodeFixtures.NoFixture.ContainsKey(a)).ToList();
+        Assert.True(unlisted.Count == 0, string.Join(", ", unlisted));
+    }
+
+    [Fact]
+    public void Every_fixture_without_a_built_row_names_its_reason()
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures");
+        var rows = RawCodeFixtures.Built().Select(b => b.File).ToHashSet();
+        var unlisted = Directory.EnumerateFiles(dir).Select(Path.GetFileName).Where(f => f!.EndsWith(".elf") || f.EndsWith(".bin") || f.EndsWith(".nes"))
+            .Where(f => !rows.Contains(f!) && !RawCodeFixtures.NotReported.ContainsKey(f!)).ToList();
+        Assert.True(unlisted.Count == 0, string.Join(", ", unlisted));
     }
 }
 

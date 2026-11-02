@@ -145,6 +145,7 @@ internal static class FileViewInstances
         ["procmon"] = Single("sample.pml", ProcessLog),
         ["protobuf"] = Single("demo", ProtobufImage),
         ["python"] = Single("m.pyc", FileKindValidityTests.Instances()["python bytecode"]),
+        ["raw"] = Single("sample.bin", () => RawCodeFixtures.Repeated(RawCodeFixtures.Built().First(f => f.Arch == "arm64").Code)),
         ["qlog"] = Single("sample.qlog", () => Text("""{"qlog_version":"0.3","qlog_format":"JSON","traces":[]}""")),
         ["realm"] = Single("ledger.realm", () => FixtureFile("Databases/RealmFixtures/ledger.realm")),
         ["registry"] = Single("SOFTWARE", Hive),
@@ -163,6 +164,7 @@ internal static class FileViewInstances
     {
         ["electron"] = "gated on an archive entry",
         ["firmware"] = "gated on signatures found at any offset",
+        ["raw"] = "gated on instruction statistics; RawCodeValidityTests checks random data",
         ["flight"] = "gated on text content",
         ["leveldb"] = "gated on a folder's files",
         ["lockfile"] = "gated on the file name",

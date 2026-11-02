@@ -29,6 +29,10 @@ public static class RawCandidates
     /// <summary>Bases are multiples of this, as load_assembly format=raw takes them.</summary>
     public const ulong BaseAlignment = 0x1000;
     private const int MinString = 6, MaxBases = 5, MinVotes = 16, MaxRanked = 16;
+    // A signature counts from this many hits and deviations above chance, so a
+    // few KiB cannot score on one or two coincidences.
+    private const int MinHits = 3;
+    private const double Deviations = 4;
 
     /// <summary>Instruction sets without a signature here; named, not scored.</summary>
     public static readonly IReadOnlyList<string> NotChecked = ["6502", "x86-16", "dos-mz"];
@@ -46,11 +50,12 @@ public static class RawCandidates
         ("x86", [Signature.Seq("push ebp; mov ebp, esp", 0x55, 0x89, 0xE5), Signature.Seq("push ebp; mov ebp, esp (8B EC)", 0x55, 0x8B, 0xEC),
             Signature.Seq("mov ebx, [esp]; ret", 0x8B, 0x1C, 0x24, 0xC3), Signature.Seq("add esp, 0x10; pop ebx", 0x83, 0xC4, 0x10, 0x5B),
             new("sub esp, imm8 (no REX)", Unit.BytesNotAfterRex, 0, 0, [0x83, 0xEC])]),
-        ("x64", [Signature.Seq("sub rsp, imm8", 0x48, 0x83, 0xEC), Signature.Seq("mov [rsp+N], rbx", 0x48, 0x89, 0x5C, 0x24),
-            Signature.Seq("mov rax, [rip+N]", 0x48, 0x8B, 0x05), Signature.Seq("lea rax, [rip+N]", 0x48, 0x8D, 0x05), Signature.Seq("mov rbp, rsp", 0x48, 0x89, 0xE5)]),
+        ("x64", [Signature.Seq("REX.W add/sub/cmp r64, imm8", 0x48, 0x83), Signature.Seq("REX.W mov r/m64, r64", 0x48, 0x89),
+            Signature.Seq("mov rax, [rip+N]", 0x48, 0x8B, 0x05), Signature.Seq("lea rax, [rip+N]", 0x48, 0x8D, 0x05)]),
         ("arm", [new("bx lr", Unit.Le32, 0xE12FFF1E, 0xFFFFFFFF), new("push {..., lr}", Unit.Le32, 0xE92D4000, 0xFFFF4000),
             new("pop {..., pc}", Unit.Le32, 0xE8BD8000, 0xFFFF8000)]),
-        ("thumb", [new("bx lr", Unit.Le16, 0x4770, 0xFFFF), new("push.w {..., lr}", Unit.Thumb32, 0xE92D4000, 0xFFFF4000),
+        ("thumb", [new("bx lr", Unit.Le16, 0x4770, 0xFFFF), new("push {..., lr}", Unit.Le16, 0xB500, 0xFF00), new("pop {..., pc}", Unit.Le16, 0xBD00, 0xFF00),
+            new("push.w {..., lr}", Unit.Thumb32, 0xE92D4000, 0xFFFF4000),
             new("pop.w {..., pc}", Unit.Thumb32, 0xE8BD8000, 0xFFFF8000)]),
         ("arm64", [new("ret", Unit.Le32, 0xD65F03C0, 0xFFFFFFFF), new("stp x29, x30, [sp, #-N]!", Unit.Le32, 0xA9807BFD, 0xFFC07FFF),
             new("mov x29, sp", Unit.Le32, 0x910003FD, 0xFFFFFFFF)]),
@@ -113,7 +118,8 @@ public static class RawCandidates
                 var sig = Table[a].Signatures[s];
                 double expected = Expected(sig, scanned);
                 evidence.Add(new SignatureCount(sig.Name, counts[a][s], Math.Round(expected, 1)));
-                double part = Math.Min(SignatureCap, Math.Max(0, counts[a][s] - 2 * expected) / per64k);
+                bool above = counts[a][s] >= MinHits && counts[a][s] >= expected + Deviations * Math.Sqrt(expected);
+                double part = above ? Math.Min(SignatureCap, Math.Max(0, counts[a][s] - 2 * expected) / per64k) : 0;
                 if (Shared[a][s]) shared += part;
                 else own += part;
             }
