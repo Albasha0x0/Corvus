@@ -1,11 +1,12 @@
 using System.Text.RegularExpressions;
+using Iced.Intel;
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Code;
 
 namespace Corvus.Tools;
 
-/// <summary>Finds runtime-support shapes in an x86 listing and names each as one comment line; off unless collapse=runtime.</summary>
+/// <summary>Folds runtime-support shapes of a listing into comment lines.</summary>
 internal static partial class RuntimeCollapse
 {
     internal const string Runtime = "runtime";
@@ -31,11 +32,11 @@ internal static partial class RuntimeCollapse
         _ => throw new ToolError(ErrorCode.InvalidArgument, $"disassemble collapse '{mode}' is not supported; use 'none' or '{Runtime}'.", "pass collapse=none or collapse=runtime"),
     };
 
-    /// <summary>Throws an unsupported error when collapse=runtime cannot apply: an external engine, a WebAssembly image or a non-x86 architecture.</summary>
+    /// <summary>Throws unsupported when collapse=runtime cannot apply.</summary>
     internal static void RequireEngine(bool external, bool wasm, NativeArch arch)
     {
-        if (external || wasm || arch is not (NativeArch.X86 or NativeArch.X64))
-            throw new ToolError(ErrorCode.Unsupported, "disassemble collapse=runtime applies to x86 and x64 images on the built-in engine only.", "pass collapse=none");
+        if (external || wasm || arch != NativeArch.X64)
+            throw new ToolError(ErrorCode.Unsupported, "disassemble collapse=runtime applies to x64 images on the built-in engine only.", "pass collapse=none");
     }
 
     /// <summary>Throws when the listing is a linear range, which collapse=runtime does not cover.</summary>
@@ -47,246 +48,213 @@ internal static partial class RuntimeCollapse
     /// <summary>One collapsed run: the first instruction, the end of the run, the instruction count and the comment line.</summary>
     internal sealed record Run(uint Start, uint End, int Count, string Note);
 
-    /// <summary>The non-overlapping runs found in <paramref name="lines"/>, keyed by start address; empty when none match. <paramref name="calls"/> names call targets that the decoder text does not.</summary>
-    internal static Dictionary<uint, Run> Find(IReadOnlyList<DisasmLine> lines, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls = null)
+    // Shapes are queries on the value-provenance facts of the decoded
+    // instructions. Call names, which only the listing text, its comment and
+    // the call map carry, are the one text input.
+    private sealed class Scan(IReadOnlyList<Instruction> code, RuntimeFacts facts, ulong imageBase, Func<uint, string> va,
+        IReadOnlyDictionary<uint, DisasmLine> lines, IReadOnlyDictionary<uint, string>? calls)
+    {
+        public readonly IReadOnlyList<Instruction> Code = code;
+        public readonly RuntimeFacts Facts = facts;
+        public readonly ulong ImageBase = imageBase;
+        public readonly Func<uint, string> Va = va;
+        public readonly Dictionary<ulong, int> At = code.Select((ins, k) => (ins.IP, k)).ToDictionary(p => p.IP, p => p.k);
+        public readonly Dictionary<ulong, CallFact> CallAt = facts.Calls.ToDictionary(c => c.Ip);
+
+        public uint Rva(in Instruction ins) => (uint)(ins.IP - ImageBase);
+
+        // The match in the call-map name, operand text or decoder comment.
+        public string? Name(Regex name, in Instruction call)
+        {
+            uint rva = Rva(call);
+            lines.TryGetValue(rva, out var line);
+            foreach (var text in new[] { calls != null && calls.TryGetValue(rva, out var mapped) ? mapped : "", line?.Text ?? "", line?.Comment ?? "" })
+                if (name.Match(text) is { Success: true } m) return m.Value;
+            return null;
+        }
+
+        public bool Names(Regex name, in Instruction call) => Name(name, call) != null;
+    }
+
+    /// <summary>
+    /// The non-overlapping runs found in <paramref name="listing"/> of
+    /// <paramref name="fn"/>, keyed by start address; empty when none match or
+    /// the function is not x64 code. <paramref name="calls"/> names call
+    /// targets that the decoder text does not.
+    /// </summary>
+    internal static Dictionary<uint, Run> Find(NativeCodeIndex index, NativeFunction fn, IReadOnlyList<DisasmLine> listing, Func<uint, string> va,
+        IReadOnlyDictionary<uint, string>? calls = null, CancellationToken ct = default)
     {
         var runs = new Dictionary<uint, Run>();
-        for (int i = 0; i < lines.Count;)
+        if (index.FactsOf(fn, ct) is not { } facts) return runs;
+        var lines = listing.ToDictionary(l => l.Rva);
+        ulong imageBase = index.Image.ImageBase;
+        var code = FunctionInstructions.Decode(index.Image, index.Ranges(fn), ct).Where(ins => lines.ContainsKey((uint)(ins.IP - imageBase))).ToList();
+        var scan = new Scan(code, facts, imageBase, va, lines, calls);
+        var guards = Guards(scan);
+        for (int i = 0; i < code.Count;)
         {
-            int lead = 0;
-            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va, calls, out lead) ?? ClassInit(lines, i, va, calls) ?? Init(lines, i, va, calls);
-            if (run == null || !Contiguous(lines, i + lead, run.Count)) { i++; continue; }
+            var run = Barrier(scan, i);
+            if (run == null && guards.TryGetValue(i, out var guard)) run = Lazy(scan, i, guard) ?? ClassInit(scan, i, guard);
+            run ??= Init(scan, i);
+            if (run == null || !Contiguous(code, i, run.Count)) { i++; continue; }
             runs[run.Start] = run;
-            i += lead + run.Count;
+            i += run.Count;
         }
         return runs;
     }
 
     // A gap between blocks inside a run would be swallowed with no gap line.
-    private static bool Contiguous(IReadOnlyList<DisasmLine> lines, int from, int count)
+    private static bool Contiguous(IReadOnlyList<Instruction> code, int from, int count)
     {
+        if (from + count > code.Count) return false;
         for (int k = from + 1; k < from + count; k++)
-            if (lines[k].Rva != lines[k - 1].Rva + (uint)lines[k - 1].Facts.Length) return false;
+            if (code[k].IP != code[k - 1].NextIP) return false;
         return true;
     }
 
-    private static string Mnemonic(DisasmLine l)
+    private static Run Make(Scan scan, int from, int count, string what)
     {
-        var t = l.Text.AsSpan().TrimStart();
-        if (t.StartsWith("lock ")) t = t[5..].TrimStart();
-        int s = t.IndexOf(' ');
-        return (s < 0 ? t : t[..s]).ToString().ToLowerInvariant();
+        var last = scan.Code[from + count - 1];
+        uint start = scan.Rva(scan.Code[from]), end = scan.Rva(last) + (uint)last.Length;
+        return new Run(start, end, count, $"collapsed: {what} ({ToolSupport.Plural(count, "instruction")}, {scan.Va(start)}-{scan.Va(end)})");
     }
 
-    private static bool IsLockCmpxchg(DisasmLine l) => l.Text.TrimStart().StartsWith("lock cmpxchg", StringComparison.OrdinalIgnoreCase);
-
-    // Lower case, no blanks around commas, so checks ignore engine spacing.
-    private static string Normal(DisasmLine l) => Spaces().Replace(l.Text.Trim().ToLowerInvariant(), m => m.Value.Contains(',') ? "," : " ");
-
-    private static Run Make(IReadOnlyList<DisasmLine> lines, int from, int count, string what, Func<uint, string> va)
+    // Where a run on a zero test starts, by position: at the test when the
+    // jump follows it, else at the jump so moves scheduled between stay
+    // listed. Only register moves may sit between the test and the jump.
+    private static Dictionary<int, GuardFact> Guards(Scan scan)
     {
-        var last = lines[from + count - 1];
-        uint end = last.Rva + (uint)last.Facts.Length;
-        return new Run(lines[from].Rva, end, count, $"collapsed: {what} ({ToolSupport.Plural(count, "instruction")}, {va(lines[from].Rva)}-{va(end)})");
-    }
-
-    // Shift by 12, a bit-set or locked exchange, and a closing backward branch.
-    // A first exchange may skip the retry loop by a forward branch.
-    private static Run? Barrier(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va)
-    {
-        if (!ShiftBy12().IsMatch(Normal(lines[i]))) return null;
-        int last = -1;
-        for (int k = i + 1; k < lines.Count && k <= i + BarrierWindow; k++)
+        var result = new Dictionary<int, GuardFact>();
+        foreach (var guard in scan.Facts.Guards)
         {
-            var flow = lines[k].Facts.Flow;
-            if (flow is FlowKind.Call or FlowKind.IndirectCall or FlowKind.Return) break;
-            // The card table is updated in memory; a register bit-set is index math.
-            if ((Mnemonic(lines[k]) == "bts" || IsLockCmpxchg(lines[k])) && lines[k].Text.Contains('[')) last = k;
+            if (!scan.At.TryGetValue(guard.Branch, out int jump) || !scan.At.TryGetValue(guard.Test.Check, out int check) || check >= jump) continue;
+            if (jump - check - 1 > LazyWindow || Enumerable.Range(check + 1, jump - check - 1).Any(k => !IsRegisterMove(scan.Code[k]))) continue;
+            result[jump - check == 1 ? check : jump] = guard;
+        }
+        return result;
+    }
+
+    // Shift by 12, then a locked exchange or bit-set of memory with a value
+    // computed from the shifted one, and a closing backward branch. A first
+    // exchange may skip the retry loop by a forward branch.
+    private static Run? Barrier(Scan scan, int i)
+    {
+        var code = scan.Code;
+        var updates = scan.Facts.Updates.Where(u => u.Shift == code[i].IP).Select(u => u.Update).ToHashSet();
+        if (updates.Count == 0) return null;
+        int last = -1;
+        for (int k = i + 1; k < code.Count && k <= i + BarrierWindow; k++)
+        {
+            if (code[k].FlowControl is FlowControl.Call or FlowControl.IndirectCall or FlowControl.Return) break;
+            if (updates.Contains(code[k].IP)) last = k;
         }
         if (last < 0) return null;
-        uint start = lines[i].Rva, tail = lines[last].Rva;
+        uint start = scan.Rva(code[i]), tail = scan.Rva(code[last]);
         // The closing branch returns to the loop head, a few instructions
         // after the exchange.
         int closeAt = -1;
-        for (int k = last + 1; k < lines.Count && k <= last + BarrierClose; k++)
+        for (int k = last + 1; k < code.Count && k <= last + BarrierClose; k++)
         {
-            var flow = lines[k].Facts.Flow;
-            if (flow is FlowKind.Call or FlowKind.IndirectCall or FlowKind.Return) return null;
-            if (flow is FlowKind.ConditionalJump or FlowKind.Jump && lines[k].Facts.BranchTarget is { } head && head >= start && head <= tail) { closeAt = k; break; }
+            if (code[k].FlowControl is FlowControl.Call or FlowControl.IndirectCall or FlowControl.Return) return null;
+            if (Branch(scan, code[k]) is { } head && head >= start && head <= tail) { closeAt = k; break; }
         }
         if (closeAt < 0) return null;
-        var close = lines[closeAt];
-        uint closeEnd = close.Rva + (uint)close.Facts.Length;
+        uint closeEnd = scan.Rva(code[closeAt]) + (uint)code[closeAt].Length;
         // A jump out of the run, other than past the closing branch, means
         // the shift is ordinary index math.
         for (int k = i + 1; k < closeAt; k++)
-        {
-            if (lines[k].Facts.Flow is not (FlowKind.ConditionalJump or FlowKind.Jump)) continue;
-            if (lines[k].Facts.BranchTarget is not { } to || to < start || to > closeEnd) return null;
-        }
-        return Make(lines, i, closeAt - i + 1, "write barrier", va);
+            if (Branch(scan, code[k]) is { } to && (to < start || to > closeEnd)) return null;
+        return Make(scan, i, closeAt - i + 1, "write barrier");
     }
 
-    // Skips initializer calls after a zero check of a static: a compare with
-    // zero, or a load of the flag and a test of the loaded register. The run
-    // starts at the branch or the test, so register moves scheduled after the
-    // check stay listed. One call may have any target; several must all be
-    // metadata initializers.
-    private static Run? Lazy(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls, out int lead)
+    // The target of a direct jump, null for other instructions.
+    private static uint? Branch(Scan scan, in Instruction ins) =>
+        ins.FlowControl is FlowControl.ConditionalBranch or FlowControl.UnconditionalBranch && ins.Op0Kind == OpKind.NearBranch64
+            ? (uint)(ins.NearBranchTarget - scan.ImageBase) : null;
+
+    // Skips initializer calls after a zero test of a static flag. One call may
+    // have any target; several must all be metadata initializers.
+    private static Run? Lazy(Scan scan, int start, GuardFact guard)
     {
-        lead = 0;
-        var cmp = lines[i];
-        int j = i + 1;
-        bool compare = Mnemonic(cmp) == "cmp" && cmp.Facts.MemoryIsRipRelative && ZeroOperand().IsMatch(Normal(cmp));
-        if (!compare && !LoadsFlag(cmp)) return null;
-        while (j < lines.Count && j < i + 1 + LazyWindow && IsRegisterMove(lines[j])) j++;
-        if (!compare)
-        {
-            if (j + 1 >= lines.Count || !TestsRegister(lines[j], cmp)) return null;
-            lead = j - i;
-            j++;
-        }
-        if (j + 1 >= lines.Count) return null;
-        var jump = lines[j];
-        if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
+        if (guard.Test.Value is not LoadOrigin { Base: AddressOrigin flag, Disp: 0 } tested) return null;
+        var code = scan.Code;
         int callCount = 0, setup = 0;
         bool allInit = true;
-        for (int k = j + 1; k < lines.Count; k++)
+        for (int k = scan.At[guard.Branch] + 1; k < code.Count; k++)
         {
-            var l = lines[k];
-            if (l.Rva >= skip) return null;
-            if (l.Facts.Flow == FlowKind.Call)
+            var l = code[k];
+            if (scan.Rva(l) >= guard.Target) return null;
+            if (l.FlowControl == FlowControl.Call)
             {
                 if (++callCount > LazyCalls) return null;
-                allInit &= Names(InitMetadata(), l, calls);
+                allInit &= scan.Names(InitMetadata(), l);
                 setup = 0;
                 int last = k;
-                uint end = l.Rva + (uint)l.Facts.Length;
+                uint end = scan.Rva(l) + (uint)l.Length;
                 // A fence and flag store may precede the skip target.
-                if (end != skip && last + 1 < lines.Count && IsFence(lines[last + 1])) { last++; end = lines[last].Rva + (uint)lines[last].Facts.Length; }
-                if (end != skip && last + 1 < lines.Count && IsFlagStore(lines[last + 1], cmp)) { last++; end = lines[last].Rva + (uint)lines[last].Facts.Length; }
+                if (end != guard.Target && last + 1 < code.Count && IsFence(code[last + 1])) { last++; end = scan.Rva(code[last]) + (uint)code[last].Length; }
+                if (end != guard.Target && last + 1 < code.Count && IsFlagStore(code[last + 1], flag.Address)) { last++; end = scan.Rva(code[last]) + (uint)code[last].Length; }
                 // A fence between two calls is part of the run, not setup.
-                if (end != skip) { k = last; continue; }
+                if (end != guard.Target) { k = last; continue; }
                 if (callCount > 1 && !allInit) return null;
                 // A tested load of a wider static is a null check, not a flag.
-                if (!compare && !allInit && !ByteLoad(cmp)) { lead = 0; return null; }
-                if (compare) lead = j == i + 1 ? 0 : j - i;
-                return Make(lines, i + lead, last - i - lead + 1, $"lazy initialization of {va(cmp.Facts.MemoryTarget ?? 0)}", va);
+                if (!guard.Test.Direct && !allInit && tested.Size != 1) return null;
+                return Make(scan, start, last - start + 1, $"lazy initialization of {scan.Va((uint)(flag.Address - scan.ImageBase))}");
             }
-            if (Mnemonic(l) is not ("mov" or "lea" or "xor" or "sub" or "add") || ++setup > LazyWindow) return null;
+            if (l.Mnemonic is not (Mnemonic.Mov or Mnemonic.Lea or Mnemonic.Xor or Mnemonic.Sub or Mnemonic.Add) || ++setup > LazyWindow) return null;
         }
         return null;
     }
 
-    // Folds a zero check of a class flag, a skip and the class-init call. The
-    // check is a compare with zero, or a load of the flag and a test of the
-    // loaded register.
-    private static Run? ClassInit(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls)
+    // Folds a zero test of a class field, a skip and the class-init call made
+    // with the class pointer the field was read from.
+    private static Run? ClassInit(Scan scan, int start, GuardFact guard)
     {
-        var first = lines[i];
-        int j = i + 1;
-        bool compare = Mnemonic(first) == "cmp" && !first.Facts.MemoryIsRipRelative && first.Text.Contains('[') && ZeroOperand().IsMatch(Normal(first));
-        if (!compare)
-        {
-            if (Mnemonic(first) is not ("mov" or "movzx") || first.Facts.MemoryIsRipRelative || Destination(first).Contains('[') || !first.Text.Contains('[')) return null;
-            if (j >= lines.Count || !TestsRegister(lines[j], first)) return null;
-            j++;
-        }
-        if (j >= lines.Count) return null;
-        var jump = lines[j];
-        if (jump.Facts.Flow != FlowKind.ConditionalJump || Mnemonic(jump) is not ("jne" or "jnz") || jump.Facts.BranchTarget is not { } skip) return null;
+        if (guard.Test.Value is not LoadOrigin { Base: var klass } || klass is AddressOrigin) return null;
+        var code = scan.Code;
         // The argument is set up between the branch and the call.
-        int k = j + 1;
-        while (k < lines.Count && k < j + 1 + LazyWindow && IsRegisterLoad(lines[k])) k++;
-        if (k >= lines.Count) return null;
-        var call = lines[k];
-        if (call.Facts.Flow != FlowKind.Call || !Names(ClassInitName(), call, calls)) return null;
-        // A padding instruction may follow the call.
-        if (call.Rva + (uint)call.Facts.Length != skip)
+        int k = scan.At[guard.Branch] + 1;
+        int limit = k + LazyWindow;
+        while (k < code.Count && k < limit && IsRegisterLoad(code[k])) k++;
+        if (k >= code.Count) return null;
+        var call = code[k];
+        if (call.FlowControl != FlowControl.Call || !scan.Names(ClassInitName(), call)) return null;
+        if (!scan.CallAt.TryGetValue(call.IP, out var fact) || !klass.Equals(fact.Arguments[0])) return null;
+        // Padding or a register restored from the setup may follow the call.
+        for (int after = 0; scan.Rva(code[k]) + (uint)code[k].Length != guard.Target; after++)
         {
-            if (k + 1 >= lines.Count || Mnemonic(lines[k + 1]) != "nop" || lines[k + 1].Rva + (uint)lines[k + 1].Facts.Length != skip) return null;
+            if (after >= LazyWindow || k + 1 >= code.Count || code[k + 1].Mnemonic != Mnemonic.Nop && !IsRegisterLoad(code[k + 1])) return null;
             k++;
         }
-        return Make(lines, i, k - i + 1, "class initialization", va);
+        return Make(scan, start, k - start + 1, "class initialization");
     }
 
-    // A call matches when its call-map name, its operand text or its decoder comment does.
-    private static bool Names(Regex name, DisasmLine l, IReadOnlyDictionary<uint, string>? calls) =>
-        name.IsMatch(calls != null && calls.TryGetValue(l.Rva, out var c) ? c : "") || name.IsMatch(l.Text) || name.IsMatch(l.Comment ?? "");
+    // A move between registers cannot write memory.
+    private static bool IsRegisterMove(in Instruction ins) =>
+        ins.Mnemonic is Mnemonic.Mov or Mnemonic.Movzx or Mnemonic.Movsx or Mnemonic.Movsxd
+        && ins.Op0Kind == OpKind.Register && ins.Op1Kind == OpKind.Register;
 
-    // A move between registers has no memory operand, so it cannot write memory.
-    private static bool IsRegisterMove(DisasmLine l) => Mnemonic(l) is "mov" or "movzx" or "movsx" or "movsxd" && l.Facts.Flow == FlowKind.Next && !l.Text.Contains('[') && !l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == null;
+    // A load or address into a register.
+    private static bool IsRegisterLoad(in Instruction ins) =>
+        ins.Mnemonic is Mnemonic.Mov or Mnemonic.Movzx or Mnemonic.Lea && ins.FlowControl == FlowControl.Next && ins.Op0Kind == OpKind.Register;
 
-    // A load or address into a register: the destination is not memory.
-    private static bool IsRegisterLoad(DisasmLine l) =>
-        Mnemonic(l) is "mov" or "movzx" or "lea" && l.Facts.Flow == FlowKind.Next && !Destination(l).Contains('[');
+    // lock or [rsp + d], 0.
+    private static bool IsFence(in Instruction ins) =>
+        ins.Mnemonic == Mnemonic.Or && ins.HasLockPrefix && ins.Op0Kind == OpKind.Memory && ins.MemoryBase == Register.RSP
+        && ins.MemoryIndex == Register.None && ins.Op1Kind != OpKind.Register && ins.GetImmediate(1) == 0;
 
-    private static string Destination(DisasmLine l)
-    {
-        var text = Normal(l);
-        int space = text.IndexOf(' ');
-        int comma = text.IndexOf(',');
-        return space < 0 || comma < space ? "" : text[(space + 1)..comma];
-    }
-
-    // A load of a static into a register.
-    private static bool LoadsFlag(DisasmLine l) =>
-        Mnemonic(l) is "mov" or "movzx" && l.Facts.MemoryIsRipRelative && l.Facts.Flow == FlowKind.Next && !Destination(l).Contains('[');
-
-    // A load of one byte: a byte operand or an 8-bit destination register.
-    private static bool ByteLoad(DisasmLine l) =>
-        Normal(l).Contains("byte ptr", StringComparison.Ordinal) || ByteRegister().IsMatch(Destination(l));
-
-    // test reg,reg or cmp reg,0 on the register family that the load wrote.
-    private static bool TestsRegister(DisasmLine test, DisasmLine load)
-    {
-        var text = Normal(test);
-        var m = TestSelf().Match(text);
-        if (m.Success) return m.Groups[1].Value == m.Groups[2].Value && Family(m.Groups[1].Value) == Family(Destination(load));
-        var c = CompareZero().Match(text);
-        return c.Success && Family(c.Groups[1].Value) == Family(Destination(load));
-    }
-
-    // The 64-bit register that a name addresses: al, ax, eax and rax are one.
-    private static string Family(string register)
-    {
-        var r = NumberedRegister().Match(register);
-        if (r.Success) return "r" + r.Groups[1].Value;
-        var legacy = LegacyRegister().Match(register);
-        return legacy.Success ? (legacy.Groups[1].Success ? legacy.Groups[1].Value : legacy.Groups[2].Value) : register;
-    }
-
-    [GeneratedRegex(@"^(?:[abcd]l|[abcd]h|(?:si|di|sp|bp)l|r\d+b)$")]
-    private static partial Regex ByteRegister();
-
-    [GeneratedRegex(@"^test (\w+),(\w+)$")]
-    private static partial Regex TestSelf();
-
-    [GeneratedRegex(@"^cmp (\w+),(?:0|0x0+|0+h)$")]
-    private static partial Regex CompareZero();
-
-    [GeneratedRegex(@"^r(\d+)[dwb]?$")]
-    private static partial Regex NumberedRegister();
-
-    [GeneratedRegex(@"^(?:e|r)?([abcd])(?:x|l|h)$|^(?:e|r)?(si|di|sp|bp)l?$")]
-    private static partial Regex LegacyRegister();
-
-    private static bool IsFence(DisasmLine l) => FenceText().IsMatch(Normal(l));
-
-    // A store of 1 to the flag the guard compared.
-    private static bool IsFlagStore(DisasmLine l, DisasmLine cmp) =>
-        Mnemonic(l) == "mov" && l.Facts.MemoryIsRipRelative && l.Facts.MemoryTarget == cmp.Facts.MemoryTarget && FlagOne().IsMatch(Normal(l));
+    // A store of 1 to the flag the guard tested.
+    private static bool IsFlagStore(in Instruction ins, ulong flag) =>
+        ins.Mnemonic == Mnemonic.Mov && ins.Op0Kind == OpKind.Memory && ins.MemoryBase == Register.RIP
+        && ins.IPRelativeMemoryAddress == flag && ins.Op1Kind != OpKind.Register && ins.GetImmediate(1) == 1;
 
     // Matches calls that name a static-base helper; unnamed targets stay listed.
-    private static Run? Init(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls)
+    private static Run? Init(Scan scan, int i)
     {
-        var l = lines[i];
-        var m = StaticBase().Match(l.Text);
-        if (m.Success) return Make(lines, i, 1, "metadata initialization " + m.Groups[1].Value, va);
-        if (l.Facts.Flow != FlowKind.Call) return null;
-        var t = StaticBaseName().Match(calls != null && calls.TryGetValue(l.Rva, out var c) ? c : "");
-        if (!t.Success) t = StaticBaseName().Match(l.Comment ?? "");
-        return t.Success ? Make(lines, i, 1, "metadata initialization " + t.Value, va) : null;
+        var ins = scan.Code[i];
+        if (ins.FlowControl != FlowControl.Call) return null;
+        return scan.Name(StaticBaseName(), ins) is { } name ? Make(scan, i, 1, "metadata initialization " + name) : null;
     }
 
     [GeneratedRegex(@"(?<![A-Za-z0-9])InitMetadata(?![A-Za-z0-9])")]
@@ -295,24 +263,6 @@ internal static partial class RuntimeCollapse
     [GeneratedRegex(@"(?<![A-Za-z0-9])Runtime_ClassInit(?![A-Za-z0-9])")]
     private static partial Regex ClassInitName();
 
-    [GeneratedRegex(@"\s*,\s*|\s+")]
-    private static partial Regex Spaces();
-
-    [GeneratedRegex(@"^cmp [^,]+,(0|0x0+|0+h)$")]
-    private static partial Regex ZeroOperand();
-
-    [GeneratedRegex(@"^lock or (?:dword ptr )?\[rsp(?: ?- ?(?:0x[0-9a-f]+|[0-9a-f]+h?))?\],0(?:x0+|0*h)?$")]
-    private static partial Regex FenceText();
-
-    [GeneratedRegex(@"^mov (?:byte ptr )?\[[^\]]+\],(1|0x0*1|0*1h)$")]
-    private static partial Regex FlagOne();
-
-    [GeneratedRegex(@"^shr \w+,(12|0xc|0*ch)$")]
-    private static partial Regex ShiftBy12();
-
     [GeneratedRegex(@"\S*(?:GetGCStaticBase|GetNonGCStaticBase|GetThreadStaticBase)\S*")]
     private static partial Regex StaticBaseName();
-
-    [GeneratedRegex(@"^\s*call\s+(\S*(?:GetGCStaticBase|GetNonGCStaticBase|GetThreadStaticBase)\S*)\s*$")]
-    private static partial Regex StaticBase();
 }

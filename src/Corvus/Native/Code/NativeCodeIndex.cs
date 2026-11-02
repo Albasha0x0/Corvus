@@ -409,6 +409,12 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return walker.Walk(f, f.Start, buildGraph: true, ct, ChunkRoots(f)).Graph!;
     }
 
+    private readonly ConcurrentDictionary<uint, RuntimeFacts?> _runtimeFacts = new();
+
+    /// <summary>The value-provenance facts of <paramref name="f"/>, computed once; null for code other than x64.</summary>
+    internal RuntimeFacts? FactsOf(NativeFunction f, CancellationToken ct = default) =>
+        _runtimeFacts.TryGetValue(f.Start, out var known) ? known : _runtimeFacts.GetOrAdd(f.Start, _ => RuntimeFacts.Build(this, f, ct));
+
     /// <summary>Facts of the instruction at <paramref name="rva"/> (any mapped address), or null.</summary>
     public InstructionFacts? Decode(uint rva)
     {

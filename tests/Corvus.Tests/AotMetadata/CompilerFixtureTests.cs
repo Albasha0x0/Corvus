@@ -165,7 +165,7 @@ public sealed class CompilerFixtureTests
         var lines = b.Index.DisassembleFunction(fn, 400, out _).Where(e => e.Line != null).Select(e => e.Line!).ToList();
         var calls = lines.Where(l => l.Facts.Flow == FlowKind.Call && l.Facts.BranchTarget is { } t && names.ContainsKey(t))
             .ToDictionary(l => l.Rva, l => names[l.Facts.BranchTarget!.Value]);
-        return RuntimeCollapse.Find(lines, r => $"0x{b.Image.ImageBase + r:X}", calls);
+        return RuntimeCollapse.Find(b.Index, fn, lines, r => $"0x{b.Image.ImageBase + r:X}", calls);
     }
 
     [Theory, MemberData(nameof(Collapse))]
@@ -195,6 +195,30 @@ public sealed class CompilerFixtureTests
         var b = Load(build);
         Assert.Contains(Runs(b, "Store").Values, r => r.Note.StartsWith("collapsed: write barrier", StringComparison.Ordinal));
         Assert.Contains(Runs(b, "StoreTwo").Values, r => r.Note.StartsWith("collapsed: write barrier", StringComparison.Ordinal));
+    }
+
+    [Theory, MemberData(nameof(Collapse))]
+    public void A_flag_loaded_before_other_work_and_tested_later_is_one_lazy_initialization(string build)
+    {
+        // Regression 0bf3610b2.
+        var b = Load(build);
+        Assert.Contains(Runs(b, "LazyMoved").Values, r => r.Note.Contains("lazy initialization of", StringComparison.Ordinal));
+    }
+
+    [Theory, MemberData(nameof(Collapse))]
+    public void A_class_flag_checked_after_other_work_is_one_class_initialization(string build)
+    {
+        // Regression 0bf3610b2.
+        var b = Load(build);
+        Assert.Contains(Runs(b, "ClassInitMoved").Values, r => r.Note.Contains("class initialization", StringComparison.Ordinal));
+    }
+
+    [Theory, MemberData(nameof(Collapse))]
+    public void A_card_table_update_with_other_work_before_it_is_one_write_barrier(string build)
+    {
+        // Regression 0bf3610b2.
+        var b = Load(build);
+        Assert.Contains(Runs(b, "StoreMoved").Values, r => r.Note.StartsWith("collapsed: write barrier", StringComparison.Ordinal));
     }
 
     [Theory, MemberData(nameof(Builds))]

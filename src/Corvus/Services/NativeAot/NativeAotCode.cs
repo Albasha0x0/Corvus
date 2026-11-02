@@ -132,7 +132,7 @@ public static class NativeAotCode
         var strings = lookup.Strings;
         var owner = aot.Names.MethodAt.TryGetValue(fn.Start, out var m) && m.Name.HasThis == true ? lookup.ByName.GetValueOrDefault(m.Name.Owner) : null;
 
-        var instructions = Decode(image, index.Ranges(fn), ct);
+        var instructions = FunctionInstructions.Decode(image, index.Ranges(fn), ct);
         ulong entry = image.ImageBase + fn.Start;
         var abi = image.Format == ImageFormat.Pe ? Abi.Windows : Abi.SystemV;
         var thisHolders = owner != null ? ThisHolders(instructions, entry, abi) : [];
@@ -227,28 +227,6 @@ public static class NativeAotCode
         if (obj != null && slot < obj.Vtable.Count && obj.Vtable[slot] != 0)
             return $"virtual call, vtable slot {slot}: {Target(obj.Vtable[slot])} or an override";
         return $"virtual call, vtable slot {slot}";
-    }
-
-    /// <summary>The function's instructions in address order.</summary>
-    internal static List<Instruction> Decode(INativeImage image, IEnumerable<(uint Start, uint End)> ranges, CancellationToken ct)
-    {
-        var result = new List<Instruction>();
-        foreach (var (start, end) in ranges.OrderBy(r => r.Start))
-        {
-            ct.ThrowIfCancellationRequested();
-            if (end <= start || end - start > 1 << 20) continue;
-            var bytes = new byte[end - start];
-            int n = image.Read(start, bytes);
-            var decoder = Decoder.Create(64, new ByteArrayCodeReader(bytes, 0, n));
-            decoder.IP = image.ImageBase + start;
-            while (decoder.IP < image.ImageBase + start + (ulong)n)
-            {
-                decoder.Decode(out var ins);
-                if (ins.IsInvalid) break;
-                result.Add(ins);
-            }
-        }
-        return result;
     }
 
     /// <summary>Callee-saved registers copied from this before any call, branch or write, and never written again.</summary>

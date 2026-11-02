@@ -108,6 +108,7 @@ public sealed class AotRuntimeHelperShapeTests
             {
                 Here("M" + i);
                 a.sub(rsp, 0x48);
+                a.mov(__qword_ptr[rsp + 0x30], rdi);
                 a.call(L("Init"));
                 a.mov(rdx, __qword_ptr[rsp + 0x30]);
                 a.mov(rcx, __qword_ptr[rdx]);

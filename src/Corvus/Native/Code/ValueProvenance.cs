@@ -14,18 +14,36 @@ internal sealed record ConstOrigin(long Number) : Origin;
 /// <summary>The n-th integer argument at function entry, counted from zero.</summary>
 internal sealed record ArgOrigin(int Index) : Origin;
 
+/// <summary>The value a register other than an argument register held at function entry.</summary>
+internal sealed record EntryOrigin(Register Register) : Origin;
+
 /// <summary>
-/// The 64-bit value at <paramref name="Base"/> plus <paramref name="Disp"/>,
-/// read at <paramref name="Epoch"/>: the last call or store before the load.
-/// Loads of one address in different epochs are different values.
+/// The <paramref name="Size"/>-byte value at <paramref name="Base"/> plus
+/// <paramref name="Disp"/>, read at <paramref name="Epoch"/>: the last call or
+/// store before the load. Loads of one address in different epochs are
+/// different values.
 /// </summary>
-internal sealed record LoadOrigin(Origin Base, long Disp, ulong Epoch = 0) : Origin;
+internal sealed record LoadOrigin(Origin Base, long Disp, ulong Epoch = 0, int Size = 8) : Origin;
 
 /// <summary>An absolute address in the image, such as a static.</summary>
 internal sealed record AddressOrigin(ulong Address) : Origin;
 
 /// <summary>The return value of the call at <paramref name="Ip"/>.</summary>
 internal sealed record ResultOrigin(ulong Ip) : Origin;
+
+/// <summary>
+/// A value computed from the result of the right shift by 12 at
+/// <paramref name="Ip"/>: the page number of an address, or a mask or index
+/// made from it.
+/// </summary>
+internal sealed record PageOrigin(ulong Ip) : Origin;
+
+/// <summary>
+/// The last comparison with zero: <paramref name="Value"/> was tested by the
+/// instruction at <paramref name="Check"/>; <paramref name="Direct"/> is true
+/// for a compare of memory, false for a test of a register.
+/// </summary>
+internal sealed record ZeroTest(Origin Value, bool Direct, ulong Check);
 
 /// <summary>
 /// Register and stack slot values at one point of a function; a missing entry
@@ -46,6 +64,9 @@ internal sealed class ProvenanceState
     private bool _escaped;
     private ulong _epoch;
 
+    /// <summary>The comparison with zero that sets the flags now, null when unknown.</summary>
+    public ZeroTest? Tested { get; private set; }
+
     /// <summary>False for a state made without a known path to the block.</summary>
     public bool Reached { get; private set; } = true;
 
@@ -54,7 +75,7 @@ internal sealed class ProvenanceState
 
     public ProvenanceState Clone()
     {
-        var c = new ProvenanceState { _sp = _sp, _bp = _bp, _escaped = _escaped, _epoch = _epoch, Reached = Reached };
+        var c = new ProvenanceState { _sp = _sp, _bp = _bp, _escaped = _escaped, _epoch = _epoch, Reached = Reached, Tested = Tested };
         foreach (var (k, v) in _regs) c._regs[k] = v;
         foreach (var (k, v) in _slots) c._slots[k] = v;
         return c;
@@ -84,10 +105,11 @@ internal sealed class ProvenanceState
             if (Get(ins.MemoryIndex) is not ConstOrigin index || IsFrame(ins.MemoryBase)) return null;
             scaled = index.Number * ins.MemoryIndexScale;
         }
-        if (ins.MemoryBase == Register.RIP) return new LoadOrigin(new AddressOrigin(ins.IPRelativeMemoryAddress), 0, _epoch);
-        if (IsFrame(ins.MemoryBase)) return SlotOf(ins) is { } slot ? _slots.GetValueOrDefault(slot) : null;
+        int size = ins.MemorySize.GetSize() is var n and (1 or 2 or 4) ? n : 8;
+        if (ins.MemoryBase == Register.RIP) return new LoadOrigin(new AddressOrigin(ins.IPRelativeMemoryAddress), 0, _epoch, size);
+        if (IsFrame(ins.MemoryBase)) return size == 8 && SlotOf(ins) is { } slot ? _slots.GetValueOrDefault(slot) : null;
         if (!ins.MemoryBase.IsGPR64()) return null;
-        return Get(ins.MemoryBase) is { } b ? new LoadOrigin(b, (long)ins.MemoryDisplacement64 + scaled, _epoch) : null;
+        return Get(ins.MemoryBase) is { } b ? new LoadOrigin(b, (long)ins.MemoryDisplacement64 + scaled, _epoch, size) : null;
     }
 
     private static bool IsFrame(Register r) => r is Register.RSP or Register.RBP;
@@ -129,6 +151,7 @@ internal sealed class ProvenanceState
         foreach (var r in clobbered) _regs.Remove(r);
         if (windows) ForgetShadowSpace();
         _epoch = ins.IP;
+        Tested = null;
         _regs[Register.RAX] = new ResultOrigin(ins.IP);
     }
 
@@ -141,6 +164,25 @@ internal sealed class ProvenanceState
 
     /// <summary>Applies one non-call instruction.</summary>
     internal void Apply(in Instruction ins, InstructionInfoFactory factory)
+    {
+        var zero = ZeroTestOf(ins);
+        Step(ins, factory);
+        if (ins.RflagsModified != RflagsBits.None) Tested = zero;
+    }
+
+    // Test of a register against itself, or compare of a register or
+    // memory with zero.
+    private ZeroTest? ZeroTestOf(in Instruction ins)
+    {
+        if (ins.Mnemonic == Mnemonic.Test && ins.Op0Kind == OpKind.Register && ins.Op1Kind == OpKind.Register
+            && ins.Op0Register == ins.Op1Register)
+            return Get(ins.Op0Register) is { } tested ? new ZeroTest(tested, false, ins.IP) : null;
+        if (ins.Mnemonic != Mnemonic.Cmp || !IsImmediate(ins.Op1Kind) || ins.GetImmediate(1) != 0) return null;
+        if (ins.Op0Kind == OpKind.Register) return Get(ins.Op0Register) is { } value ? new ZeroTest(value, false, ins.IP) : null;
+        return ins.Op0Kind == OpKind.Memory && Memory(ins) is { } loaded ? new ZeroTest(loaded, true, ins.IP) : null;
+    }
+
+    private void Step(in Instruction ins, InstructionInfoFactory factory)
     {
         switch (ins.Mnemonic)
         {
@@ -224,7 +266,7 @@ internal sealed class ProvenanceState
             else if (ins.Op1Kind is OpKind.Immediate32to64 or OpKind.Immediate64)
                 _slots[at] = new ConstOrigin((long)ins.GetImmediate(1));
         }
-        var loaded = Loaded(ins);
+        var loaded = Loaded(ins) ?? Derived(ins, info);
         foreach (var u in info.GetUsedRegisters())
             if (Writes(u.Access)) _regs.Remove(u.Register.GetFullRegister());
         if (ins.Op0Kind == OpKind.Register && ins.Op0Register == Register.RBP) _bp = null;
@@ -237,6 +279,16 @@ internal sealed class ProvenanceState
     {
         if (ins.OpCount == 0 || ins.Op0Kind != OpKind.Register) return null;
         var dest = ins.Op0Register;
+        // A narrow load keeps its size, so only a test of that size reads it.
+        if (ins.Mnemonic is Mnemonic.Mov or Mnemonic.Movzx && ins.Op1Kind == OpKind.Memory
+            && ins.MemorySize is MemorySize.UInt8 or MemorySize.UInt16 or MemorySize.UInt32
+            && (dest.IsGPR8() || dest.IsGPR16() || dest.IsGPR32() || dest.IsGPR64()))
+            // A narrow read of a spilled page number is still derived from it.
+            return IsFrame(ins.MemoryBase)
+                ? SlotOf(ins) is { } at && _slots.GetValueOrDefault(at) is PageOrigin page ? page : null
+                : Memory(ins);
+        if (ins.Mnemonic == Mnemonic.Movzx && ins.Op1Kind == OpKind.Register)
+            return Get(ins.Op1Register) is LoadOrigin { Size: < 8 } narrow && narrow.Size <= ins.Op1Register.GetSize() ? narrow : null;
         if (!dest.IsGPR32() && !dest.IsGPR64()) return null;
         if (ins.Mnemonic == Mnemonic.Xor && ins.Op1Kind == OpKind.Register
             && dest.GetFullRegister() == ins.Op1Register.GetFullRegister())
@@ -259,6 +311,24 @@ internal sealed class ProvenanceState
             default:
                 return null;
         }
+    }
+
+    // The page origin of a result that is a shift by 12 or is computed from one.
+    private Origin? Derived(in Instruction ins, InstructionInfo info)
+    {
+        if (ins.OpCount == 0 || ins.Op0Kind != OpKind.Register) return null;
+        var dest = ins.Op0Register.GetFullRegister();
+        if (!dest.IsGPR64()) return null;
+        if (ins.Mnemonic == Mnemonic.Shr && ins.Op1Kind == OpKind.Immediate8 && ins.Immediate8 == 12) return new PageOrigin(ins.IP);
+        bool written = false;
+        Origin? page = null;
+        foreach (var u in info.GetUsedRegisters())
+        {
+            if (u.Register.GetFullRegister() == dest && Writes(u.Access)) written = true;
+            if (u.Access is OpAccess.Read or OpAccess.ReadWrite or OpAccess.CondRead or OpAccess.ReadCondWrite
+                && Get(u.Register) is PageOrigin p) page = p;
+        }
+        return written ? page : null;
     }
 
     // The constant an operand holds: an immediate or a register with a known number.
@@ -296,6 +366,7 @@ internal sealed class ProvenanceState
             if (!other._slots.TryGetValue(k, out var v) || !v.Equals(_slots[k])) { _slots.Remove(k); changed = true; }
         if (_sp != other._sp) { changed |= _sp != null; _sp = null; _slots.Clear(); }
         if (_bp != other._bp) { changed |= _bp != null; _bp = null; }
+        if (!Equals(Tested, other.Tested)) { changed |= Tested != null; Tested = null; }
         if (_epoch != other._epoch && _epoch != ulong.MaxValue) { _epoch = ulong.MaxValue; changed = true; }
         if (other._escaped && !_escaped) { _escaped = true; _slots.Clear(); changed = true; }
         return changed;
@@ -335,6 +406,8 @@ internal static class ValueProvenance
         var args = ArgumentRegisters(windows);
         var clobbered = Clobbered(windows);
         var entry = new ProvenanceState();
+        for (var r = Register.RAX; r <= Register.R15; r++)
+            if (r is not (Register.RSP or Register.RBP)) entry.Set(r, new EntryOrigin(r));
         for (int i = 0; i < args.Length; i++) entry.Set(args[i], new ArgOrigin(i));
         var factory = new InstructionInfoFactory();
         var blocks = graph.Blocks;

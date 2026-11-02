@@ -50,7 +50,7 @@ public static class AotSlotNotes
         if (index.Image.Arch != NativeArch.X64 || AotNativeNames.Of(native) is not { } applied) return [];
         bool windows = native.Image.Format == ImageFormat.Pe;
         ulong imageBase = index.Image.ImageBase;
-        var instructions = NativeAotCode.Decode(index.Image, index.Ranges(fn), ct);
+        var instructions = FunctionInstructions.Decode(index.Image, index.Ranges(fn), ct);
         var helpers = new Dictionary<uint, (Register Object, Register Slot)?>();
         (Register Object, Register Slot)? Helper(uint start)
         {
@@ -88,24 +88,30 @@ public static class AotSlotNotes
 
         var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method ? ArgumentTypes(method, windows) : [];
         bool unreadable = false;
-        ValueProvenance.Walk(instructions, index.GetGraph(fn, ct), imageBase, windows, (ins, state) =>
+        if (index.FactsOf(fn, ct) is not { } facts) return [];
+        var argumentRegisters = ValueProvenance.ArgumentRegisters(windows);
+        Origin? Argument(CallFact call, Register register) =>
+            Array.IndexOf(argumentRegisters, register) is >= 0 and var at ? call.Arguments[at] : null;
+        foreach (var call in facts.Calls)
         {
-            if (ins.FlowControl == FlowControl.Call)
+            var ins = instructions[call.At];
+            uint rva = (uint)(ins.IP - imageBase);
+            if (call.Flow == FlowControl.Call)
             {
-                if (IsHelperCall(ins) && Helper((uint)(ins.NearBranchTarget - imageBase)) is { } h
-                    && state.Get(h.Slot) is ConstOrigin slot
+                if (call.Target != 0 && Helper((uint)(call.Target - imageBase)) is { } h
+                    && Argument(call, h.Slot) is ConstOrigin slot
                     && Describe(applied.Image, slot.Number,
-                        ReceiverOf(state.Get(h.Object), argTypes) is { } r ? new Receiver(r) : null) is { } note)
-                    calls[(uint)(ins.IP - imageBase)] = note with { Rva = (uint)(ins.IP - imageBase) };
-                return;
+                        ReceiverOf(Argument(call, h.Object), argTypes) is { } r ? new Receiver(r) : null) is { } note)
+                    calls[rva] = note with { Rva = rva };
+                continue;
             }
-            if (!IsVtableCall(ins)) return;
-            var direct = SlotEntryOf(ins.Op0Kind == OpKind.Register ? state.Get(ins.Op0Register) : state.Memory(ins), argTypes, vtableStart);
+            if (!IsVtableCall(ins)) continue;
+            var direct = SlotEntryOf(call.Entry, argTypes, vtableStart);
             // A block no path reaches has no state to judge a jump by.
-            if (ins.FlowControl == FlowControl.IndirectBranch && direct == null && state.Reached) unreadable = true;
+            if (ins.FlowControl == FlowControl.IndirectBranch && direct == null && call.Reached) unreadable = true;
             if (direct is { } d && Describe(applied.Image, d.Slot, new Receiver(d.Type)) is { } directNote)
-                calls[(uint)(ins.IP - imageBase)] = directNote with { Rva = (uint)(ins.IP - imageBase) };
-        }, ct);
+                calls[rva] = directNote with { Rva = rva };
+        }
         return unreadable ? [] : [.. calls.Values.OrderBy(c => c.Rva)];
     }
 
@@ -120,19 +126,19 @@ public static class AotSlotNotes
 
     // The vtable entry a value loads from the class pointer of a known type.
     private static (TypeDef Type, long Slot)? SlotEntryOf(Origin? value, Dictionary<int, TypeDef> args, int start) =>
-        value is LoadOrigin { Base: { } klass } entry && ClassOf(klass, args) is { } type
+        value is LoadOrigin { Base: { } klass, Size: 8 } entry && ClassOf(klass, args) is { } type
             && SlotAt(entry.Disp, start) is { } slot
             ? (type, slot) : null;
 
     // The type whose class pointer a value is: a load at offset 0 of a known receiver.
     private static TypeDef? ClassOf(Origin value, Dictionary<int, TypeDef> args) =>
-        value is LoadOrigin { Disp: 0 } load ? ReceiverOf(load.Base, args) : null;
+        value is LoadOrigin { Disp: 0, Size: 8 } load ? ReceiverOf(load.Base, args) : null;
 
     // The class a value is declared as: a reference-typed argument, or a field of one.
     private static TypeDef? ReceiverOf(Origin? value, Dictionary<int, TypeDef> args) => value switch
     {
         ArgOrigin a => args.GetValueOrDefault(a.Index),
-        LoadOrigin { Disp: not 0 } l when ReceiverOf(l.Base, args) is { } t => FieldType(t, l.Disp),
+        LoadOrigin { Disp: not 0, Size: 8 } l when ReceiverOf(l.Base, args) is { } t => FieldType(t, l.Disp),
         _ => null,
     };
 

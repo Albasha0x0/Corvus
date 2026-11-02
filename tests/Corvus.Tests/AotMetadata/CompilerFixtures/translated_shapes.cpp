@@ -152,3 +152,35 @@ EXPORT void M_StoreTwo(Object* self, Object* value, int tag)
     while (CAS(word, old | bit, old) != (long long)old)
         old = *word;
 }
+
+// The same checks with other work scheduled between the test and the branch,
+// and with values kept live across them.
+EXPORT int M_LazyMoved(Object* self, int x, int y)
+{
+    int a = x * 7 + y;
+    int b = y * 3 - x;
+    if (!g_lazyTwo) { InitMetadataImpl(a); g_lazyTwo = 1; }
+    return a * b + (int)(unsigned long long)self->klass;
+}
+
+EXPORT int M_ClassInitMoved(Object* self, int x)
+{
+    Class* c = self->klass;
+    int a = x * 5;
+    g_sink = a;
+    if (!c->initialized) ClassInitImpl(c);
+    return c->vtable[3].method(self) + a;
+}
+
+EXPORT void M_StoreMoved(Object* self, Object* value, int tag)
+{
+    self->next = value;
+    unsigned long long page = (unsigned long long)&self->next >> 12;
+    int work = tag * 5;
+    volatile unsigned long long* word = &g_cards[(page >> 6) & 0x3FF];
+    g_sink = work;
+    unsigned long long bit = 1ull << (page & 63);
+    unsigned long long old = *word;
+    while (CAS(word, old | bit, old) != (long long)old)
+        old = *word;
+}

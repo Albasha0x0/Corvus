@@ -139,7 +139,7 @@ public sealed partial class NativeCodeTools
         uint end = 0;
         var listing = index.DisassembleFunction(fn, max, out bool truncated, ct);
         var runs = collapse
-            ? RuntimeCollapse.Find(listing.Where(e => e.Line != null).Select(e => e.Line!).ToList(), r => NativeAddress.Va(index.Image, r), calls)
+            ? RuntimeCollapse.Find(index, fn, listing.Where(e => e.Line != null).Select(e => e.Line!).ToList(), r => NativeAddress.Va(index.Image, r), calls, ct)
             : new Dictionary<uint, RuntimeCollapse.Run>();
         uint skipTo = 0;
         int before = 0, after = 0;

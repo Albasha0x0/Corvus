@@ -334,7 +334,7 @@ public sealed partial class AotFieldNotesTests
             a.add(rsp, 0x28); a.ret();
         }), 0x8664, source: SlotSource);
         var fn = index.FunctionAt(0x1000)!;
-        var code = NativeAotCode.Decode(index.Image, index.Ranges(fn), default);
+        var code = FunctionInstructions.Decode(index.Image, index.Ranges(fn), default);
         var graph = index.GetGraph(fn);
         var reached = new List<bool>();
         ValueProvenance.Walk(code, graph, index.Image.ImageBase, true, (_, s) => reached.Add(s.Reached), default, maxPasses: 1);

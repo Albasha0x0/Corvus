@@ -101,7 +101,7 @@ public static class AotFieldNotes
         var info = new InstructionInfoFactory();
         var steps = new List<Step>();
         ulong imageBase = index.Image.ImageBase;
-        foreach (var ins in NativeAotCode.Decode(index.Image, index.Ranges(fn), ct))
+        foreach (var ins in FunctionInstructions.Decode(index.Image, index.Ranges(fn), ct))
         {
             var writes = info.GetInfo(ins).GetUsedRegisters()
                 .Where(u => u.Access is OpAccess.Write or OpAccess.ReadWrite or OpAccess.CondWrite or OpAccess.ReadCondWrite)
