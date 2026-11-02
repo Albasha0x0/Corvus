@@ -39,4 +39,27 @@ public sealed class DumpModulesCliTests : IDisposable
         Assert.Contains("layout", error);
         Assert.False(Directory.Exists(folder));
     }
+
+    [Fact]
+    public async Task The_batch_command_lists_the_written_images_in_the_document()
+    {
+        var folder = _dir.File("images");
+        var (code, output, _) = await ToolCliTests.Run("batch", "--file", Dump(), "--dump-modules", folder, "--json", "--no-index");
+        Assert.True(code is 0, output);
+        var written = Assert.Single(JsonNode.Parse(output)!["dumpModules"]!["written"]!.AsArray());
+        Assert.Equal("synth.dll", (string?)written!["file"]);
+        Assert.True(File.Exists(Path.Combine(folder, "synth.dll")));
+    }
+
+    [Fact]
+    public async Task The_batch_command_refuses_a_folder_that_is_not_empty_and_a_file_that_is_not_a_dump()
+    {
+        var (code, output, _) = await ToolCliTests.Run("batch", "--file", Dump(), "--dump-modules", _dir.Path, "--json", "--no-index");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+        File.WriteAllText(_dir.File("notes.txt"), "text");
+        (code, output, _) = await ToolCliTests.Run("batch", "--file", _dir.File("notes.txt"), "--dump-modules", _dir.File("out"), "--json", "--no-index");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
 }

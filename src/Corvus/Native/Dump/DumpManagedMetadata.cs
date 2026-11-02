@@ -33,7 +33,7 @@ public static class DumpManagedMetadata
         if (!DumpImages.TryHeader(head, out _, out _, out bool dotNet)) return Unknown("the module header is not a PE header");
         if (!dotNet) return null;
         if (notRebuilt != null) return Unknown(notRebuilt);
-        if (module.Size > DumpModuleExport.MaxImageBytes) return Unknown($"the image is larger than {DumpModuleExport.MaxImageBytes >> 20} MB: not rebuilt");
+        if (module.Size > Rebuild.ModuleRebuild.MaxImageBytes) return Unknown($"the image is larger than {Rebuild.ModuleRebuild.MaxImageBytes >> 20} MB: not rebuilt");
         var image = DumpImages.FromMemory(memory, module, out _);
         return image == null ? Unknown("the dump does not hold the image headers") : Inspect(image);
     }

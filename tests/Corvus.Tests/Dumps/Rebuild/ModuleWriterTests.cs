@@ -55,4 +55,26 @@ public sealed class ModuleWriterTests : IDisposable
             _ => { if (++calls == 2) throw new IOException("disk full"); }));
         Assert.Empty(Directory.GetFiles(folder));
     }
+
+    [Fact]
+    [FuzzEntry(typeof(ModuleRebuild))]
+    public void Mutated_dumps_never_throw_from_the_rebuild_and_write()
+    {
+        var seed = SyntheticCrash.Builder().Build();
+        int n = 0;
+        var failures = FormatFuzz.Run(seed, bytes =>
+        {
+            var path = _dir.File("fuzz.dmp");
+            File.WriteAllBytes(path, bytes);
+            try
+            {
+                using var memory = MinidumpFile.Open(path);
+                var rebuilt = ModuleRebuild.Select(memory, "all", default)
+                    .Select(t => ModuleRebuild.Rebuild(memory, t, RebuildOptions.Default, default)).ToList();
+                ModuleWriter.WriteAll(rebuilt, _dir.File($"export{n++}"));
+            }
+            catch (ToolError) { }
+        }, 250);
+        Assert.Empty(failures);
+    }
 }

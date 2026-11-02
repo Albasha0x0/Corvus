@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Corvus.Native.Dump;
+using Corvus.Native.Dump.Rebuild;
 using Corvus.Native.Pe;
 
 namespace Corvus.Tests;
@@ -40,7 +41,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
         return (mapped, offset, length);
     }
 
-    private ExportedModule Export(byte[] mapped, int captured = -1)
+    private ManagedMetadataState Export(byte[] mapped, int captured = -1)
     {
         var b = SyntheticCrash.Builder();
         b.Modules.Clear();
@@ -49,7 +50,17 @@ public sealed class DumpManagedMetadataTests : IDisposable
         b.Memory.Add((Base, captured < 0 ? mapped : mapped[..captured]));
         var path = _dir.File("managed.dmp");
         File.WriteAllBytes(path, b.Build());
-        return Assert.Single(DumpModuleExport.Write(path, _dir.File("modules"), default).Written);
+        using var memory = MinidumpFile.Open(path);
+        return DumpManagedMetadata.Inspect(memory, Assert.Single(memory.Modules))!;
+    }
+
+    private RebuiltModule Rebuilt(string dump)
+    {
+        using var memory = MinidumpFile.Open(dump);
+        var target = Assert.Single(ModuleRebuild.Select(memory, "all", default));
+        var rebuilt = ModuleRebuild.Rebuild(memory, target, RebuildOptions.Default with { Layout = OutputLayout.Mapped }, default);
+        Assert.Equal(rebuilt.Target.Name, Assert.Single(ModuleWriter.WriteAll([rebuilt], _dir.File("modules"))).File);
+        return rebuilt;
     }
 
     private string ManagedDump(byte[] mapped, int captured)
@@ -118,7 +129,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
     [Fact]
     public void A_managed_image_over_the_size_limit_reports_unknown_with_a_reason()
     {
-        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x9000000, true), null, 0, 10).Rows);
+        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x2400_0000, true), null, 0, 10).Rows);
         Assert.Equal("unknown", row.Metadata);
         Assert.Contains("larger than", row.MetadataReason);
     }
@@ -167,8 +178,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
     public void An_intact_managed_image_reports_readable_metadata()
     {
         var written = Export(ManagedImage().Mapped);
-        Assert.Equal("readable", written.Metadata);
-        Assert.Null(written.MetadataReason);
+        Assert.Equal("readable", written.State);
+        Assert.Null(written.Reason);
     }
 
     [Fact]
@@ -177,7 +188,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var b = SyntheticCrash.Builder();
         var path = _dir.File("native.dmp");
         File.WriteAllBytes(path, b.Build());
-        var written = Assert.Single(DumpModuleExport.Write(path, _dir.File("modules"), default).Written);
+        var written = Rebuilt(path);
         Assert.Null(written.Metadata);
     }
 
@@ -206,8 +217,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var (mapped, offset, length) = ManagedImage();
         Array.Clear(mapped, offset, length);
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Equal("the metadata root is zero-filled", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Equal("the metadata root is zero-filled", written.Reason);
     }
 
     [Fact]
@@ -216,8 +227,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var (mapped, offset, _) = ManagedImage();
         Array.Clear(mapped, offset, 16);
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Equal("the metadata root is zero-filled", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Equal("the metadata root is zero-filled", written.Reason);
     }
 
     [Fact]
@@ -226,8 +237,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var (mapped, offset, _) = ManagedImage();
         mapped.AsSpan(offset, 4).Fill(0xA5);
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Contains("0xA5A5A5A5, not BSJB", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Contains("0xA5A5A5A5, not BSJB", written.Reason);
     }
 
     [Fact]
@@ -238,8 +249,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         int cut = (offset + tables.Offset + tables.Size) & ~0xFFF;
         Assert.True(cut > offset + tables.Offset && cut < offset + tables.Offset + tables.Size);
         var written = Export(mapped, cut);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.StartsWith($"{cut - offset} of {length} metadata bytes were captured; #~ cut at ", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.StartsWith($"{cut - offset} of {length} metadata bytes were captured; #~ cut at ", written.Reason);
     }
 
     [Fact]
@@ -251,8 +262,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         int cut = (offset + strings.Offset + strings.Size / 2) & ~0xFFF;
         Assert.True(cut > offset + streams["#~"].Offset + streams["#~"].Size && cut < offset + strings.Offset + strings.Size);
         var written = Export(mapped, cut);
-        Assert.Equal("partial", written.Metadata);
-        Assert.StartsWith($"{cut - offset} of {length} metadata bytes were captured; the tables read, #Strings cut at ", written.MetadataReason);
+        Assert.Equal("partial", written.State);
+        Assert.StartsWith($"{cut - offset} of {length} metadata bytes were captured; the tables read, #Strings cut at ", written.Reason);
     }
 
     [Fact]
@@ -263,8 +274,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         int shorter = strings.Offset + 4;
         BinaryPrimitives.WriteUInt32LittleEndian(mapped.AsSpan(ClrHeader(mapped) + 12), (uint)shorter);
         var written = Export(mapped);
-        Assert.Equal("partial", written.Metadata);
-        Assert.StartsWith($"the metadata directory length {shorter} ends inside #Strings cut at 4 of ", written.MetadataReason);
+        Assert.Equal("partial", written.State);
+        Assert.StartsWith($"the metadata directory length {shorter} ends inside #Strings cut at 4 of ", written.Reason);
     }
 
     [Fact]
@@ -273,8 +284,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var (mapped, _, _) = ManagedImage();
         BinaryPrimitives.WriteUInt32LittleEndian(mapped.AsSpan(ClrHeader(mapped) + 12), 8);
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Equal("the metadata directory length is 8, below the 16-byte root", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Equal("the metadata directory length is 8, below the 16-byte root", written.Reason);
     }
 
     [Fact]
@@ -283,8 +294,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var (mapped, _, _) = ManagedImage();
         BinaryPrimitives.WriteUInt32LittleEndian(mapped.AsSpan(ClrHeader(mapped) + 8), 0);
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Equal("the CLR header has no metadata directory", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Equal("the CLR header has no metadata directory", written.Reason);
     }
 
     [Fact]
@@ -293,8 +304,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var (mapped, _, _) = ManagedImage();
         mapped.AsSpan(ClrHeader(mapped), 72).Clear();
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Equal("the CLR header is zero-filled: its page was not captured", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Equal("the CLR header is zero-filled: its page was not captured", written.Reason);
     }
 
     [Fact]
@@ -304,8 +315,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         int cut = ClrHeader(mapped) & ~0xFFF;
         Assert.True(cut >= 0x1000);
         var written = Export(mapped, cut);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Equal("the CLR header lies outside the captured image", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Equal("the CLR header lies outside the captured image", written.Reason);
     }
 
     [Fact]
@@ -322,7 +333,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
         var clr = PeFile.FromBytes(mapped).Directory(PeDirectory.ClrRuntimeHeader);
         BinaryPrimitives.WriteUInt32LittleEndian(mapped.AsSpan((int)clr.Rva), 12);
         var written = Export(mapped);
-        Assert.Equal("unreadable", written.Metadata);
-        Assert.Contains("size is 12", written.MetadataReason);
+        Assert.Equal("unreadable", written.State);
+        Assert.Contains("size is 12", written.Reason);
     }
 }

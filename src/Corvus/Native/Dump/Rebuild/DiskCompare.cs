@@ -126,7 +126,7 @@ public static class DiskCompare
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length > DumpModuleExport.MaxImageBytes) return null;
+            if (stream.Length > ModuleRebuild.MaxImageBytes) return null;
             var bytes = new byte[stream.Length];
             stream.ReadExactly(bytes);
             return bytes;
