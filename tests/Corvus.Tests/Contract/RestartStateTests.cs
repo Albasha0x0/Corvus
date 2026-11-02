@@ -8,15 +8,19 @@ namespace Corvus.Tests;
 [Trait("Speed", "Slow")]
 public partial class RestartStateTests
 {
-    /// <summary>Tools with no restart case, each with the reason the check cannot apply.</summary>
-    internal static readonly Dictionary<string, string> NoRestartCase = new(StringComparer.Ordinal)
+    /// <summary>The states the server cannot keep across a restart; a tool with no restart case names one of them.</summary>
+    internal static readonly HashSet<string> CannotKeep = new(StringComparer.Ordinal)
     {
-        ["emulate_native"] = "a stopped run is held in memory for resume, so a restart ends it; IntegerEmulationTests covers the refusal of an unknown run id",
+        "a running process", "an attached debugger", "an open device connection",
     };
+
+    /// <summary>Tools with no restart case, each with the state the server cannot keep.</summary>
+    internal static readonly Dictionary<string, string> NoRestartCase = new(StringComparer.Ordinal);
 
     /// <summary>Tools whose restart case is another test, as Class.Method.</summary>
     internal static readonly Dictionary<string, string> HeldElsewhere = new(StringComparer.Ordinal)
     {
+        ["emulate_native"] = Held<RestartStateEmulationTests>(nameof(RestartStateEmulationTests.A_stopped_emulation_resumes_in_a_new_process_to_the_result_of_an_uninterrupted_run)),
         ["load_assembly"] = nameof(RestartStateTests) + "." + nameof(Load_offers_the_journal_of_an_ended_process),
         ["apply_metadata_names"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
         ["get_method_addresses"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),

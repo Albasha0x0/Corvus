@@ -41,6 +41,12 @@ public interface IEmulatorCpu
     /// <summary>Returns from an entered call without running it: <paramref name="value"/> in the return register, <paramref name="purge"/> argument bytes popped on x86.</summary>
     void ReturnFromCall(EmulatorMemory memory, ulong value, int purge);
 
+    /// <summary>Writes the registers, flags and program counter.</summary>
+    void Save(BinaryWriter w);
+
+    /// <summary>Restores what <see cref="Save"/> wrote.</summary>
+    void Load(BinaryReader r);
+
     /// <summary>The places of the first <paramref name="count"/> integer arguments.</summary>
     IReadOnlyList<ArgumentSlot> Arguments(int count);
 }

@@ -64,6 +64,25 @@ public sealed class Arm64Cpu : IEmulatorCpu
         return false;
     }
 
+    public void Save(BinaryWriter w)
+    {
+        w.Write(Pc);
+        w.Write(_sp);
+        foreach (var v in _x) w.Write(v);
+        foreach (var (lo, hi) in _v) { w.Write(lo); w.Write(hi); }
+        w.Write((_n ? 1 : 0) | (_z ? 2 : 0) | (_c ? 4 : 0) | (_vf ? 8 : 0));
+    }
+
+    public void Load(BinaryReader r)
+    {
+        Pc = r.ReadUInt64();
+        _sp = r.ReadUInt64();
+        for (int i = 0; i < _x.Length; i++) _x[i] = r.ReadUInt64();
+        for (int i = 0; i < _v.Length; i++) _v[i] = (r.ReadUInt64(), r.ReadUInt64());
+        int flags = r.ReadInt32();
+        (_n, _z, _c, _vf) = ((flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0, (flags & 8) != 0);
+    }
+
     public void SetReturnAddress(EmulatorMemory memory, ulong sentinel) => _x[30] = sentinel;
 
     public void ReturnFromCall(EmulatorMemory memory, ulong value, int purge)

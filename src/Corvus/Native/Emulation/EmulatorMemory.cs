@@ -26,6 +26,8 @@ public sealed class EmulatorMemory
         // Readable bytes of a page outside the image and the region; null when every byte is readable.
         public ulong[]? Valid;
         public readonly ulong[] Written = new ulong[PageSize / 64];
+        // Set by any write, map or unmap; a page only read is rebuilt from the image.
+        public bool Dirty;
     }
 
     private readonly INativeImage _image;
@@ -103,6 +105,7 @@ public sealed class EmulatorMemory
             ulong at = va + (ulong)done, page = at & ~(ulong)(PageSize - 1);
             int off = (int)(at - page), n = Math.Min(PageSize - off, bytes.Length - done);
             var p = Get(at, true);
+            p.Dirty = true;
             bytes.Slice(done, n).CopyTo(p.Data.AsSpan(off));
             for (int i = off; i < off + n; i++)
             {
@@ -132,6 +135,7 @@ public sealed class EmulatorMemory
             ulong at = va + done, page = at & ~(ulong)(PageSize - 1);
             int off = (int)(at - page), n = (int)Math.Min((ulong)(PageSize - off), length - done);
             var p = Get(at, true);
+            p.Dirty = true;
             p.Data.AsSpan(off, n).Clear();
             if (p.Valid != null)
                 for (int i = off; i < off + n; i++)
@@ -182,5 +186,41 @@ public sealed class EmulatorMemory
             }
         }
         return ranges;
+    }
+
+    /// <summary>Writes the pages the run changed; the others are rebuilt from the image.</summary>
+    public void Save(BinaryWriter w)
+    {
+        var dirty = _pages.Where(p => p.Value.Dirty).OrderBy(p => p.Key).ToList();
+        w.Write(dirty.Count);
+        foreach (var (va, p) in dirty)
+        {
+            w.Write(va);
+            w.Write(p.Data);
+            w.Write(p.Valid != null);
+            if (p.Valid != null) foreach (var word in p.Valid) w.Write(word);
+            foreach (var word in p.Written) w.Write(word);
+        }
+    }
+
+    /// <summary>Replaces the pages of a new memory with those <see cref="Save"/> wrote.</summary>
+    public void Load(BinaryReader r)
+    {
+        int count = r.ReadInt32();
+        if (count < 0 || count > MaxPages) throw new InvalidDataException($"the saved run holds {count} pages");
+        for (int k = 0; k < count; k++)
+        {
+            var va = r.ReadUInt64();
+            var p = new Page { Dirty = true };
+            if (r.ReadBytes(PageSize) is { Length: PageSize } data) data.CopyTo(p.Data);
+            else throw new EndOfStreamException();
+            if (r.ReadBoolean())
+            {
+                p.Valid = new ulong[PageSize / 64];
+                for (int i = 0; i < p.Valid.Length; i++) p.Valid[i] = r.ReadUInt64();
+            }
+            for (int i = 0; i < p.Written.Length; i++) p.Written[i] = r.ReadUInt64();
+            _pages[va] = p;
+        }
     }
 }

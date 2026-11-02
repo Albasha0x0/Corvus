@@ -138,4 +138,28 @@ public sealed class EmulatorHeap(EmulatorMemory memory, ulong baseAddress, ulong
                 return 0;
         }
     }
+
+    /// <summary>Writes the block tables and the used size.</summary>
+    public void Save(BinaryWriter w)
+    {
+        w.Write(_used);
+        w.Write(_live.Count);
+        foreach (var (at, b) in _live.OrderBy(b => b.Key)) { w.Write(at); w.Write(b.Size); w.Write(b.Capacity); }
+        w.Write(_free.Count);
+        foreach (var (at, length) in _free) { w.Write(at); w.Write(length); }
+        w.Write(_released.Count);
+        foreach (var at in _released.Order()) w.Write(at);
+    }
+
+    /// <summary>Replaces the block tables with those <see cref="Save"/> wrote.</summary>
+    public void Load(BinaryReader r)
+    {
+        _used = r.ReadUInt64();
+        _live.Clear();
+        _free.Clear();
+        _released.Clear();
+        for (int n = r.ReadInt32(); n > 0; n--) _live[r.ReadUInt64()] = (r.ReadUInt64(), r.ReadUInt64());
+        for (int n = r.ReadInt32(); n > 0; n--) _free[r.ReadUInt64()] = r.ReadUInt64();
+        for (int n = r.ReadInt32(); n > 0; n--) _released.Add(r.ReadUInt64());
+    }
 }

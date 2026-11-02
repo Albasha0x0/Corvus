@@ -7,7 +7,7 @@ using Corvus.Native.Code;
 namespace Corvus.Native.Emulation;
 
 /// <summary>The built-in emulator, taking and returning the Ghidra worker's emulate fields; each import slot holds a distinct address outside the image.</summary>
-public static class IntegerEmulation
+public static partial class IntegerEmulation
 {
     // Stack in the low half of the region, scratch buffers in the high half; the return sentinel just above it.
     private const ulong Region = 0x200000, StackSize = 0x100000, ImportArea = 0x10000;
@@ -31,10 +31,10 @@ public static class IntegerEmulation
     public static JsonObject Run(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct) =>
         Start(image, imageBase, index, request, ct).Result;
 
-    /// <summary>Runs one request like Run and returns the run beside its result.</summary>
-    internal static (JsonObject Result, EmulationRun Run) Start(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct)
+    /// <summary>Lays out a run's memory: the region, the import addresses with their slots written, and the heap.</summary>
+    private static (EmulatorMemory Mem, EmulatorHeap Heap, Dictionary<ulong, NativeImport> ByAddress, ulong Sentinel, ulong RegionBase) Layout(
+        INativeImage image, ulong imageBase, IEmulatorCpu cpu)
     {
-        var cpu = Cpu(image);
         int ptr = cpu.PointerSize;
         var imports = image.Imports.Where(i => i.SlotRva != 0 && i.SlotRva + (uint)ptr <= image.SizeOfImage).GroupBy(i => i.SlotRva).Select(g => g.First()).ToList();
         // The region reserves the heap after the import addresses.
@@ -50,6 +50,15 @@ public static class IntegerEmulation
             byAddress[at] = imports[k];
             mem.WriteUInt(imageBase + imports[k].SlotRva, at, ptr);
         }
+        return (mem, heap, byAddress, sentinel, regionBase);
+    }
+
+    /// <summary>Runs one request like Run and returns the run beside its result.</summary>
+    internal static (JsonObject Result, EmulationRun Run) Start(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct)
+    {
+        var cpu = Cpu(image);
+        int ptr = cpu.PointerSize;
+        var (mem, heap, byAddress, sentinel, regionBase) = Layout(image, imageBase, cpu);
 
         ulong start = Va(Text(request, "start")!);
         int traceMax = (int)(Number(request["trace"]) ?? 0);

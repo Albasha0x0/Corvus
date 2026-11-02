@@ -21,7 +21,7 @@ public class RestartStateCatalogTests
             var (type, method) = (held[..held.IndexOf('.')], held[(held.IndexOf('.') + 1)..]);
             Assert.NotNull(typeof(RestartStateTests).Assembly.GetTypes().Single(t => t.Name == type).GetMethod(method));
         });
-        Assert.All(RestartStateTests.NoRestartCase.Values, reason => Assert.NotEmpty(reason));
+        Assert.All(RestartStateTests.NoRestartCase, entry => Assert.True(RestartStateTests.CannotKeep.Contains(entry.Value), $"{entry.Key}: '{entry.Value}' is not a state the server cannot keep"));
     }
 
     [Fact]

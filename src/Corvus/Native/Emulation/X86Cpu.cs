@@ -74,6 +74,22 @@ public sealed class X86Cpu : IEmulatorCpu
         return true;
     }
 
+    public void Save(BinaryWriter w)
+    {
+        w.Write(Pc);
+        foreach (var v in _r) w.Write(v);
+        foreach (var (lo, hi) in _xmm) { w.Write(lo); w.Write(hi); }
+        w.Write(Flags());
+    }
+
+    public void Load(BinaryReader r)
+    {
+        Pc = r.ReadUInt64();
+        for (int i = 0; i < _r.Length; i++) _r[i] = r.ReadUInt64();
+        for (int i = 0; i < _xmm.Length; i++) _xmm[i] = (r.ReadUInt64(), r.ReadUInt64());
+        SetFlags(r.ReadUInt64());
+    }
+
     public void SetReturnAddress(EmulatorMemory memory, ulong sentinel)
     {
         Sp -= (ulong)PointerSize;

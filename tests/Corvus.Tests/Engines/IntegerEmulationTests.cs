@@ -9,6 +9,7 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>emulate_native engine=ours on the emu.dll of the Ghidra tests: the same scenarios without an engine installed.</summary>
+[Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmulationTests.Rig rig) : IClassFixture<IntegerEmulationTests.Rig>
 {
     private const ulong Base = NativeEmulationGhidraTests.Base;
@@ -24,6 +25,7 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
 
         public Rig()
         {
+            EmulationRuns.Folder = _dir.File("stopped");
             var path = NativeEmulationGhidraTests.Build(_dir, At);
             var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
             Workspace = new AssemblyWorkspace(options);
@@ -34,6 +36,7 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
 
         public void Dispose()
         {
+            EmulationRuns.ResetFolder();
             Engines.Dispose();
             Workspace.Dispose();
             _dir.Dispose();
@@ -264,6 +267,107 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
         Assert.Equal(Line(whole, "Return value:"), Line(resumed, "Return value:"));
         Assert.Equal(FirstLine(whole), FirstLine(resumed));
         Assert.Contains(System.Text.RegularExpressions.Regex.Match(whole, "[0-9,]+ instructions").Value, resumed);
+    }
+
+    private static string Line(string text, string prefix) => text.Split('\n').First(l => l.StartsWith(prefix, StringComparison.Ordinal));
+
+    // RT-336: a stopped run is saved, so a restart does not end it.
+    [Fact]
+    public async Task A_stopped_run_resumes_after_a_restart_to_the_result_of_an_uninterrupted_run()
+    {
+        var input = new string('a', 30_000);
+        var whole = await Run("Fnv1a", args: $"\"{input}\"");
+        var cut = await Run("Fnv1a", args: $"\"{input}\"", maxInstructions: 50_000);
+        EmulationRuns.ReleaseHeld();
+        var resumed = await rig.Tools.EmulateNative("emu.dll", "Fnv1a", resume: ResumeId(cut));
+        Assert.Contains("Stopped: returned to the caller", resumed);
+        Assert.Equal(Line(whole, "Return value:"), Line(resumed, "Return value:"));
+        Assert.Contains(System.Text.RegularExpressions.Regex.Match(whole, "[0-9,]+ instructions").Value, resumed);
+    }
+
+    [Fact]
+    public async Task A_run_resumed_after_a_restart_stops_on_a_budget_again_under_its_id()
+    {
+        var id = ResumeId(await Run("Spin", maxInstructions: 1000));
+        EmulationRuns.ReleaseHeld();
+        var again = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 1000, resume: id);
+        Assert.Contains("2,000 instructions", again);
+        Assert.Equal(id, ResumeId(again));
+    }
+
+    [Fact]
+    public async Task A_saved_run_of_another_build_is_refused_with_the_call_that_starts_a_new_run()
+    {
+        var id = ResumeId(await Run("Spin", maxInstructions: 1000));
+        var state = Path.Combine(EmulationRuns.Folder, id, "state.json");
+        var changed = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(state))!;
+        changed["image"] = new string('0', 64);
+        File.WriteAllText(state, changed.ToJsonString());
+        EmulationRuns.ReleaseHeld();
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", resume: id));
+        Assert.Equal(ErrorCode.Conflict, e.Code);
+        Assert.Contains("emulate_native image=emu.dll address=Spin starts a new run", e.Remediation);
+    }
+
+    [Fact]
+    public async Task A_damaged_saved_run_is_named_and_removed()
+    {
+        var id = ResumeId(await Run("Spin", maxInstructions: 1000));
+        File.WriteAllBytes(Path.Combine(EmulationRuns.Folder, id, "memory.bin"), [1, 2, 3]);
+        EmulationRuns.ReleaseHeld();
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", resume: id));
+        Assert.Equal(ErrorCode.MalformedInput, e.Code);
+        Assert.Contains(id, e.Message);
+        Assert.False(Directory.Exists(Path.Combine(EmulationRuns.Folder, id)));
+    }
+
+    [Fact]
+    public async Task A_run_that_ends_leaves_no_saved_state()
+    {
+        var id = ResumeId(await Run("Fnv1a", args: $"\"{new string('a', 30_000)}\"", maxInstructions: 50_000));
+        Assert.True(Directory.Exists(Path.Combine(EmulationRuns.Folder, id)));
+        await rig.Tools.EmulateNative("emu.dll", "Fnv1a", resume: id);
+        Assert.False(Directory.Exists(Path.Combine(EmulationRuns.Folder, id)));
+    }
+
+    [Fact]
+    public async Task Saved_runs_are_bounded_to_the_kept_limit()
+    {
+        for (int i = 0; i < EmulationRuns.Kept + 2; i++) await Run("Spin", maxInstructions: 1000);
+        Assert.Equal(EmulationRuns.Kept, Directory.GetDirectories(EmulationRuns.Folder).Length);
+    }
+
+    [Fact]
+    public async Task The_newest_saved_run_survives_the_bound_when_write_times_tie()
+    {
+        string id = "";
+        for (int i = 0; i < EmulationRuns.Kept + 2; i++)
+        {
+            id = ResumeId(await Run("Spin", maxInstructions: 1000));
+            foreach (var d in Directory.GetDirectories(EmulationRuns.Folder)) Directory.SetLastWriteTimeUtc(d, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        }
+        Assert.True(Directory.Exists(Path.Combine(EmulationRuns.Folder, id)));
+    }
+
+    [Theory]
+    [InlineData("truncated")]
+    [InlineData("missing_field")]
+    public async Task A_saved_state_that_is_incomplete_is_named_and_removed(string damage)
+    {
+        var id = ResumeId(await Run("Spin", maxInstructions: 1000));
+        var state = Path.Combine(EmulationRuns.Folder, id, "state.json");
+        var text = File.ReadAllText(state);
+        if (damage == "truncated") File.WriteAllText(state, text[..(text.Length / 2)]);
+        else
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(text)!.AsObject();
+            node.Remove("executed");
+            File.WriteAllText(state, node.ToJsonString());
+        }
+        EmulationRuns.ReleaseHeld();
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", resume: id));
+        Assert.Equal(ErrorCode.MalformedInput, e.Code);
+        Assert.False(Directory.Exists(Path.Combine(EmulationRuns.Folder, id)));
     }
 
     [Fact]

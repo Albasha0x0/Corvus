@@ -27,7 +27,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
     [Description("Emulate native code from an address: return value, registers and written strings. " +
-                 "resume= continues a run a budget stopped.")]
+                 "resume= continues a run a budget stopped, saved best-effort under the data folder.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -42,7 +42,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("Last instructions listed (0-2000).")] int trace = 0,
         [Description("Argument sets, ;-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
         [Description("auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program.")] string? engine = null,
-        [Description("Run id from Next; address is ignored.")] string? resume = null,
+        [Description("Run id from Next, also after a restart; address is ignored.")] string? resume = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -160,18 +160,23 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         }
         var (json, run) = await Task.Run(() => IntegerEmulation.Start(native.Image, imageBase, index, request, ct), ct);
         var r = JsonSerializer.SerializeToElement(json);
-        return Finish(native.Id, r, maxInstructions, seconds, address, run);
+        return Finish(native.Id, r, maxInstructions, seconds, address, run, sha256: native.Image.Sha256);
     }
 
     private async Task<string> ResumeOursAsync(string image, string address, string id, int maxInstructions, int seconds, CancellationToken ct)
     {
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), ct);
-        var run = EmulationRuns.Find(native.Id, id);
+        var run = EmulationRuns.Held(native.Id, id);
+        if (run == null)
+        {
+            var saved = EmulationRuns.Saved(native, id, address);
+            run = EmulationRuns.Restore(saved, id, native, address, nativeCode != null ? await nativeCode.Index(native, null, ct) : null);
+        }
         EngineReport.Answered(new EngineChoice(OursEngine, "resume: the built-in emulator"), engines);
         var r = JsonSerializer.SerializeToElement(await Task.Run(() => IntegerEmulation.Resume(run, maxInstructions, seconds, ct), ct));
         // The run stays kept until it ends, so a failed or cancelled resume can be retried.
         if (!run.Resumable) EmulationRuns.Drop(id);
-        return Finish(native.Id, r, maxInstructions, seconds, address, run, id);
+        return Finish(native.Id, r, maxInstructions, seconds, address, run, id, native.Image.Sha256);
     }
 
     private static void RefuseResumeWith(params (string Name, string? Value)[] given)
@@ -180,13 +185,13 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             throw new ToolError(ErrorCode.InvalidArgument, $"resume continues a run with its own inputs; {name} cannot change them.", "omit it, or start a run without resume");
     }
 
-    private static string Finish(string imageId, JsonElement r, int maxInstructions, int timeoutSeconds, string address, EmulationRun? run = null, string? id = null)
+    private static string Finish(string imageId, JsonElement r, int maxInstructions, int timeoutSeconds, string address, EmulationRun? run = null, string? id = null, string? sha256 = null)
     {
         var stop = r.GetProperty("stop").GetString();
         string? next = stop switch
         {
             "instruction_budget" or "time_budget" when run is { Resumable: true } =>
-                $"emulate_native image={imageId} address={address} resume={EmulationRuns.Keep(imageId, run, id)} continues with a fresh budget",
+                $"emulate_native image={imageId} address={address} resume={EmulationRuns.Keep(imageId, sha256!, run, id)} continues with a fresh budget",
             "instruction_budget" => RaiseNext("maxInstructions", maxInstructions, MaxInstructionBudget, "go further"),
             "time_budget" => RaiseNext("timeoutSeconds", timeoutSeconds, MaxTimeBudget, "go further"),
             _ => null,

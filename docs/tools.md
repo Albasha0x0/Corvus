@@ -1553,7 +1553,7 @@ Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `off
 
 **Emulate native code** (read-only, idempotent, open-world, long-running)
 
-Emulate native code from an address: return value, registers and written strings. resume= continues a run a budget stopped.
+Emulate native code from an address: return value, registers and written strings. resume= continues a run a budget stopped, saved best-effort under the data folder.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1570,7 +1570,7 @@ Emulate native code from an address: return value, registers and written strings
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
 | `candidates` | string |  |  | Argument sets, ;-separated, each as args; one timeoutSeconds covers all. |
 | `engine` | string |  |  | auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program. Values: auto, ghidra, ours, speakeasy. |
-| `resume` | string |  |  | Run id from Next; address is ignored. |
+| `resume` | string |  |  | Run id from Next, also after a restart; address is ignored. |
 
 Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `nullPageWrites`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`.
 
