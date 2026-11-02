@@ -169,7 +169,7 @@ public abstract class ChildProcess : IDisposable
 internal sealed class PosixGroupProcess : ChildProcess
 {
     private readonly Process _process;
-    private readonly Task _exited;
+    private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
     /// <summary>The worker itself (the shell's child): the id status reports and the process group Kill ends.</summary>
     private readonly int _workerId;
     private readonly Lock _gate = new();
@@ -182,7 +182,16 @@ internal sealed class PosixGroupProcess : ChildProcess
     private PosixGroupProcess(Process process, long? footprintLimit)
     {
         _process = process;
-        _exited = process.WaitForExitAsync();
+        // A thread of its own, not WaitForExitAsync: a starved pool reported the
+        // exit seconds late, so a finished watched run read as stalled (ci.yml
+        // ubuntu on c61dc689).
+        new Thread(() =>
+        {
+            // Dispose may release the process first; the exit is then known.
+            try { process.WaitForExit(); }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or Win32Exception) { }
+            _exited.TrySetResult();
+        }) { IsBackground = true, Name = "child exit " + process.Id }.Start();
         _workerId = ReadWorkerId(process.StandardOutput.BaseStream) ?? process.Id;
         _footprintLimit = footprintLimit;
         // macOS enforces neither RLIMIT_DATA nor RLIMIT_AS, so a thread of its own reads the footprint; a starved
@@ -197,7 +206,7 @@ internal sealed class PosixGroupProcess : ChildProcess
         // rusage_info_v2: a 16-byte uuid, then 64-bit fields; ri_phys_footprint is the eighth.
         const int footprintOffset = 72;
         var info = new byte[256];
-        while (!_exited.Wait(100))
+        while (!_exited.Task.Wait(100))
         {
             // Without the call the managed heap limit the caller sets still holds.
             try { if (ProcPidRusage(_workerId, 2, info) != 0) continue; }
@@ -291,7 +300,7 @@ internal sealed class PosixGroupProcess : ChildProcess
     public override Stream StandardError => _process.StandardError.BaseStream;
     public override bool HasExited { get { lock (_gate) return _disposed ? _disposedExited : _process.HasExited; } }
     public override int? ExitCode { get { lock (_gate) return _disposed ? _disposedExitCode : _process.HasExited ? _process.ExitCode : null; } }
-    public override Task Exited => _exited;
+    public override Task Exited => _exited.Task;
     public override IReadOnlyList<int> TreeProcessIds() => HasExited ? [] : [_workerId];
 
     [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
