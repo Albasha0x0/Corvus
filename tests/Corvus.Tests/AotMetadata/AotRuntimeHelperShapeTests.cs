@@ -98,6 +98,34 @@ public sealed class AotRuntimeHelperShapeTests
         }, n => n.StartsWith('M'));
     }
 
+    // As ClassSetups, with the receiver kept in a stack slot as an
+    // unoptimized build does; the variant changes what the reload reads.
+    private static Built SlotSetups(string variant)
+    {
+        return Build((a, L, Here) =>
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                Here("M" + i);
+                a.sub(rsp, 0x48);
+                a.call(L("Init"));
+                a.mov(rdx, __qword_ptr[rsp + 0x30]);
+                a.mov(rcx, __qword_ptr[rdx]);
+                a.call(L("Thunk"));
+                if (variant == "other-slot") a.mov(rax, __qword_ptr[rsp + 0x38]);
+                else if (variant == "moved-stack") { a.sub(rsp, 8); a.mov(rax, __qword_ptr[rsp + 0x30]); }
+                else if (variant == "stored") { a.mov(__qword_ptr[rsp + 0x30], rsi); a.mov(rax, __qword_ptr[rsp + 0x30]); }
+                else a.mov(rax, __qword_ptr[rsp + 0x30]);
+                a.mov(rax, __qword_ptr[rax]);
+                a.call(__qword_ptr[rax + 0x338]);
+                a.add(rsp, 0x48); a.ret(); a.int3();
+            }
+            Here("Init"); a.ret(); a.int3();
+            Here("Thunk"); a.jmp(L("Impl")); a.int3();
+            Here("Impl"); a.ret();
+        }, n => n.StartsWith('M'));
+    }
+
     private static AotRuntimeHelpers.Helper? Named(Built b, string name) =>
         AotRuntimeHelpers.Find(b.Image, b.Index, Methods(b)).FirstOrDefault(h => h.Name == name);
 
@@ -174,5 +202,21 @@ public sealed class AotRuntimeHelperShapeTests
     public void A_call_through_a_register_loaded_from_a_field_is_not_a_slot_call_for_the_class_setup()
     {
         Assert.Null(Named(ClassSetups(4, sameReceiver: true, entryOffset: 0x8), "Runtime_ClassSetup"));
+    }
+
+    [Fact]
+    public void A_receiver_reloaded_from_its_stack_slot_after_the_call_is_the_class_setup_receiver()
+    {
+        var b = SlotSetups("same");
+        Assert.Equal(b.At["Thunk"], Named(b, "Runtime_ClassSetup")?.Rva);
+    }
+
+    [Theory]
+    [InlineData("other-slot")]
+    [InlineData("moved-stack")]
+    [InlineData("stored")]
+    public void A_reload_from_another_slot_or_after_the_slot_changed_is_not_the_class_setup(string variant)
+    {
+        Assert.Null(Named(SlotSetups(variant), "Runtime_ClassSetup"));
     }
 }

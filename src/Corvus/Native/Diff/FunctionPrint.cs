@@ -287,6 +287,7 @@ public sealed class ImagePrints
             }
         }
         bool x86 = index.Image.Arch is NativeArch.X86 or NativeArch.X64;
+        bool arm64 = index.Image.Arch == NativeArch.Arm64;
         int cardMask = -1;
         for (int n = 0; n < code.Count; n++)
         {
@@ -296,7 +297,11 @@ public sealed class ImagePrints
             // An inlined write barrier shifts an address by 12, then masks the
             // card index; its mask is shared by every storing function.
             if (x86 && insn.Mnemonic == (int)Iced.Intel.Mnemonic.Shr && insn.Bytes is [.., 0xC1, _, 0x0C]) cardMask = n + CardMaskWindow;
-            if (insn.Constant is { } k && !(n <= cardMask && insn.Mnemonic == (int)Iced.Intel.Mnemonic.And)) constants.Add(k);
+            // On ARM64 the shift is lsr #12: ubfm with immr 12 and imms 63
+            // (64-bit) or 31 (32-bit).
+            if (arm64 && insn.Bytes.Length == 4 && (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(insn.Bytes) & 0xFFFFFC00) is 0xD34CFC00 or 0x530C7C00) cardMask = n + CardMaskWindow;
+            bool mask = insn.Mnemonic == (x86 ? (int)Iced.Intel.Mnemonic.And : MaskedDecoder.Arm64Mnemonics + (int)AsmArm64.Arm64Mnemonic.AND);
+            if (insn.Constant is { } k && !(n <= cardMask && mask)) constants.Add(k);
         }
 
         // Canonical depth-first order of blocks from the entry.

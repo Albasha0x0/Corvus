@@ -230,16 +230,19 @@ public static class AotRuntimeHelpers
 
     /// <summary>
     /// The function called with a receiver's class pointer right before a
-    /// virtual call through the same receiver: <c>mov rcx,[r]</c>, the call,
-    /// <c>mov rax,[r]</c>, then <c>call [rax+d]</c> or a call through a
-    /// register loaded from <c>[rax+d]</c>. Named when at least three named
-    /// functions call it this way and it has at least twice the sites of any
-    /// other; at most <see cref="MaxScanned"/> named functions are scanned.
+    /// virtual call through the same receiver: <c>mov rcx,[r]</c> (rdi on
+    /// System V), the call, <c>mov rax,[r]</c>, then <c>call [rax+d]</c> or a
+    /// call through a register loaded from <c>[rax+d]</c>. The receiver may
+    /// be a register or a reloaded stack slot. Named when at least three
+    /// named functions call it this way and it has at least twice the sites
+    /// of any other; at most <see cref="MaxScanned"/> named functions are
+    /// scanned.
     /// </summary>
     private static Helper? ClassSetup(INativeImage image, NativeCodeIndex index, IReadOnlySet<uint> named, IReadOnlySet<uint> skip, Action<string>? note, CancellationToken ct)
     {
         if (image.Arch != NativeArch.X64) return null;
         var sites = new Dictionary<uint, int>();
+        var argument = image.Format == ImageFormat.Pe ? Register.RCX : Register.RDI;
         int scanned = 0;
         bool capped = false;
         foreach (var start in named.Order())
@@ -253,7 +256,7 @@ public static class AotRuntimeHelpers
             for (int k = 1; k < code.Count; k++)
             {
                 if (code[k].FlowControl != FlowControl.Call || code[k].Op0Kind != OpKind.NearBranch64) continue;
-                if (!ClassPointerLoad(code[k - 1], out var receiver) || !VirtualCallAfter(code, k, receiver)) continue;
+                if (!ClassPointerLoad(code[k - 1], argument, out var receiver) || !VirtualCallAfter(code, k, receiver, StackSlotOf(code, k - 1, receiver))) continue;
                 uint callee = (uint)(code[k].NearBranchTarget - image.ImageBase);
                 if (seen.Add(callee)) sites[callee] = sites.GetValueOrDefault(callee) + 1;
             }
@@ -268,21 +271,38 @@ public static class AotRuntimeHelpers
         return new Helper(ranked[0].Key, "Runtime_ClassSetup", $"class setup; called with the receiver's class pointer before a virtual call in {ranked[0].Value} of {scanned} of {named.Count} named functions scanned");
     }
 
-    // mov rcx,[r] with r another register.
-    private static bool ClassPointerLoad(in Instruction i, out Register receiver)
+    // mov arg,[r] with r another register; arg is the first argument register.
+    private static bool ClassPointerLoad(in Instruction i, Register argument, out Register receiver)
     {
         receiver = Register.None;
-        if (i.Mnemonic != Mnemonic.Mov || i.Op0Kind != OpKind.Register || i.Op0Register is not Register.RCX) return false;
+        if (i.Mnemonic != Mnemonic.Mov || i.Op0Kind != OpKind.Register || i.Op0Register != argument) return false;
         if (i.Op1Kind != OpKind.Memory || i.MemoryIndex != Register.None || i.MemoryDisplacement64 != 0 || i.SegmentPrefix != Register.None) return false;
         if (!i.MemoryBase.IsGPR64() || i.MemoryBase is Register.RIP or Register.RSP || i.MemoryBase == i.Op0Register) return false;
         receiver = i.MemoryBase;
         return true;
     }
 
-    // mov rax,[receiver], then call [rax+d], within the window and with no
-    // branch or call between.
-    private static bool VirtualCallAfter(List<Instruction> code, int call, Register receiver)
+    // The stack slot the receiver was loaded from before the class pointer
+    // load, as an unoptimized build keeps it; null when it was not.
+    private static (Register Base, long Displacement)? StackSlotOf(List<Instruction> code, int load, Register receiver)
     {
+        for (int k = load - 1; k >= 0 && k >= load - Window; k--)
+        {
+            var i = code[k];
+            if (i.FlowControl != FlowControl.Next) return null;
+            if (i.Op0Kind != OpKind.Register || i.Op0Register.GetFullRegister() != receiver) continue;
+            return i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && i.MemoryBase is Register.RSP or Register.RBP && i.MemoryIndex == Register.None
+                ? (i.MemoryBase, (long)i.MemoryDisplacement64) : null;
+        }
+        return null;
+    }
+
+    // mov rax,[receiver], then call [rax+d], within the window and with no
+    // branch or call between. The receiver is held by a register, or by any
+    // register that loaded its stack slot or copied it since the class setup.
+    private static bool VirtualCallAfter(List<Instruction> code, int call, Register receiver, (Register Base, long Displacement)? slot)
+    {
+        var holders = new HashSet<Register> { receiver };
         bool reloaded = false;
         // The register a slot entry was loaded into.
         var entry = Register.None;
@@ -292,14 +312,23 @@ public static class AotRuntimeHelpers
             if (reloaded && i.FlowControl == FlowControl.IndirectCall && i.Op0Kind == OpKind.Memory && i.MemoryBase == Register.RAX) return true;
             if (entry != Register.None && i.FlowControl == FlowControl.IndirectCall && i.Op0Kind == OpKind.Register && i.Op0Register == entry) return true;
             if (i.FlowControl != FlowControl.Next) return false;
+            // A store to the slot or a change of rsp ends the slot's identity.
+            if (slot is { } s && ((i.Op0Kind == OpKind.Memory && i.MemoryBase == s.Base && (long)i.MemoryDisplacement64 == s.Displacement)
+                || (s.Base == Register.RSP && (i.Mnemonic is Mnemonic.Push or Mnemonic.Pop || (i.Op0Kind == OpKind.Register && i.Op0Register == Register.RSP)))))
+                slot = null;
             if (i.Op0Kind != OpKind.Register) continue;
             var written = i.Op0Register.GetFullRegister();
+            bool fromHolder = i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && holders.Contains(i.MemoryBase) && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0;
+            bool copiesHolder = i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Register && holders.Contains(i.Op1Register.GetFullRegister());
+            bool loadsSlot = slot != null && i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && i.MemoryBase == slot.Value.Base && i.MemoryIndex == Register.None && (long)i.MemoryDisplacement64 == slot.Value.Displacement;
+            holders.Remove(written);
+            if (copiesHolder || loadsSlot) holders.Add(written);
             if (written == entry) entry = Register.None;
             if (reloaded && i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && i.MemoryBase == Register.RAX && i.MemoryIndex == Register.None && i.Op0Register.IsGPR64()
                 && i.MemoryDisplacement64 >= FirstSlotOffset && i.MemoryDisplacement64 % 8 == 0)
                 entry = i.Op0Register;
             if (written == Register.RAX)
-                reloaded = i.Mnemonic == Mnemonic.Mov && i.Op1Kind == OpKind.Memory && i.MemoryBase == receiver && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0;
+                reloaded = fromHolder;
         }
         return false;
     }

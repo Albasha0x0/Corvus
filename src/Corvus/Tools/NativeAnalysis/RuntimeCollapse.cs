@@ -237,11 +237,14 @@ internal static partial class RuntimeCollapse
     private static bool ByteLoad(DisasmLine l) =>
         Normal(l).Contains("byte ptr", StringComparison.Ordinal) || ByteRegister().IsMatch(Destination(l));
 
-    // test reg,reg on the register family that the load wrote.
+    // test reg,reg or cmp reg,0 on the register family that the load wrote.
     private static bool TestsRegister(DisasmLine test, DisasmLine load)
     {
-        var m = TestSelf().Match(Normal(test));
-        return m.Success && m.Groups[1].Value == m.Groups[2].Value && Family(m.Groups[1].Value) == Family(Destination(load));
+        var text = Normal(test);
+        var m = TestSelf().Match(text);
+        if (m.Success) return m.Groups[1].Value == m.Groups[2].Value && Family(m.Groups[1].Value) == Family(Destination(load));
+        var c = CompareZero().Match(text);
+        return c.Success && Family(c.Groups[1].Value) == Family(Destination(load));
     }
 
     // The 64-bit register that a name addresses: al, ax, eax and rax are one.
@@ -258,6 +261,9 @@ internal static partial class RuntimeCollapse
 
     [GeneratedRegex(@"^test (\w+),(\w+)$")]
     private static partial Regex TestSelf();
+
+    [GeneratedRegex(@"^cmp (\w+),(?:0|0x0+|0+h)$")]
+    private static partial Regex CompareZero();
 
     [GeneratedRegex(@"^r(\d+)[dwb]?$")]
     private static partial Regex NumberedRegister();
@@ -295,7 +301,7 @@ internal static partial class RuntimeCollapse
     [GeneratedRegex(@"^cmp [^,]+,(0|0x0+|0+h)$")]
     private static partial Regex ZeroOperand();
 
-    [GeneratedRegex(@"^lock or (?:dword ptr )?\[rsp\],0(?:x0+|0*h)?$")]
+    [GeneratedRegex(@"^lock or (?:dword ptr )?\[rsp(?: ?- ?(?:0x[0-9a-f]+|[0-9a-f]+h?))?\],0(?:x0+|0*h)?$")]
     private static partial Regex FenceText();
 
     [GeneratedRegex(@"^mov (?:byte ptr )?\[[^\]]+\],(1|0x0*1|0*1h)$")]

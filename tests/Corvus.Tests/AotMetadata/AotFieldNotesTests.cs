@@ -242,7 +242,7 @@ public sealed partial class AotFieldNotesTests : IDisposable
         else if (elf)
         {
             binary = Path.Combine(dump, "GameAssembly.so");
-            File.WriteAllBytes(binary, new ElfWriter { Machine = ElfWriter.EmX64, Type = 3, Base = 0, Entry = ElfWriter.TextRva, Text = text }.Build());
+            File.WriteAllBytes(binary, new ElfWriter { Machine = ElfWriter.EmX64, Type = 3, Base = 0, Entry = ElfWriter.TextRva + entry, Text = text }.Build());
         }
         else
         {

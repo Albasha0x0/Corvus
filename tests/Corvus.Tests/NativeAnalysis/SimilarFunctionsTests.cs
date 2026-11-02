@@ -527,4 +527,35 @@ public class SimilarFunctionsTests
     {
         Assert.Contains(0x3FFUL, MaskedAfter(10));
     }
+
+    // Optional shift word, then and x1,x1,#0xfff.
+    private static ulong[] Arm64MaskAfter(uint? shift)
+    {
+        var a = new A64(Code);
+        var at = new Dictionary<string, uint> { ["F"] = a.Here };
+        if (shift is { } w) a.Word(w);
+        a.Word(0x92402C21).Word(A64.Ret);
+        var sample = Make(NativeArch.Arm64, a.Bytes(), at);
+        return sample.Prints.Functions[sample.Of("F")].Constants;
+    }
+
+    [Fact]
+    public void An_arm64_mask_after_a_64_bit_shift_by_12_is_left_out_of_the_constants()
+    {
+        // lsr x1,x1,#12.
+        Assert.DoesNotContain(0xFFFUL, Arm64MaskAfter(0xD34CFC21));
+    }
+
+    [Fact]
+    public void An_arm64_mask_after_a_32_bit_shift_by_12_is_left_out_of_the_constants()
+    {
+        // lsr w1,w1,#12.
+        Assert.DoesNotContain(0xFFFUL, Arm64MaskAfter(0x530C7C21));
+    }
+
+    [Fact]
+    public void An_arm64_mask_without_a_shift_by_12_stays_in_the_constants()
+    {
+        Assert.Contains(0xFFFUL, Arm64MaskAfter(null));
+    }
 }

@@ -82,17 +82,18 @@ public static class AotSlotNotes
             && Helper((uint)(i.NearBranchTarget - imageBase)) != null;
         int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
         // A direct call needs the class pointer, loaded from a receiver's first field.
-        // A jump through a register is a call in tail position.
+        // A jump through a register, or through [class + offset], is a call in
+        // tail position; a jump with an index or a segment is a jump table.
         bool IsVtableCall(in Instruction i) =>
             (i.FlowControl == FlowControl.IndirectCall && i.Op0Kind is OpKind.Memory or OpKind.Register)
-            || (i.FlowControl == FlowControl.IndirectBranch && i.Op0Kind == OpKind.Register);
+            || (i.FlowControl == FlowControl.IndirectBranch && (i.Op0Kind == OpKind.Register || IsClassOffset(i)));
         // A register call needs a vtable entry loaded from memory in the function.
         bool LoadsEntry = instructions.Any(i => i.Mnemonic == Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Memory);
         if (!instructions.Any(i => IsHelperCall(i) || (IsVtableCall(i) && (i.Op0Kind == OpKind.Memory || LoadsEntry)))) return [];
         // A jump table or computed jump has targets this scan cannot see; a
         // register jump is checked against the slot entries when reached.
         for (int k = 0; k < instructions.Count - 1; k++)
-            if (instructions[k].FlowControl == FlowControl.IndirectBranch && instructions[k].Op0Kind != OpKind.Register) return [];
+            if (instructions[k].FlowControl == FlowControl.IndirectBranch && instructions[k].Op0Kind != OpKind.Register && !IsClassOffset(instructions[k])) return [];
 
         var state = new Dictionary<Register, Value>();
         if (Owner(applied.Image.MethodsAt(fn.Start)) is { } method) Entry(method, args, windows, state);
@@ -161,6 +162,11 @@ public static class AotSlotNotes
         foreach (var r in into.Keys.ToList())
             if (!other.TryGetValue(r, out var v) || !v.Equals(into[r])) into.Remove(r);
     }
+
+    // A memory operand of one base register and a displacement.
+    private static bool IsClassOffset(in Instruction i) =>
+        i.Op0Kind == OpKind.Memory && i.MemoryIndex == Register.None && i.SegmentPrefix == Register.None
+        && i.MemoryBase.IsGPR64() && i.MemoryBase != Register.RIP;
 
     // The slot a call [class + offset] addresses, or a call through a register
     // loaded from one, when the base holds the class pointer of a known type;

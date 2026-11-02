@@ -12,28 +12,75 @@ public sealed class CompilerFixtureTests
 {
     private static string Dir => Path.Combine(AppContext.BaseDirectory, "AotMetadata", "CompilerFixtures");
 
-    // The committed MSVC x64 images. Clang images are added once a clang build has been run through these theories.
-    public static TheoryData<string> Builds()
+    // Every committed image is one of MSVC PE x64, clang PE x64, clang ELF x64
+    // or clang ELF AArch64.
+    private static IEnumerable<string> AllBuilds() =>
+        Directory.GetFiles(Dir, "shapes-*").Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal);
+
+    private const string Arm64Reason = "collapse=runtime applies to x86 and x64 images only";
+    private const string Arm64SlotReason = "slot notes read x64 code only";
+    // Open defect: the slot matcher follows registers only, so a receiver kept
+    // in a stack slot is not resolved.
+    private const string UnoptimizedReason = "unfinished: slot notes do not follow stack slots";
+
+    private static bool Unoptimized(string build) => build.Contains("-Od", StringComparison.Ordinal) || build.Contains("-O0-", StringComparison.Ordinal);
+
+    private static bool Arm64(string build) => build.Contains("-arm64", StringComparison.Ordinal);
+
+    // Images a matcher is not run on, each with its reason; the theory of the
+    // matcher leaves them out.
+    private static string? Exempt(string matcher, string build) => matcher switch
+    {
+        nameof(Collapse) when Arm64(build) => Arm64Reason,
+        nameof(Slots) when Arm64(build) => Arm64SlotReason,
+        nameof(Slots) when Unoptimized(build) => UnoptimizedReason,
+        _ => null,
+    };
+
+    private static TheoryData<string> Matcher(string matcher)
     {
         var data = new TheoryData<string>();
-        foreach (var path in Directory.GetFiles(Dir, "shapes-msvc-*").OrderBy(p => p, StringComparer.Ordinal))
-            data.Add(Path.GetFileName(path));
+        foreach (var name in AllBuilds())
+            if (Exempt(matcher, name) == null) data.Add(name);
         return data;
     }
 
-    // Optimized PE images: the slot matcher tracks registers, an unoptimized build keeps locals in stack slots, and the
-    // metadata harness lays out PE images only.
-    public static TheoryData<string> OptimizedBuilds()
+    public static TheoryData<string> Builds() => Matcher("All");
+
+    public static TheoryData<string> Collapse() => Matcher(nameof(Collapse));
+
+    public static TheoryData<string> Slots() => Matcher(nameof(Slots));
+
+    [Fact]
+    public void The_build_set_covers_each_compiler_level_and_target()
     {
-        var data = new TheoryData<string>();
-        foreach (var name in Directory.GetFiles(Dir, "shapes-msvc-*").Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal))
-            if (!name.Contains("Od", StringComparison.Ordinal)) data.Add(name);
-        return data;
+        string[] levels = ["O0", "O1", "O2"];
+        string[] targets = ["x64.dll", "x64.elf", "arm64.elf"];
+        var expected = new[] { "shapes-msvc-Od.dll", "shapes-msvc-O1.dll", "shapes-msvc-O2.dll" }
+            .Concat(levels.SelectMany(l => targets.Select(t => $"shapes-clang-{l}-{t}")))
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(expected, AllBuilds());
+    }
+
+    [Fact]
+    public void The_exempt_images_are_the_arm64_builds_and_the_unoptimized_builds_for_slots()
+    {
+        string[] arm64 = ["shapes-clang-O0-arm64.elf", "shapes-clang-O1-arm64.elf", "shapes-clang-O2-arm64.elf"];
+        string[] unoptimized = ["shapes-clang-O0-x64.dll", "shapes-clang-O0-x64.elf", "shapes-msvc-Od.dll"];
+        Assert.Equal(arm64, AllBuilds().Where(n => Exempt(nameof(Collapse), n) != null));
+        Assert.Equal(arm64.Concat(unoptimized).Order(StringComparer.Ordinal), AllBuilds().Where(n => Exempt(nameof(Slots), n) != null));
+        Assert.DoesNotContain(AllBuilds(), n => Exempt("All", n) != null);
+        Assert.All(AllBuilds().Where(n => Exempt(nameof(Slots), n) != null), n => Assert.StartsWith(Arm64(n) ? "slot notes read" : "unfinished", Exempt(nameof(Slots), n)));
     }
 
     private sealed record Built(string Name, INativeImage Image, NativeCodeIndex Index, Dictionary<string, uint> Methods)
     {
         public IReadOnlySet<uint> MethodRvas => Methods.Values.ToHashSet();
+
+        public bool Elf => Image.Format == ImageFormat.Elf;
+
+        // The slot harness lays the text out from RVA 0x1000.
+        public uint Shift(uint rva) => rva - Image.Sections.Single(s => s.Name == ".text").Rva + 0x1000;
     }
 
     private static Built Load(string name)
@@ -50,10 +97,14 @@ public sealed class CompilerFixtureTests
     [Theory, MemberData(nameof(Builds))]
     public void Every_runtime_helper_in_the_build_is_named(string build)
     {
-        // RT-319.
+        // RT-319, RT-329.
         var b = Load(build);
         var names = Helpers(b).Keys.Order(StringComparer.Ordinal).ToArray();
-        Assert.Equal(["Runtime_ClassInit", "Runtime_ClassSetup", "Runtime_InitMetadata", "Runtime_RaiseException", "Runtime_ThrowNullReference"], names);
+        // The class setup and the wrapped null-reference throw are matched in x64 code only.
+        string[] expected = Arm64(build)
+            ? ["Runtime_ClassInit", "Runtime_InitMetadata", "Runtime_RaiseException"]
+            : ["Runtime_ClassInit", "Runtime_ClassSetup", "Runtime_InitMetadata", "Runtime_RaiseException", "Runtime_ThrowNullReference"];
+        Assert.Equal(expected, names);
     }
 
     private const string Receiver = "Fixture.Native.Host";
@@ -80,11 +131,11 @@ public sealed class CompilerFixtureTests
                     [Address(Slot = "5")] public virtual int Other() { return 0; }
 
             """ + string.Concat(methods.Select(m =>
-                $"        [Address(RVA = \"0x{m.Value:X}\", Offset = \"0x{m.Value - 0x1000 + 0x400:X}\", VA = \"0x{0x180000000UL + m.Value:X}\")] public void {m.Key}() {{ }}\n"))
+                $"        [Address(RVA = \"0x{b.Shift(m.Value):X}\", Offset = \"0x{b.Shift(m.Value) - 0x1000 + 0x400:X}\", VA = \"0x{0x180000000UL + b.Shift(m.Value):X}\")] public void {m.Key}() {{ }}\n"))
             + "    }\n}\n";
         var script = JsonSerializer.Serialize(new
         {
-            ScriptMethod = methods.Select(m => new { Address = m.Value, Name = $"{Receiver}$${m.Key}" }),
+            ScriptMethod = methods.Select(m => new { Address = b.Shift(m.Value), Name = $"{Receiver}$${m.Key}" }),
             ScriptMetadata = Array.Empty<object>(),
         });
         return (source, script);
@@ -96,16 +147,15 @@ public sealed class CompilerFixtureTests
         var text = b.Image.Sections.Single(s => s.Name == ".text");
         var bytes = new byte[text.VirtualSize];
         Assert.Equal(bytes.Length, b.Image.Read(text.Rva, bytes));
-        Assert.Equal(0x1000u, text.Rva);
         return bytes;
     }
 
-    private static Dictionary<string, List<AotSlotNotes.SlotCall>> SlotCalls(AotFieldNotesTests host, Built b) => host.CallsOf(Text(b), Metadata(b), SlotFunctions(b).ToDictionary(m => m.Key, m => m.Value));
+    private static Dictionary<string, List<AotSlotNotes.SlotCall>> SlotCalls(AotFieldNotesTests host, Built b) => host.CallsOf(Text(b), Metadata(b), SlotFunctions(b).ToDictionary(m => m.Key, m => b.Shift(m.Value)), b.Elf);
 
-    [Theory, MemberData(nameof(OptimizedBuilds))]
+    [Theory, MemberData(nameof(Slots))]
     public void A_slot_call_through_memory_or_a_register_names_the_method_in_the_slot(string build)
     {
-        // RT-319.
+        // RT-319, RT-329.
         using var host = new AotFieldNotesTests();
         var calls = SlotCalls(host, Load(build));
         // The compiler loads each entry into a register first, so every call is a register form.
@@ -127,7 +177,7 @@ public sealed class CompilerFixtureTests
         return RuntimeCollapse.Find(lines, r => $"0x{b.Image.ImageBase + r:X}", calls);
     }
 
-    [Theory, MemberData(nameof(Builds))]
+    [Theory, MemberData(nameof(Collapse))]
     public void A_flag_check_around_one_or_two_initializer_calls_is_one_lazy_initialization(string build)
     {
         // RT-319.
@@ -139,7 +189,7 @@ public sealed class CompilerFixtureTests
         Assert.True(run.Count >= 6, run.Note);
     }
 
-    [Theory, MemberData(nameof(Builds))]
+    [Theory, MemberData(nameof(Collapse))]
     public void A_class_flag_check_before_the_class_init_call_is_one_class_initialization(string build)
     {
         // RT-319.
@@ -147,7 +197,7 @@ public sealed class CompilerFixtureTests
         Assert.Contains(Runs(b, "SlotMemory").Values, r => r.Note.Contains("class initialization", StringComparison.Ordinal));
     }
 
-    [Theory, MemberData(nameof(Builds))]
+    [Theory, MemberData(nameof(Collapse))]
     public void An_inlined_card_table_update_is_one_write_barrier(string build)
     {
         // RT-319.

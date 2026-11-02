@@ -122,6 +122,44 @@ public sealed partial class AotFieldNotesTests
     }
 
     [Fact]
+    public void A_jump_through_a_slot_of_the_class_pointer_names_the_method_in_the_slot()
+    {
+        // RT-329.
+        var notes = SlotNotes(a =>
+        {
+            a.mov(rax, __qword_ptr[rcx]);
+            a.jmp(__qword_ptr[rax + 0x138 + 16 * 3]);
+        });
+        Assert.Equal("StreamHost::Dispatch (slot 3)", Assert.Single(notes).Value);
+    }
+
+    [Fact]
+    public void A_lone_jump_through_a_register_that_is_no_class_pointer_leaves_the_function_unnoted()
+    {
+        Assert.Empty(SlotNotes(a => a.jmp(__qword_ptr[r8 + 0x138 + 16 * 3])));
+    }
+
+    [Fact]
+    public void A_jump_through_an_indexed_memory_operand_leaves_the_function_unnoted()
+    {
+        Assert.Empty(SlotNotes(a =>
+        {
+            a.mov(rax, __qword_ptr[rcx]);
+            a.jmp(__qword_ptr[rax + rdx * 8 + 0x138]);
+        }));
+    }
+
+    [Fact]
+    public void A_jump_through_a_segment_prefixed_operand_leaves_the_function_unnoted()
+    {
+        Assert.Empty(SlotNotes(a =>
+        {
+            a.mov(rax, __qword_ptr[rcx]);
+            a.jmp(__qword_ptr.fs[rax + 0x138]);
+        }));
+    }
+
+    [Fact]
     public void A_register_jump_through_a_switch_table_leaves_the_function_unnoted()
     {
         var notes = SlotNotes(a =>

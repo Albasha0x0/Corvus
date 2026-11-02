@@ -52,7 +52,7 @@ EXPORT int M_LazyOne(Object* self, int x)
 {
     if (!g_lazyOne) { InitMetadataImpl(0x101); g_lazyOne = 1; }
     if (!self) ThrowNullReference();
-    return x + (int)(size_t)self->klass;
+    return x + (int)(unsigned long long)self->klass;
 }
 
 // Two init calls with a fence before the flag store.
@@ -60,7 +60,7 @@ EXPORT int M_LazyTwo(Object* self, int x)
 {
     if (!g_lazyTwo) { InitMetadataImpl(0x201); InitMetadataImpl(0x202); FENCE(); g_lazyTwo = 1; }
     if (!self) ThrowNullReference();
-    return x * (int)(size_t)self->monitor;
+    return x * (int)(unsigned long long)self->monitor;
 }
 
 // Class-init flag checked before a static access, then a memory-form slot call.
