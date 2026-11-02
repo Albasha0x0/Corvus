@@ -15,6 +15,12 @@ public static class OutputSchemas
     /// <summary>Optional fields every record may carry, declared once in docs/schemas/envelope.json; schemas allow further properties.</summary>
     public static readonly IReadOnlyList<string> SharedEnvelope = ["notices", "warnings", "notes", "coverage", "resultId"];
 
+    /// <summary>Paging fields of a list record and their types, declared once in docs/schemas/envelope.json.</summary>
+    public static readonly IReadOnlyDictionary<string, string> ListEnvelope = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["offset"] = "integer", ["limit"] = "integer", ["total"] = "integer", ["nextOffset"] = "integer", ["totalExact"] = "boolean", ["hasMore"] = "boolean",
+    };
+
     private static readonly string[] Annotations = ["description", "title"];
 
     public static JsonElement Compact(JsonElement schema) => Transform(schema, strip: true, MaxDepth);
@@ -29,6 +35,10 @@ public static class OutputSchemas
         if (strip && root["properties"] is JsonObject properties)
             foreach (var name in SharedEnvelope)
                 if (root["required"] is not JsonArray required || required.All(r => (string?)r != name)) properties.Remove(name);
+        // A list record (hasMore beside totalExact) leaves its standard paging fields to the envelope.
+        if (strip && root["properties"] is JsonObject paging && paging["hasMore"] is JsonObject && paging["totalExact"] is JsonObject)
+            foreach (var (name, type) in ListEnvelope)
+                if (paging[name] is JsonObject field && (string?)field["type"] == type && field.Count == 1) paging.Remove(name);
         if (strip && root is JsonObject top) top.Remove("required");
         DropDanglingReferences(root, root);
         if (strip)

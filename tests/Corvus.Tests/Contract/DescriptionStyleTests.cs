@@ -60,28 +60,13 @@ public partial class DescriptionStyleTests
         Ratchet.Check("description-first-sentence", "a description starts with what the tool returns or does (S8.3)", violations);
     }
 
-    /// <summary>S7, with the paging parameters (offset, limit, maxTokens) described once by the server instructions.</summary>
+    /// <summary>S7: every parameter, paging ones included, has a description.</summary>
     [Fact]
     public void Every_parameter_is_described()
     {
         Assert.Contains("Paging: offset", Guide.Core);
-        var violations = Texts().Where(t => t.Where.Contains('.') && string.IsNullOrWhiteSpace(t.Text) && !Catalog.PagingParameters.ContainsKey(t.Where[(t.Where.IndexOf('.') + 1)..]))
+        var violations = Texts().Where(t => t.Where.Contains('.') && string.IsNullOrWhiteSpace(t.Text))
             .ToDictionary(t => t.Where, _ => "no description");
         Ratchet.Check("parameter-described", "every parameter has a description (S7)", violations);
-    }
-
-    private static string Paged(
-        [System.ComponentModel.Description(Corvus.Tools.ToolSupport.RowOffsetDescription)] int offset,
-        [System.ComponentModel.Description("Row to start at; rows are counted after the filter.")] int limit) => "";
-
-    // The fixture carries a generic text on offset and a longer text on limit.
-    [Fact]
-    public void A_paging_parameter_drops_a_generic_description_and_keeps_a_longer_one()
-    {
-        var tool = ModelContextProtocol.Server.McpServerTool.Create(Paged);
-        Catalog.DropPagingDescriptions([tool]);
-        var properties = (JsonObject)JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())!["properties"]!;
-        Assert.Null(properties["offset"]!["description"]);
-        Assert.NotNull(properties["limit"]!["description"]);
     }
 }

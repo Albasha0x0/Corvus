@@ -10,7 +10,7 @@ public class OutputSchemaTransformTests
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
     /// <summary>Ceiling of the output schemas in tools/list: the measured size rounded up to 50.</summary>
-    private const int MaxOutputSchemaTotalBytes = 120_185;
+    private const int MaxOutputSchemaTotalBytes = 106_500;
 
     /// <summary>Record fields that say a result stopped early make the provenance partial; the others listed mean something else.</summary>
     [Fact]
@@ -55,6 +55,30 @@ public class OutputSchemaTransformTests
             JsonArray a => a.Select((v, i) => Annotation(v, $"{path}/{i}")).FirstOrDefault(p => p != null),
             _ => null,
         };
+    }
+
+    [Fact]
+    public void A_list_schema_leaves_its_standard_paging_fields_to_the_envelope()
+    {
+        var schema = Parse("""
+            {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"}}}},
+              "offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"nextOffset":{"type":"integer"},
+              "totalExact":{"type":"boolean"},"hasMore":{"type":"boolean"},"engine":{"type":"string"}}}
+            """);
+        var compact = (JsonObject)JsonNode.Parse(OutputSchemas.Compact(schema).GetRawText())!["properties"]!;
+        Assert.Equal(["items", "engine"], compact.Select(p => p.Key));
+        var described = (JsonObject)JsonNode.Parse(OutputSchemas.Described(schema).GetRawText())!["properties"]!;
+        Assert.All(OutputSchemas.ListEnvelope.Keys, k => Assert.True(described.ContainsKey(k), k));
+    }
+
+    [Fact]
+    public void No_catalog_schema_lists_the_page_markers_the_envelope_declares()
+    {
+        var repeated = new List<string>();
+        foreach (var tool in Catalog.OfThisBuild(Corvus.Core.Toolsets.All).Tools)
+            if (tool["outputSchema"]?["properties"] is JsonObject props)
+                repeated.AddRange(props.Select(p => p.Key).Where(k => k is "hasMore" or "totalExact").Select(k => $"{tool["name"]}.{k}"));
+        Assert.True(repeated.Count == 0, string.Join(", ", repeated));
     }
 
     [Fact]

@@ -14,10 +14,10 @@ public class CatalogAuditTests
     private const int MaxInputSchemaBytes = 8 * 1024;
 
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 153_100;
+    private const int MaxModelFacingBytes = 148_650;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 299_620;
+    private const int MaxToolsListBytes = 293_350;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()
@@ -25,6 +25,16 @@ public class CatalogAuditTests
         var list = new JsonObject { ["tools"] = new JsonArray([.. Catalog.OfThisBuild(Toolsets.All).Tools]) };
         var bytes = Encoding.UTF8.GetByteCount(list.ToJsonString());
         Assert.True(bytes <= MaxToolsListBytes, $"tools/list is {bytes:N0} bytes, over {MaxToolsListBytes:N0}: trim descriptions or output schemas");
+    }
+
+    [Fact]
+    public void Every_paging_parameter_in_the_catalog_is_described()
+    {
+        var bare = new List<string>();
+        foreach (var tool in Catalog.OfThisBuild(Toolsets.All).Tools)
+            foreach (var (name, schema) in tool["inputSchema"]!["properties"] as JsonObject ?? [])
+                if ((name is "offset" or "limit" or "maxTokens") && string.IsNullOrWhiteSpace((string?)schema?["description"])) bare.Add($"{tool["name"]}.{name}");
+        Assert.True(bare.Count == 0, "paging parameters without a description: " + string.Join(", ", bare));
     }
 
     [Fact]

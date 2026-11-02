@@ -298,10 +298,10 @@ public class ToolOutputTests(ITestOutputHelper output)
     {
         using var services = Services();
         int checkedTools = 0;
-        foreach (var tool in Catalog.OfThisBuild().Tools)
+        // The described schemas keep the paging fields the catalog leaves to the envelope.
+        foreach (var (name, schema) in Catalog.DescribedOutputSchemas())
         {
-            var name = (string)tool["name"]!;
-            if (tool["outputSchema"]?["properties"] is not JsonObject properties || !ToolOutput.IsListSchema(properties, name)) continue;
+            if (JsonNode.Parse(schema.GetRawText())?["properties"] is not JsonObject properties || !ToolOutput.IsListSchema(properties, name)) continue;
             var key = (ToolOutput.RowArrays.TryGetValue(name, out var named) ? named : ["items"]).First(k => properties[k] is JsonObject);
             var rows = Enumerable.Range(0, 3).Select(i => new
             {

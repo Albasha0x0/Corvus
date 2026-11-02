@@ -1,5 +1,5 @@
 {
-  "$comment": "Optional fields of every tool's structured content; tools/list leaves them out of each output schema.",
+  "$comment": "Optional fields of every tool's structured content; listProperties are those of a list record. tools/list leaves them out of each output schema.",
   "type": "object",
   "properties": {
     "notices": {
@@ -25,6 +25,26 @@
     },
     "resultId": {
       "type": "string"
+    }
+  },
+  "listProperties": {
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "nextOffset": {
+      "type": "integer"
+    },
+    "totalExact": {
+      "type": "boolean"
+    },
+    "hasMore": {
+      "type": "boolean"
     }
   }
 }

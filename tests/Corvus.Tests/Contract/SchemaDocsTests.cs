@@ -35,9 +35,11 @@ public class SchemaDocsTests
         foreach (var name in properties.Select(p => p.Key).Where(k => !OutputSchemas.SharedEnvelope.Contains(k)).ToList()) properties.Remove(name);
         return new()
         {
-            ["$comment"] = "Optional fields of every tool's structured content; tools/list leaves them out of each output schema.",
+            ["$comment"] = "Optional fields of every tool's structured content; listProperties are those of a list record. tools/list leaves them out of each output schema.",
             ["type"] = "object",
             ["properties"] = properties.DeepClone(),
+            ["listProperties"] = new System.Text.Json.Nodes.JsonObject(OutputSchemas.ListEnvelope.Select(f =>
+                KeyValuePair.Create<string, System.Text.Json.Nodes.JsonNode?>(f.Key, new System.Text.Json.Nodes.JsonObject { ["type"] = f.Value }))),
         };
     }
 }
