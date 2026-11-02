@@ -1,3 +1,4 @@
+using Corvus.Core;
 using Corvus.Native.Dump;
 using Corvus.Native.Pe;
 using Corvus.Services;
@@ -61,20 +62,38 @@ public sealed class OpenMinidumpSaveTests : IDisposable
         Assert.Contains("image image-", Corvus.Tools.DumpText.Module(row));
     }
 
-    private string TwoModuleDump()
+    private string TwoModuleDump() => ModuleDump(["one.dll", "two.dll"]);
+
+    private string ModuleDump(IReadOnlyList<string> names)
     {
-        var first = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: Base));
-        var second = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: Base + 0x100000));
         var b = new MinidumpBuilder { ProcessorArchitecture = 9 };
-        foreach (var (name, file, at) in new[] { ("one.dll", first, Base), ("two.dll", second, Base + 0x100000) })
+        for (int i = 0; i < names.Count; i++)
         {
-            var mapped = RebuildFixtures.Mapped(file);
-            b.Modules.Add(new MinidumpBuilder.Module(at, (uint)mapped.Length, 0, @"Z:\app\" + name));
+            ulong at = Base + (ulong)i * 0x100000;
+            var mapped = RebuildFixtures.Mapped(RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: at)));
+            b.Modules.Add(new MinidumpBuilder.Module(at, (uint)mapped.Length, 0, @"Z:\app\" + names[i]));
             b.Memory.Add((at, mapped));
         }
-        var dump = _dir.File("two.dmp");
+        var dump = _dir.File($"{names.Count}.dmp");
         File.WriteAllBytes(dump, b.Build());
         return dump;
+    }
+
+    [Fact]
+    public async Task A_writing_call_over_its_budget_keeps_every_row_for_read_result()
+    {
+        var names = Enumerable.Range(0, 40).Select(i => $"module{i:D2}.dll").ToList();
+        var dump = ModuleDump(names);
+        await using var server = await InProcessServer.StartAsync();
+
+        var first = await server.Client.CallToolAsync("open_minidump",
+            new Dictionary<string, object?> { ["path"] = dump, ["view"] = "modules", ["outputPath"] = _dir.File("budget"), ["maxTokens"] = 1_000 });
+        var id = first.StructuredContent!.Value.GetProperty("resultId").GetString()!;
+        var kept = await server.Client.CallToolAsync("read_result", new Dictionary<string, object?> { ["id"] = id, ["maxTokens"] = 100_000 });
+        var text = string.Concat(kept.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(t => t.Text));
+
+        Assert.True(first.IsError != true);
+        Assert.All(names, n => Assert.Contains(n, text));
     }
 
     [Fact]
@@ -87,6 +106,31 @@ public sealed class OpenMinidumpSaveTests : IDisposable
         await new MinidumpTools(service).OpenMinidump(dump, "modules", outputPath: folder, modules: "two.dll");
 
         Assert.Equal(["two.dll"], Directory.GetFiles(folder).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void A_writing_call_returns_one_row_per_written_file_whatever_its_limit()
+    {
+        var dump = TwoModuleDump();
+        var folder = _dir.File("all");
+
+        using var service = new MinidumpService();
+        var (_, rows, total, _) = service.Modules(dump, null, 0, 1, folder);
+
+        Assert.Equal(2, total);
+        Assert.Equal(Directory.GetFiles(folder).Select(Path.GetFileName).Order(), rows.Select(r => r.ImageFile).Order());
+    }
+
+    [Fact]
+    public async Task A_writing_call_refuses_an_offset_and_names_read_result()
+    {
+        var dump = TwoModuleDump();
+
+        using var service = new MinidumpService();
+        var error = await Assert.ThrowsAsync<ToolError>(() => new MinidumpTools(service).OpenMinidump(dump, "modules", offset: 1, outputPath: _dir.File("paged")));
+
+        Assert.Contains("read_result", error.Remediation);
+        Assert.False(Directory.Exists(_dir.File("paged")));
     }
 
     [Fact]

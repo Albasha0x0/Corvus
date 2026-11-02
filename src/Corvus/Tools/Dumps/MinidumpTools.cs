@@ -52,6 +52,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         var saving = !string.IsNullOrWhiteSpace(outputPath);
         if (!saving && new[] { modules, layout, imports, @base }.Any(o => !string.IsNullOrWhiteSpace(o)))
             throw new ToolError(ErrorCode.InvalidArgument, "modules, layout, imports and base go with outputPath.", "pass outputPath");
+        if (saving && offset > 0)
+            throw new ToolError(ErrorCode.InvalidArgument, "A call with outputPath writes once and takes no offset.",
+                "read_result with the resultId of the first call to page its rows");
         var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base);
         // A sandboxed worker writes only under labelled folders: it rebuilds into staging and the server fills the named folder.
         var staging = saving && FileIsolation.PoolFor(Isolation, workers) is { Sandboxed: true } ? FileWork.NewModuleStaging() : null;
@@ -67,6 +70,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         }
         finally { if (staging != null) FileWork.DeleteStaging(staging); }
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
+        if (r.Modules is { } written && saving) return Written(r.Id!, v, written, DumpText.Module, r.Notes);
         if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
         if (r.Unbacked is { } unbacked) return Rows(r.Id!, v, unbacked, offset, limit, r.Total, DumpText.Memory, "region", r.Notes);
@@ -81,6 +85,16 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     {
         var (id, path, directories) = dumps.Resolve(dump, imageDirectories);
         return new FileWork.DumpTarget(id, path, directories);
+    }
+
+    // A writing call cannot be repeated for a later page: its record has no row offset, so the
+    // server keeps the whole result and names it for read_result.
+    private static string Written<T>(string id, string view, IReadOnlyList<T> rows, Func<T, string> render, IReadOnlyList<string>? notes)
+        where T : notnull
+    {
+        var head = notes is { Count: > 0 } ? string.Concat(notes.Select(n => $"Note: {n}\n")) : "";
+        var text = head + $"{rows.Count} written module{(rows.Count == 1 ? "" : "s")}:\n" + string.Concat(rows.Select(r => render(r) + "\n"));
+        return ToolOutput.Report(text, new MinidumpService.DumpReport(id, view) { Items = rows.Cast<object>().ToList(), Total = rows.Count, Notes = notes });
     }
 
     private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun,

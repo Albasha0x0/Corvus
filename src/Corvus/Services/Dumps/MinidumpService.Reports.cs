@@ -283,7 +283,7 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here and the metadata state of each .NET image.</summary>
-    /// <remarks>With <paramref name="outputPath"/>, the page's images go to that new or empty folder, returned as Folder, rebuilt as <paramref name="rebuild"/> says (default: all listed modules); a core file refuses it.</remarks>
+    /// <remarks>With <paramref name="outputPath"/>, the selected images go once to that new or empty folder, returned as Folder, rebuilt as <paramref name="rebuild"/> says (default: all listed modules); the rows are every listed module then every other written image, whatever <paramref name="offset"/> and <paramref name="limit"/> say, and Total counts them; a core file refuses it.</remarks>
     public (string Id, IReadOnlyList<CheckedModule> Rows, int Total, string? Folder) Modules(string path, string? imageDirectories, int offset, int limit, string? outputPath = null, CancellationToken ct = default, ModuleOptions? rebuild = null)
     {
         using var s = Open(path, imageDirectories);
@@ -295,7 +295,8 @@ public sealed partial class MinidumpService
                 .Select(m => CheckedModule.Of(CoreModuleRow(s, m)) with { LoadPath = ModuleChecks.PathClass(m.Module.Path) }).ToList(), core.CoreModules.Count, null);
         }
         var d = s.Memory;
-        var page = d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
+        // A writing call reports every module in one order, so no page is cut here.
+        var page = outputPath != null ? d.Modules.ToList() : d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
         List<(RebuiltModule Module, WrittenModule Written)>? saved = null;
         string? folder = null;
         if (outputPath != null)
@@ -337,7 +338,7 @@ public sealed partial class MinidumpService
         if (saved != null)
             rows.AddRange(saved.Where(x => x.Module.Target.Origin != ModuleOrigin.Listed || !page.Any(m => m.Base == x.Module.Target.Base))
                 .Select(x => SavedRow(s, x.Module, x.Written)));
-        return (s.Id, rows, d.Modules.Count, folder);
+        return (s.Id, rows, saved != null ? rows.Count : d.Modules.Count, folder);
     }
 
     /// <summary>The row of a written module that is not on the listed page: its file, SHA-256, captured percent, checks and reason.</summary>
