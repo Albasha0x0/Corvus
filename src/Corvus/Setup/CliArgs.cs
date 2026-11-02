@@ -35,6 +35,7 @@ internal sealed partial class CliArgs
     public string? Baseline { get; private set; }
     public string? Report { get; private set; }
     public string? Sarif { get; private set; }
+    public string? EvtxJsonl { get; private set; }
     public bool JsonLines { get; private set; }
     public bool Wait { get; private set; }
     public string? Out { get; private set; }
@@ -71,6 +72,7 @@ internal sealed partial class CliArgs
                 case "--baseline": a.Baseline = Next(); continue;
                 case "--report": a.Report = Next(); continue;
                 case "--sarif": a.Sarif = Next(); continue;
+                case "--evtx-jsonl": a.EvtxJsonl = Next(); continue;
                 case "--jsonl": a.JsonLines = true; continue;
                 case "--wait": a.Wait = true; continue;
                 case "--out": a.Out = Next(); continue;

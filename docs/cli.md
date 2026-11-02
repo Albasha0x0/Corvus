@@ -152,6 +152,7 @@ without an agent. Nothing in the file runs; no network calls are made.
 - `--sarif <file>` also writes SARIF 2.1.0: one run, the rules of its results, `error` for noteworthy, `warning` for review, `note` for info.
   - Locations are paths relative to the current folder; `partialFingerprints` holds the finding `key`.
   - Results past 25,000 or a 10 MB gzip are cut, weakest levels first; `runs[0].properties.cut` and a run notification name the cut.
+- `batch --file log.evtx --evtx-jsonl events.jsonl` writes each event of an event log, recovered ones included, as a JSON line for Timesketch (`message`, `datetime`, `timestamp_desc`) and Zircolite `--json-input` (`Event.System`, `Event.EventData`).
 - `--jsonl` in place of `--json` writes one record per line, files and members alike, no envelope; `--out <file>` instead of stdout.
 - `--time-limit <seconds>`: the whole run (default 600, at most 86400).
 - `--step-timeout <seconds>`: one step (above 0, at most 86400); the step is a `timeout` section and the run goes on.

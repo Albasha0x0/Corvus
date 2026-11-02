@@ -137,6 +137,7 @@ internal static class SetupCli
                                 an earlier result's findings are entries that do not expire.
                                 --report <file>: also write a Markdown report, one section per record.
                                 --sarif <file>: also write SARIF 2.1.0 for code scanning upload.
+                                --evtx-jsonl <file>: with an event log as --file, write its events as JSON lines.
                                 --jsonl instead of --json: one record per line; --out <file> for a file.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
