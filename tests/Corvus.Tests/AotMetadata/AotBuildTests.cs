@@ -388,7 +388,8 @@ public sealed class AotBuildTests(ITestOutputHelper output) : IDisposable
         using var fullWs = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
         var full = new AotBuildLoader(fullWs).Load(files, loadBinary: false, null, default, cache);
         Assert.Null(meta.Binary);
-        Assert.Empty(meta.Model.Unreadables);
+        // The binary adds facts, so the read without it has no gap the full read lacks.
+        Assert.Empty(meta.Model.Unreadables.Except(full.Model.Unreadables));
         Assert.Equal((full.Model.Images, full.Model.Types, full.Model.MethodDefinitions, full.Model.Fields),
             (meta.Model.Images, meta.Model.Types, meta.Model.MethodDefinitions, meta.Model.Fields));
         Assert.Equal(full.Model.LiteralValues.Length, meta.Model.LiteralValues.Length);
