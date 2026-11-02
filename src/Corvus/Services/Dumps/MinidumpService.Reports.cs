@@ -5,6 +5,7 @@ using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Dump;
 using Corvus.Native.Dump.Managed;
+using Corvus.Native.Dump.Rebuild;
 using Corvus.Native.Msvc;
 
 namespace Corvus.Services;
@@ -70,6 +71,10 @@ public sealed partial class MinidumpService
         [Description("Rebuilt .NET image: readable, partial, unreadable or unknown.")] public string? Metadata { get; init; }
         [Description("Why the metadata is not readable.")] public string? MetadataReason { get; init; }
         [Description("File written under outputPath.")] public string? ImageFile { get; init; }
+        [Description("Why no file was written under outputPath.")] public string? ImageReason { get; init; }
+        [Description("SHA-256 of the file written under outputPath.")] public string? ImageSha256 { get; init; }
+        [Description("Percent of the image's pages the dump held.")] public int? ImageCaptured { get; init; }
+        [Description("Rebuild checks of the written image: name, state (ok, partial, failed, skipped, unknown) and detail.")] public IReadOnlyList<Corvus.Native.Dump.Rebuild.RebuildCheck>? ImageChecks { get; init; }
 
         /// <summary>The checked row of <paramref name="m"/>, its checks unset.</summary>
         public static CheckedModule Of(ModuleSummary m) => new(m.Name, m.Path, m.Base, m.Size, m.TimeDateStamp, m.Built, m.FileVersion, m.PdbName, m.PdbGuid, m.PdbAge,
@@ -264,28 +269,40 @@ public sealed partial class MinidumpService
         }
         var d = s.Memory;
         var page = d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
-        ModuleExport? export = null;
+        List<(RebuiltModule Module, WrittenModule Written)>? saved = null;
+        string? folder = null;
         if (outputPath != null)
         {
             var root = SafeFile.Output(outputPath);
             if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
                 throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <dump>-modules");
-            export = DumpModuleExport.Write(d, page, root, ct);
+            var rebuilt = ModuleRebuild.Select(d, "all", ct).Select(t => ModuleRebuild.Rebuild(d, t, RebuildOptions.Default, ct)).ToList();
+            var written = ModuleWriter.WriteAll(rebuilt, root);
+            saved = [.. rebuilt.Zip(written)];
+            folder = root;
         }
         var rows = page.Select(m =>
         {
             ct.ThrowIfCancellationRequested();
             var row = Checked(s, m);
-            var at = $"0x{m.Base:X}";
-            if (export?.Written.FirstOrDefault(w => w.Base == at) is { } w) return row with { Metadata = w.Metadata, MetadataReason = w.MetadataReason, ImageFile = w.File };
-            if (export?.Skipped.FirstOrDefault(k => k.Base == at) is { } k) {
-                var skippedState = DumpManagedMetadata.Inspect(d, m, k.Reason);
-                return row with { Metadata = skippedState?.State, MetadataReason = skippedState?.Reason };
+            if (saved?.FirstOrDefault(x => x.Module.Target.Base == m.Base) is { } hit)
+            {
+                var (r, w) = hit;
+                if (w.File == null)
+                {
+                    var skippedState = DumpManagedMetadata.Inspect(d, m, w.Reason);
+                    return row with { Metadata = skippedState?.State, MetadataReason = skippedState?.Reason, ImageReason = w.Reason };
+                }
+                return row with
+                {
+                    Metadata = r.Metadata, MetadataReason = r.MetadataReason, ImageFile = w.File,
+                    ImageSha256 = r.Sha256, ImageCaptured = r.CapturedPercent, ImageChecks = r.Checks,
+                };
             }
             var state = DumpManagedMetadata.Inspect(d, m);
             return row with { Metadata = state?.State, MetadataReason = state?.Reason };
         }).ToList();
-        return (s.Id, rows, d.Modules.Count, export?.Folder);
+        return (s.Id, rows, d.Modules.Count, folder);
     }
 
     /// <summary>The module row with its load path class, the local file's signer and the code sections compared with that file.</summary>

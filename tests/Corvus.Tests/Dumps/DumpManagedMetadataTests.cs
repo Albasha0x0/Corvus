@@ -127,7 +127,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
     public void A_skipped_managed_module_reports_unknown_with_the_skip_reason_under_outputPath()
     {
         var folder = _dir.File("skipped");
-        var (_, rows, _, _) = new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x9000000, true), null, 0, 10, folder);
+        var (_, rows, _, _) = new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x22000000, true), null, 0, 10, folder);
         var row = Assert.Single(rows);
         Assert.Equal("unknown", row.Metadata);
         Assert.Contains("larger than", row.MetadataReason);

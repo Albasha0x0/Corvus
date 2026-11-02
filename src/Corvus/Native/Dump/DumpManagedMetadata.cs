@@ -44,18 +44,19 @@ public static class DumpManagedMetadata
     {
         var bytes = image.FileBytes.Span;
         var clr = image.Directory(PeDirectory.ClrRuntimeHeader);
-        if (clr.Rva > bytes.Length || bytes.Length - clr.Rva < ClrHeaderSize)
+        // Offsets come from the section table, so a file-layout image reads like a mapped one.
+        if (!image.TryRvaToFileOffset(clr.Rva, out long clrAt) || bytes.Length - clrAt < ClrHeaderSize)
             return Unreadable("the CLR header lies outside the captured image");
-        var header = bytes.Slice((int)clr.Rva, ClrHeaderSize);
+        var header = bytes.Slice((int)clrAt, ClrHeaderSize);
         if (header.IndexOfAnyExcept((byte)0) < 0) return Unreadable("the CLR header is zero-filled: its page was not captured");
         uint size = BinaryPrimitives.ReadUInt32LittleEndian(header);
         if (size != ClrHeaderSize) return Unreadable($"the CLR header size is {size}, not {ClrHeaderSize}");
         uint rva = BinaryPrimitives.ReadUInt32LittleEndian(header[8..]);
         uint length = BinaryPrimitives.ReadUInt32LittleEndian(header[12..]);
         if (rva == 0 || length == 0) return Unreadable("the CLR header has no metadata directory");
-        if (rva >= bytes.Length) return Unreadable("the metadata block lies outside the captured image");
-        int held = (int)Math.Min(length, (uint)(bytes.Length - rva));
-        var block = bytes.Slice((int)rva, held);
+        if (!image.TryRvaToFileOffset(rva, out long metadataAt)) return Unreadable("the metadata block lies outside the captured image");
+        int held = (int)Math.Min(length, (uint)(bytes.Length - metadataAt));
+        var block = bytes.Slice((int)metadataAt, held);
         if (block.Length < 16)
             return Unreadable(held == length ? $"the metadata directory length is {length}, below the 16-byte root" : $"only {held} bytes of the metadata block were captured");
         if (block[..16].IndexOfAnyExcept((byte)0) < 0) return Unreadable("the metadata root is zero-filled");
