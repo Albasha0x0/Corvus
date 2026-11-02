@@ -27,7 +27,7 @@ public class ToolAgreementTests
     }
 
     [Fact]
-    public void Every_group_names_an_existing_agreement_test_or_is_listed_as_pending()
+    public void Every_group_names_an_existing_agreement_test()
     {
         var tests = typeof(ToolAgreementTests).Assembly.GetTypes()
             .Where(t => t.Namespace == typeof(ToolAgreementTests).Namespace)
@@ -35,13 +35,13 @@ public class ToolAgreementTests
             .Where(m => m.GetCustomAttribute<FactAttribute>() != null)
             .GroupBy(m => m.Name, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        var pending = new Dictionary<string, double>(StringComparer.Ordinal);
+        var pending = new List<string>();
         foreach (var g in ToolAgreement.Groups)
         {
-            if (g.Test is null) pending[g.Question] = 1;
+            if (g.Test is null) pending.Add(g.Question);
             else Assert.True(tests.GetValueOrDefault(g.Test) == 1, $"{g.Question}: {g.Test} is not exactly one [Fact] or [Theory] in Corvus.Tests");
         }
-        CountRatchet.Check("agreement-test", "agreement groups without a test that compares their tools on a built fixture may only fall (RT-318)", pending, floor: false);
+        Assert.True(pending.Count == 0, "agreement groups without a test that compares their tools on a built fixture: " + string.Join(", ", pending));
     }
 
     [Fact]
