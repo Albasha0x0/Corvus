@@ -9,7 +9,7 @@
       "type": "string"
     },
     "kind": {
-      "description": "method (main, funclet or cold code) or import_cell.",
+      "description": "hot, funclet or cold code range; or import_cell.",
       "type": "string"
     },
     "begin": {

@@ -284,7 +284,7 @@ public sealed record R2rMethod(string Label, string EntryVa, int Size)
 public sealed record R2rLookup(
     string Address,
     [property: Description("The file holding the code.")] string File,
-    [property: Description("method (main, funclet or cold code) or import_cell.")] string Kind)
+    [property: Description("hot, funclet or cold code range; or import_cell.")] string Kind)
 {
     public string? Begin { get; init; }
     public string? End { get; init; }

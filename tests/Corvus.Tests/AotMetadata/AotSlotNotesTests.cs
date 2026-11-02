@@ -272,6 +272,9 @@ public sealed partial class AotFieldNotesTests
         Assert.Equal(noted, listed);
         var sites = AotSlotNotes.Calls(native, index, fn, default).Select(c => NativeAddress.Va(index.Image, c.Rva)).Order().ToList();
         Assert.Equal(sites, listed);
+        var dossier = await NativeQuerySurfaceTests.Structured<NativeFunctionTools.FunctionDossier>(() =>
+            new NativeFunctionTools(env.Workspace, service, env.Pager).AnalyzeNativeFunction(native.Id, "Fixture_Native_StreamHost__Read", "callees"));
+        Assert.Equal(listed, dossier.Sections.Single().Items.Select(c => c.Address!).Order().ToList());
     }
 
     [Fact]
