@@ -1,4 +1,5 @@
 using System.Text;
+using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Pe;
 using Corvus.Services.Analysis;
@@ -77,6 +78,93 @@ public sealed class PackerDetectionTests
         var ordinary = new PeBuilder();
         ordinary.Add(".text", Enumerable.Repeat((byte)0x90, 0x4000).ToArray(), 0x60000020);
         Assert.Empty(PackerDetection.OfFile("o.dll", ordinary.Build()));
+    }
+
+    private static byte[] ExportingDll(params string[] exports) => ExportingDllWith(null, exports);
+
+    private static byte[] ExportingDllWith(string? extraSection, params string[] exports)
+    {
+        var b = new PeBuilder();
+        var text = b.Add(".text", Enumerable.Repeat((byte)0x90, 0x400).ToArray(), 0x60000020);
+        b.EntryPoint = text.Rva;
+        if (extraSection != null) b.Add(extraSection, new byte[0x200], 0x60000020);
+        uint table = 0, tableSize = 0;
+        b.Add(".rdata", rva =>
+        {
+            var blob = new PeBlob(rva);
+            table = blob.Zero(40);
+            uint dll = blob.Ascii("sdk.dll");
+            blob.Align(4);
+            uint eat = blob.U32(text.Rva);
+            for (int i = 1; i < exports.Length; i++) blob.U32(text.Rva);
+            var nameRvas = exports.Select(blob.Ascii).ToList();
+            blob.Align(4);
+            uint names = blob.U32(nameRvas[0]);
+            foreach (var n in nameRvas.Skip(1)) blob.U32(n);
+            uint ordinals = blob.U16(0);
+            for (int i = 1; i < exports.Length; i++) blob.U16((ushort)i);
+            blob.Patch32(table + 12, dll);
+            blob.Patch32(table + 16, 1);
+            blob.Patch32(table + 20, (uint)exports.Length);
+            blob.Patch32(table + 24, (uint)exports.Length);
+            blob.Patch32(table + 28, eat);
+            blob.Patch32(table + 32, names);
+            blob.Patch32(table + 36, ordinals);
+            tableSize = blob.Here - table;
+            return blob.ToArray();
+        });
+        b.Directories[PeDirectory.Export] = (table, tableSize);
+        return b.Build();
+    }
+
+    [Fact]
+    public void A_protector_sdk_module_is_named_from_its_export_sets()
+    {
+        var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDll("VMStart", "VMEnd", "CustomVM00", "CustomVM01", "SECheckDebugger")));
+        Assert.Equal(("Themida", "hardening tool", "SDK exports VMStart, VMEnd, 2 CustomVM*, 1 SECheck*"), (found.Name, found.Kind, found.Evidence));
+        Assert.Equal("packer/hardening-tool", found.Rule);
+    }
+
+    [Fact]
+    public void Two_export_groups_name_a_protector_sdk_module()
+    {
+        var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDll("CustomVM1", "SECheckDebugger")));
+        Assert.Equal("SDK exports 1 CustomVM*, 1 SECheck*", found.Evidence);
+    }
+
+    [Fact]
+    public void A_protector_section_and_sdk_exports_report_one_finding()
+    {
+        var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDllWith(".themida", "VMStart", "VMEnd", "SECheckDebugger")));
+        Assert.StartsWith("section names", found.Evidence);
+    }
+
+    [Fact]
+    public void A_truncated_export_table_reports_no_exception()
+    {
+        var bytes = ExportingDll("VMStart", "VMEnd", "SECheckDebugger");
+        var cut = PackerDetection.OfFile("sdk.dll", bytes[..(bytes.Length - 40)]);
+        Assert.True(cut.Count <= 1);
+    }
+
+    [Fact]
+    public void Summarize_file_lists_a_protector_sdk_module()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "sdk-" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllBytes(path, ExportingDll("VMStart", "VMEnd", "SECheckDebugger"));
+        try
+        {
+            var summary = new InspectionService(new AssemblyWorkspace()).Summarize(null, path, default);
+            var facts = Assert.IsType<NativeFileView.Facts>(summary.Views["native"].Detail);
+            Assert.Contains(facts.Packers!, p => p.Name == "Themida");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_single_matching_export_is_not_a_protector_sdk()
+    {
+        Assert.Empty(PackerDetection.OfFile("lib.dll", ExportingDll("VMStart", "Other")));
     }
 
     /// <summary>A raw size past the end of the file: the entropy is the file's bytes, not gigabytes of zero fill read and counted.</summary>

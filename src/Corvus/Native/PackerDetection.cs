@@ -15,6 +15,7 @@ public sealed record PackerFinding(string Name, string Kind, string Evidence)
 public static class PackerDetection
 {
     internal const double HighEntropy = 7.2;
+    private const string SdkVendor = "Themida";
     private static readonly byte[] UpxMagic = "UPX!"u8.ToArray();
     private static readonly byte[] UpxInfo = "This file is packed with the UPX"u8.ToArray();
 
@@ -55,6 +56,7 @@ public static class PackerDetection
         return image == null ? [] : Detect(image, bytes);
     }
 
+    /// <summary>Findings from section names, UPX headers, PE export sets of a protector SDK and, when none, code heuristics.</summary>
     public static IReadOnlyList<PackerFinding> Detect(INativeImage image, ReadOnlySpan<byte> file)
     {
         var result = new List<PackerFinding>();
@@ -66,8 +68,32 @@ public static class PackerDetection
             var rule = group.First().Rule;
             result.Add(new PackerFinding(rule.Name, rule.Kind, $"section names {string.Join(", ", group.Select(x => x.Name).Distinct())}"));
         }
+        if (image.Format == ImageFormat.Pe && ProtectorSdk(image) is { } sdk && result.All(r => r.Name != sdk.Name)) result.Add(sdk);
         if (result.Count == 0) result.AddRange(Heuristics(image));
         return result;
+    }
+
+    // Two of three export groups are required, so one stray name is not enough.
+    private static PackerFinding? ProtectorSdk(INativeImage image)
+    {
+        bool start = false, end = false;
+        int custom = 0, checks = 0;
+        foreach (var export in image.Exports)
+        {
+            var n = export.Name;
+            if (n == null) continue;
+            if (n == "VMStart") start = true;
+            else if (n == "VMEnd") end = true;
+            else if (n.StartsWith("CustomVM", StringComparison.Ordinal)) custom++;
+            else if (n.StartsWith("SECheck", StringComparison.Ordinal)) checks++;
+        }
+        int groups = (start && end ? 1 : 0) + (custom > 0 ? 1 : 0) + (checks > 0 ? 1 : 0);
+        if (groups < 2) return null;
+        var parts = new List<string>();
+        if (start && end) parts.Add("VMStart, VMEnd");
+        if (custom > 0) parts.Add($"{custom} CustomVM*");
+        if (checks > 0) parts.Add($"{checks} SECheck*");
+        return new PackerFinding(SdkVendor, "hardening tool", $"SDK exports {string.Join(", ", parts)}");
     }
 
     private static PackerFinding? Upx(INativeImage image, ReadOnlySpan<byte> file)

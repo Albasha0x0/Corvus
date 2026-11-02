@@ -192,7 +192,7 @@ public static class FindingRules
         // Native images.
         R("sideload/unsigned-dll", "an unsigned DLL a signed image imports from its folder, not a KnownDLL"),
         I("packer/packing-tool", "a packing tool's section names or header"),
-        I("packer/hardening-tool", "a hardening tool's section names"),
+        I("packer/hardening-tool", "a hardening tool's section names or SDK exports"),
         R("packer/empty-code-section", "a code section empty on disk and filled at run time"),
         R("packer/high-entropy-code", "a code section of high entropy"),
         R("packer/writable-entry", "the entry point in a writable and executable section"),
