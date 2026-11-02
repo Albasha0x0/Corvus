@@ -57,13 +57,10 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         {
             DatabaseExport export;
             if (session is Native.Providers.Ghidra.GhidraSession ghidra) export = await ExportGhidra(native, ghidra, full, temp, cancellationToken);
-            else if (session is IdaSession ida)
+            else if (session is IEngineDatabase database)
             {
-                if (FileIdentity.Same(full, ida.DatabasePath)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is the worker's own database.", "pick another path");
-                IdaProvider.CheckPathLength(temp, "temporary export", Path.GetDirectoryName(temp)!, OperatingSystem.IsWindows());
-                var r = await ida.CallAsync("save_as", new JsonObject { ["path"] = temp }, cancellationToken);
-                export = new DatabaseExport(native.Id, id, full, r.GetProperty("size").GetInt64(),
-                    "open it in IDA; the server's own database is unchanged and stays in its analysis cache");
+                if (FileIdentity.Same(full, database.DatabasePath)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is the worker's own database.", "pick another path");
+                export = new DatabaseExport(native.Id, id, full, await database.SaveAsAsync(temp, cancellationToken), database.ExportNote);
             }
             else throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} engine does not export its database.");
             Publish(temp, full);

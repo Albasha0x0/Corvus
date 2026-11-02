@@ -9,7 +9,7 @@ namespace Corvus.Native.Providers.Ida;
 /// <summary>One image open in an idalib worker; requests run one at a time (see <see cref="WorkerSessionBase"/>).</summary>
 /// <remarks>With <paramref name="connection"/>, attaches to IDA's open database: never opened, rebased, deleted or saved by the session, nothing cached beside it; a dropped connection ends the session.</remarks>
 internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, PythonInterpreter? python, NativeOpenOptions options, IdaConnection? connection = null)
-    : WorkerSessionBase(options), INativeDecompilerSession
+    : WorkerSessionBase(options), INativeDecompilerSession, IEngineDatabase
 {
     private static readonly string[] UnpackedExtensions = [".id0", ".id1", ".id2", ".nam", ".til"];
 
@@ -24,7 +24,17 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
 
     /// <summary>The IDA process whose open database the session is attached to, or null for a worker of its own.</summary>
     internal int? ConnectedPid => connection?.Pid;
-    internal string DatabasePath => _databasePath;
+    public string DatabasePath => _databasePath;
+
+    public string ExportNote => "open it in IDA; the server's own database is unchanged and stays in its analysis cache";
+
+    /// <summary>Writes the database to <paramref name="path"/> through the worker's save_as and returns its size in bytes.</summary>
+    public async Task<long> SaveAsAsync(string path, CancellationToken cancellationToken)
+    {
+        IdaProvider.CheckPathLength(path, "temporary export", Path.GetDirectoryName(path)!, OperatingSystem.IsWindows());
+        return (await CallAsync("save_as", new JsonObject { ["path"] = path }, cancellationToken).ConfigureAwait(false)).GetProperty("size").GetInt64();
+    }
+
     /// <summary>False when opened without auto-analysis, or when the analysis ran out of the open's time: the engine's function list is not complete.</summary>
     public bool AnalysisComplete => Options.Analysis != EngineAnalysis.None && _analysisFinished;
     private bool _analysisFinished = true;

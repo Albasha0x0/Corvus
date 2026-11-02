@@ -11,10 +11,6 @@ public partial class RestartStateTests
     /// <summary>Tools with no restart case, each with the reason the check cannot apply.</summary>
     internal static readonly Dictionary<string, string> NoRestartCase = new(StringComparer.Ordinal)
     {
-        ["reanalyze_native"] = "the changed analysis lives in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
-        ["ida_python"] = "a script's effect is in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
-        ["ghidra_script"] = "a script's effect is in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
-        ["export_engine_database"] = "the exported file is the engine's own database, which the scripted engine does not keep; reserved for the lead heavy queue",
         ["emulate_native"] = "a stopped run is held in memory for resume, so a restart ends it; IntegerEmulationTests covers the refusal of an unknown run id",
     };
 
@@ -42,12 +38,16 @@ public partial class RestartStateTests
         ["list_native_types"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
         ["define_native"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
         ["set_native_operand"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["reanalyze_native"] = Held<RestartStateEngineDatabaseTests>(nameof(RestartStateEngineDatabaseTests.Script_reanalysis_and_export_effects_are_read_again_from_the_engine_database_after_a_restart)),
+        ["ida_python"] = Held<RestartStateEngineDatabaseTests>(nameof(RestartStateEngineDatabaseTests.Script_reanalysis_and_export_effects_are_read_again_from_the_engine_database_after_a_restart)),
+        ["ghidra_script"] = Held<RestartStateEngineDatabaseTests>(nameof(RestartStateEngineDatabaseTests.Script_reanalysis_and_export_effects_are_read_again_from_the_engine_database_after_a_restart)),
+        ["export_engine_database"] = Held<RestartStateEngineDatabaseTests>(nameof(RestartStateEngineDatabaseTests.Script_reanalysis_and_export_effects_are_read_again_from_the_engine_database_after_a_restart)),
     };
 
     private static string Held<T>(string method) => typeof(T).Name + "." + method;
 
     /// <summary>Fields that name the moment or the process: timings and kept-result ids.</summary>
-    [GeneratedRegex(@"\d+ parsed, \d+ cached|""(parsed|cached)"":\d+|\b\d+(\.\d+)? ?ms\b|""(elapsedMs|ms|durationMs)"":\d+|\br-[0-9a-f]{8,}\b")]
+    [GeneratedRegex(@"\d+ parsed, \d+ cached|""(parsed|cached)"":\d+|\b\d+(\.\d+)? ?ms\b|\b\d+\.\d+ s\b|""(elapsedMs|ms|durationMs)"":\d+|\br-[0-9a-f]{8,}\b")]
     private static partial Regex Volatile();
 
     private static string FirstDifference(string a, string b)
