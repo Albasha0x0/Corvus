@@ -1,9 +1,138 @@
+using System.Buffers.Binary;
+
 namespace Corvus.Native.Dump.Rebuild;
 
 /// <summary>Undoes or keeps the loader's relocations in a mapped image.</summary>
 public static class PeRelocations
 {
-    /// <summary>Applies <paramref name="mode"/> to <paramref name="image"/> in place and adds one check.</summary>
-    public static void Apply(byte[] image, CapturedImage captured, BaseMode mode, List<RebuildCheck> checks) =>
-        checks.Add(RebuildCheck.Skipped("relocations", "kept as loaded"));
+    private const int RelocationDirectory = 5;
+    private const ushort Absolute = 0, HighLow = 3, Dir64 = 10;
+    private const ushort RelocsStripped = 0x0001;
+
+    /// <summary>
+    /// Applies <paramref name="mode"/> to <paramref name="image"/> in place and adds one check: preferred subtracts
+    /// the load delta from every fixup, loaded writes the loaded base to the optional header.
+    /// </summary>
+    public static void Apply(byte[] image, CapturedImage captured, BaseMode mode, List<RebuildCheck> checks)
+    {
+        if (!TryHeader(image, out int opt, out bool is64, out ulong preferred, out ushort characteristics))
+        {
+            checks.Add(RebuildCheck.Unknown("relocations", "the optional header is not readable"));
+            return;
+        }
+
+        ulong loaded = captured.Target.Base;
+        if (mode == BaseMode.Loaded)
+        {
+            if (is64) BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(opt + 24), loaded);
+            else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(opt + 28), (uint)loaded);
+            checks.Add(RebuildCheck.Ok("relocations", "kept at the loaded base"));
+            return;
+        }
+
+        long delta = unchecked((long)(loaded - preferred));
+        if (delta == 0)
+        {
+            checks.Add(RebuildCheck.Skipped("relocations", "loaded at its preferred base"));
+            return;
+        }
+
+        int dirs = opt + (is64 ? 112 : 96);
+        uint count = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + (is64 ? 108 : 92)));
+        uint rva = 0, size = 0;
+        if (count > RelocationDirectory && dirs + RelocationDirectory * 8 + 8 <= image.Length)
+        {
+            rva = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs + RelocationDirectory * 8));
+            size = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs + RelocationDirectory * 8 + 4));
+        }
+        if (rva == 0 || size == 0)
+        {
+            string why = (characteristics & RelocsStripped) != 0
+                ? "IMAGE_FILE_RELOCS_STRIPPED is set"
+                : "no relocation directory";
+            checks.Add(RebuildCheck.Skipped("relocations", $"{why}; addresses kept as loaded"));
+            return;
+        }
+        if (!captured.PageCaptured(rva))
+        {
+            checks.Add(RebuildCheck.Unknown("relocations", "the relocation directory page is not captured"));
+            return;
+        }
+
+        // The walk stays inside the directory and the image.
+        long end = Math.Min((long)rva + size, image.Length);
+        long at = rva;
+        int undone = 0, skipped = 0, unsupported = 0;
+        bool malformed = false;
+        int width = is64 ? 8 : 4;
+        while (at + 8 <= end)
+        {
+            uint page = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan((int)at));
+            uint block = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan((int)at + 4));
+            if (block < 8 || (block & 1) != 0 || at + block > end)
+            {
+                malformed = true;
+                break;
+            }
+            for (long e = at + 8; e < at + block; e += 2)
+            {
+                ushort entry = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan((int)e));
+                ushort type = (ushort)(entry >> 12);
+                if (type == Absolute) continue;
+                if (type != Dir64 && type != HighLow)
+                {
+                    unsupported++;
+                    continue;
+                }
+                long site = (long)page + (entry & 0xFFF);
+                if (site + width > image.Length || !captured.PageCaptured((uint)site)
+                    || !captured.PageCaptured((uint)(site + width - 1)))
+                {
+                    skipped++;
+                    continue;
+                }
+                var at8 = image.AsSpan((int)site);
+                if (type == Dir64)
+                    BinaryPrimitives.WriteUInt64LittleEndian(at8, unchecked(BinaryPrimitives.ReadUInt64LittleEndian(at8) - (ulong)delta));
+                else
+                    BinaryPrimitives.WriteUInt32LittleEndian(at8, unchecked(BinaryPrimitives.ReadUInt32LittleEndian(at8) - (uint)delta));
+                undone++;
+            }
+            at += block;
+        }
+        if (!malformed && at < end && end - at < 8) malformed = true;
+
+        if (is64) BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(opt + 24), preferred);
+        else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(opt + 28), (uint)preferred);
+
+        if (skipped == 0 && unsupported == 0 && !malformed)
+        {
+            checks.Add(RebuildCheck.Ok("relocations", $"{undone} fixups undone, delta {(delta < 0 ? "-" : "+")}0x{Math.Abs(delta):X}"));
+            return;
+        }
+        string detail = $"{undone} fixups undone, {skipped} skipped on pages not captured, {unsupported} of an unsupported type";
+        if (malformed) detail += "; the table ends at a malformed block";
+        checks.Add(RebuildCheck.Partial("relocations", detail));
+    }
+
+    private static bool TryHeader(byte[] image, out int opt, out bool is64, out ulong preferred, out ushort characteristics)
+    {
+        opt = 0;
+        is64 = false;
+        preferred = 0;
+        characteristics = 0;
+        if (image.Length < 0x40) return false;
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        if (nt < 0 || nt + 24 + 112 > image.Length) return false;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(nt)) != 0x4550) return false;
+        characteristics = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 22));
+        opt = nt + 24;
+        ushort magic = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(opt));
+        if (magic != 0x10B && magic != 0x20B) return false;
+        is64 = magic == 0x20B;
+        preferred = is64
+            ? BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(opt + 24))
+            : BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 28));
+        return true;
+    }
 }
