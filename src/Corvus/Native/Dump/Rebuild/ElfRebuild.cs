@@ -1,7 +1,3 @@
-using System.Buffers.Binary;
-using Corvus.Core;
-using Corvus.Native.Pe;
-
 namespace Corvus.Native.Dump.Rebuild;
 
 /// <summary>Rebuilds an ELF module from the segments a core file captured.</summary>

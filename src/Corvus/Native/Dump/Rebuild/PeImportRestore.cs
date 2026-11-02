@@ -1,7 +1,3 @@
-using System.Buffers.Binary;
-using Corvus.Core;
-using Corvus.Native.Pe;
-
 namespace Corvus.Native.Dump.Rebuild;
 
 /// <summary>Restores the import address table of a mapped image.</summary>

@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using Corvus.Core;
 using Corvus.Native.Pe;
 

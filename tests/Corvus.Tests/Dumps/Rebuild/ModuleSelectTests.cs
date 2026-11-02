@@ -5,7 +5,7 @@ using Corvus.Native.Pe;
 namespace Corvus.Tests;
 
 /// <summary>Modules of a synthetic minidump rebuilt into files through every stage.</summary>
-public sealed class ModuleRebuildTests : IDisposable
+public sealed class ModuleSelectTests : IDisposable
 {
     private readonly TempDir _dir = new();
 
@@ -49,5 +49,15 @@ public sealed class ModuleRebuildTests : IDisposable
         var rebuilt = ModuleRebuild.Rebuild(dump, RebuildTarget.Of(dump.Modules[0]), RebuildOptions.Default, default);
         Assert.Null(rebuilt.Bytes);
         Assert.Equal("the memory does not hold the image headers", rebuilt.Refused);
+    }
+
+    [Fact]
+    public void File_layout_is_refused_until_it_is_built()
+    {
+        using var dump = Dump();
+        var target = Assert.Single(ModuleRebuild.Select(dump, "synth.dll", default));
+        var rebuilt = ModuleRebuild.Rebuild(dump, target, RebuildOptions.Default with { Layout = OutputLayout.File }, default);
+        Assert.Null(rebuilt.Bytes);
+        Assert.Equal("file layout is not built yet", rebuilt.Refused);
     }
 }

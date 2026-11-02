@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using Corvus.Core;
 
 namespace Corvus.Native.Dump.Rebuild;
 
@@ -14,7 +13,7 @@ public enum BaseMode { Loaded, Preferred }
 
 /// <summary>How a module is rebuilt from process memory.</summary>
 /// <param name="ImageDirectories">Folders searched for the module's file on disk, besides its recorded path; null for the recorded path only.</param>
-public sealed record RebuildOptions(OutputLayout Layout = OutputLayout.File, ImportMode Imports = ImportMode.Restore, BaseMode Base = BaseMode.Loaded,
+public sealed record RebuildOptions(OutputLayout Layout = OutputLayout.Mapped, ImportMode Imports = ImportMode.Restore, BaseMode Base = BaseMode.Loaded,
     bool CompareWithDisk = true, string? ImageDirectories = null)
 {
     public static readonly RebuildOptions Default = new();
@@ -106,6 +105,7 @@ public static class ModuleRebuild
         PeRelocations.Apply(image, captured, options.Base, checks);
         var imports = PeImportRestore.Restore(image, captured, memory, options.Imports, checks, ct);
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
+        if (bytes == null) return Refuse(target, checks[^1].Detail);
         var verified = PeVerify.Check(bytes, target, checks);
         var disk = options.CompareWithDisk ? DiskCompare.Compare(bytes, captured, options, checks) : null;
         return new RebuiltModule(target, "pe", captured.InputLayout, bytes, captured.CapturedPercent, checks, imports, disk, verified?.State, verified?.Reason);
@@ -121,33 +121,4 @@ public static class ModuleRebuild
     /// <summary>A module that could not be rebuilt, with the reason.</summary>
     public static RebuiltModule Refuse(RebuildTarget target, string reason) =>
         new(target, "unknown", "unknown", null, 0, [RebuildCheck.Failed("headers", reason)], Refused: reason);
-
-    /// <summary>Writes the rebuilt <paramref name="modules"/> into a new or empty <paramref name="folder"/>; the file name written for each, null for a refused one.</summary>
-    /// <remarks>A failed write deletes the files this call created.</remarks>
-    public static IReadOnlyList<string?> WriteAll(IReadOnlyList<RebuiltModule> modules, string folder)
-    {
-        var root = Path.GetFullPath(folder);
-        Directory.CreateDirectory(root);
-        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var names = new List<string?>();
-        var created = new List<string>();
-        try
-        {
-            foreach (var m in modules)
-            {
-                if (m.Bytes == null) { names.Add(null); continue; }
-                var name = DumpModuleExport.NameFor(m.Target.Name, m.Target.Base, used);
-                SafeFile.WriteUnderRoot(root, name, m.Bytes, overwrite: false);
-                created.Add(Path.Combine(root, name));
-                names.Add(name);
-            }
-        }
-        catch
-        {
-            foreach (var path in created)
-                try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-            throw;
-        }
-        return names;
-    }
 }

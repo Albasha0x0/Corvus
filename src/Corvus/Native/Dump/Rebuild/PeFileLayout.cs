@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using Corvus.Core;
 using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump.Rebuild;
@@ -7,8 +6,12 @@ namespace Corvus.Native.Dump.Rebuild;
 /// <summary>Turns a mapped image into a PE file.</summary>
 public static class PeFileLayout
 {
-    /// <summary>The image with each section at a file-aligned offset.</summary>
-    public static byte[] ToFileLayout(byte[] image, CapturedImage captured, List<RebuildCheck> checks) => AsMapped(image, captured, checks);
+    /// <summary>Null, with a skipped layout check: the file layout is not built yet.</summary>
+    public static byte[]? ToFileLayout(byte[] image, CapturedImage captured, List<RebuildCheck> checks)
+    {
+        checks.Add(RebuildCheck.Skipped("layout", "file layout is not built yet"));
+        return null;
+    }
 
     /// <summary>The image as mapped: each section's file offset is its RVA.</summary>
     public static byte[] AsMapped(byte[] image, CapturedImage captured, List<RebuildCheck> checks)

@@ -1,7 +1,3 @@
-using System.Buffers.Binary;
-using Corvus.Core;
-using Corvus.Native.Pe;
-
 namespace Corvus.Native.Dump.Rebuild;
 
 /// <summary>Compares a rebuilt image with the module's file on disk.</summary>
