@@ -172,6 +172,10 @@
                     "writeback": {
                       "description": "ARM: base register writeback, pre or post.",
                       "type": "string"
+                    },
+                    "characters": {
+                      "description": "x86: an immediate of 4 or 8 bytes whose bytes are all printable ASCII with a letter or digit, in stored (little-endian) order.",
+                      "type": "string"
                     }
                   },
                   "required": [

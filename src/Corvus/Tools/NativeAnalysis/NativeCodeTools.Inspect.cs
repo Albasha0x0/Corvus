@@ -98,7 +98,8 @@ public sealed record OperandEntry(
     string? TargetName,
     [property: Description("The data item (with read / write counts) or function at the target.")] string? TargetItem,
     [property: Description("ARM: index extend or shift (lsl #3, uxtw #2), register shift, or shift / extend kind.")] string? Extend = null,
-    [property: Description("ARM: base register writeback, pre or post.")] string? Writeback = null);
+    [property: Description("ARM: base register writeback, pre or post.")] string? Writeback = null,
+    [property: Description("x86: an immediate of 4 or 8 bytes whose bytes are all printable ASCII with a letter or digit, in stored (little-endian) order.")] string? Characters = null);
 
 public sealed record InstructionFlow(
     [property: Description("next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap, invalid.")] string Kind,
@@ -366,7 +367,8 @@ public sealed partial class NativeCodeTools
             if (o.Size is { } size and > 0) facts.Add($"{size} bytes");
             if (o.Access is { } access) facts.Add(access);
             if (o.FullRegister is { } full && full != o.Register) facts.Add($"part of {full}");
-            if (o.Kind == "immediate" && o.Value is { } v) facts.Add($"0x{v:X}" + (o.SignedValue < 0 ? $" ({o.SignedValue})" : ""));
+            var characters = o.Kind == "immediate" && o.Value is { } iv ? PrintableConstant(iv, o.Size) : null;
+            if (o.Kind == "immediate" && o.Value is { } v) facts.Add($"0x{v:X}" + (o.SignedValue < 0 ? $" ({o.SignedValue})" : "") + (characters != null ? $" '{characters}'" : ""));
             if (o.Base != null || o.IndexRegister != null || o.RipRelative || o.Displacement is not null and not 0)
             {
                 if (o.RipRelative) facts.Add(o.Kind is "pc_relative" or "near_branch" ? "pc-relative" : "rip-relative");
@@ -381,9 +383,25 @@ public sealed partial class NativeCodeTools
             sb.AppendLine(line.ToString());
             operands.Add(new OperandEntry(o.Index, o.Kind, o.Text, o.Size, o.Access, o.Register, o.FullRegister, o.Value is { } value ? $"0x{value:X}" : null,
                 o.SignedValue, o.Segment, o.Base, o.IndexRegister, o.Scale, o.Displacement is { } disp ? Signed(disp) : null, o.RipRelative,
-                o.Target is { } tt ? Va(tt) : null, targetName, targetItem, o.Extend, o.Writeback));
+                o.Target is { } tt ? Va(tt) : null, targetName, targetItem, o.Extend, o.Writeback, characters));
         }
         return operands;
+    }
+
+    /// <summary>The characters of a 4- or 8-byte immediate whose stored bytes are printable ASCII and include a letter or digit; null otherwise.</summary>
+    internal static string? PrintableConstant(ulong value, int? size)
+    {
+        if (size is not (4 or 8)) return null;
+        var chars = new char[size.Value];
+        var named = false;
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var b = (byte)(value >> (8 * i));
+            if (b is < 0x20 or > 0x7E) return null;
+            chars[i] = (char)b;
+            named |= char.IsAsciiLetterOrDigit(chars[i]);
+        }
+        return named ? new string(chars) : null;
     }
 
     private static InstructionFlow Flow(StringBuilder sb, NativeCodeIndex index, InspectedInstruction insn)

@@ -81,6 +81,37 @@ public class InstructionInspectTests
     private static InstructionItem One(NativeCodeIndex index, uint rva) => Assert.Single(Inspect(index, rva).Report.Items);
 
     [Fact]
+    public void A_printable_four_byte_immediate_shows_its_characters_in_stored_order()
+    {
+        var (code, _) = Assemble(a =>
+        {
+            a.mov(eax, 0x4B50584E);
+            a.mov(ecx, 0x10);
+            a.ret();
+        });
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, new byte[0x200], [], entry: Code, dataVirtualSize: 0x2000);
+        var index = NativeCodeIndex.Build(image);
+        var (text, report) = Inspect(index, Code, 2);
+        var magic = report.Items[0].Instruction!.Operands[1];
+        Assert.Equal("NXPK", magic.Characters);
+        Assert.Contains("0x4B50584E 'NXPK'", text);
+        Assert.Null(report.Items[1].Instruction!.Operands[1].Characters);
+    }
+
+    [Theory]
+    [InlineData(0x4B50584EUL, 4, "NXPK")]
+    [InlineData(0x4B50584E4B50584EUL, 8, "NXPKNXPK")]
+    [InlineData(0x4B50584E4B50580AUL, 8, null)]
+    [InlineData(0x4B50UL, 2, null)]
+    [InlineData(0x20202020UL, 4, null)]
+    [InlineData(0xFFFFFFFFFFFFFFFFUL, 8, null)]
+    [InlineData(0x4B50584EUL, null, null)]
+    public void A_constant_reads_as_characters_only_when_its_size_and_bytes_allow(ulong value, int? size, string? expected)
+    {
+        Assert.Equal(expected, NativeCodeTools.PrintableConstant(value, size));
+    }
+
+    [Fact]
     public void Memory_operand_is_decomposed_into_base_index_scale_and_displacement()
     {
         var s = Build();
