@@ -158,6 +158,7 @@ public class PathArgumentTests
         "record_note.anchor", "list_notes.anchor",
         // Choices of a mode.
         "live_timeline.category", "search_bytes.memory", "load_assembly.entry", "find_method_by_address.kind", "compare_native_images.engine",
+        "open_minidump.modules", "open_minidump.layout",
     };
 
     [Fact]

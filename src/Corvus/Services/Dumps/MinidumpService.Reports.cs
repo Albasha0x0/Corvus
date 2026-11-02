@@ -255,6 +255,39 @@ public sealed partial class MinidumpService
     private static bool IsWow64Process(MinidumpFile d) =>
         d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Which modules view=modules saves and how: carried in the output path, which is the one text field the worker arguments hold.</summary>
+    public sealed record ModuleSave(string Folder, string Module, OutputLayout Layout, ImportMode Imports, BaseMode Base)
+    {
+        private const char Separator = '\n';
+
+        /// <summary>The folder and options as one text; rejects a value outside the documented set (InvalidArgument).</summary>
+        public static string Pack(string folder, string? modules, string? layout, string? imports, string? @base)
+        {
+            var m = string.IsNullOrWhiteSpace(modules) ? "all" : modules.Trim();
+            if (m.Contains(Separator)) throw new ToolError(ErrorCode.InvalidArgument, "modules is a file name, a 0x address, all or unlisted.");
+            var l = Choice("layout", layout, "file", "mapped");
+            var i = Choice("imports", imports, "restore", "keep");
+            var b = Choice("base", @base, "loaded", "preferred");
+            return string.Join(Separator, folder, m, l, i, b);
+        }
+
+        /// <summary>The options a packed text holds; a plain folder gets the defaults.</summary>
+        public static ModuleSave Unpack(string packed)
+        {
+            var p = packed.Split(Separator);
+            if (p.Length != 5) return new ModuleSave(packed, "all", OutputLayout.File, ImportMode.Restore, BaseMode.Loaded);
+            return new ModuleSave(p[0], p[1], p[2] == "mapped" ? OutputLayout.Mapped : OutputLayout.File,
+                p[3] == "keep" ? ImportMode.Keep : ImportMode.Restore, p[4] == "preferred" ? BaseMode.Preferred : BaseMode.Loaded);
+        }
+
+        private static string Choice(string name, string? value, string first, string second)
+        {
+            var v = string.IsNullOrWhiteSpace(value) ? first : value.Trim().ToLowerInvariant();
+            if (v != first && v != second) throw new ToolError(ErrorCode.InvalidArgument, $"{name} '{value}' is not {first} or {second}.", $"pass {name} as {first} or {second}");
+            return v;
+        }
+    }
+
     /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here and the metadata state of each .NET image.</summary>
     /// <remarks>With <paramref name="outputPath"/>, the page's images go to that new or empty folder, returned as Folder; a core file refuses it.</remarks>
     public (string Id, IReadOnlyList<CheckedModule> Rows, int Total, string? Folder) Modules(string path, string? imageDirectories, int offset, int limit, string? outputPath = null, CancellationToken ct = default)
@@ -273,10 +306,15 @@ public sealed partial class MinidumpService
         string? folder = null;
         if (outputPath != null)
         {
-            var root = SafeFile.Output(outputPath);
+            var save = ModuleSave.Unpack(outputPath);
+            var root = SafeFile.Output(save.Folder);
             if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
                 throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <dump>-modules");
-            var rebuilt = ModuleRebuild.Select(d, "all", ct).Select(t => ModuleRebuild.Rebuild(d, t, RebuildOptions.Default, ct)).ToList();
+            var targets = ModuleRebuild.Select(d, save.Module, ct);
+            if (targets.Count == 0)
+                throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.", "pass modules as a listed file name, a 0x address, all or unlisted");
+            var options = RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
+            var rebuilt = targets.Select(t => ModuleRebuild.Rebuild(d, t, options, ct)).ToList();
             var written = ModuleWriter.WriteAll(rebuilt, root);
             saved = [.. rebuilt.Zip(written)];
             folder = root;
@@ -285,7 +323,7 @@ public sealed partial class MinidumpService
         {
             ct.ThrowIfCancellationRequested();
             var row = Checked(s, m);
-            if (saved?.FirstOrDefault(x => x.Module.Target.Base == m.Base) is { } hit)
+            if (saved?.Where(x => x.Module.Target.Base == m.Base).Cast<(RebuiltModule Module, WrittenModule Written)?>().FirstOrDefault() is { } hit)
             {
                 var (r, w) = hit;
                 if (w.File == null)

@@ -36,4 +36,45 @@ public sealed class OpenMinidumpSaveTests : IDisposable
         Assert.Equal(100, row.ImageCaptured);
         Assert.Contains(row.ImageChecks!, c => c.Name == "parse");
     }
+
+    private string TwoModuleDump()
+    {
+        var first = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: Base));
+        var second = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: Base + 0x100000));
+        var b = new MinidumpBuilder { ProcessorArchitecture = 9 };
+        foreach (var (name, file, at) in new[] { ("one.dll", first, Base), ("two.dll", second, Base + 0x100000) })
+        {
+            var mapped = RebuildFixtures.Mapped(file);
+            b.Modules.Add(new MinidumpBuilder.Module(at, (uint)mapped.Length, 0, @"Z:\app\" + name));
+            b.Memory.Add((at, mapped));
+        }
+        var dump = _dir.File("two.dmp");
+        File.WriteAllBytes(dump, b.Build());
+        return dump;
+    }
+
+    [Fact]
+    public async Task The_module_option_saves_only_the_named_module()
+    {
+        var dump = TwoModuleDump();
+        var folder = _dir.File("named");
+
+        using var service = new MinidumpService();
+        await new MinidumpTools(service).OpenMinidump(dump, "modules", outputPath: folder, modules: "two.dll");
+
+        Assert.Equal(["two.dll"], Directory.GetFiles(folder).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public async Task The_mapped_layout_option_keeps_section_offsets_at_their_RVAs()
+    {
+        var dump = TwoModuleDump();
+        var folder = _dir.File("mapped");
+
+        using var service = new MinidumpService();
+        await new MinidumpTools(service).OpenMinidump(dump, "modules", outputPath: folder, modules: "one.dll", layout: "mapped");
+
+        var text = PeFile.FromBytes(File.ReadAllBytes(Path.Combine(folder, "one.dll"))).Sections.Single(s => s.Name == ".text");
+        Assert.Equal(text.Rva, text.RawOffset);
+    }
 }

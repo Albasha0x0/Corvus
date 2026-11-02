@@ -31,6 +31,10 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
         [Description("view=modules: new or empty image folder.")] string? outputPath = null,
+        [Description("outputPath: file name, 0x address, all or unlisted.")] string? modules = null,
+        [Description("outputPath: file or mapped.")] string? layout = null,
+        [Description("outputPath: restore or keep.")] string? imports = null,
+        [Description("outputPath: loaded or preferred.")] string? @base = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -45,11 +49,14 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (filter != "all" && v != "memory") throw new ToolError(ErrorCode.InvalidArgument, "regionFilter goes with view=memory.");
         if (!string.IsNullOrWhiteSpace(yara) && filter != "unbacked") throw new ToolError(ErrorCode.InvalidArgument, "yara goes with regionFilter=unbacked.");
         if (!string.IsNullOrWhiteSpace(outputPath) && v != "modules") throw new ToolError(ErrorCode.InvalidArgument, "outputPath goes with view=modules.", "pass view=modules");
+        var save = string.IsNullOrWhiteSpace(outputPath) ? null : MinidumpService.ModuleSave.Pack(outputPath, modules, layout, imports, @base);
+        if (save == null && new[] { modules, layout, imports, @base }.Any(o => !string.IsNullOrWhiteSpace(o)))
+            throw new ToolError(ErrorCode.InvalidArgument, "modules, layout, imports and base go with outputPath.", "pass outputPath");
         var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
-            string.IsNullOrWhiteSpace(yara) ? null : yara, string.IsNullOrWhiteSpace(outputPath) ? null : outputPath);
+            string.IsNullOrWhiteSpace(yara) ? null : yara, save);
         var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
-        if (r.Modules is { } modules) return Rows(r.Id!, v, modules, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
+        if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
         if (r.Unbacked is { } unbacked) return Rows(r.Id!, v, unbacked, offset, limit, r.Total, DumpText.Memory, "region", r.Notes);
         if (r.Memory is { } memory) return Rows(r.Id!, v, memory, offset, limit, r.Total, DumpText.Memory, "region");
