@@ -198,9 +198,10 @@ internal static class FirmwareSignatureInstances
             ["LUKS encrypted volume"] = [(7, 3)],
             ["LVM2 physical volume"] = [(24, 'X')],
             ["GPT partition table"] = [(10, 2), (12, 91)],
-            ["cpio archive (newc)"] = [(6, 'G'), (94, 'G'), (110, 'X')],
-            ["cpio archive (newc with CRC)"] = [(6, 'G'), (94, 'G'), (110, 'X')],
-            ["cpio archive (odc)"] = [(6, '8'), (59, '8'), (76, 'X')],
+            // The entry name is not a header field: a header whose next entry is past the bytes in hand is reported.
+            ["cpio archive (newc)"] = [(6, 'G'), (94, 'G')],
+            ["cpio archive (newc with CRC)"] = [(6, 'G'), (94, 'G')],
+            ["cpio archive (odc)"] = [(6, '8'), (59, '8')],
             ["POSIX tar archive"] = [(148, -1), (0, 1), (1, 'b')],
             ["zip archive"] = [(4, 64), (8, 5), (26, 0)],
             ["RAR archive (v4)"] = [(9, 0x74), (7, -1), (12, 12)],

@@ -112,9 +112,13 @@ public sealed partial class FirmwareSignatureValidityTests
         return d;
     }
 
-    /// <summary>A minimal instance of a format, by the signature name.</summary>
-    private static Dictionary<string, Func<byte[]>> Instances() =>
-        InstancesFirst().Concat(InstancesB()).ToDictionary(e => e.Key, e => e.Value);
+    /// <summary>A minimal instance of a format, by the signature name; the first table wins on a name both build.</summary>
+    private static Dictionary<string, Func<byte[]>> Instances()
+    {
+        var all = InstancesFirst();
+        foreach (var (name, build) in InstancesB()) all.TryAdd(name, build);
+        return all;
+    }
 
     private static Dictionary<string, Func<byte[]>> InstancesFirst() => new(FirmwareSignatureInstances.All())
     {
@@ -193,9 +197,12 @@ public sealed partial class FirmwareSignatureValidityTests
     }
 
     /// <summary>Single-byte changes as (offset, value); a negative value inverts the byte.</summary>
-    private static Dictionary<string, (int At, int Value)[]> Mutations() =>
-        MutationsFirst().Concat(MutationsB().Select(e => KeyValuePair.Create(e.Key, e.Value.Select(m => (m.At, (int)m.Value)).ToArray())))
-            .ToDictionary(e => e.Key, e => e.Value);
+    private static Dictionary<string, (int At, int Value)[]> Mutations()
+    {
+        var all = MutationsFirst();
+        foreach (var (name, changes) in MutationsB()) all.TryAdd(name, [.. changes.Select(m => (m.At, (int)m.Value))]);
+        return all;
+    }
 
     private static Dictionary<string, (int At, int Value)[]> MutationsFirst() => new(FirmwareSignatureInstances.Changes())
     {

@@ -1,2 +1,0 @@
-# agreement groups without a test that compares their tools on a built fixture may only fall (RT-318)
-# Measured ratchet: values may only fall (tests/Corvus.Tests/Support/CountRatchet.cs).
