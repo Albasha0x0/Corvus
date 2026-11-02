@@ -65,7 +65,7 @@ public static class DumpModuleExport
                 skipped.Add(new SkippedModule(module.FileName, at, $"past the {MaxTotalBytes >> 20} MB total limit"));
                 continue;
             }
-            var name = NameFor(module, used);
+            var name = NameFor(module.FileName, module.Base, used);
             SafeFile.WriteUnderRoot(root, name, bytes.Span, overwrite: false);
             created.Add(Path.Combine(root, name));
             total += bytes.Length;
@@ -83,13 +83,14 @@ public static class DumpModuleExport
         return new ModuleExport(root, written, skipped);
     }
 
-    private static string NameFor(DumpModule module, HashSet<string> used)
+    /// <summary>A safe file name for a module under an output folder: its own name, else module.bin; a taken name gets the base address.</summary>
+    internal static string NameFor(string fileName, ulong moduleBase, HashSet<string> used)
     {
-        var name = module.FileName;
+        var name = fileName;
         if (!InputFiles.IsPlainName(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.EndsWith('.') || name.EndsWith(' ') || SafeFile.IsReservedName(name)) name = "module.bin";
         if (used.Add(name)) return name;
-        var unique = $"{Path.GetFileNameWithoutExtension(name)}-{module.Base:X}{Path.GetExtension(name)}";
-        for (int n = 2; !used.Add(unique); n++) unique = $"{Path.GetFileNameWithoutExtension(name)}-{module.Base:X}-{n}{Path.GetExtension(name)}";
+        var unique = $"{Path.GetFileNameWithoutExtension(name)}-{moduleBase:X}{Path.GetExtension(name)}";
+        for (int n = 2; !used.Add(unique); n++) unique = $"{Path.GetFileNameWithoutExtension(name)}-{moduleBase:X}-{n}{Path.GetExtension(name)}";
         return unique;
     }
 }
