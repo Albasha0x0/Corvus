@@ -187,7 +187,7 @@ internal static class FirmwareSignatures
         list.Add(S("Linux kernel version string", Other, "Linux version ", (w, at) => w.U8(at + 14) is >= (byte)'1' and <= (byte)'9' ? Found(CString(w, at, 120)) : null));
         list.Add(S("U-Boot version string", Other, "U-Boot ", (w, at) => (w.Is(at + 7, "20"u8) || w.Is(at + 7, "SPL"u8) || w.Is(at + 7, "1."u8)) ? Found(CString(w, at, 80)) : null));
         list.Add(S("UEFI firmware volume", Boot, "_FVH", (w, at) => w.Le16(at + 48) is >= 56 and < 4096 && w.U8(at + 55) is 1 or 2 ? Sized(w, at, (long)w.Le64(at + 32)) : null, 40));
-        list.Add(S("Intel flash descriptor", Boot, [0x5A, 0xA5, 0xF0, 0x0F], (w, at) => w.U8(at + 0x13) <= 7 ? Found() : null, 16));
+        list.Add(S("Intel flash descriptor", Boot, [0x5A, 0xA5, 0xF0, 0x0F], FlashDescriptor, 16));
         list.Add(S("coreboot CBFS file", Boot, "LARCHIVE", (w, at) => w.Be32(at + 12) is >= 24 and < 4096 ? Sized(w, at, w.Be32(at + 12) + (long)w.Be32(at + 8), $"'{CString(w, at + 24, 64)}'") : null));
         list.Add(S("ESP32 application image", Boot, [0xE9], (w, at) => w.U8(at + 1) is > 0 and <= 16 && w.U8(at + 2) <= 5 && w.Le32(at + 4) is >= 0x40000000 and < 0x50000000
             && w.Le16(at + 12) <= 0x20 && w.Le32(at + 19) == 0 && w.U8(at + 23) <= 1 && w.Le32(at + 24) is >= 0x3F000000 and < 0x60000000 && w.Le32(at + 28) is > 0 and < 16 << 20
@@ -212,10 +212,11 @@ internal static class FirmwareSignatures
         list.Add(S("Android VDEX file", Exe, "vdex", (w, at) => w.U8(at + 4) == '0' && w.U8(at + 7) == 0 ? Found($"version {w.Ascii(at + 4, 3)}") : null));
         list.Add(S("Android ART image", Exe, "art\n", (w, at) => w.U8(at + 4) == '0' && w.U8(at + 7) == 0 ? Found($"version {w.Ascii(at + 4, 3)}") : null));
         list.Add(S("WebAssembly module", Exe, "\0asm", (w, at) => w.Le32(at + 4) == 1 && w.U8(at + 8) <= 12 ? Found() : null));
-        list.Add(S("Lua bytecode", Exe, "\u001BLua", (w, at) => w.U8(at + 4) is 0x51 or 0x52 or 0x53 or 0x54 ? Found($"Lua {w.U8(at + 4) >> 4}.{w.U8(at + 4) & 15}") : null));
+        list.Add(S("Lua bytecode", Exe, "\u001BLua", LuaHeader));
         list.Add(S("LLVM bitcode", Exe, "BCÀÞ", (w, at) => w.U8(at + 4) == 0x35 ? Found() : null));
         list.Add(S("LLVM bitcode wrapper", Exe, [0xDE, 0xC0, 0x17, 0x0B], (w, at) => w.Le32(at + 4) == 0 && w.Le32(at + 8) >= 20 ? Sized(w, at, (long)w.Le32(at + 8) + w.Le32(at + 12)) : null));
-        list.Add(S("Python bytecode (.pyc)", Exe, [0x0D, 0x0A], (w, at) => w.Le16(at - 2) is >= 3000 and < 4000 && w.Le32(at + 2) <= 3 ? Found($"magic {w.Le16(at - 2)}") : null, 2));
+        // The version number sits at offset 0 and the flags at offset 4.
+        list.Add(S("Python bytecode (.pyc)", Exe, [0x0D, 0x0A], (w, at) => w.Le16(at) is >= 3000 and < 4000 && w.Le32(at + 4) <= 3 ? Found($"magic {w.Le16(at)}") : null, 2));
         list.Add(S("executable script", Exe, "#!/", (w, at) => (w.Is(at + 3, "bin/"u8) || w.Is(at + 3, "usr/"u8)) && w.Printable(at, 12) ? Found(CString(w, at, 60, '\n')) : null));
         list.Add(S("Android binary XML", Doc, [0x03, 0x00, 0x08, 0x00], (w, at) => w.Le32(at + 4) > 8 && w.Le16(at + 8) == 1 && w.Le16(at + 10) == 0x1C ? Sized(w, at, w.Le32(at + 4)) : null));
 
@@ -348,6 +349,24 @@ internal static class FirmwareSignatures
         long next = 4 + (long)length;
         if (w.Left(at) < next + 2) return marker is 0xE0 or 0xE1 ? Found("truncated after the first segment") : null;
         return w.Read(at + next, 2) is [0xFF, >= 0xC0 and <= 0xFE] ? Found() : null;
+    }
+
+    // Require 16 uniform reserved bytes; a bare magic matched random data.
+    // FLMAP0 follows: component base, at most two components, region base.
+    private static (long? Size, string? Detail)? FlashDescriptor(Window w, int at)
+    {
+        if (!w.Has(at, 24) || w.D.AsSpan(at, 16).IndexOfAnyExcept(w.D[at]) >= 0 || w.D[at] is not (0 or 0xFF)) return null;
+        return w.U8(at + 0x14) > 0 && w.U8(at + 0x16) > w.U8(at + 0x14) && (w.U8(at + 0x15) & 7) <= 1 ? Found() : null;
+    }
+
+    // Format 0, then data sizes (5.1, 5.2) or the check string (5.3+).
+    private static (long? Size, string? Detail)? LuaHeader(Window w, int at)
+    {
+        int version = w.U8(at + 4);
+        if (version is not (0x51 or 0x52 or 0x53 or 0x54) || w.U8(at + 5) != 0) return null;
+        bool fields = version <= 0x52 ? w.U8(at + 6) <= 1 && w.U8(at + 7) == 4 && w.U8(at + 8) is 4 or 8 && w.U8(at + 9) == 4
+            : w.Is(at + 6, [0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A]);
+        return fields ? Found($"Lua {version >> 4}.{version & 15}") : null;
     }
 
     private static string CString(Window w, int at, int max, char stop = '\0')
@@ -582,15 +601,20 @@ internal static class FirmwareSignatures
         return Found($"{commands} load commands");
     }
 
+    private static readonly System.Buffers.SearchValues<byte> ArmorBytes = System.Buffers.SearchValues.Create(
+        [.. Enumerable.Range(0x20, 0x5F).Select(b => (byte)b), (byte)'\t', (byte)'\r', (byte)'\n']);
+
     private static Func<Window, int, (long? Size, string? Detail)?> Pem(string label)
     {
         var end = Encoding.ASCII.GetBytes($"-----END {label}-----");
         return (w, at) =>
         {
             int from = at + 11 + label.Length + 5;
-            if (!w.Has(from, 1)) return null;
-            int found = w.D.AsSpan(from, Math.Min(w.N - from, 64 << 10)).IndexOf(end);
-            return found < 0 ? null : Sized(w, at, from - at + found + end.Length);
+            if (w.U8(from) is not ('\r' or '\n')) return null;
+            var body = w.D.AsSpan(from, Math.Min(w.N - from, 64 << 10));
+            int found = body.IndexOf(end);
+            // Armor is printable ASCII and line breaks.
+            return found < 0 || body[..found].IndexOfAnyExcept(ArmorBytes) >= 0 ? null : Sized(w, at, from - at + found + end.Length);
         };
     }
 

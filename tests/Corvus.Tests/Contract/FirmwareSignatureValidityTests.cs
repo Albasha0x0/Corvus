@@ -8,7 +8,7 @@ using Corvus.Core.Firmware;
 namespace Corvus.Tests;
 
 /// <summary>Every registered signature checks more than its magic, and a detector cannot skip the registry.</summary>
-public sealed class FirmwareSignatureValidityTests
+public sealed partial class FirmwareSignatureValidityTests
 {
     // Sizes avoid multiples of 16, which a 16-byte-block cipher header cannot tell from its own length.
     private static readonly int[] Sizes = [4099, 70_001];
@@ -113,7 +113,10 @@ public sealed class FirmwareSignatureValidityTests
     }
 
     /// <summary>A minimal instance of a format, by the signature name.</summary>
-    private static Dictionary<string, Func<byte[]>> Instances() => new(FirmwareSignatureInstances.All())
+    private static Dictionary<string, Func<byte[]>> Instances() =>
+        InstancesFirst().Concat(InstancesB()).ToDictionary(e => e.Key, e => e.Value);
+
+    private static Dictionary<string, Func<byte[]>> InstancesFirst() => new(FirmwareSignatureInstances.All())
     {
         ["gzip compressed data"] = () => Gzip("minimal"u8.ToArray()),
         ["bzip2 compressed data"] = () => Pad(Bytes("BZh9", new byte[] { 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 })),
@@ -190,7 +193,11 @@ public sealed class FirmwareSignatureValidityTests
     }
 
     /// <summary>Single-byte changes as (offset, value); a negative value inverts the byte.</summary>
-    private static Dictionary<string, (int At, int Value)[]> Mutations() => new(FirmwareSignatureInstances.Changes())
+    private static Dictionary<string, (int At, int Value)[]> Mutations() =>
+        MutationsFirst().Concat(MutationsB().Select(e => KeyValuePair.Create(e.Key, e.Value.Select(m => (m.At, (int)m.Value)).ToArray())))
+            .ToDictionary(e => e.Key, e => e.Value);
+
+    private static Dictionary<string, (int At, int Value)[]> MutationsFirst() => new(FirmwareSignatureInstances.Changes())
     {
         ["Zstandard compressed data"] = [(4, 0x08), (6, 0x07), (11, 0x21), (12, 0x03)],
         ["LZFSE compressed data"] = [(4, 0), (24, 0)],
