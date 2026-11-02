@@ -135,6 +135,7 @@ internal static class FirmwareSignatures
         list.Add(S("Microsoft cabinet", Arc, "MSCF", (w, at) => w.Le32(at + 4) == 0 && w.U8(at + 25) == 1 && w.U8(at + 24) == 3 ? Sized(w, at, w.Le32(at + 8), $"{w.Le16(at + 28)} files") : null));
         list.Add(S("ar archive", Arc, "!<arch>\n", Ar));
         list.Add(S("WebPlayerData table", Arc, "UnityWebData1.0\0", WebPlayerData));
+        list.Add(S("NXPK archive", Arc, "NXPK", (w, at) => w.Le32(at + 4) is >= 1 and <= 4_000_000 && w.Le32(at + 20) >= 24 ? Found() : null));
         list.Add(S("RPM package", Arc, [0xED, 0xAB, 0xEE, 0xDB], (w, at) => w.U8(at + 4) is 3 or 4 && w.Be16(at + 6) <= 1 && w.Printable(at + 10, 1) ? Found($"'{w.Ascii(at + 10, 66)}'") : null));
         list.Add(S("xar archive", Arc, "xar!", (w, at) => w.Be16(at + 4) >= 28 && w.Be16(at + 6) == 1 ? Found() : null));
         list.Add(S("ARJ archive", Arc, [0x60, 0xEA], (w, at) => w.Le16(at + 2) is > 0 and <= 2600 && w.U8(at + 4) is >= 30 and < 64 && w.U8(at + 10) == 2 ? Found() : null));
@@ -707,6 +708,13 @@ internal static class FirmwareSignatures
     /// <paramref name="length"/>, the whole file's.
     /// </summary>
     public static bool Holds(ReadOnlySpan<byte> head, long length, params string[] formats) => Holds(head, length, Containers.GzipProbeBytes, formats);
+
+    /// <summary>
+    /// Whether <paramref name="head"/> starts with the magic of the named
+    /// format, without its header check; false for an unknown name.
+    /// </summary>
+    public static bool StartsWithMagic(ReadOnlySpan<byte> head, string format) =>
+        All.FirstOrDefault(s => s.Format == format) is { MagicAt: 0 } signature && head.StartsWith(signature.Magic);
 
     /// <summary>The same check, reading at most <paramref name="probe"/> bytes.</summary>
     public static bool Holds(ReadOnlySpan<byte> head, long length, int probe, string[] formats)

@@ -203,7 +203,7 @@ public sealed class FileKindValidityTests
         ["hermes bytecode"] = Hermes,
         ["webdata"] = () => Padded(32, "UnityWebData1.0\0", 24u),
         ["godotpck"] = () => Padded(32, "GDPC", 2u, 4u, 2u, 0u),
-        ["nxpk archive"] = () => Padded(32, "NXPK", 1u, 0u, 0u, 20u),
+        ["nxpk archive"] = () => Padded(32, "NXPK", 1u, 0u, 0u, 0u, 24u),
         ["jimage"] = () => Padded(32, new byte[] { 0xDA, 0xDA, 0xFE, 0xCA }, 0x10000u),
         ["ines rom"] = () => Padded(16, "NES\x1A", 1, 1),
         ["qt resources"] = () => Padded(80, "qres", new byte[] { 0, 0, 0, 1, 0, 0, 0, 20, 0, 0, 0, 40, 0, 0, 0, 60 }),

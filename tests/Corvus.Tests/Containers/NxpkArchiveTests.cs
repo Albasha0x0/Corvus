@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using Corvus.Core;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
@@ -8,14 +9,14 @@ public sealed class NxpkArchiveTests
 {
     private static readonly byte[] Zstd = [0x28, 0xB5, 0x2F, 0xFD, 1, 2, 3, 4, 5, 6];
     private static readonly byte[] Lz4 = [0x04, 0x22, 0x4D, 0x18, 1, 2, 3, 4, 5, 6];
-    private static readonly byte[] Zlib = [0x78, 0x9C, 1, 2, 3, 4, 5, 6];
+    private static readonly byte[] Zlib = ZlibOf(Payload());
     private static readonly byte[] Plain = "plain bytes"u8.ToArray();
 
     private static byte[] Build(params (uint Sign, byte[] Bytes, uint Original)[] entries)
     {
         using var ms = new MemoryStream();
         var w = new BinaryWriter(ms);
-        w.Write(new byte[20]);
+        w.Write(new byte[24]);
         var offsets = new List<uint>();
         foreach (var e in entries) { offsets.Add((uint)ms.Length); w.Write(e.Bytes); }
         uint index = (uint)ms.Length;
@@ -31,7 +32,7 @@ public sealed class NxpkArchiveTests
         var data = ms.ToArray();
         "NXPK"u8.CopyTo(data);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), (uint)entries.Length);
-        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), index);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), index);
         return data;
     }
 
@@ -58,6 +59,7 @@ public sealed class NxpkArchiveTests
         Assert.Single(contents.Entries!);
         Assert.Contains(contents.Notes, n => n.Contains("index ends after 1 of 2"));
     }
+
     private static byte[] Payload() => System.Text.Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("MZ payload line\n", 64)));
 
     private static byte[] ZlibOf(byte[] raw)
@@ -114,5 +116,112 @@ public sealed class NxpkArchiveTests
         var contents = Containers.Open(data, "data.npk", AnalysisLimits.Default, default, allFiles: true);
         Assert.Single(contents.Items);
         Assert.Contains(contents.Notes, n => n.StartsWith("00000001: damaged"));
+    }
+
+    [Fact]
+    public void A_streamed_archive_extracts_its_identified_entries()
+    {
+        var raw = Payload();
+        var data = Build((1, ZlibOf(raw), (uint)raw.Length), (2, ZlibOf([1, 2, 0, 255, 3, 0]), 6));
+        var contents = Containers.OpenStream(() => new MemoryStream(data, writable: false), data.AsSpan(0, 24), "data.npk", AnalysisLimits.Default, default);
+        Assert.NotNull(contents);
+        Assert.Equal(NxpkArchive.Kind, contents!.Kind);
+        Assert.Equal(2, contents.Entries!.Count);
+        Assert.Equal(raw, Assert.Single(contents.Items).Bytes);
+    }
+
+    [Fact]
+    public void A_dictionary_compressed_zstd_entry_is_counted_and_not_called_damaged()
+    {
+        var raw = Payload();
+        var withDictionary = new ZstdSharp.Compressor().Wrap(raw).ToArray();
+        // Single-segment frame with a 1-byte dictionary id of 7.
+        withDictionary[4] = (byte)((withDictionary[4] & ~3) | 1);
+        var framed = withDictionary[..5].Concat(new byte[] { 7 }).Concat(withDictionary[5..]).ToArray();
+        var data = Build((1, framed, (uint)raw.Length));
+        var contents = Containers.Open(data, "data.npk", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Empty(contents.Items);
+        Assert.Contains(contents.Notes, n => n.Contains("need a trained dictionary") && n.Contains("7 x1"));
+        Assert.DoesNotContain(contents.Notes, n => n.Contains("damaged"));
+    }
+
+    [Fact]
+    public void A_stream_shorter_than_the_header_gives_a_partial_result_with_a_note()
+    {
+        var contents = NxpkArchive.Open(new MemoryStream("NXPK"u8.ToArray()), "data.npk", true, AnalysisLimits.Default, default);
+        Assert.Empty(contents.Items);
+        Assert.Empty(contents.Entries!);
+        Assert.Contains(contents.Notes, n => n.Contains("cut short"));
+    }
+
+    [Fact]
+    public void An_unknown_compression_is_listed_and_counted_not_extracted()
+    {
+        var data = Build((1, [1, 2, 3, 4, 5], 99));
+        var contents = Containers.Open(data, "data.npk", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Empty(contents.Items);
+        Assert.Contains("unknown compression", contents.Entries!.Single().Detail);
+        Assert.Contains(contents.Notes, n => n.Contains("1 entr(ies) use an unknown compression"));
+    }
+
+    [Fact]
+    public void An_entry_outside_the_file_is_listed_and_named()
+    {
+        var data = Build((1, Plain, (uint)Plain.Length));
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(data.Length - 28 + 8), 0x7FFFFFFF);
+        var contents = Containers.Open(data, "data.npk", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Empty(contents.Items);
+        Assert.Contains("outside the file", contents.Entries!.Single().Detail);
+        Assert.Contains(contents.Notes, n => n.Contains("1 entr(ies) lie outside the file"));
+    }
+
+    [Fact]
+    public void An_entry_over_the_per_item_limit_by_stored_or_original_size_is_skipped_and_named()
+    {
+        var raw = Payload();
+        var data = Build((1, raw, (uint)raw.Length), (2, ZlibOf(raw), 10));
+        var limits = AnalysisLimits.Default with { MaxItemBytes = 10 };
+        var contents = Containers.Open(data, "data.npk", limits, default, allFiles: true);
+        Assert.Empty(contents.Items);
+        Assert.Equal(2, contents.Entries!.Count);
+        Assert.Contains(contents.Notes, n => n.Contains("2 entr(ies) are over the per-item limit"));
+    }
+
+    [Fact]
+    public void The_item_count_limit_stops_the_entries_and_is_named()
+    {
+        var data = Build((1, Plain, (uint)Plain.Length), (2, Plain, (uint)Plain.Length));
+        var contents = Containers.Open(data, "data.npk", AnalysisLimits.Default with { MaxItems = 1 }, default, allFiles: true);
+        Assert.Single(contents.Items);
+        Assert.Equal(2, contents.Entries!.Count);
+        Assert.Contains(contents.Notes, n => n.Contains("extraction limit"));
+    }
+
+    [Fact]
+    public void Unpack_and_search_read_the_archive_entries()
+    {
+        var raw = Payload();
+        var data = Build((0xC1, ZlibOf(raw), (uint)raw.Length), (0xC2, Lz4FrameOf(raw), (uint)raw.Length));
+        using var dir = new TempDir();
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var path = dir.File("data.npk");
+        System.IO.File.WriteAllBytes(path, data);
+        var service = new UnpackService(workspace);
+        var report = service.Unpack(path, dir.File("out"), load: false, AnalysisLimits.Default, default);
+        Assert.Equal(NxpkArchive.Kind, report.Container);
+        Assert.Equal(2, report.Files.Count);
+        Assert.All(report.Files, f => Assert.Equal(raw, System.IO.File.ReadAllBytes(f.Path)));
+        var found = service.Search(path, "000000c2", "file", 10, AnalysisLimits.Default, default);
+        Assert.Contains(found.Items, m => m.Path == "000000c2" && m.Detail!.Contains("lz4 frame"));
+        Assert.Contains(found.Items, m => m.Path == "000000c2.bin");
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(NxpkArchive))]
+    public void Fuzzed_archives_never_throw_past_a_tool_error()
+    {
+        var seed = Build((0xC1, Zstd, 100), (0xC2, Lz4, 100), (0xC3, Plain, (uint)Plain.Length));
+        var failures = FormatFuzz.Run(seed, b => { try { NxpkArchive.Open(b, "data.npk", true, AnalysisLimits.Default, default); } catch (ToolError) { } }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
 }

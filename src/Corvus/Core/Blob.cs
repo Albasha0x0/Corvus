@@ -105,8 +105,8 @@ public static class Blob
         if (Flash.SwfFile.Looks(b)) return "flash swf";
         if (Registry.RegistryHive.Looks(b)) return "registry hive";
         if (Pri.PriFile.Looks(b)) return "package resource index";
-        // A pak is known by its footer, so only a whole file matches.
         if (NxpkArchive.Looks(b)) return "nxpk archive";
+        // A pak is known by its footer, so only a whole file matches.
         if (UnrealPak.Looks(b)) return "unreal pak";
         if (UnrealIoStore.Looks(b)) return "unreal utoc";
         if (GameMakerData.Looks(b)) return "gamemaker data";

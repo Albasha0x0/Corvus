@@ -312,7 +312,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | WebGL `.data` (UnityWebData) | every file with its role |
 | Unrecognized data | .NET images, XALZ chunks and gzip streams carved by offset |
 | Godot `.pck` | every file, Godot 3 and 4 |
-| NXPK archive (`.npk`) | entry count, index location and compression kinds; entries named by signature |
+| NXPK archive (`.npk`) | entries listed with offset, sizes and compression, named by signature; zstd, LZ4 frame, zlib and stored entries extracted; dictionary-compressed zstd entries listed only |
 | Qt resources (`.rcc` or compiled in) | every file, Qt 5 and 6 |
 | Offset and size index plus blobs | every entry with size and entropy; a damaged last record named |
 | `.luae`, `.jsone`, `.pbe` transformed block container | the payload with block count and entropy; a short file keeps its present bytes |

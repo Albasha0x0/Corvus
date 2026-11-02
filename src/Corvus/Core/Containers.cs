@@ -384,6 +384,11 @@ public static class Containers
                 return streamed;
             }
         }
+        if (kind == "nxpk archive")
+        {
+            using var nx = open();
+            return NxpkArchive.Open(nx, name, allFiles: false, limits, ct);
+        }
         if (ReaderFor(head, name) is { } reader)
         {
             using var s = open();
