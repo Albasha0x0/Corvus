@@ -254,6 +254,32 @@ public class MachinePermitsTests
         finally { steps.Delete(); }
     }
 
+    // Reviewer finding on the same-run accounting: an own slot hid a foreign one.
+    [Fact]
+    public async Task A_foreign_holder_counts_while_another_slot_is_held_by_the_same_run()
+    {
+        using var steps = new SteppedWait();
+        steps.Counts["one"] = 2;
+        try
+        {
+            var (foreign, _) = await MachinePermits.TakeAsync(["one"], steps.Folder, steps.Counts, default, run: "another-run");
+            var (own, _) = await MachinePermits.TakeAsync(["one"], steps.Folder, steps.Counts, default);
+            using (foreign)
+            using (own)
+            {
+                var waiter = steps.Wait(maxWait: TimeSpan.FromMilliseconds(1800), holderLookupLimit: Timeout.InfiniteTimeSpan);
+                for (int i = 0; i < 3; i++)
+                {
+                    await steps.Advance(TimeSpan.FromMilliseconds(500), () => { foreign.Progress(); own.Progress(); });
+                    Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
+                }
+                steps.Pass(TimeSpan.FromMilliseconds(500));
+                await Assert.ThrowsAsync<PermitWaitEndedException>(() => waiter);
+            }
+        }
+        finally { steps.Delete(); }
+    }
+
     [Fact]
     public async Task A_wait_outlasts_its_limit_while_the_holder_is_alive_in_one_long_test()
     {

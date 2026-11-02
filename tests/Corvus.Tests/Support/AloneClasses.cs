@@ -8,8 +8,9 @@ internal static class AloneClasses
     public const string Flag = "--alone-classes";
 
     /// <summary>
-    /// The non-abstract classes of <paramref name="assembly"/> in a collection that runs alone, as "Outer+Nested"
-    /// names without the namespace, sorted; empty when there is none.
+    /// The non-abstract classes of <paramref name="assembly"/> in a collection that runs alone and take no permit,
+    /// as "Outer+Nested" names without the namespace, sorted; empty when there is none. A class that takes a permit
+    /// stays in the main process, so one process owns every holder of a permit.
     /// </summary>
     public static IReadOnlyList<string> Names(Assembly assembly)
     {
@@ -21,10 +22,17 @@ internal static class AloneClasses
             .Select(a => (string)a.ConstructorArguments[0].Value!)
             .ToHashSet(StringComparer.Ordinal);
         return [.. types
-            .Where(t => !t.IsAbstract && t.GetCustomAttributesData().Any(a =>
+            .Where(t => !t.IsAbstract && !TakesPermit(t) && t.GetCustomAttributesData().Any(a =>
                 a.AttributeType == typeof(CollectionAttribute) && a.ConstructorArguments is [{ Value: string name }] && alone.Contains(name)))
             .Select(t => t.FullName![(t.Namespace!.Length + 1)..])
             .Order(StringComparer.Ordinal)];
+    }
+
+    private static bool TakesPermit(Type type)
+    {
+        for (Type? t = type; t != null; t = t.DeclaringType)
+            if (t.GetCustomAttributesData().Any(a => a.AttributeType == typeof(PermitAttribute))) return true;
+        return false;
     }
 
     /// <summary>Prints one <c>class Name</c> line per <see cref="Names"/> entry of this assembly; exit code 0.</summary>

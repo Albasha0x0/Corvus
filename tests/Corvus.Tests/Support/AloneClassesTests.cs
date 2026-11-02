@@ -14,4 +14,12 @@ public sealed class AloneClassesTests
         Assert.DoesNotContain(nameof(ExternalToolsTests), names);
         Assert.DoesNotContain(nameof(FileIsolationTests), names);
     }
+
+    // Two processes taking the live permits starved a full run's classes.
+    [Fact]
+    public void A_class_that_takes_a_permit_stays_out_of_the_alone_process()
+    {
+        var names = AloneClasses.Names(typeof(AloneClassesTests).Assembly);
+        Assert.DoesNotContain(nameof(LivePtraceScopeRealTests), names);
+    }
 }

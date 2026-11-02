@@ -140,9 +140,8 @@ public static class MachinePermits
                 var count = counts[resource];
                 var started = clock();
                 var quietSince = started;
-                // The cap counts only time with no slot held by this run: its own
-                // classes queue for the same permits and finish by themselves, so
-                // a queue of them is no starvation by another process.
+                // The cap counts only time a slot is held outside this run: its
+                // own classes queue for the same permits and finish by themselves.
                 var foreign = TimeSpan.Zero;
                 var lastTick = started;
                 var seen = Owners(dir, count);
@@ -151,7 +150,7 @@ public static class MachinePermits
                 while ((slot = TryTake(dir, count)) == null)
                 {
                     var tick = clock();
-                    if (!HeldBy(dir, count, run)) foreign += tick - lastTick;
+                    if (HeldOutside(dir, count, run)) foreign += tick - lastTick;
                     lastTick = tick;
                     if (maxWait is { } cap)
                     {
@@ -231,9 +230,10 @@ public static class MachinePermits
         catch (UnauthorizedAccessException) { return "?"; }
     }
 
-    // Whether a slot's record names the run as its holder's.
-    private static bool HeldBy(string dir, int count, string run) =>
-        Enumerable.Range(0, count).Any(i => ReadOwner(dir, i).Split(' ') is [_, "test", _, _, var holder] && holder == run);
+    // Whether a slot's record names a holder outside the run: a script, or a test of another run.
+    private static bool HeldOutside(string dir, int count, string run) =>
+        Enumerable.Range(0, count).Select(i => ReadOwner(dir, i).Split(' '))
+            .Any(record => record is [_, "script"] || record is [_, "test", _, _, var holder] && holder != run);
 
     /// <summary>Owner records of a resource's slots: "pid test token progress run" or "pid script"; a record being rewritten reads unknown.</summary>
     private static string Owners(string dir, int count) => string.Join("|", Enumerable.Range(0, count).Select(i =>
