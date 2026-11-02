@@ -38,4 +38,26 @@ public sealed class RebuildFixturesTests
         Assert.Equal(spec.Base + 0x1000, BinaryPrimitives.ReadUInt64LittleEndian(mapped.AsSpan(0x2008)));
         Assert.Equal((byte)'M', mapped[0]);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_built_image_lists_its_imports_and_exports(bool is64)
+    {
+        var spec = Spec(is64) with
+        {
+            Exports = [new ExportSpec("Zeta", 0x1002), new ExportSpec("Alpha", 0x1000)],
+            Imports = [new ImportSpec("one.dll", ["Open", "Read"]), new ImportSpec("two.dll", ["Close"])],
+        };
+        var built = RebuildFixtures.Build(spec);
+        var pe = PeFile.FromBytes(built.Bytes);
+        uint width = is64 ? 8u : 4u;
+        var mapped = RebuildFixtures.Mapped(built.Bytes);
+
+        Assert.Equal([("Alpha", 0x1000u), ("Zeta", 0x1002u)], pe.Exports.Select(e => (e.Name!, e.Rva)));
+        Assert.Equal(["one.dll!Open", "one.dll!Read", "two.dll!Close"], pe.Imports.Select(i => $"{i.Module}!{i.Name}"));
+        Assert.Equal(pe.Imports.Select(i => i.SlotRva), built.IatSlots.Values);
+        Assert.Equal(built.IatSlots["one.dll!Open"] + width, built.IatSlots["one.dll!Read"]);
+        Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan((int)built.IatSlots["two.dll!Close"])));
+    }
 }

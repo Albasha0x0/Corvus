@@ -9,6 +9,15 @@ internal sealed record SectionSpec(string Name, uint Characteristics, byte[] Raw
 /// <summary>An absolute pointer at <paramref name="Offset"/> in a section, written as image base plus <paramref name="TargetRva"/>.</summary>
 internal sealed record PointerSite(string Section, int Offset, uint TargetRva);
 
+/// <summary>A named export at <paramref name="Rva"/>.</summary>
+internal sealed record ExportSpec(string Name, uint Rva);
+
+/// <summary>A module imported by name, with the functions imported from it.</summary>
+internal sealed record ImportSpec(string Module, IReadOnlyList<string> Functions);
+
+/// <summary>A built PE file and the RVA of each import address table slot, keyed by <c>module!name</c>.</summary>
+internal sealed record PeBuilt(byte[] Bytes, IReadOnlyDictionary<string, uint> IatSlots);
+
 /// <summary>Layout of a synthetic PE; a null <paramref name="ImageBase"/> picks the usual base of the width.</summary>
 internal sealed record PeSpec(
     bool Is64Bit,
@@ -16,7 +25,9 @@ internal sealed record PeSpec(
     IReadOnlyList<PointerSite>? Pointers = null,
     ulong? ImageBase = null,
     uint FileAlignment = 0x200,
-    uint SectionAlignment = 0x1000)
+    uint SectionAlignment = 0x1000,
+    IReadOnlyList<ExportSpec>? Exports = null,
+    IReadOnlyList<ImportSpec>? Imports = null)
 {
     /// <summary>The image base written to the optional header.</summary>
     public ulong Base => ImageBase ?? (Is64Bit ? 0x140000000UL : 0x10000000UL);
@@ -30,7 +41,10 @@ internal static class RebuildFixtures
     private const ushort HighLow = 3;
 
     /// <summary>Returns a PE file in file layout; pointer sites get a .reloc section. Throws on a site outside its section.</summary>
-    public static byte[] Pe(PeSpec spec)
+    public static byte[] Pe(PeSpec spec) => Build(spec).Bytes;
+
+    /// <summary>Returns the PE file and its IAT slot RVAs; exports go in .edata, imports in .idata. Throws on a bad site.</summary>
+    public static PeBuilt Build(PeSpec spec)
     {
         var sections = spec.Sections.Select(s => (s.Name, s.Characteristics, Raw: (byte[])s.Raw.Clone())).ToList();
         var rva = new List<uint>();
@@ -39,6 +53,27 @@ internal static class RebuildFixtures
         {
             rva.Add(next);
             next = Align(next + (uint)Math.Max(s.Raw.Length, 1), spec.SectionAlignment);
+        }
+
+        uint exportRva = 0, exportSize = 0, importRva = 0, importSize = 0;
+        var slots = new Dictionary<string, uint>();
+        if (spec.Exports is { Count: > 0 })
+        {
+            var edata = ExportDirectory(spec.Exports, next);
+            exportRva = next;
+            exportSize = (uint)edata.Length;
+            sections.Add((".edata", 0x40000040, edata));
+            rva.Add(next);
+            next = Align(next + exportSize, spec.SectionAlignment);
+        }
+        if (spec.Imports is { Count: > 0 })
+        {
+            var idata = ImportDirectory(spec.Imports, next, spec.Is64Bit, slots);
+            importRva = next;
+            importSize = (uint)((spec.Imports.Count + 1) * 20);
+            sections.Add((".idata", 0xC0000040, idata));
+            rva.Add(next);
+            next = Align(next + (uint)idata.Length, spec.SectionAlignment);
         }
 
         var sites = new List<uint>();
@@ -116,6 +151,10 @@ internal static class RebuildFixtures
             BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(at + 92), 16);
             dirs = at + 96;
         }
+        BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(dirs), exportRva);
+        BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(dirs + 4), exportSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(dirs + 8), importRva);
+        BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(dirs + 12), importSize);
         BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(dirs + 5 * 8), relocRva);
         BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(dirs + 5 * 8 + 4), relocSize);
 
@@ -132,7 +171,7 @@ internal static class RebuildFixtures
             BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(h + 36), sections[i].Characteristics);
             sections[i].Raw.CopyTo(pe, (int)rawOffsets[i]);
         }
-        return pe;
+        return new PeBuilt(pe, slots);
     }
 
     /// <summary>Returns the image in mapped layout, each section at its virtual address; a malformed file throws.</summary>
@@ -156,6 +195,83 @@ internal static class RebuildFixtures
             file.AsSpan((int)rawAt, (int)Math.Min(rawSize, virtualSize)).CopyTo(mapped.AsSpan((int)va));
         }
         return mapped;
+    }
+
+    private static byte[] ExportDirectory(IReadOnlyList<ExportSpec> exports, uint rva)
+    {
+        var sorted = exports.OrderBy(e => e.Name, StringComparer.Ordinal).ToList();
+        int n = sorted.Count;
+        uint address = rva + 40, names = address + (uint)(4 * n), ordinals = names + (uint)(4 * n);
+        uint text = ordinals + (uint)(2 * n);
+        var strings = new List<byte>();
+        uint Add(string value)
+        {
+            uint at = text + (uint)strings.Count;
+            strings.AddRange(Encoding.ASCII.GetBytes(value));
+            strings.Add(0);
+            return at;
+        }
+
+        var buffer = new byte[40 + 10 * n];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(12), Add("fixture.dll"));
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(16), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(20), (uint)n);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(24), (uint)n);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(28), address);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(32), names);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(36), ordinals);
+        for (int i = 0; i < n; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(40 + 4 * i), sorted[i].Rva);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(40 + 4 * n + 4 * i), Add(sorted[i].Name));
+            BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(40 + 8 * n + 2 * i), (ushort)i);
+        }
+        return [.. buffer, .. strings];
+    }
+
+    private static byte[] ImportDirectory(IReadOnlyList<ImportSpec> imports, uint rva, bool is64, Dictionary<string, uint> slots)
+    {
+        int width = is64 ? 8 : 4;
+        int count = imports.Count;
+        uint cursor = (uint)((count + 1) * 20);
+        var lookups = new uint[count];
+        var addresses = new uint[count];
+        for (int i = 0; i < count; i++)
+        {
+            uint table = (uint)((imports[i].Functions.Count + 1) * width);
+            lookups[i] = cursor;
+            addresses[i] = cursor + table;
+            cursor += 2 * table;
+        }
+
+        var buffer = new byte[cursor];
+        var text = new List<byte>();
+        uint Add(byte[] bytes)
+        {
+            uint at = rva + cursor + (uint)text.Count;
+            text.AddRange(bytes);
+            return at;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            var m = imports[i];
+            for (int k = 0; k < m.Functions.Count; k++)
+            {
+                string f = m.Functions[k];
+                byte[] entry = [0, 0, .. Encoding.ASCII.GetBytes(f), 0];
+                if (entry.Length % 2 != 0) entry = [.. entry, 0];
+                uint hintName = Add(entry);
+                BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan((int)lookups[i] + k * width), hintName);
+                BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan((int)addresses[i] + k * width), hintName);
+                slots[$"{m.Module}!{f}"] = rva + addresses[i] + (uint)(k * width);
+            }
+            uint module = Add([.. Encoding.ASCII.GetBytes(m.Module), 0]);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(i * 20), rva + lookups[i]);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(i * 20 + 12), module);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(i * 20 + 16), rva + addresses[i]);
+        }
+        return [.. buffer, .. text];
     }
 
     private static byte[] RelocationTable(List<uint> sites, bool is64)
