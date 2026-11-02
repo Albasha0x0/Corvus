@@ -62,4 +62,39 @@ public sealed class RelocationTests : IDisposable
         var check = Assert.Single(m.Checks, c => c.Name == "relocations");
         Assert.Equal(("ok", "kept at the loaded base"), (check.State, check.Detail));
     }
+
+    private (byte[] Image, List<RebuildCheck> Checks) ApplyToRewrittenHeader(PeRelocations.PreferredBase preferred)
+    {
+        var image = RebuildFixtures.Build(Spec());
+        using var dump = RebuildFixtures.Dump(_dir, new Placed("fixture.dll", image, Loaded));
+        var captured = CapturedImageReader.Read(dump, RebuildTarget.Of(dump.Modules[0]), CancellationToken.None)!;
+        var mapped = (byte[])captured.Image.Clone();
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(mapped.AsSpan(0x3C));
+        BinaryPrimitives.WriteUInt64LittleEndian(mapped.AsSpan(nt + 24 + 24), Loaded);
+        var checks = new List<RebuildCheck>();
+        PeRelocations.Apply(mapped, captured, BaseMode.Preferred, checks, preferred);
+        return (mapped, checks);
+    }
+
+    [Fact]
+    public void A_header_rewritten_to_the_loaded_base_is_undone_to_the_known_preferred_base()
+    {
+        var (image, checks) = ApplyToRewrittenHeader(PeRelocations.PreferredBase.FromFile(Spec().Base));
+
+        Assert.Equal(Spec().Base + 0x1000, BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(0x2008)));
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        Assert.Equal(Spec().Base, BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(nt + 24 + 24)));
+        Assert.Equal("ok", Assert.Single(checks).State);
+    }
+
+    [Fact]
+    public void An_unknown_preferred_base_leaves_the_image_at_the_loaded_base()
+    {
+        var (image, checks) = ApplyToRewrittenHeader(PeRelocations.PreferredBase.Unknown);
+
+        Assert.Equal(Loaded + 0x1000, BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(0x2008)));
+        var check = Assert.Single(checks);
+        Assert.Equal("unknown", check.State);
+        Assert.StartsWith("preferred base unknown", check.Detail);
+    }
 }

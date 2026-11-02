@@ -9,11 +9,24 @@ public static class PeRelocations
     private const ushort Absolute = 0, HighLow = 3, Dir64 = 10;
     private const ushort RelocsStripped = 0x0001;
 
+    /// <summary>The preferred base of a build: a value read from its file on disk, or unknown.</summary>
+    public readonly record struct PreferredBase(bool Known, ulong Value)
+    {
+        /// <summary>A preferred base read from the file of the same build.</summary>
+        public static PreferredBase FromFile(ulong value) => new(true, value);
+
+        /// <summary>No file of the same build was found; the header holds the loaded base.</summary>
+        public static PreferredBase Unknown => new(false, 0);
+    }
+
     /// <summary>
     /// Applies <paramref name="mode"/> to <paramref name="image"/> in place and adds one check: preferred subtracts
     /// the load delta from every fixup, loaded writes the loaded base to the optional header.
+    /// A null <paramref name="preferredBase"/> reads the base from the header; an unknown one leaves the image at
+    /// the loaded base and reports the check as unknown.
     /// </summary>
-    public static void Apply(byte[] image, CapturedImage captured, BaseMode mode, List<RebuildCheck> checks)
+    public static void Apply(byte[] image, CapturedImage captured, BaseMode mode, List<RebuildCheck> checks,
+        PreferredBase? preferredBase = null)
     {
         if (!TryHeader(image, out int opt, out bool is64, out ulong preferred, out ushort characteristics))
         {
@@ -28,6 +41,17 @@ public static class PeRelocations
             else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(opt + 28), (uint)loaded);
             checks.Add(RebuildCheck.Ok("relocations", "kept at the loaded base"));
             return;
+        }
+
+        if (preferredBase is { } given)
+        {
+            if (!given.Known)
+            {
+                checks.Add(RebuildCheck.Unknown("relocations",
+                    "preferred base unknown: the loaded header holds the loaded base and no file of the same build was found"));
+                return;
+            }
+            preferred = given.Value;
         }
 
         long delta = unchecked((long)(loaded - preferred));
