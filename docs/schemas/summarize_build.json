@@ -198,7 +198,7 @@
         "type": "object",
         "properties": {
           "category": {
-            "description": "guard, transformer, packing, encryption, plugin_loader, build, middleware or toolchain.",
+            "description": "guard, transformer, packing, encryption, plugin_loader, build, middleware, framework or toolchain.",
             "type": "string"
           },
           "name": {

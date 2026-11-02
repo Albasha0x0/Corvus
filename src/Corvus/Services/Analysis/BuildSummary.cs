@@ -66,7 +66,7 @@ public static class BuildSummary
     }
 
     public sealed record MarkerFact(
-        [property: Description("guard, transformer, packing, encryption, plugin_loader, build, middleware or toolchain.")] string Category,
+        [property: Description("guard, transformer, packing, encryption, plugin_loader, build, middleware, framework or toolchain.")] string Category,
         string Name, string Evidence,
         [property: Description("layout (file and folder names), pe_sections, assembly_markers, metadata_names or detect_it_easy.")] string Source);
 
@@ -161,7 +161,7 @@ public static class BuildSummary
         var backend = Backend(layout, markers, notes, ct);
         engine = CrossCheck(engine, backend);
         ct.ThrowIfCancellationRequested();
-        LayoutMarkers(layout, backend, markers, ct);
+        LayoutMarkers(layout, backend, markers, notes, ct);
         SectionMarkers(layout, backend, markers);
         if (die != null) DieMarkers(die, layout, backend, markers, notes, ct);
         else if (DetectItEasy.Find() is { } found) notes.Add($"Detect It Easy is available ({found}): detectItEasy=true adds its compiler / packer / protector detections.");
@@ -232,6 +232,14 @@ public static class BuildSummary
         {
             notes.Add("No <Product>_Data folder: the overview is from the binaries alone.");
             return Build(dir, null, exeHint, notes);
+        }
+        // An executable that embeds an interpreter is a build without an engine data folder.
+        var python = (exeHint != null && Path.GetDirectoryName(exeHint) == dir ? [exeHint] : SafeList(() => Directory.EnumerateFiles(dir, "*.exe").Take(16).ToList()))
+            .FirstOrDefault(HasPythonSection);
+        if (python != null)
+        {
+            notes.Add("No <Product>_Data folder: the overview is from the executable with an embedded Python runtime and the files beside it.");
+            return Build(dir, null, python, notes);
         }
         return null;
     }
@@ -644,7 +652,7 @@ public static class BuildSummary
         ("plugin_loader", "MonoMod (runtime detours)", "MonoMod.RuntimeDetour."),
     ];
 
-    private static void LayoutMarkers(Layout layout, BackendFacts backend, List<MarkerFact> markers, CancellationToken ct)
+    private static void LayoutMarkers(Layout layout, BackendFacts backend, List<MarkerFact> markers, List<string> notes, CancellationToken ct)
     {
         var places = new List<string> { layout.Root };
         if (layout.Data != null)
@@ -682,9 +690,53 @@ public static class BuildSummary
                 || (prefix.EndsWith('.') && a.Equals(prefix[..^1], StringComparison.OrdinalIgnoreCase)));
             if (hit != null) markers.Add(new MarkerFact(category, name, $"assembly {hit}", "layout"));
         }
+        FrameworkMarkers(layout, markers, notes, ct);
         if (layout.Data != null && Directory.Exists(Path.Combine(layout.Data, "StreamingAssets", "aa")) && !markers.Any(m => m.Name == "Addressables"))
             markers.Add(new MarkerFact("build", "Addressables", Path.Combine(layout.Data, "StreamingAssets", "aa"), "layout"));
     }
+
+    // Reports an embedded CPython runtime, the archive set and the config XML beside the executable.
+    private static void FrameworkMarkers(Layout layout, List<MarkerFact> markers, List<string> notes, CancellationToken ct)
+    {
+        if (layout.Exe == null || !HasPythonSection(layout.Exe)) return;
+        var exe = layout.Exe;
+        var python = EmbeddedPython.Of(ReadHead(exe, EmbeddedPython.HeadSize), (offset, count) => ReadAt(exe, offset, count));
+        if (python == null)
+        {
+            notes.Add($"{Path.GetFileName(exe)} has an interpreter section but its headers could not be read: the runtime exports are unknown.");
+            return;
+        }
+        markers.Add(new MarkerFact("framework", "embedded CPython runtime", $"{Path.GetFileName(exe)}: {python.Evidence()}", "pe_sections"));
+        var config = ConfigXml(Path.GetDirectoryName(exe) ?? layout.Root);
+        if (config != null) markers.Add(new MarkerFact("framework", "engine config XML", config, "layout"));
+        var archives = new List<string>();
+        var files = SafeList(() => Directory.EnumerateFiles(layout.Root, "*", SearchOption.AllDirectories).Take(MaxEntries).ToList());
+        // Archive extensions are probed first so a large folder is not opened file by file.
+        foreach (var file in files.Where(f => ArchiveExtensions.Contains(Path.GetExtension(f))).Concat(files.Where(f => !ArchiveExtensions.Contains(Path.GetExtension(f))).Take(MaxArchiveProbes)))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (ReadHead(file, 4) is [(byte)'N', (byte)'X', (byte)'P', (byte)'K']) archives.Add(Path.GetRelativePath(layout.Root, file));
+        }
+        if (archives.Count > 0)
+            markers.Add(new MarkerFact("framework", "NXPK archives", $"{archives.Count:N0} file(s): {string.Join(", ", archives.Take(8))}{(archives.Count > 8 ? ", ..." : "")}", "layout"));
+    }
+
+    private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase) { ".npk", ".pack", ".pak", ".bin", ".dat", ".data" };
+    private const int MaxArchiveProbes = 512;
+
+    // Names an XML file beside the executable that is text XML or an encoded XML with a string table.
+    private static string? ConfigXml(string dir)
+    {
+        foreach (var file in SafeList(() => Directory.EnumerateFiles(dir, "*.xml").Take(16).ToList()))
+        {
+            var head = ReadHead(file, 8);
+            if (head.Length > 0 && head[0] == (byte)'<') return $"{Path.GetFileName(file)}: text XML";
+            if (head is [0xC1, 0x59, 0x41, 0x0D, ..]) return $"{Path.GetFileName(file)}: encoded XML with a string table";
+        }
+        return null;
+    }
+
+    private static bool HasPythonSection(string exe) => EmbeddedPython.HasSection(ReadHead(exe, EmbeddedPython.HeadSize));
 
     private static IEnumerable<string> ScriptingAssemblyNames(string path)
     {

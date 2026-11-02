@@ -42,7 +42,11 @@ internal sealed class NativeFileView : IFileSummaryView
 {
     public string Name => "native";
 
-    public sealed record Facts(NativeImageFacts? Image, IReadOnlyList<Native.PackerFinding>? Packers, NativeAotSummary? NativeAot);
+    public sealed record Facts(NativeImageFacts? Image, IReadOnlyList<Native.PackerFinding>? Packers, NativeAotSummary? NativeAot)
+    {
+        [System.ComponentModel.Description("Embedded CPython runtime: the interpreter section and the Python C API exports; null when absent.")]
+        public EmbeddedPython? Python { get; init; }
+    }
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
@@ -58,6 +62,8 @@ internal sealed class NativeFileView : IFileSummaryView
         var isPe = file.Kind is "native PE" or "NativeAOT executable" || (file.Kind == "data" && Native.NativeImageLoader.Detect(file.Head) == Native.NativeFileKind.Pe);
         var pe = isPe ? PeHighlights(file.Image, ct) : [];
         var content = NativeEmbeddedContent.Highlights(file.Path, file.Image, ct);
+        var python = isPe ? EmbeddedPython.Of(file.Image) : null;
+        if (python != null) content.Add(python.Describe());
         if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0 && pe.Count == 0 && content.Count == 0 && dieNote == null) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
         highlights.AddRange(pe);
@@ -65,7 +71,7 @@ internal sealed class NativeFileView : IFileSummaryView
         if (dieNote != null) highlights.Add(dieNote);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
-        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding), .. hosted], Indicators = hits };
+        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot) { Python = python }, highlights) { Findings = [.. packers.Select(FindingRules.ToFinding), .. hosted], Indicators = hits };
     }
 
     /// <summary>Adds the packers Detect It Easy names when CORVUS_DIE is set, one diec run per call; returns why none were read, null when none is owed.</summary>
