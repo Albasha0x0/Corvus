@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 
 /// <summary>Virtual call sites of native code resolved through RTTI, and their cross-check against an engine.</summary>
 [McpServerToolType]
-public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeTypePush? types = null)
+public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeTypePush? types = null, AotNativeNames? aotNames = null)
 {
     [Description("One virtual call site.")]
     public sealed record VirtualCallRow(
@@ -22,7 +22,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("The calling function and offset.")] string Function,
         [property: Description("exact (one implementation), possible (several) or unresolved.")] string Status,
         [property: Description("receiver_unknown, no_vftable_at_offset, slot_out_of_range, only_pure_targets, too_many_targets.")] string? Reason,
-        [property: Description("this (in a virtual method), vftable (stored into the object or by its constructor), unknown.")] string Receiver,
+        [property: Description("this (in a virtual method), vftable (stored into the object or by its constructor), field (a field of this), unknown.")] string Receiver,
         [property: Description("The receiver's class (static type), null when unknown.")] string? Class,
         [property: Description("vftable slot index.")] int Slot,
         [property: Description("vfptr offset in the receiver (the subobject the call goes through).")] int VfptrOffset,
@@ -30,7 +30,8 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("A jump (tail call) rather than a call.")] bool TailCall,
         [property: Description("A derived class reaches it via a virtual base; its overrides are not included.")] bool Incomplete,
         [property: Description("Distinct implementations found (pure virtual stubs excluded).")] int TargetCount,
-        [property: Description("The implementations, \"name @ VA\" (at most 16).")] IReadOnlyList<string> Targets);
+        [property: Description("The implementations, \"name @ VA\" (at most 16).")] IReadOnlyList<string> Targets,
+        [property: Description("The receiver as this or this->field, null when not read from this.")] string? ReceiverExpression = null);
 
     public sealed record VirtualCallReport(
         [property: Description("Image id.")] string Image,
@@ -77,7 +78,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         sb.AppendLine(r.Total == 0 ? "No site matches." : $"{r.Total:N0} matching, {r.Items.Count} from #{r.Offset}:");
         foreach (var s in r.Items)
         {
-            var receiver = $"{s.Class ?? "class unknown"} slot {s.Slot}" + (s.VfptrOffset != 0 ? $" (vfptr +0x{s.VfptrOffset:X})" : "") + $", receiver from {s.Receiver}";
+            var receiver = $"{s.Class ?? "class unknown"} slot {s.Slot}" + (s.VfptrOffset != 0 ? $" (vfptr +0x{s.VfptrOffset:X})" : "") + $", receiver from {s.ReceiverExpression ?? s.Receiver}";
             sb.AppendLine($"  {s.Address}  {s.Function}  {(s.TailCall ? "jump" : "call")}  {s.Status}{(s.Reason != null ? $" ({s.Reason})" : "")}  {receiver}" +
                           (s.Incomplete ? "; overrides through a virtual base not included" : ""));
             foreach (var t in s.Targets) sb.AppendLine($"      -> {t}");
@@ -107,6 +108,11 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         return (sites, note);
     }
 
+    /// <summary>The scope note of a function with slot calls: both kinds of site, and what the image totals leave out.</summary>
+    internal static string SlotScopeNote(string function, int rttiSites, int slotCalls, int imageSites) =>
+        $"function {function}: {rttiSites:N0} RTTI sites and {slotCalls:N0} AOT slot calls from metadata; " +
+        $"the totals cover the RTTI sites of the whole image ({imageSites:N0}) and leave out slot calls";
+
     /// <summary>find_virtual_calls' report as fields.</summary>
     internal Task<VirtualCallReport> Report(string image, string? function = null, string? status = null, int offset = 0, int limit = 100, bool crossCheck = false,
         int sampleFunctions = 100, int seconds = 300, RequestContext<CallToolRequestParams> context = null!, CancellationToken cancellationToken = default) =>
@@ -131,23 +137,24 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         })), cancellationToken);
         if (index.Support != CodeSupport.Full) throw NativeEngineCode.Unsupported(index, engines, "decompile_native reads the code through IDA or Ghidra");
 
+        // Restore first, so slot calls are read on a fresh load as after apply_metadata_names.
+        var restoreNotice = aotNames?.Restore(native, cancellationToken);
         var set = index.VirtualCalls;
         IEnumerable<VirtualCallSite> sites = set.Sites;
         string? scopeNote = null;
         var slotCalls = new List<AotSlotNotes.SlotCall>();
+        int scopedSites = 0;
         if (!string.IsNullOrWhiteSpace(function))
         {
             var scope = Scope(index, function);
             sites = scope.Sites;
             scopeNote = scope.Note;
+            scopedSites = scope.Sites.Count;
             // Slot calls come from the resolver that disassemble uses for its notes.
             var owner = index.FunctionAt(NativeCodeTools.Address(index, function));
             if (owner != null) slotCalls = AotSlotNotes.Calls(native, index, owner, cancellationToken);
-            if (slotCalls.Count > 0)
-            {
-                var aotNote = $"function {owner!.Name}: {slotCalls.Count:N0} AOT slot calls from metadata beside {scope.Sites.Count:N0} RTTI sites; the totals cover the whole image";
-                scopeNote = scopeNote == null ? aotNote : scopeNote + "; " + aotNote;
-            }
+            // One note for both kinds of site: the slot calls are not in the image totals.
+            if (slotCalls.Count > 0) scopeNote = SlotScopeNote(owner!.Name, scopedSites, slotCalls.Count, set.Sites.Count);
         }
         else if (AotNativeNames.Of(native) != null)
             scopeNote = "AOT slot calls are listed per function: call find_virtual_calls with function=<name>";
@@ -170,8 +177,8 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         int start = Math.Clamp(offset, 0, total);
         VirtualCallRow SlotRow(AotSlotNotes.SlotCall c) => new(Va(c.Rva), Where(c.Rva), c.Method != null ? "exact" : "unresolved",
             c.Method != null ? null : c.Receiver != null ? "slot_out_of_range" : "receiver_unknown",
-            "unknown", c.Receiver?.Name, (int)c.Slot, 0, null, false, false,
-            c.Method != null ? 1 : 0, c.Method != null ? [c.Note] : []);
+            c.Expression == "this" ? "this" : c.Expression != null ? "field" : "unknown", c.Receiver?.Name, (int)c.Slot, 0, null, false, false,
+            c.Method != null ? 1 : 0, c.Method != null ? [c.Note] : [], c.Expression);
         var page = list.Select(s =>
         {
             var targets = index.VirtualTargets(s.Rva);
@@ -182,6 +189,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         }).Concat(slotCalls.Select(SlotRow)).Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
 
         var notes = new List<string>(set.Notes);
+        if (restoreNotice != null) notes.Add(restoreNotice);
         if (scopeNote != null) notes.Add(scopeNote);
         if (start + page.Count < total) notes.Add($"{total - start - page.Count} more: offset={start + page.Count}");
         // Sites in functions whose data flow did not settle are not reported: the counts are lower bounds.

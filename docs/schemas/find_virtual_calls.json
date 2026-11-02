@@ -64,7 +64,7 @@
             "type": "string"
           },
           "receiver": {
-            "description": "this (in a virtual method), vftable (stored into the object or by its constructor), unknown.",
+            "description": "this (in a virtual method), vftable (stored into the object or by its constructor), field (a field of this), unknown.",
             "type": "string"
           },
           "class": {
@@ -101,6 +101,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "receiverExpression": {
+            "description": "The receiver as this or this->field, null when not read from this.",
+            "type": "string"
           }
         },
         "required": [

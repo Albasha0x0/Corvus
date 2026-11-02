@@ -268,7 +268,7 @@ public sealed partial class AotFieldNotesTests
     [Fact]
     public async Task Find_virtual_calls_lists_each_slot_call_of_a_function_with_slot_and_method()
     {
-        var (env, service, native, _) = Open(SlotCode(a =>
+        var (env, service, native, index) = Open(SlotCode(a =>
         {
             a.sub(rsp, 0x28);
             a.mov(rbx, __qword_ptr[rcx]);
@@ -283,6 +283,36 @@ public sealed partial class AotFieldNotesTests
         Assert.Equal(2, report.Total);
         Assert.Contains(report.Items, r => r.Slot == 3 && r.Status == "exact" && r.Targets.Single() == "StreamHost::Dispatch (slot 3)");
         Assert.Contains(report.Items, r => r.Slot == 25 && r.Class == "BinaryReader" && r.Targets.Single() == "BinaryReader::ReadBytes (slot 25)");
+        var field = report.Items.Single(r => r.Slot == 25);
+        Assert.Equal("field", field.Receiver);
+        Assert.Equal("this->mReader", field.ReceiverExpression);
+        var note = Assert.Single(report.Notes, n => n.Contains("AOT slot calls"));
+        Assert.Contains("0 RTTI sites and 2 AOT slot calls", note);
+        Assert.Contains($"({index.VirtualCalls.Sites.Count:N0})", note);
+        Assert.Contains("leave out slot calls", note);
+        Assert.DoesNotContain(report.Notes, n => n.Contains("no virtual call site"));
+    }
+
+    // The first read after a restart restores the name layer before it looks for slot calls.
+    [Fact]
+    public async Task Find_virtual_calls_lists_slot_calls_from_a_restored_name_layer_without_apply()
+    {
+        Open(SlotCode(RestoredCode), 0x8664, source: SlotSource, store: "slots");
+        var (env, service, native, _) = Open(SlotCode(RestoredCode), 0x8664, source: SlotSource, store: "slots", apply: false);
+        var without = await new NativeVirtualCallTools(env.Workspace, service).Report(native.Id, "Fixture_Native_StreamHost__Read");
+        Assert.Equal(0, without.Total);
+        var tools = new NativeVirtualCallTools(env.Workspace, service, aotNames: new AotNativeNames(env.AotMetadata, env.AotNavigator, service));
+        var report = await tools.Report(native.Id, "Fixture_Native_StreamHost__Read");
+        Assert.Equal(1, report.Total);
+    }
+
+    private static void RestoredCode(Assembler a)
+    {
+        a.sub(rsp, 0x28);
+        a.mov(rdx, __qword_ptr[rcx + 0x48]);
+        a.mov(ecx, 25);
+        a.call(Helper);
+        a.add(rsp, 0x28); a.ret();
     }
 
     // RT-318: find_virtual_calls listed no site where disassemble noted slot calls.
@@ -696,5 +726,92 @@ public sealed partial class AotFieldNotesTests
         Assert.Null(await NoteMarks.EnsureAsync(native, session, null, first, default));
         Assert.Single(engine.MarkPushes);
         Assert.Equal(2, engine.MarkPushes[0].Marks.Count);
+    }
+
+    [Fact]
+    public void A_receiver_loaded_from_a_field_of_this_is_named_as_that_field()
+    {
+        var (_, _, native, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx + 0x48]);
+            a.mov(ecx, 25);
+            a.call(Helper);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        var call = Assert.Single(AotSlotNotes.Calls(native, index, index.FunctionAt(0x1000)!, default));
+        Assert.Equal("this->mReader", call.Expression);
+        Assert.Equal("BinaryReader::ReadBytes", call.Target);
+    }
+
+    [Fact]
+    public void A_receiver_passed_as_this_is_named_this()
+    {
+        var (_, _, native, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rax, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rax + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        Assert.Equal("this", Assert.Single(AotSlotNotes.Calls(native, index, index.FunctionAt(0x1000)!, default)).Expression);
+    }
+
+    // Every reader of the call sites sees the target the slot resolution found.
+    [Fact]
+    public void Every_call_site_reader_names_the_slot_target()
+    {
+        var (_, _, native, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx]);
+            a.mov(rax, __qword_ptr[rdx + 0x138 + 16 * 3]);
+            a.call(rax);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        var fn = index.FunctionAt(0x1000)!;
+        var sites = NativeCallTools.Sites(index)!;
+        var viaFunction = Assert.Single(sites.CallsIn(fn, default));
+        var viaAddress = sites.CallAt(viaFunction.Rva, default)!;
+        foreach (var site in new[] { viaFunction, viaAddress })
+        {
+            Assert.Equal("StreamHost::Dispatch", site.Callee);
+            Assert.DoesNotContain("<unknown>", site.Display);
+        }
+        Assert.StartsWith("StreamHost::Dispatch(", Assert.Single(NativeCallTools.CallComments(index, fn, default)).Value);
+        var report = NativeCallTools.Report(index, "0x1000", null, 0, 50, default);
+        Assert.Contains("StreamHost::Dispatch(", report);
+        Assert.DoesNotContain("<unknown>", report);
+    }
+
+    [Fact]
+    public void The_feature_trace_names_the_slot_target_of_the_call_a_constant_feeds()
+    {
+        var (_, _, _, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx]);
+            a.mov(r8d, 0x5678);
+            a.call(__qword_ptr[rdx + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        var trace = Corvus.Native.Code.FeatureTrace.Run(index, "0x5678", false, Corvus.Native.Code.FeatureKinds.Constants, 10, 0, [], default);
+        var detail = trace.Functions.SelectMany(f => f.Evidence).Select(e => e.Detail).Single(d => d.Contains("->"));
+        Assert.Contains("StreamHost::Dispatch(", detail);
+        Assert.DoesNotContain("<unknown>", detail);
+    }
+
+    [Fact]
+    public void A_slot_call_stays_open_before_the_metadata_is_applied()
+    {
+        var (_, _, _, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx]);
+            a.call(__qword_ptr[rdx + 0x138 + 16 * 3]);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource, apply: false);
+        var site = Assert.Single(NativeCallTools.Sites(index)!.CallsIn(index.FunctionAt(0x1000)!, default));
+        Assert.Equal(Corvus.Native.Calls.CalleeKind.Indirect, site.Kind);
     }
 }

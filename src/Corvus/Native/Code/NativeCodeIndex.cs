@@ -64,6 +64,11 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     private readonly Dictionary<uint, string> _exportNames = [];
 
     public INativeImage Image { get; }
+    /// <summary>
+    /// Names the calls through a metadata slot in a function, by call RVA; null when the image has no such metadata.
+    /// Call-site readers apply it to every indirect call the analysis leaves open.
+    /// </summary>
+    public Func<NativeFunction, CancellationToken, IReadOnlyDictionary<uint, string>>? SlotTargets { get; set; }
     public CodeSupport Support { get; }
     /// <summary>Why the analysis is limited (instruction set not supported), or null.</summary>
     public string? SupportNote { get; }
@@ -150,6 +155,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         {
             Issues = Issues,
             InlineText = InlineText,
+            SlotTargets = SlotTargets,
         };
     }
 

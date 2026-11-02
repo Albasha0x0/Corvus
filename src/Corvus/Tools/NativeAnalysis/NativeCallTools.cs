@@ -76,9 +76,21 @@ public sealed class NativeCallTools(NativeCodeService code, NativeEngineService?
     });
 
     /// <summary>The call sites of an index (x86, x64, ARM64, ARM32); null for other instruction sets.</summary>
-    internal static ICallSites? Sites(NativeCodeIndex index) =>
-        CallAnalysis.Supports(index) ? new X86Sites(CallAnalysis.For(index)) : Arm64CallSites.Supports(index) ? Arm64CallSites.For(index)
+    internal static ICallSites? Sites(NativeCodeIndex index)
+    {
+        ICallSites? sites = CallAnalysis.Supports(index) ? new X86Sites(CallAnalysis.For(index)) : Arm64CallSites.Supports(index) ? Arm64CallSites.For(index)
             : Arm32CallSites.Supports(index) ? Arm32CallSites.For(index) : null;
+        return sites == null ? null : new NamedSites(index, sites);
+    }
+
+    // Every reader of the call sites gets the slot targets metadata names.
+    private sealed class NamedSites(NativeCodeIndex index, ICallSites inner) : ICallSites
+    {
+        public CallSiteInfo? CallAt(uint rva, CancellationToken ct = default) => inner.CallAt(rva, ct) is { } s ? SlotCallNames.Resolve(index, s, ct) : null;
+        public IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default) => SlotCallNames.Resolve(index, inner.CallsIn(f, ct), ct);
+        public IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default) => inner.CallsTo(import, max, ct);
+        public CallSiteInfo? Retyped(CallSiteInfo site, ApiSignature signature, CancellationToken ct = default) => inner.Retyped(site, signature, ct);
+    }
 
     private sealed class X86Sites(CallAnalysis analysis) : ICallSites
     {

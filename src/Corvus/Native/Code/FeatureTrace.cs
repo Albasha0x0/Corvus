@@ -343,7 +343,7 @@ public sealed class FeatureTrace
     {
         var va = Va(site);
         var call = calls.FirstOrDefault(c => c.Arguments.Any(a => a.Value is { } v && (v == value || (uint)v == (uint)value) && a.Derivation.Contains(va, StringComparison.OrdinalIgnoreCase)));
-        return call != null ? $"{instruction} -> {call.Display}" : instruction;
+        return call != null ? $"{instruction} -> {SlotCallNames.Resolve(_index, call).Display}" : instruction;
     }
 
     private List<(uint, string)> Arm64Constants(ulong value, CancellationToken ct)

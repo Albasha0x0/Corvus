@@ -67,8 +67,23 @@ public sealed class NativeCodeService
 
     private void AddMetadataVirtualCalls(LoadedNative native, NativeCodeIndex index, CancellationToken ct)
     {
+        index.SlotTargets = SlotTargets(native, index);
         try { NativeAotCode.AddVirtualCalls(native, index, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Resolving the NativeAOT virtual calls of {Id} failed", native.Id); }
+    }
+
+    // Slot calls are read after the metadata is applied, so an earlier read is not kept.
+    private static Func<NativeFunction, CancellationToken, IReadOnlyDictionary<uint, string>> SlotTargets(LoadedNative native, NativeCodeIndex index)
+    {
+        var known = new System.Collections.Concurrent.ConcurrentDictionary<uint, IReadOnlyDictionary<uint, string>>();
+        return (fn, ct) =>
+        {
+            if (AotNativeNames.Of(native) == null) return new Dictionary<uint, string>();
+            if (known.TryGetValue(fn.Start, out var hit)) return hit;
+            IReadOnlyDictionary<uint, string> found = AotSlotNotes.Calls(native, index, fn, ct).Where(c => c.Target != null).ToDictionary(c => c.Rva, c => c.Target!);
+            if (known.Count > 4096) known.Clear();
+            return known[fn.Start] = found;
+        };
     }
 
     /// <summary>The image's names and comments, loaded from the sidecar once and refreshed with what other processes saved since.</summary>

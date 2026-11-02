@@ -18,9 +18,14 @@ public static class AotSlotNotes
 
     /// <summary>
     /// A slot call: its address, the slot, the method found there and the
-    /// receiver type (each null when unknown).
+    /// receiver type (each null when unknown). Expression names the receiver as
+    /// this or a this->field chain, null when it is neither.
     /// </summary>
-    public sealed record SlotCall(uint Rva, long Slot, MethodDef? Method, TypeDef? Receiver, string Note);
+    public sealed record SlotCall(uint Rva, long Slot, MethodDef? Method, TypeDef? Receiver, string Note, string? Expression = null)
+    {
+        /// <summary>"Type::Method" of the resolved method; null when the slot holds no known method.</summary>
+        public string? Target => Method == null ? null : $"{Method.DeclaringType.Name}::{Method.Name}";
+    }
 
     private const int SlotSize = 16;
 
@@ -89,7 +94,9 @@ public static class AotSlotNotes
             if (instructions[k].FlowControl == FlowControl.IndirectBranch
                 && instructions[k].Op0Kind != OpKind.Register && !IsClassOffset(instructions[k])) return [];
 
-        var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method ? ArgumentTypes(method, windows, ValueProvenance.ArgumentRegisters(windows).Length, true) : [];
+        var owned = Owner(applied.Image.MethodsAt(fn.Start));
+        bool instance = owned is { IsStatic: false };
+        var argTypes = owned is { } method ? ArgumentTypes(method, windows, ValueProvenance.ArgumentRegisters(windows).Length, true) : [];
         bool unreadable = false;
         if (index.FactsOf(fn, ct) is not { } facts) return [];
         var argumentRegisters = ValueProvenance.ArgumentRegisters(windows);
@@ -105,7 +112,7 @@ public static class AotSlotNotes
                     && Argument(call, h.Slot) is ConstOrigin slot
                     && Describe(applied.Image, slot.Number,
                         ReceiverOf(Argument(call, h.Object), argTypes) is { } r ? new Receiver(r) : null) is { } note)
-                    calls[rva] = note with { Rva = rva };
+                    calls[rva] = note with { Rva = rva, Expression = Expression(Argument(call, h.Object), argTypes, instance) };
                 continue;
             }
             if (!IsVtableCall(ins)) continue;
@@ -113,7 +120,7 @@ public static class AotSlotNotes
             // A block no path reaches has no state to judge a jump by.
             if (ins.FlowControl == FlowControl.IndirectBranch && direct == null && call.Reached) unreadable = true;
             if (direct is { } d && Describe(applied.Image, d.Slot, new Receiver(d.Type)) is { } directNote)
-                calls[rva] = directNote with { Rva = rva };
+                calls[rva] = directNote with { Rva = rva, Expression = Expression(d.Receiver, argTypes, instance) };
         }
         return unreadable ? [] : [.. calls.Values.OrderBy(c => c.Rva)];
     }
@@ -128,7 +135,9 @@ public static class AotSlotNotes
         try { code = new A64Function(index, fn, ct); }
         catch (NotSupportedException) { return []; }
         if (!code.Blocks.Any(b => b.Any(s => IsIndirect(s.I)))) return [];
-        var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method
+        var owned = Owner(applied.Image.MethodsAt(fn.Start));
+        bool instance = owned is { IsStatic: false };
+        var argTypes = owned is { } method
             ? ArgumentTypes(method, false, ValueProvenance.Arm64ArgumentCount, false) : [];
         int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
         bool unreadable = false;
@@ -139,7 +148,7 @@ public static class AotSlotNotes
             var direct = SlotEntryOf(entry, argTypes, vtableStart);
             if (step.I.Mnemonic == Arm64Mnemonic.BR && direct == null && state.Reached) unreadable = true;
             if (direct is { } d && Describe(applied.Image, d.Slot, new Receiver(d.Type)) is { } note)
-                calls[step.Rva] = note with { Rva = step.Rva };
+                calls[step.Rva] = note with { Rva = step.Rva, Expression = Expression(d.Receiver, argTypes, instance) };
         }, ct);
         return unreadable ? [] : [.. calls.Values.OrderBy(c => c.Rva)];
     }
@@ -157,10 +166,10 @@ public static class AotSlotNotes
         offset >= start && (offset - start) % SlotSize == 0 ? (offset - start) / SlotSize : null;
 
     // The vtable entry a value loads from the class pointer of a known type.
-    private static (TypeDef Type, long Slot)? SlotEntryOf(Origin? value, Dictionary<int, TypeDef> args, int start) =>
+    private static (TypeDef Type, long Slot, Origin? Receiver)? SlotEntryOf(Origin? value, Dictionary<int, TypeDef> args, int start) =>
         value is LoadOrigin { Base: { } klass, Size: 8 } entry && ClassOf(klass, args) is { } type
             && SlotAt(entry.Disp, start) is { } slot
-            ? (type, slot) : null;
+            ? (type, slot, (klass as LoadOrigin)?.Base) : null;
 
     // The type whose class pointer a value is: a load at offset 0 of a known receiver.
     private static TypeDef? ClassOf(Origin value, Dictionary<int, TypeDef> args) =>
@@ -171,6 +180,15 @@ public static class AotSlotNotes
     {
         ArgOrigin a => args.GetValueOrDefault(a.Index),
         LoadOrigin { Disp: not 0, Size: 8 } l when ReceiverOf(l.Base, args) is { } t => FieldType(t, l.Disp),
+        _ => null,
+    };
+
+    // The receiver as this or a this->field chain; null for any other value.
+    private static string? Expression(Origin? value, Dictionary<int, TypeDef> args, bool instance) => value switch
+    {
+        ArgOrigin { Index: 0 } when instance => "this",
+        LoadOrigin { Disp: not 0, Size: 8 } l when Expression(l.Base, args, instance) is { } baseText
+            && ReceiverOf(l.Base, args) is { } type && FieldAt(type, l.Disp) is { } field => $"{baseText}->{field.Name}",
         _ => null,
     };
 
@@ -217,14 +235,17 @@ public static class AotSlotNotes
 
     // The class a reference-typed field at the offset is declared as, searching
     // base types; null when not a known class.
-    private static TypeDef? FieldType(TypeDef type, long offset)
+    private static TypeDef? FieldType(TypeDef type, long offset) =>
+        FieldAt(type, offset)?.FieldType is ClassSig cs && cs.TypeDefOrRef?.ResolveTypeDef() is { HasGenericParameters: false } found ? found : null;
+
+    // The instance field at the offset, searching base types.
+    private static FieldDef? FieldAt(TypeDef type, long offset)
     {
         int depth = 0;
         for (var t = type; t != null && depth++ < 64; t = MetadataUtil.Try(() => t.BaseType?.ResolveTypeDef()))
             foreach (var f in t.Fields)
                 if (!f.IsStatic && AotLayout.OffsetOf(f) is { } at && (long)at == offset)
-                    return f.FieldType is ClassSig cs && cs.TypeDefOrRef?.ResolveTypeDef() is { HasGenericParameters: false } found
-                        ? found : null;
+                    return f;
         return null;
     }
 
