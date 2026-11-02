@@ -79,6 +79,15 @@ public class MsvcRttiTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_relocation_table_smaller_than_the_locator_count_is_not_used()
+    {
+        var result = MsvcRtti.Analyze(new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL, stubRelocations: true));
+        Assert.All(result.Classes, c => Assert.Single(c.Vtables));
+        Assert.Equal(2, result.Classes.Count);
+        Assert.False(result.Stats.UsedRelocations);
+    }
+
+    [Fact]
     public void Descriptors_with_distinct_vftable_values_outside_the_image_are_rejected()
     {
         var image = new ExternalVftableImage(vftableValue: 0x1_8011_30D0UL, odd: 0x1_8022_0000UL);
@@ -94,8 +103,9 @@ public class MsvcRttiTests(ITestOutputHelper output)
         private const uint Data = 0x1000, Code = 0x2000;
         private readonly byte[] bytes = new byte[0x2100];
 
-        public ExternalVftableImage(ulong vftableValue, ulong? odd = null)
+        public ExternalVftableImage(ulong vftableValue, ulong? odd = null, bool stubRelocations = false)
         {
+            RelocationRvas = stubRelocations ? [0x2080u] : [];
             Emit(0x1000, "A", 0x2000, vftableValue);
             Emit(0x1200, "B", 0x2010, odd ?? vftableValue);
             Sections =
@@ -133,7 +143,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
         public IReadOnlyList<NativeImport> Imports => [];
         public IReadOnlyList<NativeExport> Exports => [];
         public IReadOnlyList<RuntimeFunction> RuntimeFunctions => [];
-        public IReadOnlyList<uint> RelocationRvas => [];
+        public IReadOnlyList<uint> RelocationRvas { get; }
         public IReadOnlyList<uint> TlsCallbackRvas => [];
         public IReadOnlyList<ParseIssue> Issues => [];
         public int Read(uint rva, Span<byte> destination)

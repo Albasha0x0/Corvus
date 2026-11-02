@@ -162,7 +162,9 @@ public static class MsvcRtti
         /// <summary>The type_info vftable value outside the image that most descriptors hold; null when descriptors point inside it.</summary>
         private ulong? sharedExternalVftable;
 
-        private bool UseRelocations => relocations.Count > 0;
+        private bool useRelocations;
+
+        private bool UseRelocations => useRelocations;
 
         public void Run()
         {
@@ -174,6 +176,8 @@ public static class MsvcRtti
             LoadSections();
             FindTypeDescriptors();
             FindLocators();
+            // Each vftable holds a relocated locator pointer; fewer relocations than locators is a stub table.
+            useRelocations = relocations.Count > 0 && relocations.Count >= locators.Count;
             FindVtables();
         }
 
@@ -615,7 +619,7 @@ public static class MsvcRtti
             {
                 if (!UseRelocations)
                 {
-                    notes.Add("no base relocations: vftable ends are not checked against code references");
+                    notes.Add("no usable base relocations: vftable ends are not checked against code references");
                     return refs;
                 }
                 foreach (var r in image.RelocationRvas)
@@ -682,7 +686,7 @@ public static class MsvcRtti
             classes.Sort((x, y) => string.CompareOrdinal(x.Name, y.Name) is var c && c != 0 ? c : x.TypeDescriptorRva.CompareTo(y.TypeDescriptorRva));
             var tds = typeDescriptors.Values.Where(t => t != null).Select(t => (t!.Rva, t.Name)).OrderBy(t => t.Rva).ToList();
             if (!UseRelocations && image.Arch != NativeArch.Unknown)
-                notes.Add("no base relocations: vftable slots are not cross-checked against relocations");
+                notes.Add("no usable base relocations: vftable slots are not cross-checked against relocations");
             var stats = new MsvcRttiStats(tds.Count, locators.Count, classes.Count, classes.Sum(c => c.Vtables.Count), tdRejected, colRejected,
                 colWithoutVtable, bytesScanned, UseRelocations, codeReferences.Count, elapsed);
             return new MsvcRttiResult(classes, tds, skipped, notes, stats);
