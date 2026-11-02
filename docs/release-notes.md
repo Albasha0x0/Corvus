@@ -1,5 +1,61 @@
 # Release notes
 
+## 2.10.0
+
+### Highlights
+
+- Run IDA and Ghidra analysis until it ends or stalls, in the background, and wait for it with `corvus analyze --wait`.
+- Resume after a server restart: saved names, live session recordings, engine databases and stopped emulations answer their old ids.
+- See the method behind a call through a class pointer or vtable slot in compiled metadata builds, on x64 and ARM64.
+- Name cipher, hash and MAC constants, rounds and block-mode loops in the survey and the function dossier.
+
+### Breaking changes
+
+- **Engines:** Before: an open stopped at 1200 s, `reanalyze_native` defaulted to 600 s, and a foreground call ran without `timeoutSeconds`. After: analysis runs until it ends or stalls; a foreground call without `timeoutSeconds` is refused (use `background=true`). `CORVUS_ENGINE_OPEN_TIMEOUT=1200` restores the open limit. [16364cf0](https://github.com/Albasha0x0/Corvus/commit/16364cf0)
+- **Dumps:** Before: `dump_heap` returned `minSize`. After: the field is gone; read the argument passed. [efdbc79f](https://github.com/Albasha0x0/Corvus/commit/efdbc79f)
+
+### Changes
+
+- **Engines:** `corvus analyze --wait` waits for a first analysis and names its end. [759070bf](https://github.com/Albasha0x0/Corvus/commit/759070bf)
+- **Engines:** `ida_python` and `ghidra_script` run in the background with a limit. [c14183c4](https://github.com/Albasha0x0/Corvus/commit/c14183c4)
+- **Session:** each reply's notes and next steps are in its structured `notes`. [8d2bf7ae](https://github.com/Albasha0x0/Corvus/commit/8d2bf7ae)
+- **Session:** `corvus serve` runs a named session that CLI calls route to. [41738d02](https://github.com/Albasha0x0/Corvus/commit/41738d02)
+- **Session:** secrets in results and kept results are masked on request. [da79a42b](https://github.com/Albasha0x0/Corvus/commit/da79a42b)
+- **Live:** events, timelines, coverage and console runs are read after a restart as saved runs. [d4fb87d4](https://github.com/Albasha0x0/Corvus/commit/d4fb87d4)
+- **Live:** `live_events` waits for the next session event. [cd5b740d](https://github.com/Albasha0x0/Corvus/commit/cd5b740d)
+- **Native:** `disassemble collapse=runtime` folds runtime support code. [7ba17007](https://github.com/Albasha0x0/Corvus/commit/7ba17007)
+- **Native:** slot-indexed virtual calls name the method they reach. [9f0a41be](https://github.com/Albasha0x0/Corvus/commit/9f0a41be)
+- **Native:** AES schedules, block-mode loops and GCM tags named from code shape. [6b238cab](https://github.com/Albasha0x0/Corvus/commit/6b238cab)
+- **Native:** `verify_native_imports` checks PE imports against module exports. [d5f018a7](https://github.com/Albasha0x0/Corvus/commit/d5f018a7)
+- **Emulation:** `resume=` continues a run a budget stopped, also after a restart. [a90ffcc5](https://github.com/Albasha0x0/Corvus/commit/a90ffcc5)
+- **Containers:** Node SEA, pkg, nexe, Bun and Deno executables read. [606b18d0](https://github.com/Albasha0x0/Corvus/commit/606b18d0)
+- **Containers:** saved container images list layers, history and whiteouts. [baf10ede](https://github.com/Albasha0x0/Corvus/commit/baf10ede)
+- **Containers:** NSIS and Inno Setup script commands read. [4b10a0c3](https://github.com/Albasha0x0/Corvus/commit/4b10a0c3)
+- **Containers:** the files worker runs sandboxed on Windows by default. [62668f38](https://github.com/Albasha0x0/Corvus/commit/62668f38)
+- **Dumps:** each module's load path, signer and code state reported. [b6a1cef1](https://github.com/Albasha0x0/Corvus/commit/b6a1cef1)
+- **Mobile:** `search_dex kind=decoder` lists string decoder calls. [cbba3042](https://github.com/Albasha0x0/Corvus/commit/cbba3042)
+- **Web:** decoded code run through `Function`, `vm` and similar clients flagged. [9ff52728](https://github.com/Albasha0x0/Corvus/commit/9ff52728)
+- **Upgrade:** a saved name layer of a compiled metadata build is rebuilt once. [a1c1baab](https://github.com/Albasha0x0/Corvus/commit/a1c1baab)
+- **Upgrade:** live session and run ids continue above the ids a previous server kept. [d4fb87d4](https://github.com/Albasha0x0/Corvus/commit/d4fb87d4)
+
+### Fixes
+
+- **Native:** file kinds, views, signatures and container readers check header fields beyond the magic. [ef72527a](https://github.com/Albasha0x0/Corvus/commit/ef72527a)
+- **Native:** `view=raw` no longer reads random data as code. [c883a757](https://github.com/Albasha0x0/Corvus/commit/c883a757)
+- **Native:** runtime helper shapes matched when MSVC or clang reorders or spills them. [328332a6](https://github.com/Albasha0x0/Corvus/commit/328332a6)
+- **Native:** saved names that `list_native_edits` leaves out are named. [0a35f218](https://github.com/Albasha0x0/Corvus/commit/0a35f218)
+- **Engines:** a partial IDA database is saved every 5 minutes of analysis. [e5384cfc](https://github.com/Albasha0x0/Corvus/commit/e5384cfc)
+- **Session:** engine workers end when the server stops. [f076cde0](https://github.com/Albasha0x0/Corvus/commit/f076cde0)
+- **.NET:** decompile and search end on the call's cancel, not `--timeout`. [3085851c](https://github.com/Albasha0x0/Corvus/commit/3085851c)
+- **Containers:** a wrong zip password that passes the check byte is refused. [438642d0](https://github.com/Albasha0x0/Corvus/commit/438642d0)
+- **Containers:** a saved image whose manifest is not UTF-8 is named, not thrown on. [0e92815d](https://github.com/Albasha0x0/Corvus/commit/0e92815d)
+- **Containers:** console files with nested tasks are read in linear time. [c8796d4c](https://github.com/Albasha0x0/Corvus/commit/c8796d4c)
+
+### In progress
+
+- `collapse=runtime` on x86 images.
+- Value tracking over engine disassembly text.
+
 ## 2.9.0
 
 ### Highlights
