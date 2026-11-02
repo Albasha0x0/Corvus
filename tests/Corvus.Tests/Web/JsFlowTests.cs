@@ -101,7 +101,9 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
         Assert.InRange(visited, 1, 4096);
     }
 
-    // The token cancels 5 ms into the walk of a 20,000-function bundle.
+    // The parsed bundle is cached first; a dedicated thread cancels a quarter
+    // into the view's uncancelled time, as a thread-pool timer fires late on
+    // a busy 2-core runner (release.yml, v2.10.0).
     [Theory]
     [InlineData("flow", "sinks")]
     [InlineData("secrets", null)]
@@ -109,10 +111,19 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
     public async Task A_view_cancelled_during_the_walk_of_a_large_bundle_stops(string view, string? query)
     {
         var js = _dir.File("large.js");
-        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 20_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
+        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 100_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
         var tools = new Corvus.Tools.WebTools(new OutputPager(new ServerOptions()));
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(5));
+        // An answer of no match is a finished view.
+        async Task Uncancelled() { try { await tools.AnalyzeJs(js, view, query: query); } catch (ToolError) { } }
+        await Uncancelled();
+        var whole = System.Diagnostics.Stopwatch.StartNew();
+        await Uncancelled();
+        var quarter = whole.Elapsed / 4;
+        using var cts = new CancellationTokenSource();
+        var canceller = new Thread(() => { Thread.Sleep(quarter); cts.Cancel(); }) { IsBackground = true };
+        canceller.Start();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => tools.AnalyzeJs(js, view, query: query, cancellationToken: cts.Token));
+        canceller.Join();
     }
 
     // The flow record crosses the worker boundary as JSON with its nested steps and endpoint.
