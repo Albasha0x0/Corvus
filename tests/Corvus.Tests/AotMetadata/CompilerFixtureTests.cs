@@ -18,7 +18,6 @@ public sealed class CompilerFixtureTests
         Directory.GetFiles(Dir, "shapes-*").Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal);
 
     private const string Arm64Reason = "collapse=runtime applies to x86 and x64 images only";
-    private const string Arm64SlotReason = "slot notes read x64 code only";
     private static bool Arm64(string build) => build.Contains("-arm64", StringComparison.Ordinal);
 
     // Images a matcher is not run on, each with its reason; the theory of the
@@ -26,7 +25,6 @@ public sealed class CompilerFixtureTests
     private static string? Exempt(string matcher, string build) => matcher switch
     {
         nameof(Collapse) when Arm64(build) => Arm64Reason,
-        nameof(Slots) when Arm64(build) => Arm64SlotReason,
         _ => null,
     };
 
@@ -56,11 +54,11 @@ public sealed class CompilerFixtureTests
     }
 
     [Fact]
-    public void The_exempt_images_are_the_arm64_builds_for_slots_and_collapse()
+    public void The_exempt_images_are_the_arm64_builds_for_collapse()
     {
         string[] arm64 = ["shapes-clang-O0-arm64.elf", "shapes-clang-O1-arm64.elf", "shapes-clang-O2-arm64.elf"];
         Assert.Equal(arm64, AllBuilds().Where(n => Exempt(nameof(Collapse), n) != null));
-        Assert.Equal(arm64, AllBuilds().Where(n => Exempt(nameof(Slots), n) != null));
+        Assert.DoesNotContain(AllBuilds(), n => Exempt(nameof(Slots), n) != null);
         Assert.DoesNotContain(AllBuilds(), n => Exempt("All", n) != null);
     }
 
@@ -91,9 +89,9 @@ public sealed class CompilerFixtureTests
         // RT-319, RT-329.
         var b = Load(build);
         var names = Helpers(b).Keys.Order(StringComparer.Ordinal).ToArray();
-        // The class setup and the wrapped null-reference throw are matched in x64 code only.
+        // The class setup is matched in x64 code only.
         string[] expected = Arm64(build)
-            ? ["Runtime_ClassInit", "Runtime_InitMetadata", "Runtime_RaiseException"]
+            ? ["Runtime_ClassInit", "Runtime_InitMetadata", "Runtime_RaiseException", "Runtime_ThrowNullReference"]
             : ["Runtime_ClassInit", "Runtime_ClassSetup", "Runtime_InitMetadata", "Runtime_RaiseException", "Runtime_ThrowNullReference"];
         Assert.Equal(expected, names);
     }
@@ -141,7 +139,7 @@ public sealed class CompilerFixtureTests
         return bytes;
     }
 
-    private static Dictionary<string, List<AotSlotNotes.SlotCall>> SlotCalls(AotFieldNotesTests host, Built b) => host.CallsOf(Text(b), Metadata(b), SlotFunctions(b).ToDictionary(m => m.Key, m => b.Shift(m.Value)), b.Elf);
+    private static Dictionary<string, List<AotSlotNotes.SlotCall>> SlotCalls(AotFieldNotesTests host, Built b) => host.CallsOf(Text(b), Metadata(b), SlotFunctions(b).ToDictionary(m => m.Key, m => b.Shift(m.Value)), b.Elf, b.Image.Arch == NativeArch.Arm64 ? (ushort)0xAA64 : (ushort)0x8664);
 
     [Theory, MemberData(nameof(Slots))]
     public void A_slot_call_through_memory_or_a_register_names_the_method_in_the_slot(string build)

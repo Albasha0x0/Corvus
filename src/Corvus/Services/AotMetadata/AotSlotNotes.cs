@@ -3,6 +3,8 @@ using dnlib.DotNet;
 using Iced.Intel;
 using Corvus.Core;
 using Corvus.Native;
+using Corvus.Native.Calls;
+using AsmArm64;
 using Corvus.Native.Code;
 
 namespace Corvus.Services;
@@ -47,7 +49,8 @@ public static class AotSlotNotes
     public static List<SlotCall> Calls(LoadedNative native, NativeCodeIndex index, NativeFunction fn, CancellationToken ct = default)
     {
         var calls = new Dictionary<uint, SlotCall>();
-        if (index.Image.Arch != NativeArch.X64 || AotNativeNames.Of(native) is not { } applied) return [];
+        if (index.Image.Arch is not (NativeArch.X64 or NativeArch.Arm64) || AotNativeNames.Of(native) is not { } applied) return [];
+        if (index.Image.Arch == NativeArch.Arm64) return Arm64Calls(native, index, fn, applied, ct);
         bool windows = native.Image.Format == ImageFormat.Pe;
         ulong imageBase = index.Image.ImageBase;
         var instructions = FunctionInstructions.Decode(index.Image, index.Ranges(fn), ct);
@@ -86,7 +89,7 @@ public static class AotSlotNotes
             if (instructions[k].FlowControl == FlowControl.IndirectBranch
                 && instructions[k].Op0Kind != OpKind.Register && !IsClassOffset(instructions[k])) return [];
 
-        var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method ? ArgumentTypes(method, windows) : [];
+        var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method ? ArgumentTypes(method, windows, ValueProvenance.ArgumentRegisters(windows).Length, true) : [];
         bool unreadable = false;
         if (index.FactsOf(fn, ct) is not { } facts) return [];
         var argumentRegisters = ValueProvenance.ArgumentRegisters(windows);
@@ -114,6 +117,35 @@ public static class AotSlotNotes
         }
         return unreadable ? [] : [.. calls.Values.OrderBy(c => c.Rva)];
     }
+
+    // The same notes for an AArch64 function: blr and br through a register
+    // loaded from a class pointer. A br the pass cannot read may be a jump
+    // table, so the function then has no notes.
+    private static List<SlotCall> Arm64Calls(LoadedNative native, NativeCodeIndex index, NativeFunction fn, AotNativeNames.Applied applied, CancellationToken ct)
+    {
+        var calls = new Dictionary<uint, SlotCall>();
+        A64Function code;
+        try { code = new A64Function(index, fn, ct); }
+        catch (NotSupportedException) { return []; }
+        if (!code.Blocks.Any(b => b.Any(s => IsIndirect(s.I)))) return [];
+        var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method
+            ? ArgumentTypes(method, false, ValueProvenance.Arm64ArgumentCount, false) : [];
+        int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
+        bool unreadable = false;
+        ValueProvenance.WalkArm64(code, index.Image.ImageBase, (step, state) =>
+        {
+            if (!IsIndirect(step.I)) return;
+            var entry = A64Function.Gpr(step.I, 0) is var r and >= 0 and < 31 ? state.GetReg(r) : null;
+            var direct = SlotEntryOf(entry, argTypes, vtableStart);
+            if (step.I.Mnemonic == Arm64Mnemonic.BR && direct == null && state.Reached) unreadable = true;
+            if (direct is { } d && Describe(applied.Image, d.Slot, new Receiver(d.Type)) is { } note)
+                calls[step.Rva] = note with { Rva = step.Rva };
+        }, ct);
+        return unreadable ? [] : [.. calls.Values.OrderBy(c => c.Rva)];
+    }
+
+    private static bool IsIndirect(in Arm64Instruction i) =>
+        A64Function.IsCall(in i) && i.Mnemonic != Arm64Mnemonic.BL || i.Mnemonic == Arm64Mnemonic.BR;
 
     // A memory operand of one base register and a displacement.
     private static bool IsClassOffset(in Instruction i) =>
@@ -153,12 +185,12 @@ public static class AotSlotNotes
 
     // Reference-typed parameters by argument register index; Windows counts
     // every parameter, System V only integer ones.
-    private static Dictionary<int, TypeDef> ArgumentTypes(MethodDef method, bool windows)
+    private static Dictionary<int, TypeDef> ArgumentTypes(MethodDef method, bool windows, int count, bool hiddenReturnRegister)
     {
         var types = new Dictionary<int, TypeDef>();
-        int count = ValueProvenance.ArgumentRegisters(windows).Length;
-        // A struct return takes a hidden buffer pointer in the first register.
-        if (IsStruct(method.MethodSig.RetType)) return types;
+        // A struct return takes a hidden buffer pointer in the first register
+        // on x64 and in x8 on AArch64.
+        if (hiddenReturnRegister && IsStruct(method.MethodSig.RetType)) return types;
         int next = 0;
         if (!method.IsStatic)
         {

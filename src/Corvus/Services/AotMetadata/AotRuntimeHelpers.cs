@@ -1,5 +1,7 @@
 using Iced.Intel;
+using AsmArm64;
 using Corvus.Native;
+using Corvus.Native.Calls;
 using Corvus.Native.Code;
 
 namespace Corvus.Services;
@@ -13,7 +15,7 @@ namespace Corvus.Services;
 public static class AotRuntimeHelpers
 {
     /// <summary>Version of the helper rules; a layer saved under an earlier one lacks the helpers added since.</summary>
-    public const int Rules = 2;
+    public const int Rules = 3;
 
     /// <summary>Fewest named functions that must call a function for it to be a shared helper.</summary>
     private const int MinCallers = 3;
@@ -135,8 +137,8 @@ public static class AotRuntimeHelpers
             foreach (var site in index.Callers(raise, CallEdgeFilter.Direct))
                 if (site.Caller is { } c && !skip.Contains(c.Start)) candidates[c.Start] = c;
         }
-        bool x64 = image.Arch == NativeArch.X64;
-        if (x64)
+        bool wrappable = image.Arch is NativeArch.X64 or NativeArch.Arm64;
+        if (wrappable)
             foreach (var c in index.Functions)
                 if (c.Size is > 0 and <= StubSize && !skip.Contains(c.Start)
                     && index.Callers(c, CallEdgeFilter.Direct).Count(x => x.Caller != null && named.Contains(x.Caller.Start)) >= MinCallers)
@@ -151,7 +153,7 @@ public static class AotRuntimeHelpers
             var callees = index.Callees(c, CallEdgeFilter.Direct).Select(x => x.Function?.Start).Distinct().ToList();
             if (callees.Count != 1 || callees[0] is not { } only) continue;
             bool viaWrapper = !raises.Contains(only);
-            if (viaWrapper && !(x64 && IsRaiseWrapper(image, index, only, wrappers, ct))) continue;
+            if (viaWrapper && !(wrappable && IsRaiseWrapper(image, index, only, wrappers, ct))) continue;
             var callers = index.Callers(c, CallEdgeFilter.Direct).Where(x => x.Caller != null && named.Contains(x.Caller.Start)).Select(x => x.Caller!).DistinctBy(f => f.Start).ToList();
             if (callers.Count < MinCallers) continue;
             if (viaWrapper)
@@ -177,6 +179,7 @@ public static class AotRuntimeHelpers
         bool result = false;
         if (index.FunctionByStart(start) is { Size: > 0 and <= StubSize } f)
         {
+            if (image.Arch == NativeArch.Arm64) return memo[start] = Arm64RaiseWrapper(index, f, ct);
             var code = FunctionInstructions.Decode(image, index.Ranges(f), ct);
             // Padding after the last call is not part of the body.
             while (code.Count > 0 && code[^1].FlowControl is FlowControl.Exception or FlowControl.Interrupt) code.RemoveAt(code.Count - 1);
@@ -187,10 +190,47 @@ public static class AotRuntimeHelpers
         return memo[start] = result;
     }
 
+    // Ends in a call, makes two and never returns, as on x64; a register
+    // branch has a target this scan cannot see.
+    private static bool Arm64RaiseWrapper(NativeCodeIndex index, NativeFunction f, CancellationToken ct)
+    {
+        var steps = new A64Function(index, f, ct).Blocks.SelectMany(b => b).ToList();
+        return steps.Count > 0 && A64Function.IsCall(steps[^1].I) && steps.Count(s => A64Function.IsCall(s.I)) >= 2
+            && steps.All(s => s.Facts.Flow is not (FlowKind.Return or FlowKind.IndirectJump or FlowKind.IndirectCall));
+    }
+
+    // A call of the thrower that opens a block entered only by a branch on a
+    // register being zero: cbz to it, or cbnz over it.
+    internal static bool Arm64NullChecked(A64Function code, uint thrower)
+    {
+        for (int b = 0; b < code.Blocks.Length; b++)
+        {
+            if (code.Blocks[b].Length == 0) continue;
+            var first = code.Blocks[b][0];
+            if (!A64Function.IsCall(first.I) || !first.Facts.HasTarget || first.Facts.Target != thrower) continue;
+            // Unoptimized code puts a block of one jump between the branch and
+            // the call.
+            int entry = b;
+            var preds = code.Predecessors(entry).ToList();
+            while (preds.Count == 1 && code.Blocks[preds[0]] is [{ Facts.Flow: FlowKind.Jump }] && entry != preds[0])
+            {
+                entry = preds[0];
+                preds = code.Predecessors(entry).ToList();
+            }
+            if (preds.Count != 1 || code.Blocks[preds[0]].Length == 0) continue;
+            var last = code.Blocks[preds[0]][^1];
+            bool toBlock = last.Facts.HasTarget && last.Facts.Target == code.Graph.Blocks[entry].Start;
+            if (last.I.Mnemonic == Arm64Mnemonic.CBZ && toBlock || last.I.Mnemonic == Arm64Mnemonic.CBNZ && !toBlock) return true;
+        }
+        return false;
+    }
+
     // How many of the first callers branch to a call of the function after
     // test reg,reg.
     private static int NullChecked(INativeImage image, NativeCodeIndex index, NativeFunction thrower, IReadOnlyList<NativeFunction> callers, CancellationToken ct)
     {
+        if (image.Arch == NativeArch.Arm64)
+            return callers.OrderBy(f => f.Start).Take(MaxSampledCallers).Count(f => Arm64NullChecked(new A64Function(index, f, ct), thrower.Start));
         ulong target = image.ImageBase + thrower.Start;
         int checkedCallers = 0;
         foreach (var caller in callers.OrderBy(f => f.Start).Take(MaxSampledCallers))

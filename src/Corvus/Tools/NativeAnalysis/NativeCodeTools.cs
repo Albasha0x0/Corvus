@@ -175,7 +175,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code", UseStructuredContent = true, OutputSchemaType = typeof(DisassemblyPage))]
     [Description("MASM disassembly of the function at an address, with references named and call arguments recovered; outside " +
-                 "a function, maxInstructions from the address. Names the method behind slot-indexed virtual calls on x64 images.")]
+                 "a function, maxInstructions from the address. Names the method behind slot-indexed virtual calls on x64 and AArch64 images.")]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,

@@ -1,4 +1,5 @@
 using Iced.Intel;
+using Corvus.Native.Calls;
 
 namespace Corvus.Native.Code;
 
@@ -49,14 +50,14 @@ internal sealed record ZeroTest(Origin Value, bool Direct, ulong Check);
 /// Register and stack slot values at one point of a function; a missing entry
 /// is unknown.
 /// </summary>
-internal sealed class ProvenanceState
+internal sealed partial class ProvenanceState
 {
     // Chains of loads deeper than this are unknown.
     private const int MaxDepth = 6;
 
     private const int ShadowSpace = 32;
 
-    private readonly Dictionary<Register, Origin> _regs = [];
+    private readonly Dictionary<int, Origin> _regs = [];
     // Keyed by offset from the stack pointer at function entry.
     private readonly Dictionary<long, Origin> _slots = [];
     private long? _sp = 0;
@@ -82,13 +83,17 @@ internal sealed class ProvenanceState
     }
 
     /// <summary>The origin of a register, null when unknown.</summary>
-    public Origin? Get(Register r) => _regs.GetValueOrDefault(r.GetFullRegister());
+    public Origin? Get(Register r) => _regs.GetValueOrDefault((int)r.GetFullRegister());
 
-    internal void Set(Register r, Origin? value)
+    internal void Set(Register r, Origin? value) => SetReg((int)r.GetFullRegister(), value);
+
+    /// <summary>The origin of a register by its number, null when unknown.</summary>
+    public Origin? GetReg(int number) => _regs.GetValueOrDefault(number);
+
+    internal void SetReg(int number, Origin? value)
     {
-        var full = r.GetFullRegister();
-        if (value == null || Depth(value) > MaxDepth) _regs.Remove(full);
-        else _regs[full] = value;
+        if (value == null || Depth(value) > MaxDepth) _regs.Remove(number);
+        else _regs[number] = value;
     }
 
     /// <summary>
@@ -148,11 +153,11 @@ internal sealed class ProvenanceState
     // Calls clobber the registers the convention names; RAX takes the result.
     internal void Call(in Instruction ins, Register[] clobbered, bool windows)
     {
-        foreach (var r in clobbered) _regs.Remove(r);
+        foreach (var r in clobbered) _regs.Remove((int)r);
         if (windows) ForgetShadowSpace();
         _epoch = ins.IP;
         Tested = null;
-        _regs[Register.RAX] = new ResultOrigin(ins.IP);
+        _regs[(int)Register.RAX] = new ResultOrigin(ins.IP);
     }
 
     private static bool Writes(OpAccess a) =>
@@ -206,7 +211,7 @@ internal sealed class ProvenanceState
                 _sp = _bp is { } b ? b + 8 : null;
                 if (_sp == null) Lose();
                 _bp = null;
-                _regs.Remove(Register.RBP);
+                _regs.Remove((int)Register.RBP);
                 return;
         }
         if (ins.Op0Kind == OpKind.Register && ins.Op0Register == Register.RSP)
@@ -224,14 +229,14 @@ internal sealed class ProvenanceState
             && ins.Op1Kind == OpKind.Register && ins.Op1Register == Register.RSP)
         {
             _bp = _sp;
-            _regs.Remove(Register.RBP);
+            _regs.Remove((int)Register.RBP);
             return;
         }
         if (ins.Mnemonic == Mnemonic.Lea && ins.Op0Register == Register.RBP && ins.MemoryBase == Register.RSP
             && ins.MemoryIndex == Register.None && _sp is { } ls)
         {
             _bp = ls + (long)ins.MemoryDisplacement64;
-            _regs.Remove(Register.RBP);
+            _regs.Remove((int)Register.RBP);
             return;
         }
         // A frame address in another register or taken with lea can be written through.
@@ -268,7 +273,7 @@ internal sealed class ProvenanceState
         }
         var loaded = Loaded(ins) ?? Derived(ins, info);
         foreach (var u in info.GetUsedRegisters())
-            if (Writes(u.Access)) _regs.Remove(u.Register.GetFullRegister());
+            if (Writes(u.Access)) _regs.Remove((int)u.Register.GetFullRegister());
         if (ins.Op0Kind == OpKind.Register && ins.Op0Register == Register.RBP) _bp = null;
         if (loaded != null) Set(ins.Op0Register, loaded);
     }
@@ -412,26 +417,59 @@ internal static class ValueProvenance
         var factory = new InstructionInfoFactory();
         var blocks = graph.Blocks;
         var spans = new (int From, int To)[blocks.Count];
-        var index = new Dictionary<uint, int>();
         int at = 0;
         for (int i = 0; i < blocks.Count; i++)
         {
-            index[blocks[i].Start] = i;
             while (at < code.Count && code[at].IP - imageBase < blocks[i].Start) at++;
             int from = at;
             while (at < code.Count && code[at].IP - imageBase < blocks[i].End) at++;
             spans[i] = (from, at);
         }
-        ProvenanceState Run(int block, ProvenanceState start, Action<Instruction, ProvenanceState>? each)
+        Solve(graph, entry, (b, s, each) =>
         {
-            var s = start.Clone();
-            for (int k = spans[block].From; k < spans[block].To; k++)
+            for (int k = spans[b].From; k < spans[b].To; k++)
             {
                 var ins = code[k];
                 each?.Invoke(ins, s);
                 if (ins.FlowControl is FlowControl.Call or FlowControl.IndirectCall) s.Call(ins, clobbered, windows);
                 else s.Apply(ins, factory);
             }
+        }, visit, ct, maxPasses);
+    }
+
+    /// <summary>The number of integer argument registers of the AArch64 convention.</summary>
+    internal const int Arm64ArgumentCount = 8;
+
+    /// <summary>
+    /// <see cref="Walk"/> for an AArch64 function: <paramref name="visit"/> is
+    /// called for each decoded step of <paramref name="code"/> with the state
+    /// before it.
+    /// </summary>
+    internal static void WalkArm64(A64Function code, ulong imageBase, Action<A64Step, ProvenanceState> visit, CancellationToken ct = default, int maxPasses = MaxPasses)
+    {
+        var entry = new ProvenanceState();
+        for (int i = 0; i < Arm64ArgumentCount; i++) entry.SetReg(i, new ArgOrigin(i));
+        Solve(code.Graph, entry, (b, s, each) =>
+        {
+            foreach (var step in code.Blocks[b])
+            {
+                each?.Invoke(step, s);
+                s.ApplyArm64(step, imageBase);
+            }
+        }, visit, ct, maxPasses);
+    }
+
+    // Runs the block transfer to a fixed point, then replays each block with the visitor.
+    private static void Solve<T>(FunctionGraph graph, ProvenanceState entry,
+        Action<int, ProvenanceState, Action<T, ProvenanceState>?> transfer, Action<T, ProvenanceState> visit, CancellationToken ct, int maxPasses)
+    {
+        var blocks = graph.Blocks;
+        var index = new Dictionary<uint, int>();
+        for (int i = 0; i < blocks.Count; i++) index[blocks[i].Start] = i;
+        ProvenanceState Run(int block, ProvenanceState start, Action<T, ProvenanceState>? each)
+        {
+            var s = start.Clone();
+            transfer(block, s, each);
             return s;
         }
         var inStates = new ProvenanceState?[blocks.Count];
