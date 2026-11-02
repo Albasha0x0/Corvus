@@ -88,6 +88,7 @@ public sealed partial class PeFile
         checksum = new("checksum", _ => ComputeChecksum(), new PeChecksum(Optional.CheckSum, 0));
         overlay = new("overlay", _ => FindOverlay(), null);
         certificate = new("certificate", _ => Certificates.Read(data), new CertificateInfo(false, Problem: "not read"));
+        codeSecurityCookie = new(FindCodeSecurityCookie);
         symbols = new("symbol table", ParseSymbols, []);
     }
 

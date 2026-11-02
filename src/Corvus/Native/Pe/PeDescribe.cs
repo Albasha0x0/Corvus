@@ -12,6 +12,11 @@ public static class PeDescribe
         void M(string name, bool value) => (value ? on : off).Add(name);
         M("ASLR", m.Aslr); M("high-entropy VA", m.HighEntropyVa); M("DEP", m.Dep); M("CFG", m.ControlFlowGuard); M("SafeSEH", m.SafeSeh);
         M("GS cookie", m.GsCookie); M("CET", m.CetCompatible); M("XFG", m.Xfg); M("EH continuation", m.EhContinuation); M("force integrity", m.ForceIntegrity);
+        if (!m.GsCookie && pe.CodeSecurityCookieRva != null)
+        {
+            off.Remove("GS cookie");
+            on.Add(pe.LoadConfig == null ? "GS cookie (used by code, load config absent)" : "GS cookie (used by code, load config names none)");
+        }
         return (on, off);
     }
 

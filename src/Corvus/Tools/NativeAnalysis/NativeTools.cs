@@ -167,6 +167,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         {
             sb.Append($"Load config: version {lc.MajorVersion}.{lc.MinorVersion}, size {lc.Size}");
             if (lc.SecurityCookie != 0) sb.Append($", security cookie at 0x{lc.SecurityCookie:X}");
+            else if (pe.CodeSecurityCookieRva is { } cr) sb.Append($", security cookie used by code at {NativeAddress.Va(pe, cr)}");
             if (lc.SeHandlerRvas.Count > 0) sb.Append($", {Plural(lc.SeHandlerRvas.Count, "SafeSEH handler")}");
             if (lc.GuardCfFunctions.Count > 0) sb.Append($", {Plural(lc.GuardCfFunctions.Count, "CFG target")}");
             if (lc.GuardFlagNames.Count > 0) sb.Append($"; guard flags: {string.Join(", ", lc.GuardFlagNames)}");

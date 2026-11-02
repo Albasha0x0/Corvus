@@ -86,11 +86,14 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     /// <summary>No relocations: data pointers were accepted by range alone, in runs of two or more function starts.</summary>
     public bool PointersUnconfirmed { get; }
 
+    private readonly Lazy<uint?> _securityCookie;
+
     private NativeCodeIndex(INativeImage image, CodeSupport support, string? note, CodeContext? ctx, NativeFunction[] functions,
         uint[] rangeStarts, uint[] rangeEnds, CodeXref[] xrefs, StringLiteral[] strings, List<string> truncations, CodeIndexStats stats,
         int[]? byTo = null, int parallelism = 0)
     {
         Image = image;
+        _securityCookie = new(() => (image as Pe.PeFile)?.SecurityCookieRva);
         Support = support;
         SupportNote = note;
         _ctx = ctx;
@@ -678,8 +681,15 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         if (_sourced.NameAt(rva) is { } named) return named.Name;
         if (_imports.TryGetValue(rva, out var imp)) return ImportName(imp);
         if (_byStart.TryGetValue(rva, out var f)) return f.Name;
-        return _exportNames.GetValueOrDefault(rva);
+        if (_exportNames.TryGetValue(rva, out var export)) return export;
+        return rva == _securityCookie.Value ? SecurityCookieName : null;
     }
+
+    /// <summary>
+    /// The name of the PE security cookie global, from the load config or from
+    /// prologues that xor it with the frame.
+    /// </summary>
+    public const string SecurityCookieName = "__security_cookie";
 
     public string? CommentFor(uint rva)
     {
