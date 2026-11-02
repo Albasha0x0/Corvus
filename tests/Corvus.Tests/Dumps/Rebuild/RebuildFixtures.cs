@@ -230,15 +230,19 @@ internal static class RebuildFixtures
             byte[] data = p.Layout == ImageLayout.Flat ? p.Image.Bytes : Loaded(p, pe, images);
             uint stamp = BinaryPrimitives.ReadUInt32LittleEndian(p.Image.Bytes.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(p.Image.Bytes.AsSpan(0x3C)) + 8));
             if (p.Listed) builder.Modules.Add(new MinidumpBuilder.Module(p.Base, (uint)data.Length, stamp, p.Name));
+            int padded = (data.Length + page - 1) / page * page;
+            // The last page is zero-filled past the data, as a loader maps it.
+            var captured = new byte[padded];
+            data.CopyTo(captured, 0);
             var omitted = (p.OmittedPages ?? []).Select(r => r / page).ToHashSet();
             int start = -1;
-            for (int offset = 0; offset <= data.Length; offset += page)
+            for (int offset = 0; offset <= padded; offset += page)
             {
-                bool present = offset < data.Length && !omitted.Contains((uint)(offset / page));
+                bool present = offset < padded && !omitted.Contains((uint)(offset / page));
                 if (present && start < 0) start = offset;
                 if (!present && start >= 0)
                 {
-                    builder.Memory.Add((p.Base + (ulong)start, data[start..Math.Min(offset, data.Length)]));
+                    builder.Memory.Add((p.Base + (ulong)start, captured[start..offset]));
                     start = -1;
                 }
             }

@@ -100,4 +100,22 @@ public sealed class RebuildFixturesTests
         Assert.Equal(1, dump.ReadMemory(0x140000000 + 0x1000, one));
         Assert.Equal(0, dump.ReadMemory(0x140000000 + 0x2008, one));
     }
+
+    [Fact]
+    public void The_bytes_of_a_last_partial_page_are_in_the_dump()
+    {
+        var image = RebuildFixtures.Build(Spec(true));
+        var bytes = image.Bytes;
+        Assert.NotEqual(0, bytes.Length % 0x1000);
+        using var dir = new TempDir();
+        using var dump = RebuildFixtures.Dump(dir, new Placed("flat.bin", image, 0x140000000, ImageLayout.Flat));
+        var tail = new byte[bytes.Length % 0x1000];
+        int at = bytes.Length - tail.Length;
+
+        Assert.Equal(tail.Length, dump.ReadMemory(0x140000000UL + (ulong)at, tail));
+        Assert.Equal(bytes[at..], tail);
+        var past = new byte[1];
+        Assert.Equal(1, dump.ReadMemory(0x140000000UL + (ulong)bytes.Length, past));
+        Assert.Equal(0, past[0]);
+    }
 }
