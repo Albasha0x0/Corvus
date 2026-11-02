@@ -1,3 +1,4 @@
+using Corvus.Core;
 using Iced.Intel;
 
 namespace Corvus.Native.Calls;
@@ -247,7 +248,7 @@ internal sealed class ValueResolver
                 if (Slice && loc.Kind != LocKind.Frame)
                     return loc.Kind == LocKind.Register
                         ? new Val(VKind.Incoming, 0, 0, (uint)loc.Reg, $"incoming {Name(loc.Reg)}")
-                        : new Val(VKind.Incoming, (ulong)(long)loc.Slot, 0, 0, $"incoming stack argument [sp+{loc.Slot:X}h]");
+                        : new Val(VKind.Incoming, (ulong)(long)loc.Slot, 0, 0, $"incoming stack argument [sp{Format.Displacement(loc.Slot)}]");
                 return Val.Unknown(loc.Kind switch
                 {
                     LocKind.Register => $"incoming {Name(loc.Reg)} (parameter or caller state)",
@@ -371,7 +372,7 @@ internal sealed class ValueResolver
         {
             int disp = (int)(long)x.MemoryDisplacement64;
             if (b == _sp) return Walk(Loc.Stack(disp), block, index);
-            if (_code.FrameAddressTaken(disp)) return new Val(VKind.TakenLocal, (ulong)(long)disp, 0, 1, $"local [rbp{disp:+0;-0}] has its address taken");
+            if (_code.FrameAddressTaken(disp)) return new Val(VKind.TakenLocal, (ulong)(long)disp, 0, 1, $"local [rbp{Format.Displacement(disp)}] has its address taken");
             return Walk(Loc.Frame(disp), block, index);
         }
         if (Slice && x.MemoryIndex == Register.None && x.MemoryBase != Register.None && x.MemoryBase != Register.RIP)

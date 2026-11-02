@@ -1,3 +1,4 @@
+using Corvus.Core;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
@@ -513,7 +514,7 @@ public sealed partial class CallAnalysis : ITraceHost
         int offset = 0;
         foreach (var p in ps)
         {
-            result.Add((Loc.Stack(offset + (tail ? 4 : 0)), $"[esp+{offset + (tail ? 4 : 0):X}h]", null));
+            result.Add((Loc.Stack(offset + (tail ? 4 : 0)), $"[esp{Core.Format.Displacement(offset + (tail ? 4 : 0))}]", null));
             offset += 4 * p.Slots32;
         }
         return result;
@@ -570,7 +571,7 @@ public sealed partial class CallAnalysis : ITraceHost
             for (int k = 0; k < Math.Min(count, MaxGuessedArguments); k++)
             {
                 int slot = home + 8 * (k - regs.Length);
-                result.Add(k < regs.Length ? (k, Loc.Of(regs[k]), regs[k].ToString().ToLowerInvariant()) : (k, Loc.Stack(slot), $"[rsp+{slot:X}h]"));
+                result.Add(k < regs.Length ? (k, Loc.Of(regs[k]), regs[k].ToString().ToLowerInvariant()) : (k, Loc.Stack(slot), $"[rsp{Core.Format.Displacement(slot)}]"));
             }
             // System V variadic call: al holds the number of vector registers that carry arguments.
             if (Abi.IsSystemV && VectorCount(insns, index) is { } vectors)
@@ -602,7 +603,7 @@ public sealed partial class CallAnalysis : ITraceHost
         if (ecx) result.Add((n++, Loc.Of(Register.ECX), "ecx"));
         if (edx && ecx) result.Add((n++, Loc.Of(Register.EDX), "edx"));
         for (int s = 0; slots.Contains(s) && n < MaxGuessedArguments; s += 4)
-            result.Add((n++, Loc.Stack(s), $"[esp+{s:X}h]"));
+            result.Add((n++, Loc.Stack(s), $"[esp{Core.Format.Displacement(s)}]"));
         return result;
     }
 

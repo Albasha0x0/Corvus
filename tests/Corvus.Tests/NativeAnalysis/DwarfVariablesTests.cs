@@ -45,7 +45,7 @@ public sealed class DwarfVariablesTests(ITestOutputHelper output)
         var entry = At(pdb, work.Rva!.Value + 8);
         Assert.Equal(("P*", true), (entry["p"].Type, entry["p"].Parameter));
         Assert.Equal("long", entry["k"].Type);
-        foreach (var name in new[] { "p", "k", "local" }) Assert.Matches(new Regex(@"^\[rbp-0x[0-9A-F]+\]$"), entry[name].Location);
+        foreach (var name in new[] { "p", "k", "local" }) Assert.Matches(new Regex(@"^\[rbp-[0-9A-F]+h\]$"), entry[name].Location);
         Assert.False(entry.ContainsKey("inner"));
         // Somewhere in the loop body the loop's locals are in scope, at their own slots.
         var all = pdb.Source!.Lookup([.. Enumerable.Range(0, (int)work.Size).Select(i => work.Rva!.Value + (uint)i)]);

@@ -224,16 +224,9 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         public DossierSection Record() => new(name, Total, Items, Error);
     }
 
-    /// <summary>A displacement as a signed hexadecimal offset, "+10h", "-8h" or "-0Ch"; every long value, including the minimum, is valid.</summary>
-    internal static string SignedHex(long value)
-    {
-        var digits = (value < 0 ? unchecked(0UL - (ulong)value) : (ulong)value).ToString("X", System.Globalization.CultureInfo.InvariantCulture);
-        return (value < 0 ? "-" : "+") + (char.IsLetter(digits[0]) ? "0" : "") + digits + "h";
-    }
-
     /// <summary>The text of an address-taken local: base, signed hexadecimal offset and size ("(4 bytes)", else "(size unknown)").</summary>
     internal static string LocalText(string baseRegister, long offset, int? size) =>
-        $"[{baseRegister}{SignedHex(offset)}] ({(size is { } n ? Plural(n, "byte") : "size unknown")})";
+        $"[{baseRegister}{Format.Displacement(offset)}] ({(size is { } n ? Plural(n, "byte") : "size unknown")})";
 
     /// <summary>
     /// The end of the code a function may own: its unwind end, else the next referenced function, else the section end;
@@ -464,7 +457,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             }
             if (index.ExceptionInfo.FrameOf(f.Start) is { } eh)
                 x.Add(null, $"exception handling: {eh.Scheme}, {Plural(eh.TryBlocks.Count, "try block")}, {Plural(eh.Unwind.Count, "unwind state")}, " +
-                            $"{Plural(eh.Scopes.Count, "SEH scope")}, {Plural(eh.Children.Count, "funclet")}{(eh.GsCookieOffset is { } gs ? $", GS cookie at {SignedHex(gs)}" : "")} " +
+                            $"{Plural(eh.Scopes.Count, "SEH scope")}, {Plural(eh.Children.Count, "funclet")}{(eh.GsCookieOffset is { } gs ? $", GS cookie at {Format.Displacement(gs)}" : "")} " +
                             $"(get_exception_info)", "exception");
             else if (image.Format != ImageFormat.Pe && Native.Itanium.ItaniumEh.Of(image).At(f.Start) is { Lsda: not null } it)
                 x.Add(null, $"exception handling: {it.Personality ?? "a personality routine"}, {Plural(it.CallSites.Count, "call site")}, " +

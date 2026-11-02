@@ -29,7 +29,7 @@ public sealed record InspectedOperand(int Index, string Kind, string Text)
     public string? Writeback { get; init; }
 }
 
-/// <summary>A memory access the instruction makes (explicit operands and implicit ones: push, pop, string instructions).</summary>
+/// <summary>A memory access the instruction makes (explicit and implicit); Displacement is a signed integer.</summary>
 public sealed record MemoryUse(string? Segment, string? Base, string? Index, int Scale, long Displacement, int Size, string Access);
 
 /// <summary>The decoded facts of one instruction. Lists an engine does not supply are null, never empty.</summary>

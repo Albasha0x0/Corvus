@@ -372,7 +372,7 @@ public sealed partial class NativeCodeTools
                 if (o.RipRelative) facts.Add(o.Kind is "pc_relative" or "near_branch" ? "pc-relative" : "rip-relative");
                 if (o.Base != null) facts.Add($"base {o.Base}");
                 if (o.IndexRegister != null) facts.Add($"index {o.IndexRegister}" + (o.Extend != null ? $" {o.Extend}" : $", scale {o.Scale}"));
-                if (o.Displacement is { } d and not 0 && o.Kind != "near_branch") facts.Add($"displacement {Signed(d)}");
+                if (o.Displacement is { } d and not 0 && o.Kind != "near_branch") facts.Add($"displacement {Format.Displacement(d)}");
                 if (o.Writeback != null) facts.Add($"{o.Writeback}-index writeback");
             }
             line.Append($" ({string.Join(", ", facts)})");
@@ -420,8 +420,8 @@ public sealed partial class NativeCodeTools
         var parts = new List<string>();
         if (m.Base != null) parts.Add(m.Base);
         if (m.Index != null) parts.Add(m.Scale > 1 ? $"{m.Index}*{m.Scale}" : m.Index);
-        if (m.Displacement != 0 || parts.Count == 0) parts.Add(Signed(m.Displacement));
-        var text = string.Join("+", parts).Replace("+-", "-");
+        var text = string.Join("+", parts);
+        if (m.Displacement != 0 || parts.Count == 0) text += parts.Count == 0 ? $"{(ulong)m.Displacement:X}h" : Format.Displacement(m.Displacement);
         return m.Segment is { } seg and not ("ds" or "ss") ? $"{seg}:{text}" : text;
     }
 

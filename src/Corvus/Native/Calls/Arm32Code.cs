@@ -1,3 +1,4 @@
+using Corvus.Core;
 using System.Globalization;
 using Corvus.Native.Code;
 
@@ -240,7 +241,7 @@ internal sealed class A32Function
         if (!loc.IsSlot) return ArmInstruction.RegisterNames[loc.Value & 15];
         int origin = at == null ? 0 : at.Sp ?? 0;
         int off = loc.Value - origin;
-        return off < 0 ? $"[sp-{-off:X}h]" : $"[sp+{off:X}h]";
+        return $"[sp{Format.Displacement(off)}]";
     }
 
     /// <summary>The 0-based AAPCS parameter position of an entry location (r0-r3, then 4-byte stack slots from entry sp), or -1.</summary>

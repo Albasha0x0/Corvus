@@ -1,3 +1,4 @@
+using Corvus.Core;
 namespace Corvus.Services.Simplify;
 
 // Caller registers other than esp and unwritten stack memory are unknown; a result that depends on one declines.
@@ -389,7 +390,7 @@ internal sealed class NativeRoutine
     {
         uint low = Top - FrameBytes, high = Top + 4 + 4 * (uint)_arguments;
         if (address < low || address > high - 4)
-            throw Decline($"{(write ? "writes" : "reads")} memory outside its stack frame and arguments (esp{(long)address - Top:+0;-0})");
+            throw Decline($"{(write ? "writes" : "reads")} memory outside its stack frame and arguments (esp{Format.Displacement((long)address - Top)})");
     }
 
     private uint? Read(uint address)

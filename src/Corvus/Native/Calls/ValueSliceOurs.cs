@@ -1,3 +1,4 @@
+using Corvus.Core;
 using System.Collections.Concurrent;
 using System.Globalization;
 using Iced.Intel;
@@ -155,9 +156,9 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
                 case VKind.Result:
                     return Node(p.CallResult(code, v.Site, why));
                 case VKind.StackAddr:
-                    return Node(new SliceNode(SliceNodeKind.StackAddress, v.At, $"&local [{(v.Site == 0 ? p.Sp : p.Fp)}{(long)v.Num:+0;-0}]", why) { Value = v.Num });
+                    return Node(new SliceNode(SliceNodeKind.StackAddress, v.At, $"&local [{(v.Site == 0 ? p.Sp : p.Fp)}{Format.Displacement((long)v.Num)}]", why) { Value = v.Num });
                 case VKind.TakenLocal:
-                    return Node(new SliceNode(SliceNodeKind.TakenLocal, v.At, $"local [{(v.Site == 0 ? p.Sp : p.Fp)}{(long)v.Num:+0;-0}] (address taken)", why) { Value = v.Num });
+                    return Node(new SliceNode(SliceNodeKind.TakenLocal, v.At, $"local [{(v.Site == 0 ? p.Sp : p.Fp)}{Format.Displacement((long)v.Num)}] (address taken)", why) { Value = v.Num });
                 case VKind.Incoming:
                 {
                     var loc = v.Site != 0 ? Loc.Of((Register)v.Site) : Loc.Stack((int)(long)v.Num);
@@ -224,7 +225,7 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
         return full.ToString().ToLowerInvariant();
     }
 
-    /// <summary>A register ("rdx", "edx", "xmm1"), stack slot ("[rsp+28h]", "[esp+0x4]") or frame slot ("[rbp-8]"); null when not one.</summary>
+    /// <summary>A register ("rdx", "edx", "xmm1"), stack slot ("[rsp+28h]", "[esp+4h]") or frame slot ("[rbp-8h]"); null when not one.</summary>
     internal static Loc? ParseLocation(string? text, bool is64)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;

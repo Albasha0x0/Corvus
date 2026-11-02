@@ -1,3 +1,4 @@
+using Corvus.Core;
 using Iced.Intel;
 
 namespace Corvus.Native.Calls;
@@ -70,7 +71,7 @@ internal sealed class X64Abi
             int slot = (IsSystemV ? stack * 8 : HomeArea + 8 * (position - 4)) + shift;
             bool pairOnStack = IsSystemV && p.IsPair;
             stack += pairOnStack ? 2 : 1;
-            result.Add((Loc.Stack(slot), pairOnStack ? $"[rsp+{slot:X}h]:[rsp+{slot + 8:X}h]" : $"[rsp+{slot:X}h]", pairOnStack ? Loc.Stack(slot + 8) : null));
+            result.Add((Loc.Stack(slot), pairOnStack ? $"[rsp{Format.Displacement(slot)}]:[rsp{Format.Displacement(slot + 8)}]" : $"[rsp{Format.Displacement(slot)}]", pairOnStack ? Loc.Stack(slot + 8) : null));
         }
         return result;
     }

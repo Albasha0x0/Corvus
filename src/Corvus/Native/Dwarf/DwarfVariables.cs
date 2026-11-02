@@ -1,8 +1,9 @@
+using Corvus.Core;
 using Corvus.Native.Pdb;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>The parameters and locals in scope at an address, with their location there in register names ("rdi", "[rbp-0x14]").</summary>
+/// <summary>The parameters and locals in scope at an address, with their location there in register names ("rdi", "[rbp-14h]").</summary>
 internal static class DwarfVariables
 {
     private const int MaxVariables = 64;
@@ -155,7 +156,7 @@ internal static class DwarfVariables
     {
         var parts = new List<string>();
         var c = new DwarfCursor(expr, reader.BigEndian);
-        static string Offset(long v) => v == 0 ? "" : v < 0 ? $"-0x{-v:X}" : $"+0x{v:X}";
+        static string Offset(long v) => v == 0 ? "" : Format.Displacement(v);
         string? value = null;
         while (!c.AtEnd)
         {

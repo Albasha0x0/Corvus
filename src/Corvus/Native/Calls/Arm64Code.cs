@@ -1,3 +1,4 @@
+using Corvus.Core;
 using System.Globalization;
 using AsmArm64;
 using Corvus.Native.Code;
@@ -238,7 +239,7 @@ internal sealed class A64Function
         if (!loc.IsSlot) return loc.Value >= VBase ? $"d{loc.Value - VBase}" : $"x{loc.Value}";
         int origin = at == null ? 0 : at.Sp ?? 0;
         int off = loc.Value - origin;
-        return off < 0 ? $"[sp-{-off:X}h]" : $"[sp+{off:X}h]";
+        return $"[sp{Format.Displacement(off)}]";
     }
 
     /// <summary>The 0-based AAPCS64 parameter position of an entry location (x0-x7, then 8-byte stack slots from entry sp), or -1.</summary>

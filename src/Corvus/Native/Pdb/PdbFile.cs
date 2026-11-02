@@ -61,7 +61,7 @@ public sealed record DebugSourceInfo(string? File, int Line, IReadOnlyList<Debug
     public IReadOnlyList<DebugVariable>? Variables { get; init; }
 }
 
-/// <summary>A parameter or local variable at an address: its type, where it is ("rdi", "[rbp-0x14]"), and the inlined function it belongs to.</summary>
+/// <summary>A parameter or local variable at an address: its type, where it is ("rdi", "[rbp-14h]"), and the inlined function it belongs to.</summary>
 public sealed record DebugVariable(string Name, string? Type, string Location, bool Parameter, string? InlinedIn);
 
 /// <summary>Source lines and inlined functions by address, read on demand (debug files can be large).</summary>

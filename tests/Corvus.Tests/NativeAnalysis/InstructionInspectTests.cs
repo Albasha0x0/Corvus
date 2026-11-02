@@ -76,6 +76,8 @@ public class InstructionInspectTests
     private static (string Text, InstructionReport Report) Inspect(NativeCodeIndex index, uint rva, int count = 1) =>
         NativeCodeTools.Inspect("sample", index, rva, count, new EngineChoice("ours", "test"), CancellationToken.None);
 
+    internal static string InspectText(string at) { var s = Build(); return Inspect(s.Index, s.At[at]).Text; }
+
     private static InstructionItem One(NativeCodeIndex index, uint rva) => Assert.Single(Inspect(index, rva).Report.Items);
 
     [Fact]

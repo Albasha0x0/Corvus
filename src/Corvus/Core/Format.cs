@@ -7,6 +7,14 @@ namespace Corvus.Core;
 /// <summary>C#-flavoured, compact signatures for dnlib members (used in listings and search results).</summary>
 public static partial class Format
 {
+    /// <summary>A signed displacement in the form disassembly uses: "+48h", "-8h", "-0A0h"; always signed.</summary>
+    public static string Displacement(long value)
+    {
+        var digits = (value < 0 ? unchecked(0UL - (ulong)value) : (ulong)value).ToString("X", System.Globalization.CultureInfo.InvariantCulture);
+        // A digit run that starts with a letter takes a leading zero, as the disassembly does.
+        return (value < 0 ? "-" : "+") + (char.IsLetter(digits[0]) ? "0" : "") + digits + "h";
+    }
+
     /// <summary>"0x06000123", or "(new)" for members added by an edit (no token until the image is written).</summary>
     public static string Token(IMDTokenProvider p) => p.MDToken.Rid == 0 ? "(new)" : $"0x{p.MDToken.Raw:X8}";
 

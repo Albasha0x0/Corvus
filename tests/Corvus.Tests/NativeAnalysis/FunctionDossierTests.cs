@@ -243,10 +243,10 @@ public sealed class FunctionDossierTests : IDisposable
     [Fact]
     public void A_signed_offset_prints_every_long_value_with_a_digit_first()
     {
-        Assert.Equal("+0h", NativeFunctionTools.SignedHex(0));
-        Assert.Equal("-0Ch", NativeFunctionTools.SignedHex(-12));
-        Assert.Equal("+10h", NativeFunctionTools.SignedHex(16));
-        Assert.Equal("-8000000000000000h", NativeFunctionTools.SignedHex(long.MinValue));
+        Assert.Equal("+0h", Format.Displacement(0));
+        Assert.Equal("-0Ch", Format.Displacement(-12));
+        Assert.Equal("+10h", Format.Displacement(16));
+        Assert.Equal("-8000000000000000h", Format.Displacement(long.MinValue));
     }
 
     [Fact]
