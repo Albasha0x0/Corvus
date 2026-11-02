@@ -10,6 +10,27 @@ namespace Corvus.Tests;
 /// <summary>Imported name layers (load_pdb, apply_metadata_names) saved beside the annotations and restored on load.</summary>
 public class ImportedNamesTests(ITestOutputHelper output)
 {
+    // Regression: RestartStateTests failed with "Access to the path is
+    // denied." when a restore read the layer a load_pdb save replaced.
+    [Fact]
+    public async Task A_layer_saves_while_another_call_reads_it()
+    {
+        using var dir = new TempDir();
+        var store = new AnnotationStore(dir.File("ann"));
+        const string sha = "cd34";
+        var layer = new NativeNameLayers.Layer(NativeNameSource.Pdb, Enumerable.Range(0, 5000).ToDictionary(i => (uint)(0x1000 + 16 * i), i => $"F{i}"),
+            new Dictionary<uint, string>(), "a.pdb", new ImportInfo(@"C:\x\a.pdb", "guid 3", DateTime.UnixEpoch, []));
+        Assert.Null(store.SaveLayer(sha, @"C:\x\a.dll", layer));
+        using var stop = new CancellationTokenSource();
+        var reader = Task.Run(() => { while (!stop.IsCancellationRequested) store.LoadLayer(sha, NativeNameSource.Pdb); });
+        var problems = new List<string>();
+        for (int i = 0; i < 200; i++)
+            if (store.SaveLayer(sha, @"C:\x\a.dll", layer) is { } problem) problems.Add(problem);
+        await stop.CancelAsync();
+        await reader;
+        Assert.Empty(problems);
+    }
+
     [Fact]
     public void Layer_files_round_trip_and_bad_files_read_as_empty()
     {

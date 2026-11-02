@@ -208,7 +208,9 @@ public static class SafeFile
             // replaced: a move on Windows, a hard link on Unix.
             try
             {
-                if (overwrite || OperatingSystem.IsWindows() || !Posix.TryLink(temp, full)) File.Move(temp, full, overwrite);
+                // Windows refuses to replace a file any handle has open; readers hold one briefly.
+                if (overwrite) WhenReleased(() => File.Move(temp, full, true));
+                else if (OperatingSystem.IsWindows() || !Posix.TryLink(temp, full)) File.Move(temp, full, false);
             }
             catch (IOException) when (!overwrite && Path.Exists(full)) { throw Exists(full); }
         }

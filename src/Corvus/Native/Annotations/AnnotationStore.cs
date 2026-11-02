@@ -255,8 +255,12 @@ public sealed class AnnotationStore
         try
         {
             if (!File.Exists(file) && (EarlierLayerFileFor(sha256, source) is not { } earlier || !File.Exists(file = earlier))) return null;
-            using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
-            return SavedNameLayer.Read(fs, sha256, ct) is { } layer && layer.Source == source ? layer : null;
+            // Read under the save's lock: Windows refuses to replace a file a read holds open.
+            lock (_layerGate)
+            {
+                using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+                return SavedNameLayer.Read(fs, sha256, ct) is { } layer && layer.Source == source ? layer : null;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
