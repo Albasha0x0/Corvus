@@ -9,8 +9,12 @@ public static partial class PackageReview
     /// <summary>Lifecycle scripts npm runs when the package is installed from a registry.</summary>
     private static readonly HashSet<string> NpmInstallScripts = new(StringComparer.Ordinal) { "preinstall", "install", "postinstall" };
 
-    /// <summary>Scripts npm also runs on npm install inside a source folder or git checkout.</summary>
-    private static readonly HashSet<string> NpmLocalInstallScripts = new(StringComparer.Ordinal) { "preprepare", "prepare", "postprepare" };
+    /// <summary>Scripts npm runs on a local-folder install or when it packs a git dependency.</summary>
+    private static readonly HashSet<string> NpmLocalInstallScripts = new(StringComparer.Ordinal) { "prepublish", "prepack", "postpack", "preprepare", "prepare", "postprepare" };
+
+    // The legacy prepublish hook runs on a local npm install only, not for git dependencies.
+    private static string LocalInstallNote(string script) =>
+        script == "prepublish" ? " (runs on local-folder install)" : " (runs on git and local-folder installs)";
 
     /// <summary>Node built-in module names a registry package can also take.</summary>
     private static readonly HashSet<string> NodeBuiltins = new(StringComparer.Ordinal) { "child_process", "net", "http", "https", "fs", "path", "os", "crypto" };
@@ -49,7 +53,7 @@ public static partial class PackageReview
         if (gyp) scripts.Add(new PackageScript("install", "node-gyp rebuild (binding.gyp)", true));
         foreach (var script in scripts.Where(x => x.AtInstall))
         {
-            findings.Add(new PackageFinding("package/install-script", "review", "install script", $"{script.Name}: {Clip(script.Command)}", manifestPath));
+            findings.Add(new PackageFinding("package/install-script", "review", "install script", $"{script.Name}: {Clip(script.Command)}{(NpmLocalInstallScripts.Contains(script.Name) ? LocalInstallNote(script.Name) : "")}", manifestPath));
             foreach (var f in Scan(manifestPath + "#scripts." + script.Name, script.Command, install: true, ct)) findings.Add(f);
             if (NetworkCommand.IsMatch(script.Command))
                 findings.Add(new PackageFinding("package/install-network-tool", "noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));

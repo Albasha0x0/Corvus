@@ -50,6 +50,18 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void Local_install_hooks_are_reported_as_running_on_git_and_local_folder_installs()
+    {
+        const string manifest = """{"name":"sample-lib","version":"1.0.0","scripts":{"prepublish":"node a.js","prepack":"node f.js","postpack":"node g.js","preprepare":"node b.js","prepare":"node c.js","postprepare":"node d.js","postinstall":"node e.js"}}""";
+        var source = Review(Zip("sample-lib-hooks.zip", ("package/package.json", U(manifest))));
+        foreach (var name in new[] { "prepublish", "prepack", "postpack", "preprepare", "prepare", "postprepare" })
+            Assert.Contains(source.Findings, f => f.Rule == "package/install-script" && f.Detail.StartsWith(name + ": ", StringComparison.Ordinal) && f.Detail.EndsWith(name == "prepublish" ? "(runs on local-folder install)" : "(runs on git and local-folder installs)", StringComparison.Ordinal));
+        Assert.Contains(source.Findings, f => f.Rule == "package/install-script" && f.Detail == "postinstall: node e.js");
+        var registry = Review(Tgz("sample-lib-hooks-1.0.0.tgz", ("package/package.json", manifest)));
+        Assert.All(new[] { "prepublish", "prepack", "postpack", "preprepare", "prepare", "postprepare" }, name => Assert.Contains(registry.Scripts, s => s.Name == name && !s.AtInstall));
+    }
+
+    [Fact]
     public void A_dependency_confusion_preinstall_that_sends_host_details_is_noteworthy()
     {
         var r = Review(Tgz("internal-auth-1.0.0.tgz",
