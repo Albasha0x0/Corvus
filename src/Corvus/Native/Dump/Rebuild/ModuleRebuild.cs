@@ -104,13 +104,15 @@ public static class ModuleRebuild
     {
         if (target.Size > MaxImageBytes) return Refuse(target, $"larger than {MaxImageBytes >> 20} MB");
         if (memory is CoreFile core) return ElfRebuild.FromCore(core, target, options, ct);
-        var captured = CapturedImageReader.Read(memory, target, ct);
-        if (captured == null) return Refuse(target, "the memory does not hold the image headers");
+        if (target.Origin == ModuleOrigin.Managed && target.Base == 0) return Refuse(target, "an emitted assembly has no image to rebuild");
+        var read = CapturedImageReader.Read(memory, target, ct);
+        if (read == null) return Refuse(target, "the memory does not hold the image headers");
+        var captured = read;
         var checks = new List<RebuildCheck>();
         var image = (byte[])captured.Image.Clone();
         // Relocations and imports are fixed in mapped layout, where offsets are RVAs; the file layout is made last.
         PeRelocations.Apply(image, captured, options.Base, checks);
-        var imports = PeImportRestore.Restore(image, captured, memory, options.Imports, checks, ct);
+        var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct);
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
         if (bytes == null) return Refuse(target, checks[^1].Detail);
         var verified = PeVerify.Check(bytes, target, checks);
