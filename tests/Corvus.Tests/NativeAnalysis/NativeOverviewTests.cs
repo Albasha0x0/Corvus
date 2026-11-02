@@ -33,8 +33,8 @@ public class NativeOverviewTests
     public async Task The_native_overview_names_every_section_and_the_section_count()
     {
         var (pe, lines) = await Read();
-        Assert.NotEmpty(pe.Sections);
-        foreach (var s in pe.Sections)
+        Assert.NotEmpty(pe.Sections!);
+        foreach (var s in pe.Sections!)
             Assert.True(Names(lines, s.Name), $"section {s.Name} missing from:\n{string.Join("\n", lines)}");
         Assert.True(Names(lines, $"{pe.Sections.Count} sections"), $"count missing from:\n{string.Join("\n", lines)}");
     }
@@ -43,7 +43,7 @@ public class NativeOverviewTests
     public async Task The_native_overview_names_the_mitigations_get_pe_info_reports()
     {
         var (pe, lines) = await Read();
-        var reported = pe.MitigationsOn.Concat(pe.MitigationsOff).ToList();
+        var reported = pe.MitigationsOn!.Concat(pe.MitigationsOff!).ToList();
         Assert.NotEmpty(reported);
         foreach (var m in reported)
             Assert.True(Names(lines, m), $"mitigation {m} missing from:\n{string.Join("\n", lines)}");

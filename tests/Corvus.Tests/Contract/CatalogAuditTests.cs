@@ -14,10 +14,10 @@ public class CatalogAuditTests
     private const int MaxInputSchemaBytes = 8 * 1024;
 
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 148_650;
+    private const int MaxModelFacingBytes = 148_750;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 293_350;
+    private const int MaxToolsListBytes = 293_500;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()

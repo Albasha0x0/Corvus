@@ -165,9 +165,9 @@ public sealed record PeSummary(
     [property: Description("VA; null when there is none.")] string? EntryPoint,
     string Timestamp,
     bool DotNet,
-    IReadOnlyList<string> MitigationsOn,
-    IReadOnlyList<string> MitigationsOff,
-    IReadOnlyList<SectionEntry> Sections,
+    [property: Description("Null in view=code, which adds the code index to the summary.")] IReadOnlyList<string>? MitigationsOn,
+    IReadOnlyList<string>? MitigationsOff,
+    IReadOnlyList<SectionEntry>? Sections,
     int ImportModules,
     int ImportFunctions,
     int DelayImportModules,
@@ -181,4 +181,6 @@ public sealed record PeSummary(
     long? OverlaySize,
     [property: Description("Malformed parts found while parsing.")] int Issues,
     [property: Description("Capability groups the imports imply (late-bound imports included once the code index is ready).")] IReadOnlyList<CapabilityEntry>? Capabilities = null,
-    CodeOverview? Code = null);
+    CodeOverview? Code = null,
+    [property: Description("Parse issues as area: message (first 50).")] IReadOnlyList<string>? IssueList = null,
+    [property: Description("Duplicate section names; sections both writable and executable.")] IReadOnlyList<string>? SectionNotes = null);

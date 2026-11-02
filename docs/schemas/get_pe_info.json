@@ -41,6 +41,7 @@
       "type": "boolean"
     },
     "mitigationsOn": {
+      "description": "Null in view=code, which adds the code index to the summary.",
       "type": "array",
       "items": {
         "type": "string"
@@ -276,6 +277,20 @@
         "largest"
       ]
     },
+    "issueList": {
+      "description": "Parse issues as area: message (first 50).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sectionNotes": {
+      "description": "Duplicate section names; sections both writable and executable.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "notices": {
       "type": "array",
       "items": {
@@ -313,9 +328,6 @@
     "imageBase",
     "timestamp",
     "dotNet",
-    "mitigationsOn",
-    "mitigationsOff",
-    "sections",
     "importModules",
     "importFunctions",
     "delayImportModules",

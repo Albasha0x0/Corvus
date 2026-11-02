@@ -89,6 +89,12 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                     ToolOutput.Coverage("partial", $"instructions are not decoded for {native.Image.ArchName()}", "architecture-undecoded");
                 return ToolOutput.With(pager.Page(CodeView(native.Id, index, all, cancellationToken), offset, maxTokens), Summary(native) with
                 {
+                    // The summary fields are in the default view; this one adds the code index.
+                    MitigationsOn = null,
+                    MitigationsOff = null,
+                    Sections = null,
+                    IssueList = null,
+                    SectionNotes = null,
                     Capabilities = all.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
                     Code = index.Support == CodeSupport.DeclaredFunctionsOnly ? null : Overview(index),
                 });
@@ -135,7 +141,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         sb.AppendLine($"Mitigations: on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}" + (pe.Mitigations.NoSeh ? "; no SEH" : ""));
 
         sb.AppendLine($"Sections ({pe.Sections.Count}):");
-        var entropy = Summary(native).Sections.Select(x => x.Entropy).ToList(); // computed once per image
+        var entropy = Summary(native).Sections!.Select(x => x.Entropy).ToList(); // computed once per image
         foreach (var (layout, e) in pe.SectionLayouts.Zip(entropy))
         {
             var s = layout.Section;
@@ -191,12 +197,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             sb.AppendLine($"Overlay: {ov.Size:N0} bytes at file 0x{ov.Offset:X}{(ov.IsCertificateTableOnly ? " (the signature only)" : " (data appended after the image)")}");
         var cert = pe.Certificate;
         sb.AppendLine(cert.Present ? $"Signature: {cert.Signer} (issuer {cert.Issuer}, thumbprint {cert.Thumbprint})" : "Signature: none");
-        if (pe.Issues.Count > 0)
-        {
-            sb.AppendLine($"Parse issues ({pe.Issues.Count}):");
-            foreach (var issue in pe.Issues.Take(50))
-                sb.AppendLine($"  {issue.Area}: {issue.Message}" + (issue.FileOffset is { } fo ? $" (file 0x{fo:X})" : ""));
-        }
+        SectionNoteLines(sb, pe);
+        IssueLines(sb, pe);
         return sb.ToString();
     }
 
@@ -236,7 +238,11 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 $"0x{l.Section.RawSize:X}", Access(l.Section.Access), Math.Round(Entropy(pe, l), 2), l.CharacteristicNames.ToList())).ToList(),
             pe.ImportModules.Count, pe.ImportModules.Sum(i => i.Functions.Count), pe.DelayImportModules.Count, pe.Exports.Count, pe.TlsCallbackRvas.Count,
             cv?.PdbPath, cv?.Guid.ToString("D"), cv != null ? (int)cv.Age : null, pe.Certificate.Present ? pe.Certificate.Signer : null,
-            ck.Stored == 0 ? null : ck.Matches, pe.Overlay?.Size, pe.Issues.Count);
+            ck.Stored == 0 ? null : ck.Matches, pe.Overlay?.Size, pe.Issues.Count)
+        {
+            IssueList = IssueItems(pe),
+            SectionNotes = SectionNotes(pe),
+        };
     }
 
     internal static string Access(SectionAccess a) => PeDescribe.Access(a);

@@ -63,7 +63,7 @@ public sealed class FormatLoadTests
         var summary = Assert.IsType<PeSummary>(collector.Value);
         Assert.Equal("ELF64", summary.Format);
         Assert.Equal("EM_AARCH64", summary.Machine);
-        Assert.Contains(summary.Sections, s => s.Name == ".text" && s.Characteristics.Contains("SHF_EXECINSTR"));
+        Assert.Contains(summary.Sections!, s => s.Name == ".text" && s.Characteristics.Contains("SHF_EXECINSTR"));
 
         var macho = Text(await h.Native.GetPeInfo(NativeFixtures.OsxArm64DbgShim));
         Assert.Contains("arm64 Mach-O MH_DYLIB", macho);

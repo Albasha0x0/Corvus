@@ -89,12 +89,43 @@ public sealed partial class NativeTools
         if (image.BuildId is { } id) sb.AppendLine($"Build id: {id}");
         foreach (var e in image.EncryptedRanges)
             sb.AppendLine($"Encrypted: 0x{e.Size:X} bytes at rva 0x{e.Rva:X} (cryptid {e.CryptId}, FairPlay): load a decrypted copy to analyze that code");
-        if (image.Issues.Count > 0)
-        {
-            sb.AppendLine($"Parse issues ({image.Issues.Count}):");
-            foreach (var issue in image.Issues.Take(50))
-                sb.AppendLine($"  {issue.Area}: {issue.Message}" + (issue.FileOffset is { } fo ? $" (file 0x{fo:X})" : ""));
-        }
+        SectionNoteLines(sb, image);
+        IssueLines(sb, image);
+    }
+
+    private const int MaxListedIssues = 50;
+
+    private static string IssueText(ParseIssue issue) =>
+        $"{issue.Area}: {issue.Message}" + (issue.FileOffset is { } fo ? $" (file 0x{fo:X})" : "");
+
+    /// <summary>The parse issues a summary counts, as text rows (first 50); null when there are none.</summary>
+    private static List<string>? IssueItems(INativeImage image) =>
+        image.Issues.Count == 0 ? null : image.Issues.Take(MaxListedIssues).Select(IssueText).ToList();
+
+    private static void IssueLines(StringBuilder sb, INativeImage image)
+    {
+        if (image.Issues.Count == 0) return;
+        sb.AppendLine($"Parse issues ({image.Issues.Count}):");
+        foreach (var row in IssueItems(image)!) sb.AppendLine("  " + row);
+        if (image.Issues.Count > MaxListedIssues) sb.AppendLine($"  ... {image.Issues.Count - MaxListedIssues} more");
+    }
+
+    /// <summary>Duplicate section names and sections that are both writable and executable; null when there are none.</summary>
+    private static List<string>? SectionNotes(INativeImage image)
+    {
+        var notes = new List<string>();
+        foreach (var g in image.Sections.Where(s => s.Name.Length > 0).GroupBy(s => s.Name, StringComparer.Ordinal).Where(g => g.Count() > 1))
+            notes.Add($"duplicate section name {g.Key} ({g.Count()} sections, rva {string.Join(", ", g.Select(s => $"0x{s.Rva:X}"))})");
+        foreach (var s in image.Sections.Where(s => s.Access.HasFlag(SectionAccess.Write) && s.Access.HasFlag(SectionAccess.Execute)))
+            notes.Add($"section {s.Name} is writable and executable (rva 0x{s.Rva:X})");
+        return notes.Count == 0 ? null : notes;
+    }
+
+    private static void SectionNoteLines(StringBuilder sb, INativeImage image)
+    {
+        if (SectionNotes(image) is not { } notes) return;
+        sb.AppendLine($"Section notes ({notes.Count}):");
+        foreach (var n in notes) sb.AppendLine("  " + n);
     }
 
     /// <summary>Packers and protectors the image shows signs of (detection only).</summary>
@@ -257,7 +288,11 @@ public sealed partial class NativeTools
             image.Sections.Select(s => new SectionEntry(s.Name, $"0x{s.Rva:X}", $"0x{s.VirtualSize:X}", $"0x{s.RawOffset:X}", $"0x{s.RawSize:X}", Access(s.Access),
                 Math.Round(FileEntropy(file.Span, s), 2), SectionFlags(image, s))).ToList(),
             image.Imports.Select(i => i.Module).Distinct().Count(), image.Imports.Count, 0, image.Exports.Count, 0,
-            null, null, null, sig == null ? null : sig.IsAdHoc ? "ad-hoc" : sig.SignerSubject ?? sig.Identifier, null, null, image.Issues.Count);
+            null, null, null, sig == null ? null : sig.IsAdHoc ? "ad-hoc" : sig.SignerSubject ?? sig.Identifier, null, null, image.Issues.Count)
+        {
+            IssueList = IssueItems(image),
+            SectionNotes = SectionNotes(image),
+        };
     }
 
     /// <summary>list_imports for ELF and Mach-O: one "module!name" row per bound slot; module "*" is an unversioned ELF symbol.</summary>
