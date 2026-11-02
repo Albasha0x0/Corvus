@@ -496,7 +496,29 @@ public sealed partial class CallAnalysis : ITraceHost
                 if (!structReturn || loc != Loc.Of(Register.RDI))
                     args.Add(Argument(resolver, block, index, args.Count, label.StartsWith("xmm", StringComparison.Ordinal) ? new ApiParam("", ApiParamType.Double) : null, (loc, label, null)));
         }
+        if (guessed && !tail && FormatSignature(callee.Name, args, first) is { } variadic)
+            return Site(code, block, index, variadic) with { Guessed = true };
         return new CallSiteInfo(d.Rva, code.Function, callee.Name, callee.Kind, callee.Import, callee.Target, callee.Dynamic, sig, guessed, args, tail);
+    }
+
+    // Leading arguments scanned for a format; logging wrappers put it first or after a few handle and level arguments.
+    private const int FormatScanLimit = 4;
+
+    // A callee without a signature that takes a format string gets a
+    // variadic one, so the slots after the format follow its specifiers.
+    private static ApiSignature? FormatSignature(string name, List<CallArgument> args, int first)
+    {
+        for (int k = first; k < args.Count && k < first + FormatScanLimit; k++)
+        {
+            if (args[k] is not { Kind: ArgKind.String, Value: null } a) continue;
+            bool wide = a.Text.StartsWith("L\"", StringComparison.Ordinal);
+            if (ApiSignatures.FormatArguments(Unquote(a.Text), wide, 1).Count == 0) return null;
+            var ps = new List<ApiParam>();
+            for (int j = first; j < k; j++) ps.Add(new ApiParam($"arg{j - first}", args[j].Kind is ArgKind.Address or ArgKind.String ? ApiParamType.Pointer : ApiParamType.Int));
+            ps.Add(new ApiParam("format", wide ? ApiParamType.WideFormat : ApiParamType.AnsiFormat));
+            return new ApiSignature(name, ps, true, false);
+        }
+        return null;
     }
 
     private static string Unquote(string text)

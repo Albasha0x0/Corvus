@@ -364,6 +364,127 @@ public class CallArgumentTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_format_string_labels_the_variadic_slots_of_an_unnamed_callee()
+    {
+        var code = Assemble(64, a =>
+        {
+            a.sub(rsp, 0x38);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x100));
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RDX, Data + 0x120));
+            a.mov(r8d, 5);
+            a.mov(r9, 0x4000000000000000UL);
+            a.mov(__dword_ptr[rsp + 0x20], 9);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data), 8)));
+            a.add(rsp, 0x38);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("%s %d %f %d ").CopyTo(data, 0x100);
+        Encoding.ASCII.GetBytes("key ").CopyTo(data, 0x120);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, data, [Import("trace_line", Data)], entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        var call = CallAnalysis.For(index).CallsIn(index.FunctionByStart(Code)!).Single();
+
+        Assert.True(call.Guessed);
+        Assert.Equal(["format", "arg1", "arg2", "arg3", "arg4"], call.Arguments.Select(x => x.Name));
+        Assert.Equal(["rcx", "rdx", "r8", "r9", "[rsp+20h]"], call.Arguments.Select(x => x.Location));
+        Assert.Equal(["ansiformat", "ansistring", "int", "double", "int"], call.Arguments.Select(x => x.Type));
+    }
+
+    private static CallSiteInfo OnlyCall(NativeArch arch, byte[] code, byte[] data, ImageFormat format = ImageFormat.Pe, string callee = "trace_line")
+    {
+        var image = CodeTestImage.Synthetic(arch, code, data, [Import(callee, Data)], entry: Code, format: format);
+        var index = NativeCodeIndex.Build(image);
+        return CallAnalysis.For(index).CallsIn(index.FunctionByStart(Code)!).Single();
+    }
+
+    [Fact]
+    public void A_format_string_places_the_variadic_slots_of_an_x86_callee_on_the_stack()
+    {
+        var code = Assemble(32, a =>
+        {
+            a.push(9);
+            a.push(5);
+            a.push((int)(Base32 + Data + 0x120));
+            a.push((int)(Base32 + Data + 0x100));
+            a.call(__dword_ptr[(int)(Base32 + Data)]);
+            a.add(esp, 16);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("%s %d %d ").CopyTo(data, 0x100);
+        Encoding.ASCII.GetBytes("key ").CopyTo(data, 0x120);
+        var call = OnlyCall(NativeArch.X86, code, data);
+
+        Assert.True(call.Guessed);
+        Assert.Equal(["format", "arg1", "arg2", "arg3"], call.Arguments.Select(x => x.Name));
+        Assert.Equal(["ansiformat", "ansistring", "int", "int"], call.Arguments.Select(x => x.Type));
+        Assert.Equal([5UL, 9], call.Arguments.Skip(2).Select(x => x.Value ?? 0));
+    }
+
+    [Fact]
+    public void A_format_string_places_a_double_slot_in_an_xmm_register_on_system_v()
+    {
+        var code = Assemble(64, a =>
+        {
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RDI, Data + 0x100));
+            a.mov(esi, 5);
+            a.movsd(xmm0, __qword_ptr[rsp - 8]);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data), 8)));
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("%d %f ").CopyTo(data, 0x100);
+        var call = OnlyCall(NativeArch.X64, code, data, ImageFormat.Elf);
+
+        Assert.True(call.Guessed);
+        Assert.Equal(["format", "arg1", "arg2"], call.Arguments.Select(x => x.Name));
+        Assert.Equal(["rdi", "rsi", "xmm0"], call.Arguments.Select(x => x.Location));
+        Assert.Equal(["ansiformat", "int", "double"], call.Arguments.Select(x => x.Type));
+    }
+
+    [Fact]
+    public void A_string_without_conversion_specifiers_leaves_an_unnamed_callee_unchanged()
+    {
+        var code = Assemble(64, a =>
+        {
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x100));
+            a.mov(edx, 5);
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data), 8)));
+            a.add(rsp, 0x28);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("plain text ").CopyTo(data, 0x100);
+        var call = OnlyCall(NativeArch.X64, code, data);
+
+        Assert.DoesNotContain(call.Arguments, x => x.Type is "ansiformat" or "wideformat");
+        Assert.Equal(["rcx", "rdx"], call.Arguments.Select(x => x.Location));
+    }
+
+    [Fact]
+    public void A_callee_with_a_known_signature_keeps_its_own_parameters_despite_a_format_string()
+    {
+        var code = Assemble(64, a =>
+        {
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x100));
+            a.mov(edx, 5);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data), 8)));
+            a.add(rsp, 0x28);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("%d %d %d ").CopyTo(data, 0x100);
+        var call = OnlyCall(NativeArch.X64, code, data, callee: "CreateFileA");
+
+        Assert.False(call.Guessed);
+        Assert.DoesNotContain(call.Arguments, x => x.Type is "ansiformat" or "wideformat");
+        Assert.DoesNotContain(call.Arguments, x => x.Name == "format");
+    }
+
+    [Fact]
     public void X86_pushes_cross_calls_by_their_stack_effect()
     {
         var code = Assemble(32, a =>
