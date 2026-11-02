@@ -142,7 +142,10 @@ internal static class ContainerText
         var name = view.Trim().ToLowerInvariant();
         if (!views.Contains(name))
             throw new ToolError(ErrorCode.InvalidArgument, $"View '{view}' does not apply to this file.", $"pass view as one of {string.Join(", ", views)}");
-        var record = new FileSummaryRecord(s.File.Path, s.File.Size, s.File.Type, s.File.Sha256, s.Container, name, views);
+        var record = new FileSummaryRecord(s.File.Path, s.File.Size, s.File.Type, s.File.Sha256, s.Container, name, views)
+        {
+            Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
+        };
         if (name != "overview") return record with { Detail = Detail(s, name), Notes = s.Notes.Count > 0 ? s.Notes : null };
         var main = s.Assemblies.FirstOrDefault();
         // The signature line already says who signed the file.
@@ -157,7 +160,6 @@ internal static class ContainerText
             Findings = findings.Count > 0 ? [.. findings.Take(MaxFindings)] : null,
             FindingTotal = findings.Count > MaxFindings ? findings.Count : null,
             RuleTable = FindingRules.Digest,
-            Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
             Signature = SignatureLine(s.File.Certificate),
             Assemblies = s.Assemblies.Count > 0 ? s.Assemblies.Select(a => new AssemblyRow(a.Path, a.Identity.Name, a.Identity.Kind, a.Identity.Architecture, a.Features.Count)
             {
@@ -202,9 +204,10 @@ internal static class ContainerText
     public static string Summary(FileSummaryRecord r)
     {
         var sb = new StringBuilder($"{Escape(Path.GetFileName(r.Path))}: {r.Type}, {r.Size:N0} bytes, {r.Container}");
+        sb.Append($", entropy {r.Entropy:0.00}");
         if (r.View == "overview")
         {
-            sb.Append($", entropy {r.Entropy:0.00}\n{r.Path}\nsha256 {r.Sha256}\nsha1 {r.Sha1}  md5 {r.Md5}\n");
+            sb.Append($"\n{r.Path}\nsha256 {r.Sha256}\nsha1 {r.Sha1}  md5 {r.Md5}\n");
             sb.Append("Signature: ").Append(r.Signature != null ? Escape(r.Signature) : "none").Append('\n');
             if (r.Findings is { } findings)
             {

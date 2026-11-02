@@ -17,7 +17,7 @@ public class CatalogAuditTests
     private const int MaxModelFacingBytes = 148_950;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 294_250;
+    private const int MaxToolsListBytes = 294_400;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()

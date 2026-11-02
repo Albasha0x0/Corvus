@@ -130,6 +130,49 @@ public sealed class ProtobufTests
         .Msg(4, m => m.Str(1, "A").Field(2, "x", 1, 5)).Msg(4, m => m.Str(1, "B").Field(2, "y", 1, 5))
         .Msg(4, m => m.Str(1, "C").Field(2, "z", 1, 5)).Str(12, "proto3").ToArray();
 
+    private static async Task<(Corvus.Tools.FileSummaryRecord Overview, Func<string, Task<(Corvus.Tools.FileSummaryRecord Record, string Text)>> View)> PagedSummary(TempDir dir)
+    {
+        var writer = NativeFormats.FormatWriterTests.SampleMachO();
+        writer.ExtraSections = [("__TEXT", "__const", 0x2000, ProtoWriter.Demo(), 0), ("__TEXT", "__cstring", 0x3000, Second(), 0)];
+        var path = dir.File("paged.bin");
+        File.WriteAllBytes(path, writer.Build());
+        var workspace = new AssemblyWorkspace();
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(workspace), workspace);
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.SummarizeFile(path: path);
+        var overview = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
+        return (overview, async view =>
+        {
+            var c = Corvus.Mcp.ToolOutput.Collect();
+            var text = await tools.SummarizeFile(path: path, view: view, limit: view == "protobuf" ? 1 : null);
+            return (Assert.IsType<Corvus.Tools.FileSummaryRecord>(c.Value), text);
+        });
+    }
+
+    [Fact]
+    public async Task Every_summary_view_repeats_the_file_facts()
+    {
+        using var dir = new TempDir();
+        var (overview, view) = await PagedSummary(dir);
+        Assert.NotEqual(0, overview.Entropy);
+        foreach (var name in overview.Views!.Where(v => v != "overview"))
+        {
+            var (record, _) = await view(name);
+            Assert.Equal((overview.Entropy, overview.Md5, overview.Sha1), (record.Entropy, record.Md5, record.Sha1));
+        }
+    }
+
+    [Fact]
+    public async Task A_paging_value_is_not_a_note()
+    {
+        using var dir = new TempDir();
+        var (_, view) = await PagedSummary(dir);
+        var (record, text) = await view("protobuf");
+        Assert.All(record.Notes!, n => Assert.Contains(' ', n));
+        Assert.DoesNotMatch(@"(?m)^\s*next: ", text);
+        Assert.DoesNotMatch(@"(?m)^Note: [0-9]+?$", text);
+    }
+
     [Fact]
     public void The_protobuf_highlight_names_each_descriptor_with_its_message_count()
     {

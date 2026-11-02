@@ -65,6 +65,8 @@ internal static class RecordText
                 Table(sb, a, depth + 1);
                 return;
             default:
+                // A numeric cursor named next is labelled nextOffset, so it never reads as advice.
+                if (depth == 0 && key == "next" && value.GetValueKind() == System.Text.Json.JsonValueKind.Number) key = "nextOffset";
                 sb.Append(pad).Append(key).Append(": ").Append(Cell(value)).Append('\n');
                 return;
         }

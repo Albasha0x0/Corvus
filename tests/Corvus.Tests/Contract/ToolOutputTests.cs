@@ -484,6 +484,13 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Empty(ToolOutput.RowAdvice("mov eax, 1 ; next: loop\nnext_item: 3\n"));
     }
 
+    [Fact]
+    public void A_next_field_holding_a_number_is_not_row_advice()
+    {
+        Assert.Empty(ToolOutput.RowAdvice("total: 2\n  next: 1\n"));
+        Assert.Equal(["call x."], ToolOutput.RowAdvice("  next: call x.\n"));
+    }
+
     /// <summary>RT-337: undo notes are one Note line each, without a doubled marker.</summary>
     [Fact]
     public void Undo_notes_are_single_note_lines()

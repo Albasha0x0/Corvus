@@ -349,7 +349,9 @@ public static partial class ToolOutput
 
     /// <summary>The lower-case advice lines and <c>; next:</c> clauses of a text.</summary>
     public static IEnumerable<string> RowAdvice(string text) =>
-        RowAdviceLine.Matches(text).Where(m => !ActionStarts.Any(s => m.Value.StartsWith(s, StringComparison.Ordinal))).Select(m => m.Groups["text"].Value.TrimEnd((char)13));
+        RowAdviceLine.Matches(text).Where(m => !ActionStarts.Any(s => m.Value.StartsWith(s, StringComparison.Ordinal))).Select(m => m.Groups["text"].Value.TrimEnd((char)13))
+            // Backstop: a number alone is a field value, not advice.
+            .Where(t => !t.All(char.IsAsciiDigit));
 
     /// <summary>The row field that states <paramref name="advice"/>, else null.</summary>
     public static string? RowField(JsonObject record, string advice)
