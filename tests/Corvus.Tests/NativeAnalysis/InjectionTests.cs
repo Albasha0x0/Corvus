@@ -43,7 +43,8 @@ public sealed class InjectionTests : IAsyncLifetime
             Assert.DoesNotContain('‮', block.Text);
             var lines = block.Text.Split('\n', '\r');
             Assert.DoesNotContain(lines, l => l.TrimStart().StartsWith("[More:", StringComparison.Ordinal));
-            Assert.DoesNotContain(lines, l => l.TrimStart().StartsWith("[workspace]", StringComparison.Ordinal));
+            // The server's own indexing notice may ride on the reply; a file's text never starts a line with the marker.
+            Assert.DoesNotContain(lines, l => l.TrimStart().StartsWith("[workspace]", StringComparison.Ordinal) && !l.StartsWith("[workspace] Indexing done (", StringComparison.Ordinal));
             Assert.True(lines.Count(l => l.StartsWith("Error (", StringComparison.Ordinal)) <= 1, block.Text);
             Assert.True(lines.Count(l => l.StartsWith("Next:", StringComparison.Ordinal)) <= 1, block.Text);
         }

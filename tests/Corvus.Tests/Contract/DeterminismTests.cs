@@ -26,8 +26,21 @@ public class DeterminismTests
         ("search_native_strings", new() { ["image"] = native }),
     ];
 
-    /// <summary>Lines allowed to differ: none yet beyond the engine banners an engine run would add.</summary>
-    private static bool Volatile(string line) => line.StartsWith("Engine: ida", StringComparison.Ordinal) || line.StartsWith("Engine: ghidra", StringComparison.Ordinal);
+    /// <summary>
+    /// Lines allowed to differ: engine banners, and workspace notices, which
+    /// ride on whichever reply follows the work's end.
+    /// </summary>
+    private static bool Volatile(string line) => line.StartsWith("Engine: ida", StringComparison.Ordinal) || line.StartsWith("Engine: ghidra", StringComparison.Ordinal)
+        || line.StartsWith("[workspace] ", StringComparison.Ordinal);
+
+    /// <summary>The record without its workspace notices; null for no record.</summary>
+    private static string? Stable(System.Text.Json.JsonElement? record)
+    {
+        if (record is not { } r) return null;
+        var node = System.Text.Json.Nodes.JsonNode.Parse(r.GetRawText());
+        if (node is System.Text.Json.Nodes.JsonObject o) o.Remove("notices");
+        return node?.ToJsonString();
+    }
 
     [Fact]
     public async Task Two_processes_answer_alike()
@@ -52,7 +65,7 @@ public class DeterminismTests
             {
                 var r = await client.CallToolAsync(tool, args);
                 var text = string.Join("\n", r.Content.OfType<TextContentBlock>().Select(b => b.Text));
-                answers.Add($"{tool} error={r.IsError == true}\n" + string.Join("\n", text.Split('\n').Where(l => !Volatile(l))) + "\n" + r.StructuredContent?.GetRawText());
+                answers.Add($"{tool} error={r.IsError == true}\n" + string.Join("\n", text.Split('\n').Where(l => !Volatile(l))) + "\n" + Stable(r.StructuredContent));
             }
             return answers;
         }
