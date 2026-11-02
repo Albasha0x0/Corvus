@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native.Providers;
+using Corvus.Services;
 
 namespace Corvus.Tests;
 
@@ -31,21 +32,21 @@ public sealed class AnalysisCacheOpenStageTests : IDisposable
         var error = Assert.Throws<ToolError>(() => cache.Acquire("ida", Input(), null));
 
         Assert.Equal(ErrorCode.Conflict, error.Code);
-        Assert.Contains("in analysis for 10 s of about 100 s expected from earlier opens", error.Message);
+        Assert.Contains("in analysis, 10 s, about 90 s left of 100 s expected from earlier opens", error.Message);
         Assert.Contains("Retry in about 90 s", error.Remediation);
         Assert.Equal(TimeSpan.FromSeconds(90), error.RetryAfter);
     }
 
     [Fact]
-    public void A_default_rate_estimate_names_its_basis()
+    public void A_second_acquire_during_a_load_reads_the_text_the_status_shows()
     {
         var cache = Cache();
         using var first = cache.Acquire("ida", Input(), null);
-        AnalysisCache.WriteProgress(first.Directory, "analysis", DateTime.UtcNow.AddSeconds(-10), 100, fromHistory: false);
+        AnalysisCache.WriteProgress(first.Directory, "load", DateTime.UtcNow.AddSeconds(-10), 40, fromHistory: true);
 
         var error = Assert.Throws<ToolError>(() => cache.Acquire("ida", Input(), null));
 
-        Assert.Contains("expected from the default rate", error.Message);
+        Assert.Contains(OpenProgressText.Describe("load", 10, 40, "earlier opens"), error.Message);
     }
 
     [Fact]
@@ -84,7 +85,7 @@ public sealed class AnalysisCacheOpenStageTests : IDisposable
 
         var error = Assert.Throws<ToolError>(() => cache.Acquire("ida", Input(), null));
 
-        Assert.Contains("in load for 2 s.", error.Message);
+        Assert.Contains("in load, 2 s, no estimate (no earlier open of this image).", error.Message);
         Assert.DoesNotContain("expected", error.Message);
         Assert.Equal(AnalysisCache.LockRetryAfter, error.RetryAfter);
     }
@@ -100,7 +101,7 @@ public sealed class AnalysisCacheOpenStageTests : IDisposable
 
         var error = Assert.Throws<ToolError>(() => cache.Acquire("ida", Input(), null));
 
-        Assert.DoesNotContain("analysis for", error.Message);
+        Assert.DoesNotContain("It is in", error.Message);
     }
 
     [Fact]
@@ -122,19 +123,28 @@ public sealed class AnalysisCacheOpenStageTests : IDisposable
         await using var session = new StageSession(Cache(), Input(), new NativeOpenOptions { ExpectedSeconds = 600, ExpectedFromHistory = true });
         await session.OpenAsync(Input(), null, default);
 
-        Assert.Contains("in analysis for", session.SeenByCompetitor);
-        Assert.Contains("of about 600 s expected from earlier opens", session.SeenByCompetitor);
+        Assert.Contains("in analysis, ", session.SeenByCompetitor);
+        Assert.Contains("of 600 s expected from earlier opens", session.SeenByCompetitor);
         Assert.False(File.Exists(Path.Combine(session.Dir, ".progress")));
     }
 
     [Fact]
-    public async Task A_load_stage_quotes_no_expected_seconds()
+    public async Task A_load_stage_quotes_the_same_estimate_as_the_owner()
     {
-        await using var session = new StageSession(Cache(), Input(), new NativeOpenOptions { ExpectedSeconds = 600 }) { Stage = "load" };
+        await using var session = new StageSession(Cache(), Input(), new NativeOpenOptions { ExpectedSeconds = 600, ExpectedFromHistory = true }) { Stage = "load" };
         await session.OpenAsync(Input(), null, default);
 
-        Assert.Contains("in load for", session.SeenByCompetitor);
-        Assert.DoesNotContain("expected", session.SeenByCompetitor);
+        Assert.Contains("in load, ", session.SeenByCompetitor);
+        Assert.Contains("of 600 s expected from earlier opens", session.SeenByCompetitor);
+    }
+
+    [Fact]
+    public async Task A_stage_without_an_estimate_says_so()
+    {
+        await using var session = new StageSession(Cache(), Input(), new NativeOpenOptions()) { Stage = "load" };
+        await session.OpenAsync(Input(), null, default);
+
+        Assert.Contains("no estimate (no earlier open of this image)", session.SeenByCompetitor);
     }
 
     [Fact]

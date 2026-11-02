@@ -45,11 +45,23 @@ public sealed class OpenEstimate(string cacheRoot)
         return new(Math.Clamp(Math.Round(rate * codeBytes / (1 << 20)), MinimumSeconds, MaximumSeconds), fromHistory);
     }
 
-    /// <summary>Keeps the open only when its analysis ran at least 1 s, since a saved database opens in seconds; returns whether it was kept.</summary>
-    public bool RecordOpen(string engine, long codeBytes, double analysisSeconds, double openSeconds)
+    /// <summary>The history key of runs that compare: one engine, one image, and whether the open loaded a saved database, complete or partial.</summary>
+    internal static string RunKey(string engine, string imageSha256, bool reusedDatabase, bool partial) =>
+        $"{engine}|{imageSha256.ToLowerInvariant()}|{(reusedDatabase ? (partial ? "reused-partial" : "reused") : "analyzed")}";
+
+    /// <summary>The median seconds of earlier opens of the same image by the same engine and kind, or null when there is none.</summary>
+    public Estimate? ForRun(string engine, string imageSha256, bool reusedDatabase, bool partial = false)
     {
-        if (analysisSeconds < 1) return false;
-        Record(engine, codeBytes, openSeconds);
+        var seconds = Load().GetValueOrDefault(RunKey(engine, imageSha256, reusedDatabase, partial))?.Select(s => s[1]).Order().ToList();
+        if (seconds is not { Count: > 0 }) return null;
+        return new(Math.Clamp(Math.Round(seconds[seconds.Count / 2]), 1, MaximumSeconds), true);
+    }
+
+    /// <summary>Keeps one open of an image; an analyzed open counts only when its analysis ran at least 1 s. Returns whether it was kept.</summary>
+    public bool RecordRun(string engine, string imageSha256, bool reusedDatabase, double analysisSeconds, double openSeconds, bool partial = false)
+    {
+        if (!reusedDatabase && analysisSeconds < 1) return false;
+        Record(RunKey(engine, imageSha256, reusedDatabase, partial), 1, openSeconds);
         return true;
     }
 

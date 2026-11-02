@@ -26,7 +26,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         string? Error)
     {
         public string? Version { get; init; }
-        [Description("Expected open seconds: earlier opens or a default rate.")] public double? ExpectedSeconds { get; init; }
+        [Description("Expected open seconds from earlier opens; absent for none.")] public double? ExpectedSeconds { get; init; }
         [Description("Expected seconds left.")] public double? RemainingSeconds { get; init; }
         [Description("The running or ended job: an open, or a background run such as reanalyze_native.")] public EngineJob? Job { get; init; }
         [Description("The analysis profile: full or none (IDA); standard, full, minimal or none (Ghidra).")] public string? Profile { get; init; }
@@ -146,7 +146,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             {
                 OpenStages = state.OpenStages.Count > 0 ? state.OpenStages : null,
                 ExpectedSeconds = state.State == "opening" ? state.ExpectedSeconds : null,
-                RemainingSeconds = state.State == "opening" ? Math.Max(0, Math.Round(state.ExpectedSeconds - state.Seconds)) : null,
+                RemainingSeconds = state.State == "opening" && state.ExpectedSeconds is { } expected ? Math.Max(0, Math.Round(expected - state.Seconds)) : null,
                 Job = state.State switch
                 {
                     "opening" => new EngineJob("open", "running", state.OpenStarted.ToString("o"), engines.OpenLimitSeconds, null),
@@ -277,8 +277,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                                   (s.Error != null ? $"; not available: {s.Error}" : ""));
                     continue;
                 case "opening":
-                    sb.AppendLine($"{name}: opening ({s.Stage ?? "start"}, {s.Seconds:0.#} s" +
-                                  (s.ExpectedSeconds > 0 ? $", expected {s.ExpectedSeconds:0} s ({states.FirstOrDefault(e => e.Engine == s.Engine)?.ExpectedBasis ?? "default rate"}), about {s.RemainingSeconds:0} s left" : "") + ")");
+                    sb.AppendLine($"{name}: opening ({OpenProgressText.Describe(s.Stage ?? "start", s.Seconds, s.ExpectedSeconds, states.FirstOrDefault(e => e.Engine == s.Engine)?.ExpectedBasis)})");
                     actions.Add($"Next: get_engine_status image={native.Id} waitSeconds=60 waits for the end; cancel=true stops it; engine=ours answers now.");
                     if (s.OpenStages != null) sb.AppendLine($"  stages so far: {EngineOpenProfile.Describe(s.OpenStages)}");
                     continue;

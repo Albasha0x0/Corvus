@@ -53,6 +53,18 @@ public sealed class NativeTypeMetadataHintTests : IDisposable
     }
 
     [Fact]
+    public async Task An_empty_engine_list_of_one_kind_still_names_the_metadata_and_the_declare_call()
+    {
+        var (tools, id) = await Setup(applyMetadata: true);
+
+        var text = await tools.ListNativeTypes(id, "*NativeThing*", kind: "struct", engine: "ida");
+
+        Assert.Contains("No struct type in the ida database matches", text);
+        Assert.Contains("Fixture.Native.NativeThing is a metadata type", text);
+        Assert.Contains("declare_native_types", text);
+    }
+
+    [Fact]
     public async Task An_empty_engine_list_for_an_unrelated_filter_names_the_filter_and_engine()
     {
         var (tools, id) = await Setup(applyMetadata: true);

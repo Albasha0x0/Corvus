@@ -144,7 +144,7 @@ public sealed class NativeEngineService : IDisposable
     private static string? Named(string? engine) =>
         string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? null : engine.Trim().ToLowerInvariant();
 
-    /// <summary>The engine a call uses: the named one, the server default, the first that analyzed these bytes, else the
+    /// <summary>The engine a call uses: the named one, the server default, the one open on these bytes, the first that analyzed them, else the
     /// first installed; never depends on earlier calls.</summary>
     public string Resolve(LoadedNative native, string? engine)
     {
@@ -156,13 +156,13 @@ public sealed class NativeEngineService : IDisposable
                     "omit engine to use the available one");
             return wanted;
         }
-        return AnalyzedBy(native) ?? FirstAvailable() ?? Provider(null).Id;
+        return OpenEngine(native) ?? AnalyzedBy(native) ?? FirstAvailable() ?? Provider(null).Id;
     }
 
     /// <summary>The Ghidra provider when this server has one set up, else null.</summary>
     internal GhidraProvider? Ghidra => _providers.Where(p => p.Id == GhidraProvider.ProviderId).Select(p => p.Provider.Value as GhidraProvider).FirstOrDefault();
 
-    /// <summary>The first installed engine with a complete analysis of the image, open here or saved; null when none.
+    /// <summary>The first installed engine with a complete analysis of the image, open here or saved; null when none, or while another engine is still opening or partial on it.
     /// Never opens an engine.</summary>
     public string? AnalyzedBy(LoadedNative native)
     {
@@ -170,7 +170,11 @@ public sealed class NativeEngineService : IDisposable
         if (native.EngineDatabase != null && _providers.Any(p => p.Id == GhidraProvider.ProviderId) && UnavailabilityOf(GhidraProvider.ProviderId) == null)
             return GhidraProvider.ProviderId;
         foreach (var (id, provider) in _providers)
-            if ((LiveComplete(native, id) || HasSavedAnalysis(native, id) && !HeldElsewhere(native, id)) && provider.Value.CheckAvailability().IsAvailable)
+            if (LiveComplete(native, id) && provider.Value.CheckAvailability().IsAvailable) return id;
+        // While one engine is open on the image, no other engine's saved analysis answers.
+        var open = OpenEngine(native);
+        foreach (var (id, provider) in _providers)
+            if ((open == null || open == id) && HasSavedAnalysis(native, id) && !HeldElsewhere(native, id) && provider.Value.CheckAvailability().IsAvailable)
                 return id;
         return null;
     }
@@ -194,6 +198,13 @@ public sealed class NativeEngineService : IDisposable
         };
         return db != null && PartialAnalysis.Marked(db);
     }
+
+    /// <summary>The installed engine with a session opening or open on the image in this process, complete or not; null when none. Never opens an engine.</summary>
+    public string? OpenEngine(LoadedNative native) =>
+        _providers.FirstOrDefault(p => Live(native, p.Id) && p.Provider.Value.CheckAvailability().IsAvailable).Id;
+
+    private bool Live(LoadedNative native, string id) =>
+        Existing(native, id)?.Opening is { } o && (!o.IsCompleted || (o.IsCompletedSuccessfully && o.Result.IsOpen));
 
     private bool LiveComplete(LoadedNative native, string id) =>
         Existing(native, id)?.Opening is { IsCompletedSuccessfully: true } opened && opened.Result.IsOpen && opened.Result.AnalysisComplete;
@@ -282,22 +293,28 @@ public sealed class NativeEngineService : IDisposable
     internal string OutputIdentity(string id) => Identity(id) is var i ? $"{i.Engine}|{i.Build}|{i.Profile}" : id;
 
     // The history is advisory: a failure leaves the estimate out of the conflict another session reads.
-    private (double? Seconds, bool FromHistory) ExpectedSeconds(LoadedNative native, string id)
+    // Only earlier opens of this image by this engine, loading a saved database or analyzing, estimate an open.
+    private OpenEstimate.Estimate? Expectation(LoadedNative native, string id, bool patchedCopy)
     {
-        try { var e = Estimates.Seconds(id, OpenEstimate.CodeBytes(native.Image)); return (e.Seconds, e.FromHistory); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { return (null, false); }
+        if (patchedCopy) return null;
+        try
+        {
+            var saved = HasSavedAnalysis(native, id);
+            return Estimates.ForRun(id, native.OriginalSha256, saved, saved && IsPartial(native, id));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
     }
 
-    private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath)
+    private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath, bool patchedCopy = false)
     {
-        var (expected, fromHistory) = ExpectedSeconds(native, id);
+        var expectation = Expectation(native, id, patchedCopy);
         return new NativeOpenOptions
         {
             // A raw layout and import overrides are databases of their own, with their own answers.
             OutputCache = OutputCache,
             OutputIdentity = OutputIdentity(id) + ((native.Image as Native.RawCodeImage)?.Layout.Key is { } raw ? "|raw " + raw : "") +
                              (native.Overrides is { } ov ? "|" + ov.Key : ""),
-            ExpectedSeconds = expected, ExpectedFromHistory = fromHistory,
+            ExpectedSeconds = expectation?.Seconds, ExpectedFromHistory = expectation != null,
             Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, AnalysisStall = AnalysisStall, Analysis = _analysis,
             Raw = (native.Image as Native.RawCodeImage)?.Layout,
             Overrides = native.Overrides,
@@ -450,7 +467,7 @@ public sealed class NativeEngineService : IDisposable
                 _prewarmQueued--;
                 _prewarmRunning = (native.Id, DateTime.UtcNow);
             }
-            await OpenThrough(native, engine ?? FirstAvailable(), native.Released).ConfigureAwait(false);
+            await OpenThrough(native, engine ?? OpenEngine(native) ?? AnalyzedBy(native) ?? FirstAvailable(), native.Released).ConfigureAwait(false);
             lock (_prewarmLock) _prewarmDone++;
         }
         catch (Exception ex) when (ex is OperationCanceledException || native.Released.IsCancellationRequested)
@@ -586,7 +603,7 @@ public sealed class NativeEngineService : IDisposable
                 holder.DisposePatched();
                 holder.PatchedState = key;
                 holder.PatchedPdb = PdbService.PathForEngines(native);
-                var run = holder.PatchedRun = NewRun(native, id);
+                var run = holder.PatchedRun = NewRun(native, id, patchedCopy: true);
                 holder.Patched = OpenPatched(native, id, run, progress, holder.PatchedPdb);
             }
             return await Wait(native, id, holder.PatchedRun, holder.Patched, ct).ConfigureAwait(false);
@@ -626,15 +643,17 @@ public sealed class NativeEngineService : IDisposable
                     : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), cancel.Token);
             }
             finally { holder.Starting = false; }
-            // Only an open whose analysis completed measures its rate: a partial
-            // one stopped early, and a saved database opens in seconds.
+            // A saved database measures a load; an analysis measures a rate only
+            // when it completed, since a partial one stopped early.
             _ = holder.Opening.ContinueWith(opened =>
             {
-                if (!opened.IsCompletedSuccessfully || !opened.Result.AnalysisComplete) return;
+                if (!opened.IsCompletedSuccessfully) return;
+                var reused = opened.Result.ReusedDatabase;
+                if (!reused && !opened.Result.AnalysisComplete) return;
                 var analysis = run.Profile.Stages(0).Where(st => st.Stage == "analysis").Sum(st => st.Seconds);
                 lock (_recordGate)
                 {
-                    if (!_disposed) Estimates.RecordOpen(id, run.CodeBytes, analysis, (Now - run.Started).TotalSeconds);
+                    if (!_disposed) Estimates.RecordRun(id, native.OriginalSha256, reused, analysis, (Now - run.Started).TotalSeconds, !opened.Result.AnalysisComplete);
                 }
             }, TaskScheduler.Default);
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
@@ -659,7 +678,7 @@ public sealed class NativeEngineService : IDisposable
     private OpenEstimate Estimates => new(_cacheRoot ?? AnalysisCache.DefaultRoot);
 
     /// <summary>A new open's own start, stage, profile and estimate.</summary>
-    private OpenRun NewRun(LoadedNative native, string id)
+    private OpenRun NewRun(LoadedNative native, string id, bool patchedCopy = false)
     {
         var run = new OpenRun { Started = Now, Stage = "start" };
         // The input copy and cache entry, before the engine starts.
@@ -668,7 +687,7 @@ public sealed class NativeEngineService : IDisposable
         try
         {
             run.CodeBytes = OpenEstimate.CodeBytes(native.Image);
-            run.Expected = Estimates.Seconds(id, run.CodeBytes);
+            run.Expected = Expectation(native, id, patchedCopy);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { }
         return run;
@@ -679,7 +698,7 @@ public sealed class NativeEngineService : IDisposable
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
     private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, OpenRun run, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, id, Recorded(run, progress), pdbPath), native.Released);
+        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(native, id, Recorded(run, progress), pdbPath, patchedCopy: true), native.Released);
 
     /// <summary>Opens a session on <paramref name="content"/> (the patched bytes when null), written to a private file named <paramref name="name"/>.</summary>
     private static Task<INativeDecompilerSession> OpenBytes(INativeDecompilerProvider provider, LoadedNative native, string name, byte[]? content,
@@ -718,31 +737,32 @@ public sealed class NativeEngineService : IDisposable
         {
             var stage = run.Stage ?? "start";
             var seconds = Math.Round((Now - run.Started).TotalSeconds);
-            var expected = run.Expected.Seconds;
-            var minutes = Math.Max(1, (int)Math.Ceiling(expected / 60));
+            var expected = run.Expected?.Seconds;
             // Past the estimate there is no time left to report; the overrun is.
-            double? remaining = seconds < expected ? Math.Round(expected - seconds) : null;
-            var overdue = remaining == null ? seconds - expected : (double?)null;
+            double? remaining = expected is { } e && seconds < e ? Math.Round(e - seconds) : null;
+            var overdue = expected is { } x && remaining == null ? seconds - x : (double?)null;
             var retry = Native.Providers.BackgroundRunner.RetryFor(remaining ?? 0);
             // Once per task, so the end reaches a call that returned early; a later call finds it on the next reply.
             if (!ReferenceEquals(Interlocked.Exchange(ref run.Announced, opening), opening))
                 _ = opening.ContinueWith(done => NotifyEnd(native, id, run, done), TaskScheduler.Default);
             var tool = OutputCall.Current?.Tool;
             var offersFallback = BuiltInEngineFor?.Invoke(tool) ?? true;
-            var progress = overdue is { } late
-                ? $"analysis running, {late:0} s past the estimate of about {minutes} min ({run.Expected.Basis})"
-                : $"analysis running, about {minutes} min ({run.Expected.Basis})";
+            var progress = $"opening ({OpenProgressText.Describe(stage, seconds, expected, run.Expected?.Basis)})";
             var next = $"get_engine_status image={native.Id} waitSeconds={(int)retry.TotalSeconds} waits for the end"
                 + (offersFallback ? $", or use engine={FallbackEngine} for an answer now" : "");
-            var message = $"{progress}; the engine is still opening {native.Id} ({stage}, {seconds:0} s); the open goes on in the background and {OpenLimitText}.";
+            var message = $"{progress}; the engine is still opening {native.Id}; the open goes on in the background and {OpenLimitText}.";
             // The key is omitted, not null, when the fallback is not offered.
             var details = new Dictionary<string, object?>
             {
                 ["stillRunning"] = true, ["stage"] = stage, ["seconds"] = seconds,
-                ["expectedSeconds"] = expected, ["expectedBasis"] = run.Expected.Basis,
             };
-            if (remaining is { } left) details["remainingSeconds"] = left; else details["overdueSeconds"] = overdue;
-            details["estimatedMinutes"] = minutes;
+            if (expected is { } exp)
+            {
+                details["expectedSeconds"] = exp;
+                details["expectedBasis"] = run.Expected!.Value.Basis;
+                if (remaining is { } left) details["remainingSeconds"] = left; else details["overdueSeconds"] = overdue;
+                details["estimatedMinutes"] = Math.Max(1, (int)Math.Ceiling(exp / 60));
+            }
             details["image"] = native.Id;
             if (offersFallback) details["fallbackEngine"] = FallbackEngine;
             throw new ToolError(ErrorCode.Timeout, message, next) { Details = details, RetryAfter = retry };
@@ -832,9 +852,9 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>One engine session's status: opening (Stage, Seconds), open (Session), failed (Error) or closed.</summary>
     public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error)
     {
-        /// <summary>Seconds the first analysis is expected to take.</summary>
-        public double ExpectedSeconds { get; init; }
-        /// <summary>What the estimate rests on: earlier opens or the default rate.</summary>
+        /// <summary>Seconds the open is expected to take; null without earlier opens of this image.</summary>
+        public double? ExpectedSeconds { get; init; }
+        /// <summary>What the estimate rests on: earlier opens of this image.</summary>
         public string? ExpectedBasis { get; init; }
         /// <summary>When the open started.</summary>
         public DateTime OpenStarted { get; init; }
@@ -857,7 +877,7 @@ public sealed class NativeEngineService : IDisposable
             var stages = run.Profile.Stages((Now - run.Started).TotalSeconds);
             if (h.Running != null)
                 list.Add(new(id, "opening", run.Stage, seconds, null, null)
-                    { OpenStages = stages, ExpectedSeconds = run.Expected.Seconds, ExpectedBasis = run.Expected.Basis, OpenStarted = run.Started });
+                    { OpenStages = stages, ExpectedSeconds = run.Expected?.Seconds, ExpectedBasis = run.Expected?.Basis, OpenStarted = run.Started });
             else if (h.Patched is { IsCompleted: true, IsCompletedSuccessfully: false } bad && h.PatchedState == h.SyncedKey)
                 list.Add(new(id, "failed", h.PatchedRun.Stage, seconds, null,
                     bad.Exception?.InnerException is { } pe ? (pe is ToolError pt ? pt.Message : pe.Message) : "cancelled")
@@ -919,7 +939,7 @@ public sealed class NativeEngineService : IDisposable
         public DateTime Started;
         public volatile string? Stage;
         public long CodeBytes;
-        public OpenEstimate.Estimate Expected;
+        public OpenEstimate.Estimate? Expected;
         public readonly EngineOpenProfile Profile = new();
         /// <summary>The open task whose end is announced to the next reply.</summary>
         public Task? Announced;

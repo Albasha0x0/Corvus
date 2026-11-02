@@ -36,7 +36,7 @@
             "type": "string"
           },
           "expectedSeconds": {
-            "description": "Expected open seconds: earlier opens or a default rate.",
+            "description": "Expected open seconds from earlier opens; absent for none.",
             "type": "number"
           },
           "remainingSeconds": {

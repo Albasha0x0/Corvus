@@ -75,14 +75,49 @@ public sealed class OpenEstimateTests : IDisposable
     }
 
     [Fact]
-    public void Only_an_open_with_an_analysis_stage_of_a_second_is_recorded()
+    public void An_analyzed_open_is_recorded_only_when_its_analysis_ran_a_second()
     {
         var estimate = new OpenEstimate(_dir.Path);
-        Assert.False(estimate.RecordOpen("ida", 10L << 20, 0.4, 100));
-        Assert.Equal(20, estimate.Seconds("ida", 10L << 20).Seconds);
-        Assert.True(estimate.RecordOpen("ida", 10L << 20, 1, 100));
-        Assert.Equal(100, estimate.Seconds("ida", 10L << 20).Seconds);
+        Assert.False(estimate.RecordRun("ida", "ab", false, 0.4, 100));
+        Assert.Null(estimate.ForRun("ida", "ab", false));
+        Assert.True(estimate.RecordRun("ida", "ab", false, 1, 100));
+        Assert.Equal(100, estimate.ForRun("ida", "ab", false)!.Value.Seconds);
     }
+
+    [Fact]
+    public void An_image_with_no_earlier_open_has_no_estimate_from_other_images_or_opens_of_another_kind()
+    {
+        var estimate = new OpenEstimate(_dir.Path);
+        estimate.RecordRun("ida", "ab", false, 5, 600);
+        Assert.Null(estimate.ForRun("ida", "cd", false));
+        Assert.Null(estimate.ForRun("ida", "ab", true));
+        Assert.Null(estimate.ForRun("ghidra", "ab", false));
+        Assert.Equal(600, estimate.ForRun("ida", "AB", false)!.Value.Seconds);
+    }
+
+    [Fact]
+    public void A_saved_database_open_is_recorded_whatever_its_analysis_seconds()
+    {
+        var estimate = new OpenEstimate(_dir.Path);
+        Assert.True(estimate.RecordRun("ida", "ab", true, 0, 32));
+        Assert.Equal(32, estimate.ForRun("ida", "ab", true)!.Value.Seconds);
+    }
+
+    [Fact]
+    public void A_partial_saved_database_open_has_its_own_history()
+    {
+        var estimate = new OpenEstimate(_dir.Path);
+        estimate.RecordRun("ida", "ab", true, 0, 32, partial: true);
+        Assert.Equal(32, estimate.ForRun("ida", "ab", true, partial: true)!.Value.Seconds);
+        Assert.Null(estimate.ForRun("ida", "ab", true));
+    }
+
+    [Theory]
+    [InlineData("load", 20, null, null, "load, 20 s, no estimate (no earlier open of this image)")]
+    [InlineData("load", 20, 32.0, "earlier opens", "load, 20 s, about 12 s left of 32 s expected from earlier opens")]
+    [InlineData("analysis", 50, 32.0, "earlier opens", "analysis, 50 s, 18 s past 32 s expected from earlier opens")]
+    public void Open_progress_names_the_stage_the_seconds_and_only_a_measured_estimate(string stage, double seconds, double? expected, string? basis, string text) =>
+        Assert.Equal(text, Corvus.Native.Providers.OpenProgressText.Describe(stage, seconds, expected, basis));
 
     [Fact]
     public void Code_bytes_sum_only_the_executable_sections()

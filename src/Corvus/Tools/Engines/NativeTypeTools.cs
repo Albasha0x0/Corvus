@@ -1108,7 +1108,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                      $"({session.ProviderId})\n";
         if (total == 0 && nameFilter != null)
             header += k != null
-                ? $"No {k} type in the {session.ProviderId} database matches '{nameFilter.Text}'.\n"
+                ? MetadataTypeHint(native, nameFilter, session.ProviderId).Replace("No type in", $"No {k} type in", StringComparison.Ordinal)
                 : MetadataTypeHint(native, nameFilter, session.ProviderId);
         return ToolOutput.List(entries, offset, limit, total, TypeLine,
             page => new TypeListReport(session.ProviderId, page, offset, total), "type", header.TrimStart());

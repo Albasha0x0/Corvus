@@ -178,9 +178,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         // Written only while the open runs, so a late callback cannot recreate it.
         if (Entry is { SnapshotOf: null } entry && _starting is { } starting)
         {
-            // Only a first analysis has an estimate; loading a saved database takes seconds.
-            var expected = stage == "analysis" ? Options.ExpectedSeconds : null;
-            AnalysisCache.WriteProgress(entry.Directory, stage, starting.Since, expected, Options.ExpectedFromHistory);
+            // The estimate covers the whole open, so every stage carries it.
+            AnalysisCache.WriteProgress(entry.Directory, stage, starting.Since, Options.ExpectedSeconds, Options.ExpectedFromHistory);
         }
     }
 

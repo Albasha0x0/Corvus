@@ -231,7 +231,7 @@ variables that move the file; `-`: not supported.
 profile (`lean`: the 40 most used tools).
 
 - A call answers 5 s before the client's limit with a `timeout` error; `details.stillRunning` says the work goes on.
-- An engine open adds `details.expectedSeconds`, the expected first analysis from code size and earlier opens (`open-history.json` in the analysis cache root).
+- An engine open adds `details.expectedSeconds`, the expected first analysis from earlier opens of the same image, absent without one (`open-history.json` in the analysis cache root).
 - Repeating the same read-only call picks up the running work.
 - Without `--client`, the server matches the name the client sends. An unknown client gets 9,500 tokens and no call limit.
 - Overrides: `--client-timeout`, `CORVUS_MAX_OUTPUT_TOKENS`, `--toolsets` ([server options](configuration.md#server-options)).

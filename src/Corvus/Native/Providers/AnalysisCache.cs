@@ -293,18 +293,15 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
             if (progress != null)
             {
                 var elapsed = Math.Max(0, Math.Round((DateTime.UtcNow - progress.Started).TotalSeconds));
-                message += $" It is in {progress.Stage} for {elapsed} s";
+                message += $" It is in {OpenProgressText.Describe(progress.Stage, elapsed, progress.ExpectedSeconds, "earlier opens")}.";
                 if (progress.ExpectedSeconds is { } expected)
                 {
                     var left = Math.Max(0, Math.Round(expected - elapsed));
-                    var basis = progress.FromHistory ? "earlier opens" : "the default rate";
-                    message += $" of about {Math.Round(expected)} s expected from {basis}.";
                     retry = TimeSpan.FromSeconds(Math.Clamp(left, 5, 300));
                     next = left > 0
                         ? $"Retry in about {left} s (details.retryAfterMs), or work in the other session."
                         : $"The open is past the expected {Math.Round(expected)} s; retry in {retry.TotalSeconds} s (details.retryAfterMs), or work in the other session.";
                 }
-                else message += ".";
             }
             throw new LockedError(new LockedEntry(dir, owner, new ToolError(ErrorCode.Conflict, message, next)
             {
