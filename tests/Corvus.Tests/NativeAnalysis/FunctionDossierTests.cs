@@ -211,6 +211,69 @@ public sealed class FunctionDossierTests : IDisposable
         NativeLinkTests.Has(text, "the 3 bytes after it decode as code");
     }
 
+    [Fact]
+    public async Task An_address_taken_local_reads_as_a_signed_hexadecimal_offset_with_its_size()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        byte[] Code(Dictionary<string, uint> _)
+        {
+            var a = new Assembler(64);
+            a.sub(rsp, 0x88);
+            a.lea(rcx, __[rsp + 0x68]);
+            a.mov(__dword_ptr[rsp + 0x68], 1);
+            a.lea(rdx, __[rbp - 0x12]);
+            a.add(rsp, 0x88);
+            a.ret();
+            var stream = new MemoryStream();
+            a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text);
+            return stream.ToArray();
+        }
+        var path = _dir.File("local.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("local.dll", [("Main", 0)], [("KERNEL32.dll", ["ExitProcess"])], Code));
+        var record = ToolOutput.Collect();
+        var text = await tools.AnalyzeNativeFunction(path, "Main", sections: "frame");
+        NativeLinkTests.Has(text, "address taken: local [rsp+68h] (4 bytes)");
+        NativeLinkTests.Has(text, "address taken: local [rbp-12h] (size unknown)");
+        var items = Assert.IsType<NativeFunctionTools.FunctionDossier>(record.Value).Sections.SelectMany(s => s.Items).Where(i => i.Kind == "taken_local").ToList();
+        Assert.Contains(items, i => i.Offset == 0x68 && i.Size == 4);
+        Assert.Contains(items, i => i.Offset == -0x12 && i.Size is null);
+    }
+
+    [Fact]
+    public void A_signed_offset_prints_every_long_value_with_a_digit_first()
+    {
+        Assert.Equal("+0h", NativeFunctionTools.SignedHex(0));
+        Assert.Equal("-0Ch", NativeFunctionTools.SignedHex(-12));
+        Assert.Equal("+10h", NativeFunctionTools.SignedHex(16));
+        Assert.Equal("-8000000000000000h", NativeFunctionTools.SignedHex(long.MinValue));
+    }
+
+    [Fact]
+    public async Task A_32_bit_frame_register_local_reads_as_a_signed_offset()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var a = new Assembler(32);
+        a.push(ebp);
+        a.mov(ebp, esp);
+        a.sub(esp, 0x20);
+        a.lea(eax, __[ebp - 0xC]);
+        a.mov(__dword_ptr[ebp - 0xC], 7);
+        a.lea(ecx, __[esp + 0x10]);
+        a.leave();
+        a.ret();
+        var stream = new MemoryStream();
+        a.Assemble(new StreamCodeWriter(stream), 0x401000);
+        var b = new PeBuilder { Is64 = false, Machine = 0x14c, ImageBase = 0x400000, Characteristics = 0x0102 };
+        b.EntryPoint = b.Add(".text", stream.ToArray(), 0x60000020).Rva;
+        var path = _dir.File("local32.exe");
+        File.WriteAllBytes(path, b.Build());
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, "0x401000", sections: "frame"));
+        NativeLinkTests.Has(text, "address taken: local [ebp-0Ch] (4 bytes)");
+        NativeLinkTests.Has(text, "address taken: local [esp+10h] (size unknown)");
+    }
+
     /// <summary>
     /// cipher.dll: Block reads the AES S-box; Wrapper calls Block in a loop that steps 16 bytes and names a storage
     /// operation; Open and Save call Wrapper.

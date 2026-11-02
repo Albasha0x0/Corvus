@@ -27,7 +27,9 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 {
     [Description("One fact of a section.")]
     public sealed record DossierItem([property: Description("VA, when the fact has an address.")] string? Address, string Text,
-        [property: Description("Kind in its section (caller, call, string, read, write, switch, loop...).")] string? Kind);
+        [property: Description("Kind in its section (caller, call, string, read, write, switch, loop...).")] string? Kind,
+        [property: Description("Signed offset from the frame register, for a taken_local.")] long? Offset = null,
+        [property: Description("Bytes the local's other accesses touch, for a taken_local; absent when they differ or none exists.")] int? Size = null);
 
     [Description("One section; Total counts every fact, Items holds at most maxItems.")]
     public sealed record DossierSection(
@@ -213,14 +215,25 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         public string? Error;
         public string Name => name;
 
-        public void Add(string? address, string text, string? kind = null)
+        public void Add(string? address, string text, string? kind = null, long? offset = null, int? size = null)
         {
             Total++;
-            if (Items.Count < max) Items.Add(new DossierItem(address, text, kind));
+            if (Items.Count < max) Items.Add(new DossierItem(address, text, kind, offset, size));
         }
 
         public DossierSection Record() => new(name, Total, Items, Error);
     }
+
+    /// <summary>A displacement as a signed hexadecimal offset, "+10h", "-8h" or "-0Ch"; every long value, including the minimum, is valid.</summary>
+    internal static string SignedHex(long value)
+    {
+        var digits = (value < 0 ? unchecked(0UL - (ulong)value) : (ulong)value).ToString("X", System.Globalization.CultureInfo.InvariantCulture);
+        return (value < 0 ? "-" : "+") + (char.IsLetter(digits[0]) ? "0" : "") + digits + "h";
+    }
+
+    /// <summary>The text of an address-taken local: base, signed hexadecimal offset and size ("(4 bytes)", else "(size unknown)").</summary>
+    internal static string LocalText(string baseRegister, long offset, int? size) =>
+        $"[{baseRegister}{SignedHex(offset)}] ({(size is { } n ? Plural(n, "byte") : "size unknown")})";
 
     /// <summary>
     /// The end of the code a function may own: its unwind end, else the next referenced function, else the section end;
@@ -434,13 +447,24 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             }
             if (pushed.Count > 0) x.Add(null, "saved registers: " + string.Join(", ", pushed), "saved");
             x.Add(null, fc.HasFramePointer ? $"frame pointer {(calls.Is64 ? "rbp" : "ebp")}" : "no frame pointer", "frame_pointer");
+            // A 32-bit base register carries its displacement as an unsigned 32-bit value.
+            static long Displacement(Instruction i) => i.MemoryBase is Register.ESP or Register.EBP ? (int)i.MemoryDisplacement64 : (long)i.MemoryDisplacement64;
+            var accesses = fc.Blocks.SelectMany(b => b).Where(d => d.I.Mnemonic != Mnemonic.Lea && d.I.MemoryBase.GetFullRegister() is Register.RSP or Register.RBP
+                                                                     && d.I.MemoryIndex == Register.None && d.I.MemorySize != MemorySize.Unknown)
+                .ToLookup(d => (Base: d.I.MemoryBase, Offset: Displacement(d.I)), d => d.I.MemorySize.GetSize());
             var taken = fc.Blocks.SelectMany(b => b).Where(d => d.I.Mnemonic == Mnemonic.Lea && d.I.MemoryBase.GetFullRegister() is Register.RSP or Register.RBP)
-                .Select(d => (d.Rva, Text: $"[{d.I.MemoryBase.ToString().ToLowerInvariant()}{(long)d.I.MemoryDisplacement64:+0x0;-0x0}]"))
-                .GroupBy(t => t.Text).ToList();
-            foreach (var g in taken) x.Add(Va(g.First().Rva), $"address taken: local {g.Key} ({Plural(g.Count(), "site")})", "taken_local");
+                .GroupBy(d => (Base: d.I.MemoryBase, Offset: Displacement(d.I))).ToList();
+            foreach (var g in taken)
+            {
+                // The access width gives the size only when every access agrees.
+                var widths = accesses[g.Key].Distinct().ToList();
+                int? size = widths.Count == 1 ? widths[0] : null;
+                x.Add(Va(g.First().Rva), $"address taken: local {LocalText(g.Key.Base.ToString().ToLowerInvariant(), g.Key.Offset, size)}, {Plural(g.Count(), "site")}",
+                      "taken_local", g.Key.Offset, size);
+            }
             if (index.ExceptionInfo.FrameOf(f.Start) is { } eh)
                 x.Add(null, $"exception handling: {eh.Scheme}, {Plural(eh.TryBlocks.Count, "try block")}, {Plural(eh.Unwind.Count, "unwind state")}, " +
-                            $"{Plural(eh.Scopes.Count, "SEH scope")}, {Plural(eh.Children.Count, "funclet")}{(eh.GsCookieOffset is { } gs ? $", GS cookie at {gs:+0x0;-0x0}" : "")} " +
+                            $"{Plural(eh.Scopes.Count, "SEH scope")}, {Plural(eh.Children.Count, "funclet")}{(eh.GsCookieOffset is { } gs ? $", GS cookie at {SignedHex(gs)}" : "")} " +
                             $"(get_exception_info)", "exception");
             else if (image.Format != ImageFormat.Pe && Native.Itanium.ItaniumEh.Of(image).At(f.Start) is { Lsda: not null } it)
                 x.Add(null, $"exception handling: {it.Personality ?? "a personality routine"}, {Plural(it.CallSites.Count, "call site")}, " +

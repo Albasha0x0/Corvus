@@ -47,6 +47,14 @@
                 "kind": {
                   "description": "Kind in its section (caller, call, string, read, write, switch, loop...).",
                   "type": "string"
+                },
+                "offset": {
+                  "description": "Signed offset from the frame register, for a taken_local.",
+                  "type": "integer"
+                },
+                "size": {
+                  "description": "Bytes the local's other accesses touch, for a taken_local; absent when they differ or none exists.",
+                  "type": "integer"
                 }
               },
               "required": [
