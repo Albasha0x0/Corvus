@@ -50,6 +50,7 @@
 - **Containers:** a wrong zip password that passes the check byte is refused. [438642d0](https://github.com/Albasha0x0/Corvus/commit/438642d0)
 - **Containers:** a saved image whose manifest is not UTF-8 is named, not thrown on. [0e92815d](https://github.com/Albasha0x0/Corvus/commit/0e92815d)
 - **Containers:** console files with nested tasks are read in linear time. [c8796d4c](https://github.com/Albasha0x0/Corvus/commit/c8796d4c)
+- **Native:** a section header larger than the file no longer slows the crypto scan. [397d9f3a](https://github.com/Albasha0x0/Corvus/commit/397d9f3a)
 
 ### In progress
 
