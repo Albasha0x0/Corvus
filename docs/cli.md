@@ -137,6 +137,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - `script`: the `script` view's plain text, layers peeled and constants folded, as `script.txt`; the chain names each layer.
   - `extracted` lists each file written with `path`, `kind`, `source` and `chain`; `index.json` holds the same per SHA-256.
 - `--dump-modules <folder>` (new or empty) with a minidump as `--file` writes each module image to `<folder>`.
+  - `--module`, `--layout`, `--imports` and `--base` take the values of `open_minidump`; they go with `--dump-modules`.
   - `dumpModules` lists `written` (`file`, `base`, `size`, `sha256`, `capturedPercent`) and `skipped` with the reason.
   - A .NET image adds `metadata` (`readable`, `partial` or `unreadable`) and, unless readable, `metadataReason`; a native image carries neither.
   - An image is rebuilt from the memory the dump holds, at most 128 MB each and 1 GB in all.

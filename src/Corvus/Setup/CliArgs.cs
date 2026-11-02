@@ -31,6 +31,10 @@ internal sealed partial class CliArgs
     public bool AllowIncomplete { get; private set; }
     public string? Extract { get; private set; }
     public string? DumpModules { get; private set; }
+    public string? DumpModule { get; private set; }
+    public string? DumpLayout { get; private set; }
+    public string? DumpImports { get; private set; }
+    public string? DumpBase { get; private set; }
     public string? PasswordFile { get; private set; }
     public string? Baseline { get; private set; }
     public string? Report { get; private set; }
@@ -68,6 +72,10 @@ internal sealed partial class CliArgs
                 case "--allow-incomplete": a.AllowIncomplete = true; continue;
                 case "--extract": a.Extract = Next(); continue;
                 case "--dump-modules": a.DumpModules = Next(); continue;
+                case "--module": a.DumpModule = Next(); continue;
+                case "--layout": a.DumpLayout = Next(); continue;
+                case "--imports": a.DumpImports = Next(); continue;
+                case "--base": a.DumpBase = Next(); continue;
                 case "--password-file": a.PasswordFile = Next(); continue;
                 case "--baseline": a.Baseline = Next(); continue;
                 case "--report": a.Report = Next(); continue;

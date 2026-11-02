@@ -102,6 +102,8 @@ internal static partial class ToolCli
         if (dumpModules != null && a.Recurse) throw new UsageException("--dump-modules reads one dump: it does not go with --recurse.");
         if (dumpModules != null && (File.Exists(dumpModules) || Directory.Exists(dumpModules) && Directory.EnumerateFileSystemEntries(dumpModules).Any()))
             throw new UsageException($"--dump-modules needs a new or empty folder: {a.DumpModules}.");
+        if (dumpModules == null && (a.DumpModule ?? a.DumpLayout ?? a.DumpImports ?? a.DumpBase) != null)
+            throw new UsageException("--module, --layout, --imports and --base go with --dump-modules.");
         var report = OutputPath("--report", a.Report);
         if (report != null && Directory.Exists(report)) throw new UsageException($"--report names a file, not a folder: {a.Report}.");
         var sarif = OutputPath("--sarif", a.Sarif);
@@ -112,7 +114,7 @@ internal static partial class ToolCli
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
-        var exported = dumpModules == null ? null : ExportDumpModules(path, dumpModules, cancellationToken);
+        var exported = dumpModules == null ? null : ExportDumpModules(path, dumpModules, a, cancellationToken);
         var baseline = a.Baseline == null ? null : ReadBaseline(Path.GetFullPath(a.Baseline), DateOnly.FromDateTime(DateTime.UtcNow));
         var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline, Password = password, StepSeconds = stepSeconds };
         if (extract != null) Directory.CreateDirectory(extract);
@@ -158,11 +160,43 @@ internal static partial class ToolCli
 
     private static readonly System.Text.Json.JsonSerializerOptions ExportJson = new(System.Text.Json.JsonSerializerDefaults.Web);
 
-    /// <summary>Writes the module images of the minidump at <paramref name="dump"/> to <paramref name="folder"/>; the record of what was written and what was left out.</summary>
-    private static JsonNode ExportDumpModules(string dump, string folder, CancellationToken cancellationToken)
+    /// <summary>Rebuilds the modules of the minidump at <paramref name="dump"/> as open_minidump does and writes them to <paramref name="folder"/>; the record of what was written and what was left out.</summary>
+    private static JsonNode ExportDumpModules(string dump, string folder, CliArgs a, CancellationToken cancellationToken)
     {
-        try { return System.Text.Json.JsonSerializer.SerializeToNode(Native.Dump.DumpModuleExport.Write(dump, folder, cancellationToken), ExportJson)!; }
+        try
+        {
+            var module = string.IsNullOrWhiteSpace(a.DumpModule) ? "all" : a.DumpModule.Trim();
+            var layout = DumpChoice("--layout", a.DumpLayout, "file", "mapped");
+            var imports = DumpChoice("--imports", a.DumpImports, "restore", "keep");
+            var @base = DumpChoice("--base", a.DumpBase, "loaded", "preferred");
+            var save = (Module: module, Layout: layout == "mapped" ? Native.Dump.Rebuild.OutputLayout.Mapped : Native.Dump.Rebuild.OutputLayout.File,
+                Imports: imports == "keep" ? Native.Dump.Rebuild.ImportMode.Keep : Native.Dump.Rebuild.ImportMode.Restore,
+                Base: @base == "preferred" ? Native.Dump.Rebuild.BaseMode.Preferred : Native.Dump.Rebuild.BaseMode.Loaded);
+            using var memory = Native.Dump.MinidumpFile.Open(dump);
+            var targets = Native.Dump.Rebuild.ModuleRebuild.Select(memory, save.Module, cancellationToken);
+            if (targets.Count == 0) throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.");
+            var options = Native.Dump.Rebuild.RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
+            var rebuilt = targets.Select(t => Native.Dump.Rebuild.ModuleRebuild.Rebuild(memory, t, options, cancellationToken)).ToList();
+            var root = Path.GetFullPath(folder);
+            var results = Native.Dump.Rebuild.ModuleWriter.WriteAll(rebuilt, root);
+            var written = new List<Native.Dump.ExportedModule>();
+            var skipped = new List<Native.Dump.SkippedModule>();
+            foreach (var (m, r) in rebuilt.Zip(results))
+            {
+                var at = $"0x{m.Target.Base:X}";
+                if (r.File == null) skipped.Add(new Native.Dump.SkippedModule(m.Target.Name, at, r.Reason ?? "not rebuilt"));
+                else written.Add(new Native.Dump.ExportedModule(r.File, at, m.Target.Size, m.Sha256!, m.CapturedPercent, m.Metadata, m.MetadataReason));
+            }
+            return System.Text.Json.JsonSerializer.SerializeToNode(new Native.Dump.ModuleExport(root, written, skipped), ExportJson)!;
+        }
         catch (ToolError ex) { throw new UsageException($"--dump-modules: {ex.Message}"); }
+    }
+    /// <summary>The lower-case choice of a --dump-modules option, <paramref name="first"/> when absent; rejects any other value.</summary>
+    private static string DumpChoice(string option, string? value, string first, string second)
+    {
+        var v = string.IsNullOrWhiteSpace(value) ? first : value.Trim().ToLowerInvariant();
+        if (v != first && v != second) throw new UsageException($"{option} is {first} or {second}, not '{value}'.");
+        return v;
     }
 
     /// <summary>The full path of an output option, checked by the output refusal rules; null when the option is absent.</summary>
