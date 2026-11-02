@@ -36,11 +36,15 @@ internal sealed class InProcessServer : IAsyncDisposable
         return server;
     }
 
+    /// <summary>Disposed after the host stops: folders the server writes to while it runs.</summary>
+    public List<IDisposable> Owned { get; } = [];
+
     public async ValueTask DisposeAsync()
     {
         await Client.DisposeAsync();
         _toServer.Writer.Complete();
         await _host.StopAsync();
         _host.Dispose();
+        foreach (var owned in Owned) owned.Dispose();
     }
 }

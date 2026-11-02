@@ -11,6 +11,14 @@ using Corvus.Native.Providers;
 namespace Corvus.Services;
 
 // A cleared point's count reads "at least". A managed run (no Image) keys points by metadata token and has no counts.
+/// <summary>
+/// A coverage run as kept for a restart; <c>ImageBase</c> is null for a
+/// managed run.
+/// </summary>
+public sealed record LiveCoverageRecord(string Id, string Session, string Program, string ImageId, string Sha256, int HitLimit, ulong? ImageBase,
+    DateTime Started, DateTime? Stopped, bool ReadsRuntime, bool Read, int DetachFunctions, string Start, DateTime Saved,
+    IReadOnlyList<LiveCoveragePoint> Points, IReadOnlyDictionary<uint, long> Hits, IReadOnlyDictionary<uint, string> Unplaced);
+
 /// <summary>A code coverage run: a counted stop point per function start, cleared at the hit limit; a managed run records which methods ran.</summary>
 public sealed class LiveCoverageRun
 {
@@ -29,6 +37,7 @@ public sealed class LiveCoverageRun
         Points = points;
         HitLimit = hitLimit;
         ModuleBase = moduleBase;
+        Start = session.StartCall;
     }
 
     internal LiveCoverageRun(string id, LiveSession session, string imageId, string sha256, IReadOnlyList<LiveCoveragePoint> points)
@@ -40,6 +49,22 @@ public sealed class LiveCoverageRun
         Sha256 = sha256;
         Points = points;
         HitLimit = 1;
+        Start = session.StartCall;
+    }
+
+    /// <summary>
+    /// A run read back from a recording of an earlier server; its state is
+    /// saved.
+    /// </summary>
+    internal LiveCoverageRun(LiveCoverageRecord kept)
+    {
+        (Id, Session, Program, ImageId, Sha256, Points, HitLimit, DetachFunctions, Started, Stopped, Saved, Start, ReadsRuntime, RestoredBase) =
+            (kept.Id, kept.Session, kept.Program, kept.ImageId, kept.Sha256, kept.Points ?? [], kept.HitLimit, kept.DetachFunctions, kept.Started, kept.Stopped,
+             kept.Saved, kept.Start, kept.ReadsRuntime, kept.ImageBase);
+        foreach (var (rva, hits) in kept.Hits ?? new Dictionary<uint, long>()) _hits[rva] = hits;
+        foreach (var (rva, why) in kept.Unplaced ?? new Dictionary<uint, string>()) _unplaced[rva] = why;
+        _read = kept.Read;
+        _state = "saved";
     }
 
     public string Id { get; }
@@ -69,13 +94,53 @@ public sealed class LiveCoverageRun
     public int DetachFunctions { get; init; }
     public DateTime Started { get; } = DateTime.UtcNow;
     public DateTime? Stopped { get; private set; }
+    /// <summary>
+    /// When the recording this run was read from was saved; null for a run of
+    /// this server.
+    /// </summary>
+    public DateTime? Saved { get; }
+    /// <summary>The call that starts a new session on the same target.</summary>
+    public string Start { get; }
+    /// <summary>
+    /// The image base of a native run read from a recording, which has no
+    /// loaded image to name addresses by.
+    /// </summary>
+    internal ulong? RestoredBase { get; }
+    internal LiveRecordings.KeptRun? Recording { get; set; }
 
-    /// <summary>recording, complete (stopped) or ended (the session ended first).</summary>
+    /// <summary>
+    /// recording, complete (stopped), ended (the session ended first) or
+    /// saved (read from a recording of an earlier server).
+    /// </summary>
     public string State { get { lock (_live) return _state; } }
 
     private readonly ConcurrentDictionary<uint, string> _unplaced = new();
 
     public long HitsAt(uint rva) => _hits.GetValueOrDefault(rva);
+
+    /// <summary>
+    /// Whether the run has per-function counts: a native run, loaded or read
+    /// from a recording.
+    /// </summary>
+    public bool Counted => Image != null || RestoredBase != null;
+
+    /// <summary>
+    /// A number that moves whenever the counts or the placed points change.
+    /// </summary>
+    internal long Version
+    {
+        get
+        {
+            lock (_live) return _hits.Values.Sum() + _unplaced.Count * 1_000_003L + (long)Ran * 7 + (_state == "recording" ? 0 : 1);
+        }
+    }
+
+    internal LiveCoverageRecord Record()
+    {
+        lock (_live)
+            return new(Id, Session, Program, ImageId, Sha256, HitLimit, Image != null ? Image.Image.ImageBase : RestoredBase, Started, Stopped, ReadsRuntime, _read,
+                DetachFunctions, Start, DateTime.UtcNow, Points, new Dictionary<uint, long>(_hits), new Dictionary<uint, string>(_unplaced));
+    }
 
     /// <summary>The points whose stop point was set; the others are left out of every count.</summary>
     public IReadOnlyList<LiveCoveragePoint> Placed => [.. Points.Where(p => !_unplaced.ContainsKey(p.Rva))];
@@ -179,6 +244,7 @@ public sealed class LiveCoverageRun
             Stopped = DateTime.UtcNow;
         }
         Sampler?.Dispose();
+        Recording?.Seal();
     }
 }
 
@@ -200,6 +266,23 @@ public sealed partial class LiveSessionService
     internal Func<Task>? BeforeCoverageRun { get; set; }
 
     public IReadOnlyList<LiveCoverageRun> CoverageRuns => _coverage.Values.OrderBy(r => int.Parse(r.Id[4..], CultureInfo.InvariantCulture)).ToList();
+
+    /// <summary>
+    /// The runs of this server, then those kept by earlier servers whose ids
+    /// this one does not hold.
+    /// </summary>
+    public IReadOnlyList<LiveCoverageRun> CoverageRunsWithSaved =>
+        [.. CoverageRuns, .. SavedRuns<LiveCoverageRecord, LiveCoverageRun>("cov", r => r.Id, r => new(r), _coverage.Keys)];
+
+    /// <summary>
+    /// The run of this server, else the one an earlier server kept; not_found
+    /// when neither has it.
+    /// </summary>
+    public LiveCoverageRun ReadCoverage(string id) =>
+        _coverage.TryGetValue(id?.Trim() ?? "", out var r) ? r
+            : SavedRun<LiveCoverageRecord, LiveCoverageRun>(id, "cov", k => new(k)) ?? GetCoverage(id ?? "");
+
+    private void Keep(LiveCoverageRun run) => run.Recording = Kept?.Keep(run.Session, run.Id, () => run.Record(), () => run.Version);
 
     public LiveCoverageRun GetCoverage(string id) =>
         _coverage.TryGetValue(id?.Trim() ?? "", out var r) ? r
@@ -272,8 +355,9 @@ public sealed partial class LiveSessionService
         }
 
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, image, points, hitLimit, m?.Base ?? 0) { DetachFunctions = detach.Count, Refusals = refused };
+        var run = new LiveCoverageRun("cov-" + NextNumber(ref _nextCoverage, "cov"), session, image, points, hitLimit, m?.Base ?? 0) { DetachFunctions = detach.Count, Refusals = refused };
         _coverage[run.Id] = run;
+        Keep(run);
         if (m != null)
         {
             await ArmCoverageAsync(session, run, ct).ConfigureAwait(false);
@@ -481,7 +565,7 @@ public sealed partial class LiveSessionService
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
             return await StartJitCoverageAsync(session, asm, points, reason, ct).ConfigureAwait(false);
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { AssemblyPath = asm.FilePath, ReadsRuntime = true };
+        var run = new LiveCoverageRun("cov-" + NextNumber(ref _nextCoverage, "cov"), session, file, asm.OriginalSha256, points) { AssemblyPath = asm.FilePath, ReadsRuntime = true };
         var tokens = points.Select(p => p.Rva).ToHashSet();
         var path = asm.FilePath;
         run.Sample = wait => run.SampleAsync(async () =>
@@ -496,6 +580,7 @@ public sealed partial class LiveSessionService
             catch (Exception e) when (e is ToolError or InvalidOperationException or ObjectDisposedException or OperationCanceledException) { }
         }, wait);
         _coverage[run.Id] = run;
+        Keep(run);
         try
         {
             var exit = await ResolveNativeAsync(session, "ntdll!RtlExitUserProcess", ct).ConfigureAwait(false);
@@ -522,8 +607,9 @@ public sealed partial class LiveSessionService
             throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read ({reason}) and {file} is not loaded yet, so its methods' compiles cannot be watched.",
                 "start the run once the assembly has loaded, or count a native module with match=module!part");
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { JitBodies = bodies, AssemblyPath = asm.FilePath };
+        var run = new LiveCoverageRun("cov-" + NextNumber(ref _nextCoverage, "cov"), session, file, asm.OriginalSha256, points) { JitBodies = bodies, AssemblyPath = asm.FilePath };
         _coverage[run.Id] = run;
+        Keep(run);
         try { await CountJitAsync(session, run, ct).ConfigureAwait(false); }
         catch
         {

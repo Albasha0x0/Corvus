@@ -44,6 +44,7 @@ public class RestartStateCatalogTests
         ["frida"] = Corvus.Mcp.ToolState.None,
         ["ghidra_scripts"] = Corvus.Mcp.ToolState.Engine,
         ["java-sources"] = Corvus.Mcp.ToolState.Cache,
+        ["live-recordings"] = Corvus.Mcp.ToolState.Live,
         ["packs"] = Corvus.Mcp.ToolState.None,
         ["relay"] = Corvus.Mcp.ToolState.None,
         ["results"] = Corvus.Mcp.ToolState.Results,

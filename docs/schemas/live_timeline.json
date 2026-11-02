@@ -21,7 +21,7 @@
           "type": "string"
         },
         "state": {
-          "description": "recording or complete.",
+          "description": "recording, complete or saved (kept by an earlier server).",
           "type": "string"
         },
         "entries": {
@@ -96,7 +96,7 @@
             "type": "string"
           },
           "state": {
-            "description": "recording or complete.",
+            "description": "recording, complete or saved (kept by an earlier server).",
             "type": "string"
           },
           "entries": {
@@ -171,7 +171,7 @@
               "type": "string"
             },
             "state": {
-              "description": "recording or complete.",
+              "description": "recording, complete or saved (kept by an earlier server).",
               "type": "string"
             },
             "entries": {

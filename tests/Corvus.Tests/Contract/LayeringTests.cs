@@ -51,6 +51,7 @@ public class LayeringTests
         ["Services/Dumps/MinidumpService.Unbacked.cs"] = (2, "the region capture and its index in a private temporary folder"),
         ["Services/Engines/NativeEngineService.cs"] = (1, "the patched bytes an engine opens, in a private temporary folder"),
         ["Services/Engines/PackedDatabaseInput.cs"] = (5, "a copy of a packed engine database in the engine's cache folder"),
+        ["Services/Live/LiveRecordings.cs"] = (3, "session recordings in the data folder's live-recordings folder"),
         ["Services/Live/LiveYara.cs"] = (1, "the memory capture index in a private temporary folder"),
         ["Services/Mobile/JavaSourceCache.cs"] = (2, "decompiled sources in the data folder's cache"),
     };

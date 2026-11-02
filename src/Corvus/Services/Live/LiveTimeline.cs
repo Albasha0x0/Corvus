@@ -8,6 +8,10 @@ namespace Corvus.Services;
 /// <summary>An entry of a timeline with its sequence number, the cursor live_timeline pages by.</summary>
 public sealed record LiveTimelineEntry(long Sequence, DateTime Time, string Category, string Name, int? ProcessId = null);
 
+/// <summary>A timeline as kept for a restart.</summary>
+public sealed record LiveTimelineRecord(string Id, string Session, string Program, int ProcessId, string Source, DateTime Started, DateTime? Stopped,
+    long Dropped, string Start, DateTime Saved, IReadOnlyList<LiveTimelineEntry> Entries);
+
 /// <summary>An activity trace of a session's program from the OS diagnostics channel, as a bounded ring of entries.</summary>
 public sealed class LiveTimelineRun
 {
@@ -24,6 +28,20 @@ public sealed class LiveTimelineRun
         lock (session.Modules) Program = session.Modules.FirstOrDefault()?.Path is { Length: > 0 } image ? image : session.Program;
         ProcessId = session.ProcessId;
         Source = source;
+        Start = session.StartCall;
+    }
+
+    /// <summary>
+    /// A timeline read back from a recording of an earlier server; its state
+    /// is saved.
+    /// </summary>
+    internal LiveTimelineRun(LiveTimelineRecord kept)
+    {
+        (Id, Session, Program, ProcessId, Source, Started, Stopped, Dropped, Start, Saved) =
+            (kept.Id, kept.Session, kept.Program, kept.ProcessId, kept.Source, kept.Started, kept.Stopped, kept.Dropped, kept.Start, kept.Saved);
+        foreach (var e in kept.Entries ?? []) _ring.Enqueue(e);
+        _sequence = kept.Dropped + (kept.Entries?.Count ?? 0);
+        _state = "saved";
     }
 
     public string Id { get; }
@@ -34,16 +52,32 @@ public sealed class LiveTimelineRun
     public string Source { get; }
     public DateTime Started { get; } = DateTime.UtcNow;
     public DateTime? Stopped { get; private set; }
+    /// <summary>
+    /// When the recording this run was read from was saved; null for a run of
+    /// this server.
+    /// </summary>
+    public DateTime? Saved { get; }
+    /// <summary>The call that starts a new session on the same target.</summary>
+    public string Start { get; }
+    internal LiveRecordings.KeptRun? Recording { get; set; }
     internal IActivityTrace? Trace { get; set; }
     internal Task? Stopping { get; set; }
 
-    /// <summary>recording or complete.</summary>
+    /// <summary>
+    /// recording, complete or saved (read from a recording of an earlier
+    /// server).
+    /// </summary>
     public string State { get { lock (_ring) return _state; } }
 
     /// <summary>Entries the ring dropped, oldest first.</summary>
     public long Dropped { get; private set; }
 
     public long Count { get { lock (_ring) return _sequence; } }
+
+    internal LiveTimelineRecord Record()
+    {
+        lock (_ring) return new(Id, Session, Program, ProcessId, Source, Started, Stopped, Dropped, Start, DateTime.UtcNow, [.. _ring]);
+    }
 
     internal void Add(ActivityEntry e)
     {
@@ -88,6 +122,7 @@ public sealed class LiveTimelineRun
             _state = "complete";
             Stopped = DateTime.UtcNow;
         }
+        Recording?.Seal();
     }
 }
 
@@ -103,9 +138,24 @@ public sealed partial class LiveSessionService
 
     public IReadOnlyList<LiveTimelineRun> TimelineRuns => _timelines.Values.OrderBy(r => int.Parse(r.Id[3..], CultureInfo.InvariantCulture)).ToList();
 
+    /// <summary>
+    /// The timelines of this server, then those kept by earlier servers whose
+    /// ids this one does not hold.
+    /// </summary>
+    public IReadOnlyList<LiveTimelineRun> TimelineRunsWithSaved =>
+        [.. TimelineRuns, .. SavedRuns<LiveTimelineRecord, LiveTimelineRun>("tl", r => r.Id, r => new(r), _timelines.Keys)];
+
     public LiveTimelineRun GetTimeline(string id) =>
         _timelines.TryGetValue(id?.Trim() ?? "", out var r) ? r
             : throw new ToolError(ErrorCode.NotFound, $"No timeline '{id}'.", "live_timeline action=list shows the timelines; action=start begins one");
+
+    /// <summary>
+    /// The timeline of this server, else the one an earlier server kept;
+    /// not_found when neither has it.
+    /// </summary>
+    public LiveTimelineRun ReadTimeline(string id) =>
+        _timelines.TryGetValue(id?.Trim() ?? "", out var r) ? r
+            : SavedRun<LiveTimelineRecord, LiveTimelineRun>(id, "tl", k => new(k)) ?? GetTimeline(id ?? "");
 
     /// <summary>Starts tracing the session's program; one recording timeline per session.</summary>
     public LiveTimelineRun StartTimeline(LiveSession session)
@@ -116,7 +166,7 @@ public sealed partial class LiveSessionService
             throw new ToolError(ErrorCode.Conflict, $"{open.Id} is already recording {session.Id}.", $"live_timeline action=stop run={open.Id} first");
         if (_timelines.Values.Count(r => r.State == "recording") >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} timelines are recording.", "stop one with live_timeline action=stop");
-        var run = new LiveTimelineRun("tl-" + Interlocked.Increment(ref _nextTimeline), session, ActivitySource.Name);
+        var run = new LiveTimelineRun("tl-" + NextNumber(ref _nextTimeline, "tl"), session, ActivitySource.Name);
         // The session's own helpers (the agent and its unpacked DLLs) open from the workers folder; filter them out.
         var own = OwnFiles(Path.Combine(Native.Providers.AnalysisCache.DefaultRoot, "workers"));
         run.Trace = ActivitySource.Start(session.ProcessId, e =>
@@ -124,6 +174,7 @@ public sealed partial class LiveSessionService
             if (e.Category != "file" || !own(e.Name)) run.Add(e);
         });
         _timelines[run.Id] = run;
+        run.Recording = Kept?.Keep(run.Session, run.Id, () => run.Record(), () => run.Count * 2 + (run.State == "recording" ? 0 : 1));
         return run;
     }
 

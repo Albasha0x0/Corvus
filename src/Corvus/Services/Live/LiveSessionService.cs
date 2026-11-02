@@ -142,6 +142,35 @@ public sealed class LiveSession
     internal Action<string>? Notice { get; set; }
     /// <summary>The time left before the idle limit closes the session.</summary>
     public TimeSpan IdleLeft => LastUsed + IdleLimit - Clock.GetUtcNow();
+    /// <summary>
+    /// The events and header kept for a restart; null when recording is off.
+    /// </summary>
+    internal LiveEventLog? Log { get; private set; }
+
+    /// <summary>
+    /// Starts keeping the session's events, those already recorded first.
+    /// </summary>
+    internal void Keep(LiveEventLog log)
+    {
+        lock (_gate)
+        {
+            foreach (var e in Merged(_calls.Events, _others.Events)) log.Append(e);
+            Log = log;
+        }
+    }
+
+    /// <summary>The call that starts a new session on the same target.</summary>
+    internal string StartCall
+    {
+        get
+        {
+            string? image;
+            lock (Modules) image = Modules.FirstOrDefault()?.Path;
+            return Spawned ? $"live_session action=spawn program={Program}"
+                : $"live_session action=attach program={(image is { Length: > 0 } ? System.IO.Path.GetFileName(image) : Program)}";
+        }
+    }
+
     /// <summary>Whether closing ends the program: a started one, which runs in the worker's job.</summary>
     public bool EndsProgram => Spawned;
     internal const string IdleReason = "idle";
@@ -273,7 +302,9 @@ public sealed class LiveSession
         {
             var seq = ++_sequence;
             if (kind == "exception") Exceptions++;
-            (kind == "call" ? _calls : _others).Add(new LiveRingEvent(seq, DateTime.UtcNow, kind, thread, address, text, source));
+            var recorded = new LiveRingEvent(seq, DateTime.UtcNow, kind, thread, address, text, source);
+            (kind == "call" ? _calls : _others).Add(recorded);
+            Log?.Append(recorded);
             if (held != null && thread is { } t)
             {
                 var first = _held.Count == 0;
@@ -294,6 +325,8 @@ public sealed class LiveSession
             _exitLogged = true;
             if (!Closed) Notice?.Invoke($"{Id}: {Ended}. Next: live_break session={Id} wait=true");
         }
+        // Outside the gate: the header build takes it while a timer save holds the file lock.
+        Log?.Save();
     }
 
     /// <summary>Records the close event and marks the session closed atomically; false when already closed.</summary>
@@ -485,6 +518,64 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private const int MaxScriptText = 4096;
     private readonly ConcurrentDictionary<string, LiveSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private int _next;
+    private readonly object _seedGate = new();
+    private bool _seeded;
+
+    /// <summary>
+    /// The next number of an id <c>prefix-N</c>. Counters start above every id
+    /// an earlier server kept, so an old id never names a new session or run.
+    /// </summary>
+    internal int NextNumber(ref int counter, string prefix)
+    {
+        lock (_seedGate)
+        {
+            if (!_seeded && Kept is { } kept)
+            {
+                _next = Math.Max(_next, kept.HighestId("live"));
+                _nextCoverage = Math.Max(_nextCoverage, kept.HighestId("cov"));
+                _nextTimeline = Math.Max(_nextTimeline, kept.HighestId("tl"));
+                _nextConsole = Math.Max(_nextConsole, kept.HighestId("con"));
+                _seeded = true;
+            }
+            return ++counter;
+        }
+    }
+
+    /// <summary>
+    /// What sessions and runs record for a restart; null in a service made
+    /// without server options.
+    /// </summary>
+    internal LiveRecordings? Kept { get; set; } = options == null ? null : new(() => DataFolder.Combine("live-recordings"));
+
+    /// <summary>
+    /// The run of an earlier server with this id (<c>prefix-N</c>), read
+    /// back; null when none was kept.
+    /// </summary>
+    private T? SavedRun<TRecord, T>(string? id, string prefix, Func<TRecord, T> restore) where TRecord : class where T : class
+    {
+        var key = (id ?? "").Trim().ToLowerInvariant();
+        var digits = key.Length > prefix.Length + 1 ? key[(prefix.Length + 1)..] : "";
+        return Kept != null && key.StartsWith(prefix + "-", StringComparison.Ordinal) && digits.All(char.IsAsciiDigit) && Kept.ReadRun<TRecord>(key) is { } kept
+            ? restore(kept) : null;
+    }
+
+    /// <summary>
+    /// The runs earlier servers kept, newest first, without the ids in
+    /// <paramref name="held"/>.
+    /// </summary>
+    private List<T> SavedRuns<TRecord, T>(string prefix, Func<TRecord, string> id, Func<TRecord, T> restore, IEnumerable<string> held) where TRecord : class
+    {
+        if (Kept == null) return [];
+        var skip = held.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. Kept.ReadRuns(prefix + "-", id).Where(r => !skip.Contains(id(r))).Select(restore)];
+    }
+
+    /// <summary>
+    /// The kept session of an earlier server with this id, when no session of
+    /// this server has it; null when none was kept.
+    /// </summary>
+    public LiveSavedSession? SavedSession(string id) =>
+        Kept == null || !IsSessionId(id) || _sessions.ContainsKey(id!.Trim()) ? null : Kept.ReadSession(id.Trim().ToLowerInvariant());
 
     /// <summary>The backend new sessions start on.</summary>
     public ILiveBackend Backend { get; set; } = new FridaBackend { InstallPinned = options?.LiveInstallFrida == true };
@@ -559,7 +650,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         // adb names a device that is missing, unauthorized or offline; Frida only finds none.
         if (device != null) await Task.Run(() => Adb.WaitReady(device, DeviceReadyWait, ct), ct).ConfigureAwait(false);
         var worker = backend.Start();
-        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), backend.Name, target, spawn, worker) { DownloadDac = downloadDac, Device = device };
+        var session = new LiveSession("live-" + NextNumber(ref _next, "live"), backend.Name, target, spawn, worker) { DownloadDac = downloadDac, Device = device };
         worker.EventReceived += e => OnEvent(session, e);
         try
         {
@@ -674,6 +765,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         var worker = session.Worker;
         _sessions[session.Id] = session;
+        if (Kept is { } kept)
+            session.Keep(kept.OpenEvents(session.Id, unkept => new LiveSavedHeader(session.Id, session.Backend, session.Program, session.Spawned,
+                session.ProcessId, session.Opened, DateTime.UtcNow, session.State, session.Ended ?? session.CloseReason, session.StartCall, unkept)));
         var minutes = int.TryParse(Environment.GetEnvironmentVariable(MaxMinutesVariable), out var n) && n > 0 ? n : 30;
         session.Clock = Time;
         session.IdleLimit = TimeSpan.FromMinutes(minutes);
@@ -1846,6 +1940,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         finally { session.ClrOpen.Release(); }
         session.Ended ??= $"{(session.EndsProgram ? "ended" : "detached")} when the session closed ({reason})";
+        session.Log?.Dispose();
     }
 
     public void Dispose()
@@ -1857,6 +1952,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             s.Worker.Kill("server exit");
         StopTimelines();
         StopConsoles();
+        Kept?.Dispose();
         DeleteDeviceFiles();
     }
 }

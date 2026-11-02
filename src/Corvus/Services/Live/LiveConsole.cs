@@ -15,6 +15,13 @@ public sealed record LiveConsoleStep(int Number, string Line, string Verb, strin
 /// <summary>What a step did: pending, running, done, stopped or cancelled (with why), or not run.</summary>
 public sealed record LiveConsoleOutcome(LiveConsoleStep Step, string Outcome, long Milliseconds, string? Detail);
 
+/// <summary>
+/// A console run as kept for a restart; the last line is partial while the
+/// program was still writing it.
+/// </summary>
+public sealed record LiveConsoleRecord(string Id, string Program, IReadOnlyList<string> Arguments, string Host, int Columns, int Rows, int ProcessId,
+    DateTime Started, int? ExitCode, long Dropped, string Start, DateTime Saved, IReadOnlyList<LiveConsoleLine> Lines, IReadOnlyList<LiveConsoleOutcome> Steps);
+
 /// <summary>A program run under a console host: its output as plain text lines in a bounded ring, and each script step's outcome.</summary>
 public sealed class LiveConsoleRun
 {
@@ -36,6 +43,38 @@ public sealed class LiveConsoleRun
     internal LiveConsoleRun(string id, string program, IReadOnlyList<string> arguments, string host, int columns, int rows)
     {
         (Id, Program, Arguments, Host, Columns, Rows) = (id, program, arguments, host, columns, rows);
+        Start = $"live_console action=start program={program}";
+    }
+
+    /// <summary>
+    /// A run read back from a recording of an earlier server; its state is
+    /// saved and its script, if it had not ended, stopped.
+    /// </summary>
+    internal LiveConsoleRun(LiveConsoleRecord kept)
+    {
+        (Id, Program, Arguments, Host, Columns, Rows, ProcessId, Started, ExitCode, Dropped, Start, Saved) =
+            (kept.Id, kept.Program, kept.Arguments ?? [], kept.Host, kept.Columns, kept.Rows, kept.ProcessId, kept.Started, kept.ExitCode, kept.Dropped, kept.Start, kept.Saved);
+        foreach (var line in kept.Lines ?? [])
+        {
+            if (line.Partial)
+            {
+                _open.Append(line.Text);
+                _openTime = line.Time;
+            }
+            else
+            {
+                _ring.Enqueue(line);
+                _sequence = line.Sequence;
+            }
+        }
+        _steps.AddRange((kept.Steps ?? []).Select(o => o.Outcome switch
+        {
+            "running" => o with { Outcome = "stopped", Detail = "the server that ran it ended first" },
+            "pending" => o with { Outcome = "not run" },
+            _ => o,
+        }));
+        _scriptDone.TrySetResult();
+        _state = "saved";
     }
 
     public string Id { get; }
@@ -47,10 +86,21 @@ public sealed class LiveConsoleRun
     public int Rows { get; internal set; }
     public int ProcessId { get; internal set; }
     public DateTime Started { get; } = DateTime.UtcNow;
+    /// <summary>
+    /// When the recording this run was read from was saved; null for a run of
+    /// this server.
+    /// </summary>
+    public DateTime? Saved { get; }
+    /// <summary>The call that starts the program again.</summary>
+    public string Start { get; }
+    internal LiveRecordings.KeptRun? Recording { get; set; }
     internal IConsoleProcess? Process { get; set; }
     internal bool StopRequested { get; set; }
 
-    /// <summary>running, exited or stopped.</summary>
+    /// <summary>
+    /// running, exited, stopped or saved (read from a recording of an earlier
+    /// server).
+    /// </summary>
     public string State { get { lock (_ring) return _state; } }
     public int? ExitCode { get; private set; }
     public long Dropped { get; private set; }
@@ -59,6 +109,19 @@ public sealed class LiveConsoleRun
     public long Count { get { lock (_ring) return _sequence + (_open.Length > 0 ? 1 : 0); } }
 
     public IReadOnlyList<LiveConsoleOutcome> Steps { get { lock (_steps) return [.. _steps]; } }
+
+    /// <summary>
+    /// A number that moves whenever a line, a step outcome or the state
+    /// changes.
+    /// </summary>
+    internal long Version => Count * 31 + Steps.Count(o => o.Outcome is not ("pending" or "running")) + (State == "running" ? 0 : 1_000_003);
+
+    internal LiveConsoleRecord Record()
+    {
+        var steps = Steps;
+        lock (_ring)
+            return new(Id, Program, Arguments, Host, Columns, Rows, ProcessId, Started, ExitCode, Dropped, Start, DateTime.UtcNow, [.. All()], steps);
+    }
 
     /// <summary>Completes when the script ends; complete from the start without a script.</summary>
     public Task ScriptDone => _scriptDone.Task;
@@ -159,6 +222,7 @@ public sealed class LiveConsoleRun
             (_state, ExitCode) = (StopRequested ? "stopped" : "exited", exitCode);
             Signal();
         }
+        Recording?.Seal();
     }
 
     private void Signal()
@@ -231,9 +295,24 @@ public sealed partial class LiveSessionService
 
     public IReadOnlyList<LiveConsoleRun> ConsoleRuns => _consoles.Values.OrderBy(r => int.Parse(r.Id[4..], CultureInfo.InvariantCulture)).ToList();
 
+    /// <summary>
+    /// The runs of this server, then those kept by earlier servers whose ids
+    /// this one does not hold.
+    /// </summary>
+    public IReadOnlyList<LiveConsoleRun> ConsoleRunsWithSaved =>
+        [.. ConsoleRuns, .. SavedRuns<LiveConsoleRecord, LiveConsoleRun>("con", r => r.Id, r => new(r), _consoles.Keys)];
+
     public LiveConsoleRun GetConsole(string id) =>
         _consoles.TryGetValue(id?.Trim() ?? "", out var r) ? r
             : throw new ToolError(ErrorCode.NotFound, $"No console run '{id}'.", "live_console action=list shows the runs; action=start begins one");
+
+    /// <summary>
+    /// The run of this server, else the one an earlier server kept; not_found
+    /// when neither has it.
+    /// </summary>
+    public LiveConsoleRun ReadConsole(string id) =>
+        _consoles.TryGetValue(id?.Trim() ?? "", out var r) ? r
+            : SavedRun<LiveConsoleRecord, LiveConsoleRun>(id, "con", k => new(k)) ?? GetConsole(id ?? "");
 
     // Text escapes: \r, \n, \t, \e, \xHH and \\.
     /// <summary>Parses send/wait &lt;text&gt;, resize &lt;columns&gt; &lt;rows&gt; and delay &lt;ms&gt; lines; skips blank and # lines; throws on a bad step.</summary>
@@ -308,12 +387,13 @@ public sealed partial class LiveSessionService
         var path = InputFiles.RequireRegularFile(program.Trim());
         if (_consoles.Values.Count(r => r.State == "running") >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} console runs are running.", "stop one with live_console action=stop");
-        var run = new LiveConsoleRun("con-" + Interlocked.Increment(ref _nextConsole), path, arguments, ConsoleHost.Name, DefaultColumns, DefaultRows);
+        var run = new LiveConsoleRun("con-" + NextNumber(ref _nextConsole, "con"), path, arguments, ConsoleHost.Name, DefaultColumns, DefaultRows);
         var process = ConsoleHost.Start(path, arguments, run.Columns, run.Rows, run.Append);
         (run.Process, run.ProcessId) = (process, process.ProcessId);
         process.Exited.ContinueWith(t => run.Finish(t.IsCompletedSuccessfully ? t.Result : -1), CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         _consoles[run.Id] = run;
+        run.Recording = Kept?.Keep("console", run.Id, () => run.Record(), () => run.Version);
         return run;
     }
 

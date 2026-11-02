@@ -15,10 +15,6 @@ public partial class RestartStateTests
         ["ida_python"] = "a script's effect is in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
         ["ghidra_script"] = "a script's effect is in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
         ["export_engine_database"] = "the exported file is the engine's own database, which the scripted engine does not keep; reserved for the lead heavy queue",
-        ["live_events"] = "a session is held in memory, so a restart ends it; RestartStateLiveTests checks the old id is refused with the list call",
-        ["live_timeline"] = "a timeline run is held in memory, so a restart ends it; RestartStateLiveTests checks the refusal names the list call",
-        ["live_coverage"] = "a coverage run is held in memory, so a restart ends it; RestartStateLiveTests checks the refusal names the list call",
-        ["live_console"] = "a console run is held in memory, so a restart ends it; RestartStateLiveTests checks the refusal names the list call",
         ["emulate_native"] = "a stopped run is held in memory for resume, so a restart ends it; IntegerEmulationTests covers the refusal of an unknown run id",
     };
 
@@ -29,6 +25,10 @@ public partial class RestartStateTests
         ["apply_metadata_names"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
         ["get_method_addresses"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
         ["find_method_by_address"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
+        ["live_events"] = Held<RestartStateLiveTests>(nameof(RestartStateLiveTests.Events_timeline_coverage_and_console_of_an_ended_server_answer_as_saved_runs)),
+        ["live_timeline"] = Held<RestartStateLiveTests>(nameof(RestartStateLiveTests.Events_timeline_coverage_and_console_of_an_ended_server_answer_as_saved_runs)),
+        ["live_coverage"] = Held<RestartStateLiveTests>(nameof(RestartStateLiveTests.Events_timeline_coverage_and_console_of_an_ended_server_answer_as_saved_runs)),
+        ["live_console"] = Held<RestartStateLiveTests>(nameof(RestartStateLiveTests.Events_timeline_coverage_and_console_of_an_ended_server_answer_as_saved_runs)),
         ["migrate_native_names"] = Held<RestartStateBuildTests>(nameof(RestartStateBuildTests.Names_migrated_in_one_process_are_carried_in_the_next)),
         ["decompile_java"] = Held<JavaDecompilerTests>(nameof(JavaDecompilerTests.A_new_service_on_the_same_cache_folder_answers_without_starting_the_decompiler)),
         ["decompile_native"] = Held<RestartStateEngineTests>(nameof(RestartStateEngineTests.Engine_reads_answer_the_same_after_the_saved_names_reach_a_new_session)),

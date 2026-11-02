@@ -24,7 +24,7 @@ public sealed partial class LiveSessionTools
 
     public sealed record LiveConsoleSummary(string Run, string Program, int ProcessId,
         [property: Description("The console host: the pseudoconsole (ConPTY) on Windows.")] string Host,
-        [property: Description("running, exited or stopped.")] string State, int? ExitCode,
+        [property: Description("running, exited, stopped or saved (kept by an earlier server).")] string State, int? ExitCode,
         [property: Description("none, running step N, complete, stopped at step N or cancelled at step N.")] string Script,
         long Lines);
 
@@ -80,18 +80,18 @@ public sealed partial class LiveSessionTools
                 }
                 case "list":
                 {
-                    var runs = live.ConsoleRuns.Select(ConsoleSummary).ToList();
+                    var runs = live.ConsoleRunsWithSaved.Select(ConsoleSummary).ToList();
                     var text = runs.Count == 0 ? "No console runs.\n"
                         : string.Concat(runs.Select(r => $"{r.Run} {Path.GetFileName(r.Program)} pid {r.ProcessId}: {r.State}{(r.ExitCode is { } c ? $" ({c})" : "")}, script {r.Script}, {r.Lines:N0} lines\n"));
                     return ToolOutput.With(text, new LiveConsolePage(null, [], null, runs));
                 }
                 case "status":
                 {
-                    var r = live.GetConsole(RequireConsole(run));
+                    var r = live.ReadConsole(RequireConsole(run));
                     if (waitSeconds is < 0 or > 300)
                         throw new ToolError(ErrorCode.InvalidArgument, $"waitSeconds {waitSeconds} is outside 0-300.", "waitSeconds=30");
                     if (waitSeconds > 0) await LiveSessionService.WaitScriptAsync(r, TimeSpan.FromSeconds(waitSeconds), cancellationToken).ConfigureAwait(false);
-                    var text = new StringBuilder($"{r.Id} {Path.GetFileName(r.Program)} (pid {r.ProcessId}) in a {r.Columns}x{r.Rows} {r.Host}\n");
+                    var text = new StringBuilder(SavedNote(r) + $"{r.Id} {Path.GetFileName(r.Program)} (pid {r.ProcessId}) in a {r.Columns}x{r.Rows} {r.Host}\n");
                     ConsoleSteps(r, r.Steps, text);
                     text.AppendLine(r.IsScriptRunning
                         ? $"Next: live_console action=status run={r.Id} waitSeconds=30 waits for the script; action=stop ends it"
@@ -99,7 +99,10 @@ public sealed partial class LiveSessionTools
                     return ToolOutput.With(text.ToString(), new LiveConsolePage(ConsoleSummary(r), [], null, []) { Steps = StepRows(r.Steps) });
                 }
                 case "transcript":
-                    return ConsoleTranscript(live.GetConsole(RequireConsole(run)), cursor, limit);
+                {
+                    var r = live.ReadConsole(RequireConsole(run));
+                    return SavedNote(r) + ConsoleTranscript(r, cursor, limit);
+                }
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, status or transcript");
             }
@@ -119,7 +122,14 @@ public sealed partial class LiveSessionTools
 
     private static string DefaultSize() => $"{LiveSessionService.DefaultColumns}x{LiveSessionService.DefaultRows}";
 
-    private string RequireConsole(string? run) => OnlyRun(run, null, live.ConsoleRuns.Select(r => (r.Id, "")), "live_console");
+    private string RequireConsole(string? run) => OnlyRun(run, null, live.ConsoleRunsWithSaved.Select(r => (r.Id, "")), "live_console");
+
+    /// <summary>
+    /// The line that marks an answer from a kept recording and names the call
+    /// that starts the program again; empty for a run of this server.
+    /// </summary>
+    private static string SavedNote(LiveConsoleRun r) =>
+        r.Saved is { } at ? $"saved run of ended session {r.Id} (kept {Iso(at)}); Next: {r.Start} starts a new session on the same target\n" : "";
 
     private static string Exit(LiveConsoleRun r) => r.ExitCode is { } c ? $" (exit code {c})" : "";
 
@@ -142,7 +152,8 @@ public sealed partial class LiveSessionTools
             text.AppendLine(tail.Count == 0 ? "the console showed nothing" : $"the console showed (last {ToolSupport.Plural(tail.Count, "line")}):");
             foreach (var l in tail) text.AppendLine($"  #{l.Sequence} {l.Text}");
         }
-        var state = r.State == "running" ? "the program is running" : r.State == "stopped" ? "the run was stopped" : $"the program exited with code {r.ExitCode}";
+        var state = r.State == "running" ? "the program is running" : r.State == "stopped" ? "the run was stopped"
+            : r.State == "saved" ? "the run was kept by an earlier server" : $"the program exited with code {r.ExitCode}";
         int notRun = outcomes.Count(o => o.Outcome == "not run");
         var active = outcomes.FirstOrDefault(o => o.Outcome is "running" or "pending");
         text.AppendLine(outcomes.Count == 0 ? $"no script; {state}"

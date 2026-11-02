@@ -128,6 +128,9 @@ Requires Frida 17.24.3 to 17.24.x, from `pip install frida` or the pinned privat
 ### Lifetime and environment
 
 - A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` unused (default 30; any call but `status` restarts it), or with the server.
+- Events, timelines, coverage runs and console runs are kept in `<data folder>/live-recordings`, one folder per server start, the latest 20 kept.
+- After a restart the old session or run id answers from its recording, marked as a saved run, with the call that starts a new session on the same target.
+- Events are appended as they occur, up to 64 MiB per session; runs are saved every 15 s while recording and when they end.
 - `close`, the idle limit and the server's end release every held thread and end a program the session started; an attached program is detached and keeps running.
 - A stop and an exit each queue one notice naming `live_break session=<id> wait=true`; an idle close names `live_events` for a started program and `live_session action=attach program=<pid>` for an attached one.
 - `live_break wait=true` returns the oldest held stop until it continues; `status` and the result list every held thread.
@@ -220,7 +223,7 @@ Watches record each call's arguments and return value without stopping the progr
 - `action=status waitSeconds=30` waits for the script to end (0-300); `action=stop` cancels it.
 - A `[workspace]` notice names the next call when the script ends.
 - The first step that cannot complete stops the script with its reason and the console's last lines. The transcript is plain text with escape sequences removed; it pages with a cursor. A run keeps the latest 20,000 lines.
-- The program runs on after the script until it exits or `action=stop`; every run ends with the server. The script is kept for repeat runs.
+- The program runs on after the script until it exits or `action=stop`; every run ends with the server and stays readable from its recording. The script is kept for repeat runs.
 
 ### Snapshot
 

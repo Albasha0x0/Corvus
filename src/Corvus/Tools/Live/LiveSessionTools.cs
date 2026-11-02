@@ -861,7 +861,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         Task.Run(async () =>
         {
             Require(spawn: false);
-            var s = live.Get(session);
+            var saved = live.SavedSession(session);
+            var s = saved == null ? live.Get(session) : null;
+            var id = saved?.Id ?? s!.Id;
             long start = 0;
             if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out start))
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
@@ -869,25 +871,26 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             if (k != null && !EventKinds.Contains(k))
                 throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", $"kind={string.Join(", ", EventKinds)}");
             var source = string.IsNullOrWhiteSpace(from) ? null : from.Trim();
-            if (source != null && !s.Issued(source))
-                throw new ToolError(ErrorCode.NotFound, $"Session {s.Id} has no watch or script '{from}'.", "live_watch and live_script action=list show their ids");
+            if (source != null && !(saved?.Issued(source) ?? s!.Issued(source)))
+                throw new ToolError(ErrorCode.NotFound, $"Session {id} has no watch or script '{from}'.", "live_watch and live_script action=list show their ids");
             if (waitSeconds < 0)
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad waitSeconds {waitSeconds}.", "waitSeconds=1..300, or 0 to return at once");
             var threadId = ThreadId(thread);
             var bound = Math.Min(waitSeconds, 300);
             // Checked before the wait, which consumes events a refused call would lose.
             RefuseExisting(outputPath);
-            if (bound > 0)
+            if (bound > 0 && s != null)
                 await s.WaitEventAsync(start, k, threadId, source, TimeSpan.FromSeconds(bound), cancellationToken).ConfigureAwait(false);
             var again = $"{(k != null ? " kind=" + k : "")}{(threadId != null ? " thread=" + thread!.Trim() : "")}{(source != null ? " from=" + source : "")}{(bound > 0 ? " waitSeconds=" + bound : "")}";
-            var (events, gaps, last, more) = s.Page(start, k, threadId, ToolSupport.ClampLimit(limit, 1_000), source);
+            var (events, gaps, last, more) = saved?.Page(start, k, threadId, ToolSupport.ClampLimit(limit, 1_000), source)
+                                             ?? s!.Page(start, k, threadId, ToolSupport.ClampLimit(limit, 1_000), source);
             var named = new List<EvidenceName>();
             var rows = new List<LiveEvent>();
             var lines = new List<string>();
             foreach (var e in events)
             {
                 string? name = null;
-                if (e.Address is { } addr && e.Kind is "stop" or "exception" or "call")
+                if (s != null && e.Address is { } addr && e.Kind is "stop" or "exception" or "call")
                 {
                     var at = live.Name(s, addr, ct: cancellationToken);
                     name = at.Module != null ? at.Display : null;
@@ -905,19 +908,28 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
                 // One marker per ring counts the events evicted between the cursor and the end of this page.
                 long calls = Services.LiveRingGaps.Count(gaps.Calls, start, next - 1), others = Services.LiveRingGaps.Count(gaps.Others, start, next - 1);
-                var page = new StringBuilder();
+                var page = new StringBuilder(saved != null ? SavedNote(saved) : "");
                 if (calls > 0) page.AppendLine($"{(calls == 1 ? "1 call event" : $"{calls:N0} call events")} dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})");
                 if (others > 0) page.AppendLine($"{(others == 1 ? "1 event" : $"{others:N0} events")} dropped (ring capacity {Services.LiveSession.RingCapacity:N0})");
                 foreach (var l in lines.Take(count)) page.AppendLine(l);
-                string empty = bound == 0 ? "No events."
-                    : s.Closed || s.Ended != null ? $"Session {s.State}; no events past cursor={next}."
+                string empty = bound == 0 || saved != null ? "No events."
+                    : s!.Closed || s.Ended != null ? $"Session {s.State}; no events past cursor={next}."
                     : $"No events within {bound} s. Call again with cursor={next}{again}";
-                page.AppendLine(kept.Count == 0 ? empty : nextCursor != null ? $"more: cursor={nextCursor}{again}" : $"end of the ring; poll again with cursor={next}{again}");
+                page.AppendLine(kept.Count == 0 ? empty : nextCursor != null ? $"more: cursor={nextCursor}{again}"
+                    : saved != null ? "end of the saved events" : $"end of the ring; poll again with cursor={next}{again}");
                 var dropped = (int)Math.Min(int.MaxValue, calls + others);
-                return (page.ToString(), new LiveEventPage(s.Id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
+                return (page.ToString(), new LiveEventPage(id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
             }
             return Export(FitPage(rows.Count, Render), outputPath);
         }, cancellationToken);
+
+    /// <summary>
+    /// The line that marks an answer from a kept recording and names the call
+    /// that starts a new session on the same target.
+    /// </summary>
+    private static string SavedNote(LiveSavedSession saved) =>
+        $"saved run of ended session {saved.Id} ({Path.GetFileName(saved.Header.Program)}, kept {Iso(saved.Header.Saved)}" +
+        $"{(saved.Header.Unkept > 0 ? $"; {saved.Header.Unkept:N0} later events not kept" : "")}); Next: {saved.Header.Start} starts a new session on the same target\n";
 
     private static readonly string[] EventKinds = ["stop", "call", "script", "exception", "module", "thread", "child", "output", "error", "exit"];
 

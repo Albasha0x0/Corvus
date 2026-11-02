@@ -18,7 +18,7 @@
           "type": "string"
         },
         "state": {
-          "description": "running, exited or stopped.",
+          "description": "running, exited, stopped or saved (kept by an earlier server).",
           "type": "string"
         },
         "exitCode": {
@@ -92,7 +92,7 @@
             "type": "string"
           },
           "state": {
-            "description": "running, exited or stopped.",
+            "description": "running, exited, stopped or saved (kept by an earlier server).",
             "type": "string"
           },
           "exitCode": {

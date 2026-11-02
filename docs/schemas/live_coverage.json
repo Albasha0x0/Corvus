@@ -17,7 +17,7 @@
           "type": "string"
         },
         "state": {
-          "description": "recording, complete or ended.",
+          "description": "recording, complete, ended or saved (kept by an earlier server).",
           "type": "string"
         },
         "points": {
@@ -102,7 +102,7 @@
             "type": "string"
           },
           "state": {
-            "description": "recording, complete or ended.",
+            "description": "recording, complete, ended or saved (kept by an earlier server).",
             "type": "string"
           },
           "points": {
@@ -191,7 +191,7 @@
               "type": "string"
             },
             "state": {
-              "description": "recording, complete or ended.",
+              "description": "recording, complete, ended or saved (kept by an earlier server).",
               "type": "string"
             },
             "points": {

@@ -19,7 +19,7 @@ public sealed partial class LiveSessionTools
         bool Ran);
 
     public sealed record LiveCoverageSummary(string Run, string Session, string Image, string Sha256,
-        [property: Description("recording, complete or ended.")] string State,
+        [property: Description("recording, complete, ended or saved (kept by an earlier server).")] string State,
         int Points, int Ran, int HitLimit)
     {
         [Description("Functions refused; reasons in the text.")]
@@ -81,7 +81,7 @@ public sealed partial class LiveSessionTools
                                string.Concat(r.Unplaced.Values.Select(x => x.Split('\n')[0]).GroupBy(x => x).Select(g => $"{ToolSupport.Plural(g.Count(), "function")} left out: {g.Key}\n")) +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
                                $"Next: live_coverage action=report run={r.Id}\n" +
-                               $"{r.Id} is kept until the server exits\n";
+                               $"{r.Id} is saved and stays readable after a server restart\n";
                     return ToolOutput.With(text, new LiveCoverageReport(Summary(r), [], 0, 0, []));
                 }
                 case "stop":
@@ -95,16 +95,22 @@ public sealed partial class LiveSessionTools
                 }
                 case "list":
                 {
-                    var listed = live.CoverageRuns.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+                    var listed = live.CoverageRunsWithSaved.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
                     var text = listed.Count == 0 ? "No coverage runs.\n"
                         : string.Concat(listed.Select(r => $"{r.Id} {r.Session} {r.ImageId}: {Ran(r)}, {r.State}\n"));
                     return ToolOutput.With(text, new LiveCoverageReport(null, [], 0, 0, listed.Select(Summary).ToList()));
                 }
                 case "report":
-                    return Export(await CoverageReport(live.GetCoverage(RequireRun(run, session)), match, show, format, offset, limit, cancellationToken).ConfigureAwait(false), outputPath);
+                {
+                    var r = live.ReadCoverage(RequireRun(run, session));
+                    return SavedNote(r) + Export(await CoverageReport(r, match, show, format, offset, limit, cancellationToken).ConfigureAwait(false), outputPath);
+                }
                 case "diff":
-                    return Export(CoverageDiff(live.GetCoverage(RequireRun(run, session)),
-                        live.GetCoverage(string.IsNullOrWhiteSpace(other) ? throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs other.", "other=<the second run id>") : other), limit), outputPath);
+                {
+                    var (ra, rb) = (live.ReadCoverage(RequireRun(run, session)),
+                        live.ReadCoverage(string.IsNullOrWhiteSpace(other) ? throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs other.", "other=<the second run id>") : other));
+                    return SavedNote(ra) + SavedNote(rb) + Export(CoverageDiff(ra, rb, limit), outputPath);
+                }
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, report or diff");
             }
@@ -116,7 +122,7 @@ public sealed partial class LiveSessionTools
     private readonly OutputPager _pager = new(options);
 
     private string RequireRun(string? run, string? session) =>
-        OnlyRun(run, session, live.CoverageRuns.Select(r => (r.Id, r.Session)), "live_coverage");
+        OnlyRun(run, session, live.CoverageRunsWithSaved.Select(r => (r.Id, r.Session)), "live_coverage");
 
     /// <summary>The run named, else the only run (of the session, when one is named).</summary>
     private static string OnlyRun(string? run, string? session, IEnumerable<(string Id, string Session)> runs, string tool)
@@ -136,7 +142,16 @@ public sealed partial class LiveSessionTools
         : $"{r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} ran";
 
     /// <summary>A function's VA; a managed method's metadata token.</summary>
-    private static string Va(Services.LiveCoverageRun r, uint rva) => r.Image == null ? $"0x{rva:X8}" : NativeAddress.Va(r.Image.Image, rva);
+    private static string Va(Services.LiveCoverageRun r, uint rva) =>
+        r.Image != null ? NativeAddress.Va(r.Image.Image, rva) : r.RestoredBase is { } b ? $"0x{b + rva:X}" : $"0x{rva:X8}";
+
+    /// <summary>
+    /// The line that marks an answer from a kept recording and names the call
+    /// that starts a new session on the same target; empty for a run of this
+    /// server.
+    /// </summary>
+    private static string SavedNote(Services.LiveCoverageRun r) =>
+        r.Saved is { } at ? $"saved run of ended session {r.Session} (kept {Iso(at)}); Next: {r.Start} starts a new session on the same target\n" : "";
 
     private static LiveCoverageRow Row(Services.LiveCoverageRun r, LiveCoveragePoint p)
     {
@@ -145,7 +160,7 @@ public sealed partial class LiveSessionTools
     }
 
     private static string Count(Services.LiveCoverageRun r, long hits) =>
-        hits == 0 ? (r.Unread ? "?" : "-") : r.Image == null ? "ran" : hits >= r.HitLimit ? $"{r.HitLimit:N0}+" : hits.ToString("N0", CultureInfo.InvariantCulture);
+        hits == 0 ? (r.Unread ? "?" : "-") : !r.Counted ? "ran" : hits >= r.HitLimit ? $"{r.HitLimit:N0}+" : hits.ToString("N0", CultureInfo.InvariantCulture);
 
     private async Task<string> CoverageReport(Services.LiveCoverageRun r, string? match, string show, string format, int offset, int limit, CancellationToken ct)
     {
@@ -167,6 +182,9 @@ public sealed partial class LiveSessionTools
                                      $", {r.State}{(r.PendingModule is { } pending ? $", waiting for {pending} to load" : "")}\n");
         if (dot)
         {
+            if (r.Image == null && r.Saved != null)
+                throw new ToolError(ErrorCode.Unsupported, $"{r.Id} was kept by an earlier server, which had the image loaded; format=dot draws from it.",
+                    "format=text lists the counts; load_assembly path=<the image> and count it again for the graph");
             if (points.Count > MaxCoverageDot)
                 throw new ToolError(ErrorCode.LimitExceeded, $"The report lists {points.Count:N0} functions; format=dot draws at most {MaxCoverageDot}.",
                     "narrow it with match=<part of the names> or show=ran");

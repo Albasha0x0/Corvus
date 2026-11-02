@@ -22,7 +22,7 @@ public sealed partial class LiveSessionTools
 
     public sealed record LiveTimelineSummary(string Run, string Session, string Program, int ProcessId,
         [property: Description("The diagnostics channel: event tracing (ETW) on Windows.")] string Source,
-        [property: Description("recording or complete.")] string State,
+        [property: Description("recording, complete or saved (kept by an earlier server).")] string State,
         long Entries);
 
     public sealed record LiveTimelinePage(LiveTimelineSummary? Run, IReadOnlyList<LiveTimelineRow> Items,
@@ -79,7 +79,7 @@ public sealed partial class LiveSessionTools
                     var text = $"{r.Id} tracing {s.Id} ({Path.GetFileName(r.Program)}, pid {r.ProcessId}) through {r.Source}: files, registry keys, endpoints and child processes\n" +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
                                $"Next: live_timeline action=list run={r.Id}\n" +
-                               $"{r.Id} is kept until the server exits\n";
+                               $"{r.Id} is saved and stays readable after a server restart\n";
                     return ToolOutput.With(text, new LiveTimelinePage(TimelineSummary(r), [], null, []));
                 }
                 case "stop":
@@ -91,24 +91,30 @@ public sealed partial class LiveSessionTools
                 case "list" when string.IsNullOrWhiteSpace(run) && c == null && m == null && string.IsNullOrWhiteSpace(cursor):
                 {
                     RefuseOutput(outputPath, "a list of one run's entries (run=...)");
-                    var runs = live.TimelineRuns.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase))
+                    var runs = live.TimelineRunsWithSaved.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase))
                         .Select(TimelineSummary).ToList();
                     var text = runs.Count == 0 ? "No timelines.\n"
                         : string.Concat(runs.Select(r => $"{r.Run} {r.Session} {Path.GetFileName(r.Program)}: {r.Entries:N0} entries, {r.State}\n"));
                     return ToolOutput.With(text, new LiveTimelinePage(null, [], null, runs));
                 }
                 case "list":
-                    return Export(TimelinePage(live.GetTimeline(RequireTimeline(run, session)), c, m, cursor, limit), outputPath);
+                {
+                    var r = live.ReadTimeline(RequireTimeline(run, session));
+                    return SavedNote(r) + Export(TimelinePage(r, c, m, cursor, limit), outputPath);
+                }
                 case "report":
-                    return Export(TimelineReport(live.GetTimeline(RequireTimeline(run, session)), c, m, offset, limit), outputPath);
+                {
+                    var r = live.ReadTimeline(RequireTimeline(run, session));
+                    return SavedNote(r) + Export(TimelineReport(r, c, m, offset, limit), outputPath);
+                }
                 case "diff":
                 {
                     if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
                         throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs a and b.", "a=<first timeline> b=<second timeline>, ids from live_timeline action=list");
-                    var (ra, rb) = (live.GetTimeline(a), live.GetTimeline(b));
+                    var (ra, rb) = (live.ReadTimeline(a), live.ReadTimeline(b));
                     if (ReferenceEquals(ra, rb))
                         throw new ToolError(ErrorCode.InvalidArgument, $"a and b are both {ra.Id}.", "pass two different timelines");
-                    return Export(TimelineDiff(ra, rb, c, m, offset, limit), outputPath);
+                    return SavedNote(ra) + SavedNote(rb) + Export(TimelineDiff(ra, rb, c, m, offset, limit), outputPath);
                 }
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, report or diff");
@@ -116,7 +122,15 @@ public sealed partial class LiveSessionTools
         }, cancellationToken);
 
     private string RequireTimeline(string? run, string? session) =>
-        OnlyRun(run, session, live.TimelineRuns.Select(r => (r.Id, r.Session)), "live_timeline");
+        OnlyRun(run, session, live.TimelineRunsWithSaved.Select(r => (r.Id, r.Session)), "live_timeline");
+
+    /// <summary>
+    /// The line that marks an answer from a kept recording and names the call
+    /// that starts a new session on the same target; empty for a run of this
+    /// server.
+    /// </summary>
+    private static string SavedNote(LiveTimelineRun r) =>
+        r.Saved is { } at ? $"saved run of ended session {r.Session} (kept {Iso(at)}); Next: {r.Start} starts a new session on the same target\n" : "";
 
     private static string? Category(string? category)
     {
