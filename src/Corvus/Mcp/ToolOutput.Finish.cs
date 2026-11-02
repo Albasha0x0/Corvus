@@ -56,7 +56,7 @@ public static partial class ToolOutput
         // D3: a code or bytes record carries the text it stands beside.
         else if (record != null && record["code"] is null && ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes) record["code"] = text;
 
-        Annotate(call, record, ref text);
+        Annotate(call, record, ref text, ToolContract.Of(tool).Output is OutputClass.Code or OutputClass.Bytes);
         Bound(call, tool, record, ref text, store, readOnly, origin);
         // Both parts are escaped here, after fitting, so they carry the same escapes of the file text.
         text = Format.EscapeInvisible(text);
@@ -203,7 +203,7 @@ public static partial class ToolOutput
     }
 
     /// <summary>Warnings, coverage and the engine into both parts.</summary>
-    private static void Annotate(OutputCall call, JsonObject? record, ref string text)
+    private static void Annotate(OutputCall call, JsonObject? record, ref string text, bool body)
     {
         // Tools that state incompleteness in their own text: the same lines become the record's warnings.
         if (record != null && record["warnings"] is null)
@@ -250,7 +250,7 @@ public static partial class ToolOutput
             record["engine"] ??= en.Engine;
             if (en.Note != null) record["engineNote"] ??= en.Note;
         }
-        if (record != null) LiftNotes(record, text, call.Notes);
+        if (record != null) LiftNotes(record, text, call.Notes, body);
     }
 
     /// <summary>Line starts that mark a line the reader acts on or must not miss.</summary>
@@ -321,11 +321,55 @@ public static partial class ToolOutput
         }
     }
 
-    /// <summary>The action lines the record does not state become its <c>notes</c>.</summary>
-    private static void LiftNotes(JsonObject record, string text, IReadOnlyCollection<string> added)
+    /// <summary>Lifts unstated action lines into <c>notes</c> and counts row advice.</summary>
+    private static void LiftNotes(JsonObject record, string text, IReadOnlyCollection<string> added, bool body)
     {
         var missing = ActionLines(text).Where(l => !added.Contains(l) && !Carries(record, l)).Distinct(StringComparer.Ordinal).ToList();
+        var carried = new List<string>();
+        if (!body)
+            foreach (var advice in RowAdvice(text))
+            {
+                if (RowField(record, advice) is { } field) carried.Add(field);
+                else if (!missing.Contains(advice)) missing.Add(advice);
+            }
+        if (carried.Count > 0)
+        {
+            var fields = carried.Distinct(StringComparer.Ordinal).ToList();
+            missing.Add($"Note: {carried.Count} row advice {(carried.Count == 1 ? "entry is" : "entries are")} in the {string.Join(", ", fields.Select(f => $"'{f}'"))} field{(fields.Count == 1 ? "" : "s")}.");
+        }
         if (missing.Count > 0) AddNotes(record, missing);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex RowAdviceLine =
+        new(@"^(?:[ \t]*(?:note|warning|hint|next): (?<text>\S.*)|.*?; next: (?<text>[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b.*))$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.NonBacktracking);
+
+    /// <summary>The lower-case advice lines and <c>; next:</c> clauses of a text.</summary>
+    public static IEnumerable<string> RowAdvice(string text) =>
+        RowAdviceLine.Matches(text).Where(m => !ActionStarts.Any(s => m.Value.StartsWith(s, StringComparison.Ordinal))).Select(m => m.Groups["text"].Value.TrimEnd((char)13));
+
+    /// <summary>The row field that states <paramref name="advice"/>, else null.</summary>
+    public static string? RowField(JsonObject record, string advice)
+    {
+        foreach (var (name, child) in record)
+            if (name is not ("notes" or "actionNotes" or "text" or "lines" or "code" or "output") && Field(child, name, advice) is { } found) return found;
+        return null;
+    }
+
+    private static string? Field(JsonNode? node, string name, string advice)
+    {
+        switch (node)
+        {
+            case JsonValue v when v.TryGetValue<string>(out var s):
+                return name is "text" or "lines" or "code" or "output" ? null
+                    : s.Trim() == advice || s.TrimEnd().EndsWith("; next: " + advice, StringComparison.Ordinal) ? name : null;
+            case JsonObject o:
+                foreach (var (key, child) in o) if (Field(child, key, advice) is { } f) return f;
+                return null;
+            case JsonArray a:
+                foreach (var child in a) if (Field(child, name, advice) is { } f) return f;
+                return null;
+            default: return null;
+        }
     }
 
     /// <summary>Appends to the record's string <c>notes</c>; a tool whose own notes has another shape takes them in <c>actionNotes</c>.</summary>

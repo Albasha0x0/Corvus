@@ -33,7 +33,9 @@
       "System.Exception: boom"
     ],
     "modulesMissing": [],
-    "notes": [],
+    "notes": [
+      "Note: 1 row advice entry is in the 'nextStep' field."
+    ],
     "limit": 50,
     "totalExact": true,
     "hasMore": false

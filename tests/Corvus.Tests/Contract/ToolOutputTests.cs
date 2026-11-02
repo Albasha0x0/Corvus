@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using Corvus.Core;
 using Corvus.Mcp;
+using Corvus.Services;
 using Corvus.Tools;
 using Xunit.Abstractions;
 
@@ -348,6 +349,91 @@ public class ToolOutputTests(ITestOutputHelper output)
         var notes = Record(r).GetProperty("notes").EnumerateArray().Select(n => n.GetString()).ToList();
         Assert.Equal(["Dry run: would change 1 item.", "Note: the module has no strings."], notes);
         Assert.Null(ContractSweep.Incomplete("search_strings", Text(r), Record(r)));
+    }
+
+    /// <summary>RT-337: advice a row writes in lower case is counted in the notes and named by the row field that states it.</summary>
+    [Fact]
+    public async Task Row_advice_stated_by_a_row_field_is_counted_in_the_notes()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With("#0 main\nnote: the frame is a guess\n#1 helper\nnext: get_il token=0x06000001\n",
+                new { items = new object[] { new { index = 0, note = "the frame is a guess" }, new { index = 1, nextStep = "get_il token=0x06000001" } } }) }],
+        });
+        Assert.Equal(["Note: 2 row advice entries are in the 'note', 'nextStep' fields."], Record(r).GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+        Assert.Null(ContractSweep.Incomplete("search_strings", Text(r), Record(r)));
+    }
+
+    /// <summary>RT-337: advice no row field states is lifted into the notes and the sweep check names it.</summary>
+    [Fact]
+    public async Task Row_advice_no_row_field_states_is_lifted_and_reported_by_the_sweep_check()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With("#0 main\n  note: call get_il token=0x06000001\n", new { items = new object[] { new { index = 0 } } }) }],
+        });
+        Assert.Equal(["call get_il token=0x06000001"], Record(r).GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+        Assert.Contains("call get_il token=0x06000001", ContractSweep.Incomplete("search_strings", Text(r), Record(r)));
+    }
+
+    /// <summary>RT-337: repeated advice counts once per row.</summary>
+    [Fact]
+    public async Task Row_advice_repeated_on_two_rows_is_counted_twice()
+    {
+        using var services = Services();
+        var r = await Call(services, "search_strings", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With("#0 a\nnote: no symbols\n#1 b\nnote: no symbols\n",
+                new { items = new object[] { new { index = 0, note = "no symbols" }, new { index = 1, note = "no symbols" } } }) }],
+        });
+        Assert.Equal(["Note: 2 row advice entries are in the 'note' field."], Record(r).GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+    }
+
+    /// <summary>RT-337: a body field holding the whole text does not state row advice.</summary>
+    [Fact]
+    public void A_body_field_holding_the_text_does_not_state_row_advice()
+    {
+        var record = new JsonObject { ["lines"] = "#0 a\nnote: no symbols\n", ["items"] = new JsonArray() };
+        Assert.Null(ToolOutput.RowField(record, "no symbols"));
+    }
+
+    /// <summary>RT-337: a next label in a code body is not row advice.</summary>
+    [Fact]
+    public void A_next_label_in_code_is_not_row_advice()
+    {
+        Assert.Empty(ToolOutput.RowAdvice("mov eax, 1 ; next: loop\nnext_item: 3\n"));
+    }
+
+    /// <summary>RT-337: undo notes are one Note line each, without a doubled marker.</summary>
+    [Fact]
+    public void Undo_notes_are_single_note_lines()
+    {
+        var entry = new NativeJournalEntry(new EditId("a.dll", 1), "patch_bytes", NativeJournalEntry.PatchKind, "patch");
+        var line = NativeEditTools.UndoLine(new NativeUndoResult(entry, [], [], ["Note: kept", "two\nlines"]));
+        Assert.EndsWith("\nNote: kept\nNote: two lines", line);
+    }
+
+    /// <summary>RT-337: the stack frame note of the dump text is row advice the sweep check names.</summary>
+    [Fact]
+    public async Task A_stack_frame_note_without_a_row_field_fails_the_sweep_check()
+    {
+        using var services = Services();
+        var frame = new MinidumpService.StackFrame(0, "0x10", "0x20", "m", "0x1", null, null, null, null, "native", "scan", null, "call get_il token=0x06000001");
+        var r = await Call(services, "dump_stack", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.With(DumpText.Frame(frame) + "\n", new { items = new object[] { new { index = 0 } } }) }],
+        });
+        Assert.Contains("call get_il token=0x06000001", ContractSweep.Incomplete("dump_stack", Text(r), Record(r)));
+    }
+
+    /// <summary>RT-337: a next clause inside a status row is row advice; a notice line is not.</summary>
+    [Fact]
+    public void A_next_clause_in_a_status_row_is_row_advice_and_a_notice_is_not()
+    {
+        var advice = ToolOutput.RowAdvice("a.exe: ida complete in 4 s; next: list_functions image=a\n[workspace] b.exe: ida complete in 4 s; next: list_functions image=b\nNext: call x.\n").ToList();
+        Assert.Equal(["list_functions image=a"], advice);
     }
 
     /// <summary>RT-315: ToolOutput.Note puts one line in the text and the notes list.</summary>

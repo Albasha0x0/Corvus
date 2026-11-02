@@ -651,12 +651,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return ToolOutput.Edit(outcome, sb.ToString());
     });
 
-    private static string UndoLine(NativeUndoResult r)
+    internal static string UndoLine(NativeUndoResult r)
     {
         var what = r.Changes.Count == 1 ? $"{r.Changes[0].Kind} at {r.Changes[0].Target} back to {r.Changes[0].After ?? "(none)"}" : $"{r.Changes.Count} change(s)";
         return $"Undid {r.Entry.Id} ({r.Entry.Description}): {what}" +
                (r.PushedTo.Count > 0 ? $"; pushed to {string.Join(", ", r.PushedTo.Select(NativeEngineService.DisplayName))}" : "") + "." +
-               string.Concat(r.Notes.Select(n => $"\n  note: {n}"));
+               string.Concat(r.Notes.Select(n => "\n" + (n.StartsWith("Note:", StringComparison.Ordinal) ? "" : "Note: ") + n.ReplaceLineEndings(" ")));
     }
 
     /// <summary>An edit id of <paramref name="native"/>: "image#n", "#n" or "n".</summary>

@@ -478,6 +478,11 @@ public static partial class ContractSweep
         if (record.ValueKind == JsonValueKind.Object && System.Text.Json.Nodes.JsonNode.Parse(record.GetRawText()) is System.Text.Json.Nodes.JsonObject node
             && Corvus.Mcp.ToolOutput.ActionLines(text).FirstOrDefault(l => !Corvus.Mcp.ToolOutput.Carries(node, l)) is { } lost)
             return $"(e) the text has the action line \"{Clip(lost)}\", the record states it in no field";
+        // RT-337: a row's own advice is stated by a field of that row, not only by the lifted notes.
+        if (Corvus.Mcp.ToolContract.Of(tool).Output is not (Corvus.Mcp.OutputClass.Code or Corvus.Mcp.OutputClass.Bytes)
+            && record.ValueKind == JsonValueKind.Object && System.Text.Json.Nodes.JsonNode.Parse(record.GetRawText()) is System.Text.Json.Nodes.JsonObject rows
+            && Corvus.Mcp.ToolOutput.RowAdvice(text).FirstOrDefault(a => Corvus.Mcp.ToolOutput.RowField(rows, a) is null) is { } lostRow)
+            return $"(f) the text has the row advice \"{Clip(lostRow)}\", no row field states it";
         if (Corvus.Mcp.ToolContract.Of(tool).Output is Corvus.Mcp.OutputClass.Code or Corvus.Mcp.OutputClass.Bytes && text.Length > 200 && record.GetRawText().Length < text.Length / 2 && !new[] { "code", "lines", "items", "hex", "bytes" }.Any(Has))
             return "(d) a code or bytes result without its body in the record";
         return null;
