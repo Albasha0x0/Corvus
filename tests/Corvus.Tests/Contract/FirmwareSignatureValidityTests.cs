@@ -113,7 +113,7 @@ public sealed class FirmwareSignatureValidityTests
     }
 
     /// <summary>A minimal instance of a format, by the signature name.</summary>
-    private static Dictionary<string, Func<byte[]>> Instances() => new()
+    private static Dictionary<string, Func<byte[]>> Instances() => new(FirmwareSignatureInstances.All())
     {
         ["gzip compressed data"] = () => Gzip("minimal"u8.ToArray()),
         ["bzip2 compressed data"] = () => Pad(Bytes("BZh9", new byte[] { 0x31, 0x41, 0x59, 0x26, 0x53, 0x59 })),
@@ -170,12 +170,14 @@ public sealed class FirmwareSignatureValidityTests
     [Fact]
     public void A_minimal_instance_of_each_listed_format_is_reported_under_its_name()
     {
+        var missed = new List<string>();
         foreach (var (format, build) in Instances())
         {
             Assert.Contains(FirmwareSignatures.All, s => s.Format == format);
             var hits = FirmwareSignatures.Scan(build(), 16, default);
-            Assert.True(hits.Any(h => h.Format == format && h.Offset == 0), $"{format}: not reported at offset 0 (got {string.Join(", ", hits.Select(h => h.Format))})");
+            if (!hits.Any(h => h.Format == format && h.Offset == 0)) missed.Add($"{format}: not reported at offset 0 (got {string.Join(", ", hits.Select(h => h.Format))})");
         }
+        Assert.True(missed.Count == 0, string.Join(Environment.NewLine, missed));
     }
 
     [Fact]
@@ -187,8 +189,8 @@ public sealed class FirmwareSignatureValidityTests
             new Dictionary<string, double> { ["signatures"] = missing }, floor: false, partial: true);
     }
 
-    /// <summary>Single-field changes, as (offset, value), each of which must stop the format being reported.</summary>
-    private static Dictionary<string, (int At, byte Value)[]> Mutations() => new()
+    /// <summary>Single-byte changes as (offset, value); a negative value inverts the byte.</summary>
+    private static Dictionary<string, (int At, int Value)[]> Mutations() => new(FirmwareSignatureInstances.Changes())
     {
         ["Zstandard compressed data"] = [(4, 0x08), (6, 0x07), (11, 0x21), (12, 0x03)],
         ["LZFSE compressed data"] = [(4, 0), (24, 0)],
@@ -209,17 +211,19 @@ public sealed class FirmwareSignatureValidityTests
     public void A_changed_header_field_stops_the_format_being_reported()
     {
         var instances = Instances();
+        var kept = new List<string>();
         foreach (var (format, changes) in Mutations())
         {
             Assert.Contains(FirmwareSignatures.Scan(instances[format](), 16, default), h => h.Format == format && h.Offset == 0);
             foreach (var (at, value) in changes)
             {
                 var d = instances[format]();
-                d[at] = value;
+                d[at] = value < 0 ? (byte)~d[at] : (byte)value;
                 var hits = FirmwareSignatures.Scan(d, 16, default);
-                Assert.True(!hits.Any(h => h.Format == format && h.Offset == 0), $"{format}: still reported with byte {at} set to 0x{value:X2}");
+                if (hits.Any(h => h.Format == format && h.Offset == 0)) kept.Add($"{format}: still reported with byte {at} changed to {value}");
             }
         }
+        Assert.True(kept.Count == 0, string.Join(Environment.NewLine, kept));
     }
 
     [Fact]

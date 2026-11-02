@@ -105,7 +105,10 @@ internal static class FirmwareSignatures
         list.Add(S("romfs filesystem", Fs, "-rom1fs-", (w, at) => w.Be32(at + 8) > 32 && w.Printable(at + 16, 1) ? Sized(w, at, w.Be32(at + 8), $"'{w.Ascii(at + 16, 16)}'") : null));
         list.Add(S("ISO 9660 filesystem", Fs, "CD001", (w, at) => w.U8(at + 0x8000) == 1 && w.U8(at + 0x8006) == 1 && w.Le16(at + 0x8080) is 512 or 1024 or 2048 or 4096
             ? Sized(w, at, (long)w.Le32(at + 0x8050) * w.Le16(at + 0x8080), $"volume '{w.Ascii(at + 0x8028, 32)}'") : null, 0x8001));
-        list.Add(S("Btrfs filesystem", Fs, "_BHRfS_M", (w, at) => Sized(w, at, (long)w.Le64(at + 0x10070)), 0x10040));
+        // The primary superblock records its own byte offset; sector and node
+        // sizes are powers of two.
+        list.Add(S("Btrfs filesystem", Fs, "_BHRfS_M", (w, at) => w.Le64(at + 0x10030) == 0x10000 && PowerOfTwo(w.Le32(at + 0x10090), 512, 65536) && PowerOfTwo(w.Le32(at + 0x10094), w.Le32(at + 0x10090), 65536)
+            ? Sized(w, at, (long)w.Le64(at + 0x10070)) : null, 0x10040));
         list.Add(S("XFS filesystem", Fs, "XFSB", (w, at) => w.Be32(at + 4) is >= 512 and <= 65536 && (w.Be32(at + 4) & (w.Be32(at + 4) - 1)) == 0
             ? Sized(w, at, (long)w.Be64(at + 8) * w.Be32(at + 4)) : null));
         list.Add(S("F2FS filesystem", Fs, [0x10, 0x20, 0xF5, 0xF2], (w, at) => w.Le16(at + 0x404) == 1 && w.Le32(at + 0x40C) is >= 9 and <= 16
@@ -125,7 +128,7 @@ internal static class FirmwareSignatures
         list.Add(S("cpio archive (odc)", Arc, "070707", Cpio));
         list.Add(S("POSIX tar archive", Arc, "ustar", Tar, 257));
         list.Add(S("zip archive", Arc, "PK\u0003\u0004", Zip));
-        list.Add(S("RAR archive (v4)", Arc, "Rar!\u001A\u0007\0", (w, at) => w.U8(at + 9) == 0x73 ? Found() : null));
+        list.Add(S("RAR archive (v4)", Arc, "Rar!\u001A\u0007\0", Rar4));
         list.Add(S("RAR archive (v5)", Arc, "Rar!\u001A\u0007\u0001\0", Rar5));
         list.Add(S("7-Zip archive", Arc, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C], (w, at) => w.U8(at + 6) == 0 && w.U8(at + 7) <= 4
             ? Sized(w, at, 32 + (long)w.Le64(at + 12) + (long)w.Le64(at + 20), $"version 0.{w.U8(at + 7)}") : null));
@@ -136,7 +139,7 @@ internal static class FirmwareSignatures
         list.Add(S("ARJ archive", Arc, [0x60, 0xEA], (w, at) => w.Le16(at + 2) is > 0 and <= 2600 && w.U8(at + 4) is >= 30 and < 64 && w.U8(at + 10) == 2 ? Found() : null));
         list.Add(S("Windows imaging (WIM)", Arc, "MSWIM\0\0\0", (w, at) => w.Le32(at + 8) == 208 ? Found() : null));
         list.Add(S("Compound file (OLE)", Doc, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1], (w, at) => w.Le16(at + 28) == 0xFFFE && w.Le16(at + 30) is 9 or 12 ? Found() : null));
-        list.Add(S("Compiled HTML help (CHM)", Doc, "ITSF", (w, at) => w.Le32(at + 4) == 3 ? Found() : null));
+        list.Add(S("Compiled HTML help (CHM)", Doc, "ITSF", (w, at) => w.Le32(at + 4) == 3 && w.Le32(at + 8) == 0x60 ? Found() : null));
         list.Add(S("Android sparse image", Boot, [0x3A, 0xFF, 0x26, 0xED], SparseImage));
         list.Add(S("Android backup", Arc, "ANDROID BACKUP\n", (w, at) => w.U8(at + 15) is >= (byte)'1' and <= (byte)'9' ? Found() : null));
 
@@ -275,6 +278,16 @@ internal static class FirmwareSignatures
             return BinaryPrimitives.ReadUInt32BigEndian(blob) == kind.Length && blob.AsSpan(4, kind.Length).SequenceEqual(Encoding.ASCII.GetBytes(kind));
         }
         catch (FormatException) { return false; }
+    }
+
+    private static bool PowerOfTwo(uint value, uint min, uint max) => value >= min && value <= max && (value & (value - 1)) == 0;
+
+    // The main header has type 0x73, a size of 13 or more and a CRC-16 over
+    // the bytes after the CRC field.
+    private static (long? Size, string? Detail)? Rar4(Window w, int at)
+    {
+        uint size = w.Le16(at + 12);
+        return w.U8(at + 9) == 0x73 && size >= 13 && w.Read(at + 9, (int)size - 2) is { } body && (ushort)~Crc.Raw(0xFFFFFFFF, body) == w.Le16(at + 7) ? Found() : null;
     }
 
     // The first header: type 1 or 4, a size and a CRC-32 over the size onward.
