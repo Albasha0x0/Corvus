@@ -9,7 +9,7 @@ public static class CapturedImageReader
 
     /// <summary>
     /// The captured image of <paramref name="target"/>, missing pages zero; null when its headers are not captured.
-    /// Its <c>InputLayout</c> is mapped, flat or unknown, and one <c>capture</c> check is added to <paramref name="checks"/> when given.
+    /// A flat image is returned mapped, with sections moved to their RVAs. Its <c>InputLayout</c> is mapped, flat or unknown, and one <c>capture</c> check is added to <paramref name="checks"/> when given.
     /// </summary>
     public static CapturedImage? Read(IProcessMemory memory, RebuildTarget target, CancellationToken ct, List<RebuildCheck>? checks = null)
     {
@@ -25,11 +25,68 @@ public static class CapturedImageReader
             captured[page / 0x1000] = memory.ReadMemory(target.Base + page, image.AsSpan((int)page, 0x1000)) == 0x1000;
         }
         var (layout, reason) = DetectLayout(image, captured);
+        if (layout == "flat") (image, captured) = MapFlat(memory, target.Base, image, sizeOfImage, ct);
         var result = new CapturedImage(target, image, captured, layout);
         checks?.Add(layout == "unknown"
             ? RebuildCheck.Unknown("capture", reason)
             : RebuildCheck.Ok("capture", $"{layout}, {result.CapturedPercent}% captured"));
         return result;
+    }
+
+    // Copies each section of a file held in memory from its raw offset to its RVA.
+    // A page counts as captured when every source byte behind it was read.
+    private static (byte[] Image, bool[] Captured) MapFlat(IProcessMemory memory, ulong at, byte[] head, uint sizeOfImage, CancellationToken ct)
+    {
+        uint size = (uint)Math.Min(sizeOfImage, ModuleRebuild.MaxImageBytes);
+        size = (size + 0xFFF) & ~0xFFFu;
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(0x3C));
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(nt + 6));
+        int table = nt + 24 + BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(nt + 20));
+        long headers = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(nt + 24 + 60));
+        var sections = new List<(uint Va, uint Virtual, uint RawSize, uint RawAt)>();
+        long fileLength = headers;
+        for (int i = 0; i < count; i++)
+        {
+            var h = head.AsSpan(table + 40 * i, 40);
+            uint rawSize = BinaryPrimitives.ReadUInt32LittleEndian(h[16..]), rawAt = BinaryPrimitives.ReadUInt32LittleEndian(h[20..]);
+            sections.Add((BinaryPrimitives.ReadUInt32LittleEndian(h[12..]), BinaryPrimitives.ReadUInt32LittleEndian(h[8..]), rawSize, rawAt));
+            if (rawSize != 0) fileLength = Math.Max(fileLength, (long)rawAt + rawSize);
+        }
+        fileLength = Math.Min(fileLength, ModuleRebuild.MaxImageBytes);
+
+        var file = new byte[fileLength];
+        var read = new bool[(fileLength + 0xFFF) / 0x1000];
+        for (long off = 0; off < fileLength; off += 0x1000)
+        {
+            ct.ThrowIfCancellationRequested();
+            int n = (int)Math.Min(0x1000, fileLength - off);
+            read[off / 0x1000] = memory.ReadMemory(at + (ulong)off, file.AsSpan((int)off, n)) == n;
+        }
+
+        var image = new byte[size];
+        var touched = new bool[size / 0x1000];
+        var bad = new bool[touched.Length];
+        void Place(long to, long from, long copy, long extent)
+        {
+            long copied = Math.Max(0, Math.Min(copy, Math.Min(size - to, fileLength - from)));
+            if (copied > 0) file.AsSpan((int)from, (int)copied).CopyTo(image.AsSpan((int)to));
+            bool complete = copied == copy;
+            for (long p = from / 0x1000; complete && copied > 0 && p <= (from + copied - 1) / 0x1000; p++)
+                complete = read[p];
+            long end = Math.Min(size, to + Math.Max(extent, copy));
+            for (long p = to / 0x1000; p * 0x1000 < end; p++)
+            {
+                touched[p] = true;
+                bad[p] |= !complete;
+            }
+        }
+
+        Place(0, 0, headers, headers);
+        foreach (var (va, virt, rawSize, rawAt) in sections)
+            if (va < size) Place(va, rawAt, rawSize == 0 ? 0 : virt == 0 ? rawSize : Math.Min(rawSize, virt), virt);
+        var captured = new bool[touched.Length];
+        for (int p = 0; p < captured.Length; p++) captured[p] = touched[p] && !bad[p];
+        return (image, captured);
     }
 
     /// <summary>
