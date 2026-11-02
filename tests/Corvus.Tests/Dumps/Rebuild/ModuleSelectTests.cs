@@ -50,14 +50,4 @@ public sealed class ModuleSelectTests : IDisposable
         Assert.Null(rebuilt.Bytes);
         Assert.Equal("the memory does not hold the image headers", rebuilt.Refused);
     }
-
-    [Fact]
-    public void File_layout_is_refused_until_it_is_built()
-    {
-        using var dump = Dump();
-        var target = Assert.Single(ModuleRebuild.Select(dump, "synth.dll", default));
-        var rebuilt = ModuleRebuild.Rebuild(dump, target, RebuildOptions.Default with { Layout = OutputLayout.File }, default);
-        Assert.Null(rebuilt.Bytes);
-        Assert.Equal("file layout is not built yet", rebuilt.Refused);
-    }
 }
