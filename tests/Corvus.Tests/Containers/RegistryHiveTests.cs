@@ -326,8 +326,8 @@ public sealed class RegistryHiveTests(ITestOutputHelper output) : IDisposable
         int hives = 0;
         foreach (var path in Directory.EnumerateFiles(Environment.GetEnvironmentVariable("CORVUS_REGISTRY_HIVES")!, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
         {
-            var head = new byte[4];
-            using (var s = File.OpenRead(path)) if (s.Read(head) < 4 || !RegistryHive.Looks(head)) continue;
+            var head = new byte[512];
+            using (var s = File.OpenRead(path)) if (s.Read(head) < 36 || !RegistryHive.Looks(head)) continue;
             try { Compare(Path.GetFileName(Path.GetDirectoryName(path)) + "/" + Path.GetFileName(path), path); }
             catch (Exception ex) when (ex is Xunit.Sdk.XunitException or InvalidDataException) { failures.Add(ex.Message); }
             var (keys, values) = RegistryHive.Read(File.ReadAllBytes(path)).Recover(default);
