@@ -9,7 +9,7 @@ namespace Corvus.Native.Code;
 public sealed partial class NativeCodeIndex
 {
     /// <summary>Saved index version; bump it when the layout or the analysis result changes, so older saves are rebuilt.</summary>
-    public const int PersistFormatVersion = 18;
+    public const int PersistFormatVersion = 19;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
     public bool LoadedFromCache { get; private set; }
