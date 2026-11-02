@@ -195,6 +195,13 @@ internal static class SetupCli
             error.WriteLine($"--dev-reload: {target} does not exist; publish first (./publish.ps1).");
             return null;
         }
+        // The relay refuses a build folder another account can write, such as
+        // one under a drive root every user may change.
+        if (!dryRun && Corvus.Relay.RelayCli.MakeTargetPrivate(target) is { } refused)
+        {
+            error.WriteLine($"--dev-reload: {refused}");
+            return null;
+        }
         var (relayed, problem) = RelayLaunch(env, launch, target, dryRun);
         if (problem != null) error.WriteLine($"--dev-reload: {problem}");
         return relayed;

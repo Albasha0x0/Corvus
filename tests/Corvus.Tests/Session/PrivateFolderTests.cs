@@ -89,6 +89,23 @@ public sealed class PrivateFolderTests
         Assert.Null(PrivateFolder.OtherWriters(path));
     }
 
+    // A build folder under a drive root every user may change was refused at
+    // relay start with no way to fix it but editing its access list.
+    [WindowsFact, SupportedOSPlatform("windows")]
+    public void Registering_the_relay_removes_write_access_its_build_folder_only_inherits()
+    {
+        using var dir = new TempDir();
+        var parent = Directory.CreateDirectory(dir.File("parent")).FullName;
+        Grant(parent, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit);
+        var publish = Directory.CreateDirectory(Path.Combine(parent, "publish")).FullName;
+        Assert.NotNull(PrivateFolder.OtherWriters(publish));
+        Assert.Null(Corvus.Relay.RelayCli.MakeTargetPrivate(publish));
+        Assert.Null(PrivateFolder.OtherWriters(publish));
+        var granted = Directory.CreateDirectory(dir.File("granted")).FullName;
+        Grant(granted, InheritanceFlags.None);
+        Assert.Contains("grants write access to", Corvus.Relay.RelayCli.MakeTargetPrivate(granted));
+    }
+
     [WindowsFact, SupportedOSPlatform("windows")]
     public void The_relay_refuses_a_build_folder_another_account_can_write()
     {

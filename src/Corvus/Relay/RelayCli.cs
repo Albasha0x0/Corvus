@@ -62,7 +62,8 @@ public static class RelayCli
         // The relay starts the program it finds there, so another account must
         // not be able to replace it.
         if (Native.Providers.PrivateFolder.OtherWriters(target) is { } writers)
-            throw new ArgumentException($"{target} {writers}; the relay runs builds only from a folder no other account can write.");
+            throw new ArgumentException($"{target} {writers}; the relay runs builds only from a folder no other account can write " +
+                                        $"(corvus install --dev-reload {target} removes access the folder only inherits).");
         return new RelayOptions
         {
             Target = target,
@@ -70,6 +71,22 @@ public static class RelayCli
             ServerArgs = server,
             Poll = TimeSpan.FromMilliseconds(pollMs),
         };
+    }
+
+    /// <summary>
+    /// Makes <paramref name="target"/> a build folder the relay accepts by
+    /// removing write access it only inherits; null when done, else why it
+    /// stays refused (another account granted access by the folder's own
+    /// entries).
+    /// </summary>
+    public static string? MakeTargetPrivate(string target)
+    {
+        try
+        {
+            Native.Providers.PrivateFolder.Ensure(target);
+            return null;
+        }
+        catch (UnauthorizedAccessException ex) { return ex.Message; }
     }
 
     /// <summary><c>CORVUS_RELAY_DIR</c>, else the data folder's relay/.</summary>
