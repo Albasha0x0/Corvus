@@ -117,7 +117,9 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
                 Assert.Equal(systemFolder == "SysWOW64" ? "x86" : "x64", r.Architecture);
                 Assert.Equal(systemFolder == "SysWOW64", r.Wow64);
             }
-            Assert.True(threads.HandlesOpened >= 1 + rows.Count);
+            // Regression (full run 2.10.0): a thread that exited after the listing is a row without a handle.
+            const string Exited = "the thread has exited";
+            Assert.True(threads.HandlesOpened >= 1 + rows.Count(t => t.Error != Exited), string.Join("; ", rows.Select(t => $"{t.Id}: {t.Error}")));
             Assert.Equal("findstr.exe", summary.MainModule!.Name, ignoreCase: true);
             Assert.Contains(modules, m => m.Name.Equals("findstr.exe", StringComparison.OrdinalIgnoreCase) && m.LocalImage == "matches");
             Assert.Contains(modules, m => m.Name.Equals("ntdll.dll", StringComparison.OrdinalIgnoreCase));
