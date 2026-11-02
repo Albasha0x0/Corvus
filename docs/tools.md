@@ -1898,7 +1898,7 @@ Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatche
 | `newResult` | string |  |  | The new side, from the same tool. |
 | `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory. Values: ida, ghidra. |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `notes`, `evidence`, `changes`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `notes`, `evidence`, `changes`, `oldVersion`, `newVersion`.
 
 ### diff_function
 

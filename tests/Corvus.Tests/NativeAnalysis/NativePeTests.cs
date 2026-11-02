@@ -703,10 +703,10 @@ public sealed class NativePeTests
 
     // ---- resources ----
 
-    private sealed record Res(uint Type, uint Name, uint Lang, byte[] Data);
+    internal sealed record Res(uint Type, uint Name, uint Lang, byte[] Data);
 
     /// <summary>A three-level resource tree with the given data entries, followed by their data.</summary>
-    private static byte[] ResourceTree(uint rva, IReadOnlyList<Res> items)
+    internal static byte[] ResourceTree(uint rva, IReadOnlyList<Res> items)
     {
         var blob = new PeBlob(rva);
         var types = items.GroupBy(i => i.Type).ToList();
@@ -770,13 +770,13 @@ public sealed class NativePeTests
         return r;
     }
 
-    private static byte[] VersionResource()
+    internal static byte[] VersionResource(string? fileVersion = "1.2.3.4")
     {
         var fixedInfo = new byte[52];
         uint[] f = [0xFEEF04BD, 0x10000, 0x0001_0002, 0x0003_0004, 0x0005_0006, 0x0007_0008, 0x3F, 0, 0x40004, 1, 0, 0, 0];
         for (int i = 0; i < f.Length; i++) BinaryPrimitives.WriteUInt32LittleEndian(fixedInfo.AsSpan(i * 4), f[i]);
         byte[] S(string k, string v) => VersionBlock(k, Encoding.Unicode.GetBytes(v + "\0"), true);
-        var table = VersionBlock("040904b0", [], true, S("CompanyName", "Example Corp"), S("FileVersion", "1.2.3.4"));
+        var table = fileVersion == null ? VersionBlock("040904b0", [], true, S("CompanyName", "Example Corp")) : VersionBlock("040904b0", [], true, S("CompanyName", "Example Corp"), S("FileVersion", fileVersion));
         var strings = VersionBlock("StringFileInfo", [], true, table);
         var vars = VersionBlock("VarFileInfo", [], true, VersionBlock("Translation", [0x09, 0x04, 0xB0, 0x04], false));
         return VersionBlock("VS_VERSION_INFO", fixedInfo, false, strings, vars);

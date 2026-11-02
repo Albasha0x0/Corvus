@@ -31,7 +31,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const string NewDescription = "New build: image id or path.";
     internal const string CodeOnlyDescription = "Match by code, not names.";
 
-    /// <summary>One compare_native_images row: a matched pair, an unmatched function or an ambiguous one with candidates.</summary>
+    /// <summary>One compare_native_images row: a matched pair (both sides filled), an unmatched function or an ambiguous one with candidates.</summary>
     public sealed record FunctionRow(string? Old, string? New, string? OldName, string? NewName)
     {
         public int? Tier { get; init; }
@@ -40,7 +40,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         public double? Score { get; init; }
         public uint? OldSize { get; init; }
         public uint? NewSize { get; init; }
-        public int? OldBlocks { get; init; }
+        [Description("Basic blocks; absent for WebAssembly, which does not count them.")] public int? OldBlocks { get; init; }
         public int? NewBlocks { get; init; }
         public int? OldCalls { get; init; }
         public int? NewCalls { get; init; }
@@ -70,6 +70,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
         [Description("Results or capabilities that differ; engine=: the ranges where the file and the engine's memory differ.")]
         public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+        [Description("File version of the old build (version resource); absent when it has none.")] public string? OldVersion { get; init; }
+        [Description("File version of the new build (version resource); absent when it has none.")] public string? NewVersion { get; init; }
     }
 
     public sealed record AddressMapping(
@@ -240,10 +242,15 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         int identical = match.Pairs.Count(p => Identical(match, p));
         var tiers = Enumerable.Range(1, 5).Select(t => new TierCount(t, MatchResult.TierNames[t], match.Pairs.Count(p => p.Tier == t))).ToList();
         var record = new NativeComparison(pair.Old.Id, pair.New.Id, match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, identical,
-            match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v, [], offset, rows.Count, Notes(match, pair.Old.Id, pair.New.Id, ViewArguments(v, codeOnly, minScore)));
+            match.Pairs.Count - identical, match.ByOld.Count(m => m == null), match.ByNew.Count(m => m == null), match.Ambiguous.Count, tiers, v, [], offset, rows.Count, Notes(match, pair.Old.Id, pair.New.Id, ViewArguments(v, codeOnly, minScore)))
+        {
+            OldVersion = FileVersion(oldNative), NewVersion = FileVersion(newNative),
+        };
         var head = new System.Text.StringBuilder($"{record.OldImage} -> {record.NewImage}: {record.Matched} of {record.OldFunctions} old functions matched " +
             $"({identical} identical, {record.Changed} changed); {record.UnmatchedOld} old and {record.UnmatchedNew} new unmatched, {record.Ambiguous} ambiguous. " +
             $"Tiers: {string.Join(", ", tiers.Select(t => $"{t.Tier} {t.Name} {t.Pairs}"))}.\n");
+        if (record.OldVersion != null || record.NewVersion != null)
+            head.Append($"File version: {record.OldVersion ?? "none"} -> {record.NewVersion ?? "none"}.\n");
         foreach (var note in record.Notes) head.Append("Note: ").Append(note).Append('\n');
         if (inspection != null)
         {
@@ -308,7 +315,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var c = Core.WebAssembly.WasmInterface.Compare(a.Module, a.FunctionNames, a.NameSources, b.Module, b.FunctionNames, b.NameSources, ct);
         string Va(WasmImage w, uint f) => $"0x{(w.Module.BodyOf(f) is { } body ? body.Start : w.Module.ImportAt(Core.WebAssembly.WasmExternal.Func, f)?.Offset ?? 0):X}";
-        FunctionRow PairRow(Core.WebAssembly.WasmFunctionPair p) => new(Va(a, p.Old), Va(b, p.New), a.FunctionNames[(int)p.Old], b.FunctionNames[(int)p.New] == a.FunctionNames[(int)p.Old] ? null : b.FunctionNames[(int)p.New])
+        FunctionRow PairRow(Core.WebAssembly.WasmFunctionPair p) => new(Va(a, p.Old), Va(b, p.New), a.FunctionNames[(int)p.Old], b.FunctionNames[(int)p.New])
         {
             Tier = p.Basis == "name" ? 1 : 2, Basis = p.Basis, Score = 1, OldSize = (uint)p.OldSize, NewSize = (uint)p.NewSize, Identical = !p.BodyChanged && !p.SignatureChanged,
             Reason = p.SignatureChanged ? $"signature {Core.WebAssembly.WasmInterface.Signature(a.Module.FunctionType(p.Old))} -> {Core.WebAssembly.WasmInterface.Signature(b.Module.FunctionType(p.New))}" : null,
@@ -341,14 +348,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return new NativeView(record, head.ToString(), [.. rows.Skip(offset).Take(Math.Max(0, limit))], rows.Count, view == "interface" ? "change" : view is "pairs" or "changed" ? "pair" : "function", view == "interface");
     }
 
+    private static string? FileVersion(LoadedNative n) =>
+        n.Pe?.VersionInfo is { } v ? v.Get("FileVersion") ?? v.Fixed?.FileVersionText : null;
+
     private static string RowText(FunctionRow r)
     {
         if (r.Tier is { } t)
         {
-            static string Delta<T>(string what, T a, T? b) where T : struct => b is { } x ? $" {what} {a}->{x}" : "";
+            static string Delta<T>(string what, T a, T? b) where T : struct, IEquatable<T> => b is { } x && !x.Equals(a) ? $" {what} {a}->{x}" : "";
             var changes = Delta("size", r.OldSize ?? 0, r.NewSize) + Delta("blocks", r.OldBlocks ?? 0, r.NewBlocks) + Delta("calls", r.OldCalls ?? 0, r.NewCalls);
             var what = r.Identical == true ? r.Old == r.New ? " identical" : " identical, moved" : changes.Length > 0 ? changes : " code changed, same shape";
-            return $"{r.Old} -> {r.New} {r.OldName}{(r.NewName != null ? $" / {r.NewName}" : "")}  tier {t} {r.Basis} {r.Score:0.##}{what}";
+            return $"{r.Old} -> {r.New} {r.OldName}{(r.NewName != null && r.NewName != r.OldName ? $" / {r.NewName}" : "")}  tier {t} {r.Basis} {r.Score:0.##}{what}";
         }
         var (side, at, name) = r.Old != null ? ("old", r.Old, r.OldName) : ("new", r.New, r.NewName);
         return $"{side} {at} {name}  {r.Reason}" + (r.BestScore is { } b ? $" (best {b:0.##})" : "") +
@@ -1100,11 +1110,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var (a, b) = (m.Old.Functions[p.Old], m.New.Functions[p.New]);
         var (oldName, newName) = (Name(m.Old.Index, a.Function), Name(m.New.Index, b.Function));
-        // The new side's name and counts only where they differ.
-        return new FunctionRow(Va(m.Old.Index, a.Start), Va(m.New.Index, b.Start), oldName, newName != oldName ? newName : null)
+        return new FunctionRow(Va(m.Old.Index, a.Start), Va(m.New.Index, b.Start), oldName, newName)
         {
-            Tier = p.Tier, Basis = p.Basis, Score = Math.Round(p.Score, 3), OldSize = a.Size, NewSize = b.Size != a.Size ? b.Size : null, OldBlocks = a.Blocks,
-            NewBlocks = b.Blocks != a.Blocks ? b.Blocks : null, OldCalls = a.CallSites, NewCalls = b.CallSites != a.CallSites ? b.CallSites : null, Identical = Identical(m, p),
+            Tier = p.Tier, Basis = p.Basis, Score = Math.Round(p.Score, 3), OldSize = a.Size, NewSize = b.Size, OldBlocks = a.Blocks,
+            NewBlocks = b.Blocks, OldCalls = a.CallSites, NewCalls = b.CallSites, Identical = Identical(m, p),
         };
     }
 

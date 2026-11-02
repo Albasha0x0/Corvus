@@ -92,6 +92,7 @@
             "type": "integer"
           },
           "oldBlocks": {
+            "description": "Basic blocks; absent for WebAssembly, which does not count them.",
             "type": "integer"
           },
           "newBlocks": {
@@ -308,6 +309,14 @@
           "key"
         ]
       }
+    },
+    "oldVersion": {
+      "description": "File version of the old build (version resource); absent when it has none.",
+      "type": "string"
+    },
+    "newVersion": {
+      "description": "File version of the new build (version resource); absent when it has none.",
+      "type": "string"
     },
     "limit": {
       "type": "integer"
