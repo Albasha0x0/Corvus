@@ -1,0 +1,2 @@
+# Exemptions from: every reader of JSON from an input file is fed invalid UTF-8, truncated JSON and deep nesting
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).

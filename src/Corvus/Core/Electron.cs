@@ -203,14 +203,13 @@ public static class Electron
         var result = new List<DeclaredHash>();
         try
         {
-            using var doc = JsonDocument.Parse(json.AsMemory().TrimEnd((byte)0));
+            using var doc = InputJson.ParseDocument(json.AsMemory().TrimEnd((byte)0));
             if (doc.RootElement.ValueKind != JsonValueKind.Array) return result;
             foreach (var item in doc.RootElement.EnumerateArray())
                 if (item.ValueKind == JsonValueKind.Object && Str(item, "file") is { } file && Str(item, "value") is { } hash)
                     result.Add(new DeclaredHash(source, file, Str(item, "alg") ?? "SHA256", hash));
         }
-        // InvalidOperationException: invalid UTF-8 in a string.
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
+        catch (JsonException) { }
         return result;
 
         static string? Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

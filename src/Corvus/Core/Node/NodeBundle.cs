@@ -271,7 +271,8 @@ public static class NodeBundle
         used = 0;
         try
         {
-            var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { AllowTrailingCommas = true });
+            InputJson.RequireUtf8(bytes);
+            var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { AllowTrailingCommas = true, MaxDepth = InputJson.MaxDepth });
             document = JsonDocument.ParseValue(ref reader);
             used = (int)reader.BytesConsumed;
             return true;

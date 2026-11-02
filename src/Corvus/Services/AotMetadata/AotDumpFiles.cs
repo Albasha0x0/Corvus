@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text.Json;
+using Corvus.Core;
 using Microsoft.Win32.SafeHandles;
 
 namespace Corvus.Services;
@@ -546,7 +547,7 @@ public sealed class ScriptJsonReader
                     record.Offset = tokenOffset;
                     break;
                 case JsonTokenType.PropertyName when r.CurrentDepth == 3 && section != Section.None:
-                    property = r.GetString();
+                    property = InputJson.GetString(ref r);
                     break;
                 case JsonTokenType.String or JsonTokenType.Number when r.CurrentDepth == 3 && section != Section.None:
                     Assign(record, property, ref r, section != Section.Method || MethodSignatures);
@@ -576,10 +577,10 @@ public sealed class ScriptJsonReader
         {
             case "address": record.Address = Number(ref r) ?? 0; break;
             case "methodaddress": record.MethodAddress = Number(ref r) ?? 0; break;
-            case "name": record.Name = r.GetString(); break;
-            case "value": record.Value = r.GetString(); break;
-            case "signature" when signatures: record.Signature = r.GetString(); break;
-            case "typesignature" when signatures: record.TypeSignature = r.GetString(); break;
+            case "name": record.Name = InputJson.GetString(ref r); break;
+            case "value": record.Value = InputJson.GetString(ref r); break;
+            case "signature" when signatures: record.Signature = InputJson.GetString(ref r); break;
+            case "typesignature" when signatures: record.TypeSignature = InputJson.GetString(ref r); break;
         }
     }
 
@@ -587,7 +588,7 @@ public sealed class ScriptJsonReader
     private static ulong? Number(ref Utf8JsonReader r)
     {
         if (r.TokenType == JsonTokenType.Number) return r.TryGetUInt64(out var n) ? n : null;
-        var s = r.GetString();
+        var s = InputJson.GetString(ref r);
         if (s == null) return null;
         return s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             ? ulong.TryParse(s.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h) ? h : null
@@ -622,7 +623,7 @@ public sealed class ScriptJsonReader
         using var stream = new HandleStream(file, offset);
         Parse(stream, offset, default, initialBuffer: 4096, (ref Utf8JsonReader r, long _) =>
         {
-            if (r.TokenType == JsonTokenType.PropertyName && r.CurrentDepth == 1) property = r.GetString();
+            if (r.TokenType == JsonTokenType.PropertyName && r.CurrentDepth == 1) property = InputJson.GetString(ref r);
             else if (r.TokenType is JsonTokenType.String or JsonTokenType.Number && r.CurrentDepth == 1) Assign(record, property, ref r, true);
             return !(r.TokenType == JsonTokenType.EndObject && r.CurrentDepth == 0);
         });
@@ -641,7 +642,7 @@ public sealed class ScriptJsonReader
             switch (r.TokenType)
             {
                 case JsonTokenType.StartObject when r.CurrentDepth == 1: record.Clear(); break;
-                case JsonTokenType.PropertyName when r.CurrentDepth == 2: property = r.GetString(); break;
+                case JsonTokenType.PropertyName when r.CurrentDepth == 2: property = InputJson.GetString(ref r); break;
                 case JsonTokenType.String or JsonTokenType.Number when r.CurrentDepth == 2: Assign(record, property, ref r, false); break;
                 case JsonTokenType.EndObject when r.CurrentDepth == 1: list.Add(new ScriptString(record.Address, record.Value ?? "")); break;
             }
@@ -694,6 +695,10 @@ public sealed class ScriptJsonReader
                 length -= consumed;
                 bufferStart += consumed;
             }
+        }
+        catch (JsonException ex)
+        {
+            throw new ToolError(ErrorCode.MalformedInput, $"Damaged script or string literal JSON: {ex.Message}");
         }
         finally
         {

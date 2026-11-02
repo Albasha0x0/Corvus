@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Corvus.Core;
 
 namespace Corvus.Services.Web;
 
@@ -57,7 +58,7 @@ public static partial class FlightData
             pushes++;
             if (!m.Groups[2].Success) continue;
             string chunk;
-            try { chunk = JsonSerializer.Deserialize<string>(m.Groups[2].Value) ?? ""; }
+            try { chunk = InputJson.ParseString(m.Groups[2].Value); }
             catch (JsonException) { notes.Add($"push {pushes}: its string does not decode as JSON; skipped"); continue; }
             switch (m.Groups[1].Value)
             {
@@ -113,7 +114,7 @@ public static partial class FlightData
             if (tag == "H" && data.Length > 0) { hints.Add(Hint(data)); key = "H"; }
             tags[key] = tags.GetValueOrDefault(key) + 1;
             JsonElement json;
-            try { json = JsonDocument.Parse(tag == "H" ? data[1..] : data).RootElement.Clone(); }
+            try { json = InputJson.ParseDocument(tag == "H" ? data[1..] : data).RootElement.Clone(); }
             catch (JsonException) { if (tag is "" or "I" or "E") notes.Add($"row {id}: {key} data is not JSON"); continue; }
             switch (tag)
             {
@@ -198,7 +199,7 @@ public static partial class FlightData
         var code = data[0] switch { 'L' => "preload", 'D' => "dns-prefetch", 'C' => "preconnect", 'S' => "stylesheet", 'X' => "script", 'M' => "modulepreload", 'm' => "modulescript", var c => "hint " + c };
         try
         {
-            var json = JsonDocument.Parse(data[1..]).RootElement;
+            var json = InputJson.ParseDocument(data[1..]).RootElement;
             var first = json.ValueKind == JsonValueKind.Array && json.GetArrayLength() > 0 ? Text(json[0]) : Text(json);
             var kind = json.ValueKind == JsonValueKind.Array && json.GetArrayLength() > 1 ? Text(json[1]) : null;
             return $"{code} {first}{(kind != null ? " as " + kind : "")}";

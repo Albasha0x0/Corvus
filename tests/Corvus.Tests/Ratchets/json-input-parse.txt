@@ -1,0 +1,85 @@
+# Exemptions from: JSON read from an input file goes through InputJson or has a hostile-bytes feed
+# This list may only shrink (tests/Corvus.Tests/Support/Ratchet.cs).
+Core/ConnectionFlow.cs # permanent: state, protocol or feed of the program itself
+Core/LoadedSetRecord.cs # permanent: state, protocol or feed of the program itself
+Core/LockedJsonFile.cs # permanent: state, protocol or feed of the program itself
+Core/MessageShapes.cs # permanent: state, protocol or feed of the program itself
+Core/ReferencePacks.cs # permanent: state, protocol or feed of the program itself
+Core/ResultStore.cs # permanent: state, protocol or feed of the program itself
+Core/RulePacks.cs # permanent: state, protocol or feed of the program itself
+Core/ToolError.cs # permanent: state, protocol or feed of the program itself
+Mcp/CallFilter.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/CallLog.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/Catalog.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/Contract/ParameterDomains.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/OutputSchemas.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/Redaction.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/ResponseBudget.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/ToolListCache.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/ToolOutput.Finish.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/ToolOutput.Provenance.cs # permanent: protocol, settings or client configuration of the program itself
+Mcp/ToolOutput.Schema.cs # permanent: protocol, settings or client configuration of the program itself
+Native/Annotations/AnnotationStore.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Annotations/NativeAnnotations.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Dump/Managed/ClrHelperClient.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Emulation/IntegerEmulation.Snapshot.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Patching/PatchMigration.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Providers/AnalysisCache.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Providers/AnalysisPresets.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Providers/EngineOutputCache.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Providers/Ida/IdaConnection.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/Ida/IdaInstallation.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/Jadx/JadxServer.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/Live/Inspector/CdpConnection.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/Live/Inspector/InspectorEndpoint.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/Live/Inspector/InspectorWorker.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/Worker/WorkerHost.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Providers/Worker/Yara/YaraRules.cs # permanent: output of a tool or service the program runs, not an input file
+Native/Providers/WorkerProtocol.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Native/Providers/WorkerSessionBase.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Relay/DevRelay.cs # permanent: protocol, settings or client configuration of the program itself
+Relay/RelayBuilds.cs # permanent: protocol, settings or client configuration of the program itself
+Services/Analysis/Dependencies/OsvRecord.cs # permanent: output of a tool or service the program runs, not an input file
+Services/Analysis/DetectItEasy.cs # permanent: output of a tool or service the program runs, not an input file
+Services/Analysis/NativeCapa.cs # permanent: output of a tool or service the program runs, not an input file
+Services/Analysis/ProgramEmulationOps.cs # permanent: output of a tool or service the program runs, not an input file
+Services/Analysis/TransformVerifier.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Analysis/UnpackService.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Analysis/YaraMemoryScan.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/AotBuild/AotBuildLoader.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/AotBuild/AotPackages.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/AotMetadata/AotCapa.cs # permanent: output of a tool or service the program runs, not an input file
+Services/DotnetEdits/EditHistoryService.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/DotnetEdits/EditJournal.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Dumps/MinidumpService.Buckets.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Engines/NativeEngineService.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Engines/OpenEstimate.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Engines/PackedDatabaseInput.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Live/LiveRecordings.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Live/LiveYara.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Mobile/JavaDecompilerService.cs # permanent: output of a tool or service the program runs, not an input file
+Services/Session/NotesService.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Session/SessionService.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Services/Web/Packages/GuardDogRules.cs # permanent: output of a tool or service the program runs, not an input file
+Setup/CliArgs.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ClientCatalog.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ConfigTargets.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/Installation.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/JsoncEditor.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/SelfTest.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ToolCli.FileBatch.Baseline.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ToolCli.FileBatch.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ToolCli.Serve.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ToolCli.Session.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/ToolCli.cs # permanent: protocol, settings or client configuration of the program itself
+Setup/YamlTargets.cs # permanent: protocol, settings or client configuration of the program itself
+Tools/Builds/NativeDiffTools.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Containers/FileIsolation.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Engines/NativeTypeTools.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/NativeEdits/NativeEditTools.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Session/EvidenceBundle.Observations.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Session/EvidenceBundle.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Session/EvidenceInput.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Session/ReadResultView.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Session/SessionFileTools.cs # permanent: saved edits, sessions, caches or output written by the program itself
+Tools/Session/TimesketchJsonl.cs # permanent: saved edits, sessions, caches or output written by the program itself

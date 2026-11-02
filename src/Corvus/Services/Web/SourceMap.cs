@@ -36,12 +36,10 @@ public sealed class SourceMap
         if (json.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])) json = json[3..];
         try
         {
-            using var doc = JsonDocument.Parse(json.ToArray(), new JsonDocumentOptions { MaxDepth = 64 });
+            using var doc = InputJson.ParseDocument(json.ToArray(), new JsonDocumentOptions { MaxDepth = 64 });
             return new SourceMap(doc.RootElement);
         }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"the source map is not valid JSON: {ex.Message}"); }
-        // A string value that is not valid UTF-8.
-        catch (InvalidOperationException ex) { throw new ToolError(ErrorCode.MalformedInput, $"the source map holds invalid text: {ex.Message}"); }
     }
 
     private SourceMap(JsonElement root)

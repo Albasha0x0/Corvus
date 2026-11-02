@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text.Json;
 using Corvus.Native.MachO;
+using Corvus.Core;
 
 namespace Corvus.Native.Dump;
 
@@ -123,7 +124,7 @@ public sealed partial class CoreFile
         int end = Array.IndexOf(bytes, (byte)0);
         try
         {
-            using var doc = JsonDocument.Parse(bytes.AsMemory(0, end < 0 ? bytes.Length : end));
+            using var doc = InputJson.ParseDocument(bytes.AsMemory(0, end < 0 ? bytes.Length : end));
             if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("threads", out var threads) || threads.ValueKind != JsonValueKind.Array) return;
             int i = 0;
             foreach (var t in threads.EnumerateArray())

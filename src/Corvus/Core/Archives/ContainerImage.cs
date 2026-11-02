@@ -56,13 +56,7 @@ internal static class ContainerImage
             var bytes = new byte[r.Size];
             tar.Position = r.Offset;
             tar.ReadExactly(bytes);
-            // JsonDocument checks string bytes only when a string is read, so check them first.
-            if (!System.Text.Unicode.Utf8.IsValid(bytes))
-            {
-                notes.Add($"{path}: not valid UTF-8 JSON; not read.");
-                return null;
-            }
-            try { return JsonDocument.Parse(bytes); }
+            try { return InputJson.ParseDocument(bytes); }
             catch (JsonException ex)
             {
                 notes.Add($"{path}: not valid JSON ({ex.Message.TrimEnd('.')}).");
@@ -211,7 +205,7 @@ internal static class ContainerImage
 
     private static void OciImages(JsonElement index, string? name, Func<string, JsonDocument?> json, List<Image> images, HashSet<string> seen, int depth, List<string> notes)
     {
-        if (!index.TryGetProperty("manifests", out var list) || list.ValueKind != JsonValueKind.Array) return;
+        if (index.ValueKind != JsonValueKind.Object || !index.TryGetProperty("manifests", out var list) || list.ValueKind != JsonValueKind.Array) return;
         foreach (var d in list.EnumerateArray())
         {
             if (!d.TryGetProperty("digest", out var dg) || dg.GetString() is not { } digest) continue;
@@ -248,6 +242,11 @@ internal static class ContainerImage
 
     private static void Describe(JsonElement root, string prefix, List<string> notes, List<JsonElement> history)
     {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            notes.Add($"{prefix}configuration is not a JSON object: unknown; entrypoint, environment and history are not read.");
+            return;
+        }
         string Text(JsonElement e, string key) => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
         string platform = $"{Text(root, "os")}/{Text(root, "architecture")}".Trim('/');
         string created = Text(root, "created");

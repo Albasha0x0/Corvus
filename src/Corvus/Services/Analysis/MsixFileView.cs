@@ -259,7 +259,7 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
             entries.Keys.Select(Uri.UnescapeDataString), StringComparer.OrdinalIgnoreCase);
         try
         {
-            using var doc = JsonDocument.Parse(bytes, new JsonDocumentOptions
+            using var doc = InputJson.ParseObject(bytes, new JsonDocumentOptions
             {
                 CommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,

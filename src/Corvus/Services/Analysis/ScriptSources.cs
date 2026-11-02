@@ -89,7 +89,7 @@ internal static class NotebookCells
     internal static SourceParts? Read(string text)
     {
         JsonDocument doc;
-        try { doc = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 64 }); }
+        try { doc = InputJson.ParseDocument(text, new JsonDocumentOptions { MaxDepth = 64 }); }
         catch (JsonException) { return new SourceParts("notebook", "", [], [], ["Notebook JSON could not be parsed; cells are unknown."]); }
         using (doc)
         {

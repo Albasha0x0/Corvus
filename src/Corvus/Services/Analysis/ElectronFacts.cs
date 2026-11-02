@@ -204,7 +204,7 @@ internal static class ElectronInspector
         if (bytes == null) return null;
         try
         {
-            using var doc = JsonDocument.Parse(bytes, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            using var doc = InputJson.ParseObject(bytes, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             var root = doc.RootElement;
             string? Str(string name) => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
             var main = (Str("main") ?? "index.js").Replace('\\', '/');
@@ -213,8 +213,7 @@ internal static class ElectronInspector
             int deps = root.TryGetProperty("dependencies", out var d) && d.ValueKind == JsonValueKind.Object ? d.EnumerateObject().Count() : 0;
             return new ElectronPackage(Str("name"), Str("productName"), Str("version"), main, found, deps);
         }
-        // InvalidOperationException: invalid UTF-8 in a string.
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (JsonException ex)
         {
             notes.Add($"package.json is not valid JSON ({ex.Message}).");
             return null;

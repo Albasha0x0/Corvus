@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
 using Corvus.Native.Elf;
+using Corvus.Core;
 
 namespace Corvus.Native;
 
@@ -58,7 +59,7 @@ public sealed class RustAudit
         catch (Exception ex) when (ex is InvalidDataException or IOException) { audit.Issues.Add($"not zlib data: {ex.Message}"); return audit; }
         try
         {
-            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
+            using var doc = InputJson.ParseDocument(json, new JsonDocumentOptions { MaxDepth = 16 });
             if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("packages", out var packages) || packages.ValueKind != JsonValueKind.Array)
             {
                 audit.Issues.Add("no packages array");

@@ -113,7 +113,7 @@ public static class ModelRisk
         {
             if (config.Length > MaxDecoded) throw new InvalidDataException($"config.json is {config.Length:N0} bytes, over the {MaxDecoded:N0} byte limit");
             using var s = config.Open();
-            using var doc = JsonDocument.Parse(s);
+            using var doc = InputJson.ParseDocument(s, MaxDecoded);
             Layers(doc.RootElement, f);
             return;
         }

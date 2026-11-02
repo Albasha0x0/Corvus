@@ -49,13 +49,13 @@ internal static class SyntheticMachOCore
         return b;
     }
 
-    public static byte[] Core(bool x64 = false, bool imageInCore = true, bool notes = false)
+    public static byte[] Core(bool x64 = false, bool imageInCore = true, bool notes = false, byte[]? process = null)
     {
         int stateWords = x64 ? 42 : 68, threadSize = 16 + stateWords * 4;
         int sizeofcmds = 3 * 72 + 2 * threadSize + (notes ? 2 * 40 : 0);
         long payload = 32 + sizeofcmds;
         var infos = notes ? new byte[24 + 48 + 2 * 32 + 32] : [];
-        var metadata = notes ? Encoding.ASCII.GetBytes("{\"threads\":[{\"thread_id\":7937},{\"thread_id\":7938}]}") : [];
+        var metadata = notes ? process ?? Encoding.ASCII.GetBytes("{\"threads\":[{\"thread_id\":7937},{\"thread_id\":7938}]}") : [];
         long data = (payload + infos.Length + metadata.Length + 0xFFF) & ~0xFFFL;
         long imageAt = data, dyldAt = data + (imageInCore ? ImageSize : 0), stackAt = dyldAt + 0x1000;
         var b = new byte[stackAt + 0x1000];

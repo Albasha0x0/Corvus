@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -112,7 +113,7 @@ public static partial class Lockfiles
     private static List<LockedPackage>? Npm(string text, List<string> notes)
     {
         JsonDocument doc;
-        try { doc = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 256, AllowTrailingCommas = true }); }
+        try { doc = InputJson.ParseDocument(text, new JsonDocumentOptions { MaxDepth = 256, AllowTrailingCommas = true }); }
         catch (JsonException e)
         {
             notes.Add("not JSON: " + e.Message);

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -417,7 +418,7 @@ public static partial class PackageReview
         if (files.Text(path) is not { } text) return null;
         try
         {
-            using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip, MaxDepth = 64 });
+            using var doc = InputJson.ParseDocument(text, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip, MaxDepth = 64 });
             return doc.RootElement.Clone();
         }
         catch (JsonException) { return null; }

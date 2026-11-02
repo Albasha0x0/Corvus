@@ -582,7 +582,7 @@ public static class BuildSummary
             if (new FileInfo(path).Length > 4 << 20) return null;
             var json = File.ReadAllBytes(path);
             BytesRead += json.Length;
-            using var doc = JsonDocument.Parse(json);
+            using var doc = InputJson.ParseObject(json);
             return doc.RootElement.TryGetProperty("names", out var names) && names.ValueKind == JsonValueKind.Array ? names.GetArrayLength() : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return null; }
@@ -679,7 +679,7 @@ public static class BuildSummary
             if (new FileInfo(path).Length > 4 << 20) return [];
             var json = File.ReadAllBytes(path);
             BytesRead += json.Length;
-            using var doc = JsonDocument.Parse(json);
+            using var doc = InputJson.ParseObject(json);
             return doc.RootElement.TryGetProperty("names", out var names) && names.ValueKind == JsonValueKind.Array
                 ? [.. names.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => Path.GetFileNameWithoutExtension(e.GetString()!))]
                 : [];

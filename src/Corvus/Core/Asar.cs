@@ -78,8 +78,7 @@ public sealed class AsarArchive
         var entries = new List<AsarEntry>();
         var parser = new HeaderParser(entries, issues, ct);
         try { parser.Parse(bytes); }
-        // InvalidOperationException: invalid UTF-8 in a string.
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (JsonException ex)
         {
             issues.Add($"malformed_header: the JSON stops being valid ({ex.Message}); entries before that point are kept.");
         }
@@ -329,7 +328,7 @@ public sealed class AsarArchive
             int self = -1;
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
-                var key = reader.GetString();
+                var key = InputJson.GetString(ref reader);
                 reader.Read();
                 switch (key)
                 {
@@ -343,7 +342,7 @@ public sealed class AsarArchive
                         Children(ref reader, path, depth, unpacked, unsafeName);
                         break;
                     case "offset":
-                        if (reader.TokenType == JsonTokenType.String && long.TryParse(reader.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var o)) offset = o;
+                        if (reader.TokenType == JsonTokenType.String && long.TryParse(InputJson.GetString(ref reader), NumberStyles.None, CultureInfo.InvariantCulture, out var o)) offset = o;
                         else if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out var on) && on >= 0) offset = on;
                         else { badOffset = true; reader.Skip(); }
                         break;
@@ -359,7 +358,7 @@ public sealed class AsarArchive
                         executable = reader.TokenType == JsonTokenType.True;
                         break;
                     case "link" when reader.TokenType == JsonTokenType.String:
-                        link = reader.GetString();
+                        link = InputJson.GetString(ref reader);
                         break;
                     case "integrity" when reader.TokenType == JsonTokenType.StartObject:
                         integrity = Integrity(ref reader);
@@ -387,7 +386,7 @@ public sealed class AsarArchive
             HashSet<string>? names = null;
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
-                var name = reader.GetString()!;
+                var name = InputJson.GetString(ref reader)!;
                 reader.Read();
                 if (reader.TokenType != JsonTokenType.StartObject)
                 {
@@ -414,16 +413,16 @@ public sealed class AsarArchive
             var blocks = new List<string>();
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
-                var key = reader.GetString();
+                var key = InputJson.GetString(ref reader);
                 reader.Read();
                 switch (key)
                 {
-                    case "algorithm" when reader.TokenType == JsonTokenType.String: algorithm = reader.GetString(); break;
-                    case "hash" when reader.TokenType == JsonTokenType.String: hash = reader.GetString(); break;
+                    case "algorithm" when reader.TokenType == JsonTokenType.String: algorithm = InputJson.GetString(ref reader); break;
+                    case "hash" when reader.TokenType == JsonTokenType.String: hash = InputJson.GetString(ref reader); break;
                     case "blockSize" when reader.TokenType == JsonTokenType.Number: reader.TryGetInt64(out blockSize); break;
                     case "blocks" when reader.TokenType == JsonTokenType.StartArray:
                         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
-                            if (reader.TokenType == JsonTokenType.String) blocks.Add(reader.GetString()!);
+                            if (reader.TokenType == JsonTokenType.String) blocks.Add(InputJson.GetString(ref reader)!);
                             else reader.Skip();
                         break;
                     default: reader.Skip(); break;

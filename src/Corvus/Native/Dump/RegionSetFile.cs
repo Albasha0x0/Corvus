@@ -78,7 +78,7 @@ public sealed class RegionSetFile : IProcessMemory
         if (info.Length > MaxManifestBytes)
             throw new ToolError(ErrorCode.LimitExceeded, $"The region-set manifest {full} is {info.Length:N0} bytes; at most {MaxManifestBytes:N0} are read.");
         JsonDocument doc;
-        try { doc = JsonDocument.Parse(System.IO.File.ReadAllBytes(full), new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip }); }
+        try { doc = InputJson.ParseDocument(System.IO.File.ReadAllBytes(full), new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip }); }
         catch (JsonException ex) { throw Bad(full, $"it is not valid JSON: {ex.Message}"); }
         using (doc)
         {

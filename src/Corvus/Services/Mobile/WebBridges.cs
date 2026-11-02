@@ -140,7 +140,7 @@ internal static partial class WebBridges
         try
         {
             if (package.Read("assets/capacitor.plugins.json") is { } json)
-                foreach (var entry in System.Text.Json.JsonDocument.Parse(json).RootElement.EnumerateArray())
+                foreach (var entry in InputJson.ParseDocument(json).RootElement.EnumerateArray())
                     if (entry.ValueKind == System.Text.Json.JsonValueKind.Object && entry.TryGetProperty("classpath", out var classpath) && classpath.GetString() is { } c) registry.Add(c);
         }
         catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) { notes.Add($"Capacitor: assets/capacitor.plugins.json does not read: {e.Message}"); }

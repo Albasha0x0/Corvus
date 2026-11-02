@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Xml;
+using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
@@ -34,7 +35,7 @@ internal static class ConfigText
     {
         try
         {
-            using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = MaxDepth, AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            using var doc = InputJson.ParseDocument(text, new JsonDocumentOptions { MaxDepth = MaxDepth, AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             var values = new List<string>();
             var pending = new Stack<JsonElement>();
             pending.Push(doc.RootElement);

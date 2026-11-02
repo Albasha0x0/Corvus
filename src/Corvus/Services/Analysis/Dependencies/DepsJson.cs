@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Corvus.Core;
 
 namespace Corvus.Services.Analysis.Dependencies;
 
@@ -22,7 +23,7 @@ public sealed record DepsJson(string Path, string? RuntimeTarget, IReadOnlyList<
     {
         try
         {
-            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            using var doc = InputJson.ParseDocument(json, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("libraries", out var libraries) || libraries.ValueKind != JsonValueKind.Object)
                 return null;

@@ -119,7 +119,11 @@ public static class Captures
                         case JsonTokenType.StartObject when depth == 3 && inEntries:
                             var probe = reader;
                             if (!probe.TrySkip()) { consumed = at; resume = before; goto refill; }
-                            using (var document = JsonDocument.ParseValue(ref reader)) entry(document.RootElement);
+                            long entryStart = reader.TokenStartIndex;
+                            // Check the entry alone, as a window may end inside a character.
+                            using (var document = InputJson.ParseDocument(buffer.AsMemory((int)entryStart, (int)(probe.BytesConsumed - entryStart))))
+                                entry(document.RootElement);
+                            reader = probe;
                             break;
                         case JsonTokenType.StartArray or JsonTokenType.String or JsonTokenType.Number or JsonTokenType.True or JsonTokenType.False or JsonTokenType.Null
                             when depth == 0:
@@ -177,9 +181,7 @@ public static class Captures
         static string? Str(JsonElement e, string name)
         {
             if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.String) return null;
-            try { return v.GetString(); }
-            // Invalid UTF-8 in the string.
-            catch (InvalidOperationException) { return null; }
+            return v.GetString();
         }
 
         static string? HarHeader(JsonElement response, string name)

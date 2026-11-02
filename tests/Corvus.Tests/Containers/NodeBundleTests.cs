@@ -32,9 +32,11 @@ public sealed class NodeBundleTests
 
     private static byte[] SeaImage(uint flags, params byte[][] fields) => Image(Encoding.ASCII.GetBytes(Fuse + ":1"), SeaBlob(flags, fields));
 
-    private static byte[] PkgImage(byte[] payload, string table, string? prelude = null)
+    private static byte[] PkgImage(byte[] payload, string table, string? prelude = null) =>
+        PkgImage(payload, Encoding.UTF8.GetBytes(prelude ?? "boot\n})(require, " + table + ", \"/snapshot/app/index.js\", {}, {})"));
+
+    internal static byte[] PkgImage(byte[] payload, byte[] text)
     {
-        var text = Encoding.UTF8.GetBytes(prelude ?? "boot\n})(require, " + table + ", \"/snapshot/app/index.js\", {}, {})");
         string Head(int pos) => $"PAYLOAD_POSITION = '{pos,-8}';PAYLOAD_SIZE = '{payload.Length,-8}';PRELUDE_POSITION = '{pos + payload.Length,-8}';PRELUDE_SIZE = '{text.Length,-8}';";
         // The numbers are file offsets into the image, written at a fixed width.
         int pos = 64 + Head(0).Length;
@@ -48,7 +50,7 @@ public sealed class NodeBundleTests
         return ms.ToArray();
     }
 
-    private static byte[] NexeTrailer(double code, double resources)
+    internal static byte[] NexeTrailer(double code, double resources)
     {
         var trailer = new byte[32];
         "<nexe~~sentinel>"u8.CopyTo(trailer);

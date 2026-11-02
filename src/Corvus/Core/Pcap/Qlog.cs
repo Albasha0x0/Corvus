@@ -74,7 +74,7 @@ internal sealed class Qlog
                     var record = all[(at + 1)..end];
                     at = end;
                     if (record.Span.Trim(" \t\r\n"u8).IsEmpty) continue;
-                    using var doc = JsonDocument.Parse(record, options);
+                    using var doc = InputJson.ParseDocument(record, options);
                     if (header)
                     {
                         header = false;
@@ -86,7 +86,7 @@ internal sealed class Qlog
                 }
                 return q;
             }
-            using var whole = JsonDocument.Parse(all[start..], options);
+            using var whole = InputJson.ParseDocument(all[start..], options);
             var root = whole.RootElement;
             if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("the document is not a JSON object");
             q.Header(root);

@@ -275,7 +275,7 @@ public sealed class AotStringIndex
                     if (model.LiteralSlots[i] != 0 || metadataOnly) list.Add(new ScriptString(model.LiteralSlots[i], model.LiteralValues[i]));
             }
         }
-        catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new ToolError(ErrorCode.IoError, $"Cannot read {source}: {ex.Message}");
         }
@@ -295,7 +295,7 @@ public sealed class AotStringIndex
         var watch = System.Diagnostics.Stopwatch.StartNew();
         AotScript? script;
         try { script = Script; }
-        catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException) { ReferenceProblem = $"cannot read {Files.ScriptSource}: {ex.Message}"; return null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { ReferenceProblem = $"cannot read {Files.ScriptSource}: {ex.Message}"; return null; }
         if (script == null) { ReferenceProblem = $"no {AotDumpFiles.ScriptFileName} (function starts) next to the dump"; return null; }
         var addresses = Addresses;
         var bySlot = _literals.Value.BySlot;

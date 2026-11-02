@@ -274,7 +274,7 @@ public static class Webcil
             }
             try
             {
-                using var json = System.Text.Json.JsonDocument.Parse(text, new System.Text.Json.JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip });
+                using var json = InputJson.ParseDocument(text, new System.Text.Json.JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip });
                 if (json.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object || !json.RootElement.TryGetProperty("resources", out var resources)) continue;
                 Collect(resources, entries ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             }

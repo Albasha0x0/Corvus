@@ -65,7 +65,7 @@ public sealed class HarmonyPackage
             }
         try
         {
-            using var doc = JsonDocument.Parse(Bytes(profile), new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            using var doc = InputJson.ParseDocument(Bytes(profile), new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             modules.Add(profile.FullName == "module.json" ? Stage(path, doc.RootElement, abc, libs) : Fa(path, doc.RootElement, abc, libs));
         }
         catch (JsonException ex) { issues.Add($"{prefix}{profile.FullName}: not readable JSON: {ex.Message}"); }

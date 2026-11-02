@@ -89,10 +89,10 @@ public sealed partial class PortablePdb : IDebugInfoProvider, IDisposable
             if (_reader.GetGuid(info.Kind) != sourceLink) continue;
             try
             {
-                using var json = JsonDocument.Parse(_reader.GetBlobBytes(info.Value));
-                if (!json.RootElement.TryGetProperty("documents", out var docs)) return;
+                using var json = InputJson.ParseObject(_reader.GetBlobBytes(info.Value));
+                if (!json.RootElement.TryGetProperty("documents", out var docs) || docs.ValueKind != JsonValueKind.Object) return;
                 foreach (var p in docs.EnumerateObject())
-                    if (p.Value.GetString() is { } url) _sourceLink.Add((p.Name, url));
+                    if (p.Value.ValueKind == JsonValueKind.String && p.Value.GetString() is { } url) _sourceLink.Add((p.Name, url));
             }
             catch (JsonException) { return; }
         }

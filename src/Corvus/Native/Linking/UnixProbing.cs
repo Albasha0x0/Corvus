@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Corvus.Core;
 
 namespace Corvus.Native.Linking;
 
@@ -194,7 +195,7 @@ public static class UnixProbing
             JsonDocument? doc = null;
             try
             {
-                if (new FileInfo(file).Length <= 16 << 20) doc = JsonDocument.Parse(File.ReadAllBytes(file));
+                if (new FileInfo(file).Length <= 16 << 20) doc = InputJson.ParseObject(File.ReadAllBytes(file));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
             if (doc != null) yield return doc;

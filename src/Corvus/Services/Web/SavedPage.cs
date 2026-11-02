@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Corvus.Core;
 
 namespace Corvus.Services.Web;
 
@@ -292,7 +293,7 @@ public static partial class SavedPage
     {
         try
         {
-            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16, CommentHandling = JsonCommentHandling.Disallow });
+            using var doc = InputJson.ParseDocument(json, new JsonDocumentOptions { MaxDepth = 16, CommentHandling = JsonCommentHandling.Disallow });
             if (doc.RootElement.ValueKind != JsonValueKind.Object) { notes.Add("an import map that is not a JSON object is ignored"); return; }
             if (doc.RootElement.TryGetProperty("imports", out var top)) AddMap(null, top, pageUrl, imports);
             if (doc.RootElement.TryGetProperty("scopes", out var scopes) && scopes.ValueKind == JsonValueKind.Object)

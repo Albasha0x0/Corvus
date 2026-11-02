@@ -460,7 +460,7 @@ public static class FrozenPython
         if (json == null) { app.Notes.Add($"{tool}: the metadata file is unreadable."); return; }
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            using var doc = InputJson.ParseObject(json);
             var root = doc.RootElement;
             string? Text(string key) => root.TryGetProperty(key, out var e) && e.ValueKind == System.Text.Json.JsonValueKind.String && e.GetString() is { Length: > 0 } t ? t : null;
             var entry = Text("entry_point") ?? Text("script");

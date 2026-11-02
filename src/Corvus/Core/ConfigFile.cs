@@ -85,7 +85,7 @@ public static class ConfigFile
         var refused = new List<string>();
         try
         {
-            using var doc = JsonDocument.Parse(bytes, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            using var doc = InputJson.ParseDocument(bytes, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return new(path, source, true, [], [], [], "not a JSON object");
             foreach (var p in doc.RootElement.EnumerateObject())
             {

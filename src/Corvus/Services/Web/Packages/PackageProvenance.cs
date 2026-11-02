@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -86,7 +87,7 @@ internal static class PackageProvenance
             }
             try
             {
-                using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+                using var doc = InputJson.ParseDocument(File.ReadAllBytes(file));
                 var statements = Statements(doc.RootElement).Take(MaxAttestations + 1).ToList();
                 if (statements.Count == 0) notes.Add($"provenance {name}: no Sigstore bundle, npm attestation or PyPI attestation in it");
                 if (statements.Count > MaxAttestations) notes.Add($"provenance {name}: the first {MaxAttestations} attestations are read");

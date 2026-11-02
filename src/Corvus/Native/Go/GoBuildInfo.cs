@@ -146,7 +146,7 @@ public sealed record GoBuildInfo(string GoVersion, string? Path, GoModule? Main,
     private static string Unquote(string s)
     {
         if (s.Length < 2 || s[0] != '"' || s[^1] != '"') return s;
-        try { return System.Text.Json.JsonSerializer.Deserialize<string>(s) ?? s; }
+        try { return Corvus.Core.InputJson.ParseString(s); }
         catch (System.Text.Json.JsonException) { return s; }
     }
 }
