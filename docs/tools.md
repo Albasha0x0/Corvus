@@ -654,7 +654,7 @@ Structured output: `source`, `container`, `searched`, `items`, `notes`.
 
 **Extract container** (edit, idempotent, long-running)
 
-Extract a container, load its .NET assemblies: single-file bundles, Costura, .nupkg, .apk, .aab, zips, .asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin. algorithm: cipher dry run. A repeat call pages the kept report.
+Extract a container, load its .NET assemblies: single-file bundles, Costura, .nupkg, .apk, .aab, zips, .asar, captures (HAR, pcap), JS bundles with source maps, single compressed streams. Nothing runs; runnable and shell-parsed names get .bin. algorithm: cipher dry run. A repeat call pages the kept report.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

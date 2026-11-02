@@ -59,6 +59,23 @@ internal static class FsCodec
         }
     }
 
+    /// <summary>At most <paramref name="count"/> leading bytes of a stream decoded; shorter when the stream ends first.</summary>
+    public static byte[] DecodeHead(string codec, ReadOnlySpan<byte> src, int count)
+    {
+        try
+        {
+            using var s = Open(codec, new MemoryStream(src.ToArray(), writable: false), -1);
+            var head = new byte[count];
+            int total = 0;
+            for (int got; total < count && (got = s.Read(head.AsSpan(total))) > 0;) total += got;
+            return head[..total];
+        }
+        catch (Exception ex) when (ex is not (InvalidDataException or OperationCanceledException or OutOfMemoryException))
+        {
+            throw new InvalidDataException($"damaged {codec} data: {ex.Message}", ex);
+        }
+    }
+
     private static Stream Open(string codec, MemoryStream input, long outputSize) => codec switch
     {
         "zlib" => new ZLibStream(input, CompressionMode.Decompress),

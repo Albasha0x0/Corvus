@@ -16,7 +16,7 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
     [Description("Extract a container, load its .NET assemblies: single-file bundles, Costura, .nupkg, .apk, .aab, zips, " +
-                 ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin. " +
+                 ".asar, captures (HAR, pcap), JS bundles with source maps, single compressed streams. Nothing runs; runnable and shell-parsed names get .bin. " +
                  "algorithm: cipher dry run. A repeat call pages the kept report.")]
     public Task<string> UnpackContainer(
         [Description("Container file, Blazor or ClickOnce folder.")] string path,
