@@ -357,9 +357,11 @@ internal sealed class ShellFileView : IFileSummaryView
         return "";
     }
 
+    // The task and its direct children only: a search of every descendant
+    // made nested tasks cost the square of their count.
     private static string Part(XmlElement task, string name)
     {
-        foreach (XmlElement el in task.GetElementsByTagName("*").Cast<XmlElement>().Prepend(task))
+        foreach (XmlElement el in task.ChildNodes.OfType<XmlElement>().Prepend(task))
         {
             var value = Attr(el, name);
             if (value.Length == 0 && el.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase) && el != task) value = el.InnerText.Trim();
