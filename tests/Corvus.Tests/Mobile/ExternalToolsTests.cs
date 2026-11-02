@@ -61,8 +61,10 @@ public class ExternalToolsTests : IDisposable
     [Fact]
     public void A_watched_program_that_keeps_writing_outlasts_the_timeout_and_the_window()
     {
-        // One line per second for about 5 s, past the 3 s window and the 1 ms timeout.
-        var (exe, args) = Script("ping -n 6 127.0.0.1", "for i in 1 2 3 4 5 6; do echo x; sleep 1; done");
+        // About 5 s of output, past the 3 s window and the 1 ms timeout: a line
+        // per second on Windows, per 0.5 s elsewhere, as a loaded macOS runner
+        // stretched a 1 s gap past the window (release.yml, v2.10.0).
+        var (exe, args) = Script("ping -n 6 127.0.0.1", "for i in 1 2 3 4 5 6 7 8 9 10 11; do echo x; sleep 0.5; done");
         var r = ExternalTools.Run(exe, args, TimeSpan.FromMilliseconds(1), 1 << 20, default, watch: new(new StallRule(TimeSpan.FromSeconds(3))));
         Assert.Equal(0, r.ExitCode);
         Assert.False(r.TimedOut);
