@@ -36,7 +36,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("identical, same_shape or similar (near-duplicates linked by score).")] string Kind,
         int Members,
         [property: Description("Bytes of the members after the first.")] long RedundantBytes,
-        [property: Description("The first 50, by address.")] IReadOnlyList<GroupMember> Functions);
+        [property: Description("The first 50 members, by address; members gives the full count.")] IReadOnlyList<GroupMember> Functions);
 
     public sealed record SimilarityReport(string Image,
         [property: Description("similar, duplicates or clusters.")] string View,
@@ -136,6 +136,8 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             : SimilarFunctions.Clusters(home, min, minInstructions, cancellationToken, out pairs), cancellationToken);
         if (v == "clusters") notes.Add("scores are sketch estimates; view=similar on a member rescores exactly");
         var shown = groups.Skip(offset).Take(limit).Select((g, k) => Group(home, g, offset + k + 1)).ToList();
+        int cut = shown.Count(g => g.Members > g.Functions.Count);
+        if (cut > 0) notes.Add($"{Plural(cut, "group")} on this page list only the first {MaxMembers} members (members gives the full count); view=similar on a member address lists the rest");
         int scanned = v == "clusters" ? pairs : home.Functions.Length;
         var title = $"{(v == "clusters" ? "Near-duplicate clusters" : "Duplicate groups")} in {native.Id}, " +
                     $"{(v == "clusters" ? Plural(scanned, "candidate pair") + " scored" : Plural(scanned, "function") + " compared")}\n" + Notes(notes);
@@ -153,12 +155,15 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         if (m.SharedImports.Count > 0) evidence.Add("imports " + string.Join(", ", m.SharedImports));
         if (m.SharedCallees.Count > 0) evidence.Add("callees " + string.Join(", ", m.SharedCallees));
         return $"{m.Score:0.00}  {m.Kind,-10} {m.Address}  {m.Name}  [{m.Image}]  code {m.Code:0.00}, contains {m.Containment:0.00}, {m.Instructions} insns, cfg {m.Cfg}" +
-               (evidence.Count > 0 ? "; " + string.Join("; ", evidence) : "");
+               (evidence.Count > 0 ? "; " + string.Join("; ", evidence) : "") +
+               (m.SharedStrings.Count == MaxShared || m.SharedConstants.Count == MaxShared || m.SharedImports.Count == MaxShared || m.SharedCallees.Count == MaxShared
+                   ? $" (each evidence list shows at most {MaxShared})" : "");
     }
 
-    private static string GroupRow(FunctionGroup g) =>
+    internal static string GroupRow(FunctionGroup g) =>
         $"#{g.Id} {g.Kind}: {Plural(g.Members, "member")}, {g.RedundantBytes:N0} redundant bytes: " +
-        string.Join(", ", g.Functions.Take(8).Select(f => $"{f.Name} {f.Address}")) + (g.Members > 8 ? ", ..." : "");
+        string.Join(", ", g.Functions.Take(8).Select(f => $"{f.Name} {f.Address}")) +
+        (g.Members > 8 ? $" ({Math.Min(8, g.Functions.Count)} of {g.Members} shown{(g.Members > g.Functions.Count ? "; structured output lists " + g.Functions.Count : "")})" : "");
 
     /// <summary>The image's prints (feature sketches), indexing it first; progress covers both.</summary>
     private async Task<ImagePrints> Prints(LoadedNative native, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
@@ -188,7 +193,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
             h.SharedCallees.Take(MaxShared).Select(i => Name(home.Index, home.Functions[i].Function)).ToList());
     }
 
-    private static FunctionGroup Group(ImagePrints home, SimilarGroup g, int id)
+    internal static FunctionGroup Group(ImagePrints home, SimilarGroup g, int id)
     {
         var f = home.Functions;
         var members = g.Members.Take(MaxMembers).Select((i, k) => new GroupMember(Va(home.Index, f[i].Start), Name(home.Index, f[i].Function), f[i].Instructions, f[i].Size, g.Scores[k])).ToList();

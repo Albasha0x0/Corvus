@@ -456,6 +456,16 @@ public class SimilarFunctionsTests
     }
 
     [Fact]
+    public void A_group_larger_than_the_member_cap_says_how_many_it_shows()
+    {
+        var s = X64Sample.Value;
+        var members = Enumerable.Repeat(s.Of("H"), 60).ToArray();
+        var group = Corvus.Tools.NativeSimilarityTools.Group(s.Prints, new SimilarGroup("identical", members, new double[60]), 1);
+        Assert.Equal((60, 50), (group.Members, group.Functions.Count));
+        Assert.Contains("(8 of 60 shown; structured output lists 50)", Corvus.Tools.NativeSimilarityTools.GroupRow(group));
+    }
+
+    [Fact]
     public async Task Tool_views_paging_and_argument_checks()
     {
         using var dir = new TempDir();
