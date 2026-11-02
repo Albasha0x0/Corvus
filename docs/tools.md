@@ -2870,7 +2870,7 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a program** (destructive, open-world)
 
-Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump.
+Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt module images.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2879,13 +2879,17 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
 | `session` | string |  |  | Id from live_session. |
-| `outputPath` | string |  |  | snapshot: dump file (default temp). |
+| `outputPath` | string |  |  | snapshot: dump file (default temp); save_modules: new or empty image folder (default temp). |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 | `childNames` | string[] |  |  | Hold children by image name (* any) at start. |
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
 | `device` | string |  |  | adb serial; device runs frida-server. |
+| `modules` | string |  |  | save_modules: file name, 0x address, all or unlisted. |
+| `layout` | string |  |  | save_modules: file or mapped. |
+| `imports` | string |  |  | save_modules: restore or keep. |
+| `base` | string |  |  | save_modules: loaded or preferred. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `ipc`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `saved`, `ipc`.
 
 ### live_break
 

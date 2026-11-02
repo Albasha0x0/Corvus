@@ -117,6 +117,44 @@
         "dump"
       ]
     },
+    "saved": {
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "reason": {
+                "description": "Why no file was written.",
+                "type": "string"
+              },
+              "captured": {
+                "description": "Pages read, percent.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "captured"
+            ]
+          }
+        }
+      },
+      "required": [
+        "folder",
+        "modules"
+      ]
+    },
     "ipc": {
       "description": "action=ipc: one line per route: direction, kind, channel, shape, count, code sites.",
       "type": "string"

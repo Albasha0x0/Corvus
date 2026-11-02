@@ -34,6 +34,13 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     /// <summary>A snapshot of the session's process as a dump file, opened for the dump tools.</summary>
     public sealed record LiveSnapshot(string Path, long Bytes, [property: Description("Id for dump_stack, read_dump_memory and the other dump tools.")] string Dump);
 
+    /// <summary>A module rebuilt from the session's process: the file written, or null with the reason none was.</summary>
+    public sealed record LiveSavedModule(string Name, string? File, [property: Description("Why no file was written.")] string? Reason,
+        [property: Description("Pages read, percent.")] int Captured);
+
+    /// <summary>The image folder save_modules wrote and its modules.</summary>
+    public sealed record LiveSavedModules(string Folder, IReadOnlyList<LiveSavedModule> Modules);
+
     public sealed record LiveSessionReport(string Action,
         [property: Description("Session id; null for action=list and processes.")] string? Session,
         string? Backend, string? Program, int? ProcessId,
@@ -42,6 +49,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         public IReadOnlyList<LiveProcessRow>? Processes { get; init; }
         public LiveSnapshot? Snapshot { get; init; }
+        public LiveSavedModules? Saved { get; init; }
         [Description("action=ipc: one line per route: direction, kind, channel, shape, count, code sites.")]
         public string? Ipc { get; init; }
         // Text only: the output schema is at its size limit.
@@ -116,18 +124,22 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump.")]
+    [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt module images.")]
     public Task<string> LiveSession(
         [Description("Action.")] string action = "list",
         [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
-        [Description("snapshot: dump file (default temp).")] string? outputPath = null,
+        [Description("snapshot: dump file (default temp); save_modules: new or empty image folder (default temp).")] string? outputPath = null,
         [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description("Hold children by image name (* any) at start.")] string[]? childNames = null,
         [Description("Download a missing DAC.")] bool downloadDac = false,
         [Description("adb serial; device runs frida-server.")] string? device = null,
+        [Description("save_modules: file name, 0x address, all or unlisted.")] string? modules = null,
+        [Description("save_modules: file or mapped.")] string? layout = null,
+        [Description("save_modules: restore or keep.")] string? imports = null,
+        [Description("save_modules: loaded or preferred.")] string? @base = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -193,6 +205,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     return Report(a, current);
                 case "snapshot":
                     return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
+                case "save_modules":
+                    return SaveModules(live.Get(RequireSession(session)), outputPath, modules, layout, imports, @base, cancellationToken);
                 case "ipc":
                     var recorded = live.Get(RequireSession(session));
                     return Ipc(recorded, await live.IpcAsync(recorded, cancellationToken).ConfigureAwait(false));
@@ -201,7 +215,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child or release_child");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, save_modules, ipc, close, children, attach_child or release_child");
             }
         }, cancellationToken);
 
@@ -272,6 +286,35 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                    (stop != null ? $"the stop of thread {stop.ThreadId} at {held!.Point} is {(OperatingSystem.IsWindows() ? "the dump's exception (a breakpoint)" : "the core's signal (SIGTRAP), with the stop's registers")}; dump_stack walks from it\n" : "") +
                    $"Next: open_minidump path={report.Id} view=threads, dump_stack dump={report.Id}\n";
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
+    }
+
+    private static string SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, CancellationToken ct)
+    {
+        LiveSessionService.Live(s);
+        if (s.ScriptRuntime is { } runtime) throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a {runtime.Kind} session: save_modules rebuilds native modules.", $"live_session action=attach program={s.ProcessId} opens a process session");
+        // Pack rejects a bad option before the process is opened.
+        var save = MinidumpService.ModuleSave.Unpack(MinidumpService.ModuleSave.Pack(
+            string.IsNullOrWhiteSpace(outputPath)
+                ? Native.Providers.PrivateFolder.Temp("modules", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}")
+                : outputPath, modules, layout, imports, @base));
+        var root = SafeFile.Output(save.Folder);
+        if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
+            throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <program>-modules");
+        using var process = Native.Live.LiveProcess.Attach(s.ProcessId, ct);
+        var targets = Native.Dump.Rebuild.ModuleRebuild.Select(process, save.Module, ct);
+        if (targets.Count == 0)
+            throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.", "pass modules as a listed file name, a 0x address, all or unlisted");
+        var options = Native.Dump.Rebuild.RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
+        var rebuilt = targets.Select(t => Native.Dump.Rebuild.ModuleRebuild.Rebuild(process, t, options, ct)).ToList();
+        var written = Native.Dump.Rebuild.ModuleWriter.WriteAll(rebuilt, root);
+        var rows = rebuilt.Zip(written, (r, w) => new LiveSavedModule(r.Target.Name, w.File, w.Reason, r.CapturedPercent)).ToList();
+        var text = new StringBuilder($"{s.Id}: {rows.Count(r => r.File != null)} of {rows.Count} module(s) of process {s.ProcessId} written to {root}; the program keeps running\n");
+        foreach (var (r, m) in rows.Zip(rebuilt))
+        {
+            var worst = m.Checks.FirstOrDefault(c => c.State == "failed") ?? m.Checks.FirstOrDefault(c => c.State == "partial");
+            text.AppendLine($"  {r.Name}: {r.File ?? $"not written, {r.Reason}"} ({r.Captured}% read{(worst != null ? $"; {worst.Name} {worst.State}: {worst.Detail}" : "")})");
+        }
+        return ToolOutput.With(text.ToString(), new LiveSessionReport("save_modules", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Saved = new LiveSavedModules(root, rows) });
     }
 
     /// <summary>Local processes by name (then id), those whose name contains <paramref name="filter"/> when given.</summary>

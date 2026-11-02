@@ -188,7 +188,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 | | `symbolize_stack_text`: resolve crash text against the loaded build |
 | | `bucket_minidumps`: group dumps by crash signature |
 | Running programs | `inspect_process`: read-only view of a running Windows process; nothing written or suspended; `view=windows` needs `--allow-window-capture` |
-| | `live_session`: attach (`--allow-live-attach`) or start (`--allow-live-spawn` with `--live-allow`); `--live-allow` limits targets |
+| | `live_session`: attach (`--allow-live-attach`) or start (`--allow-live-spawn` with `--live-allow`); `--live-allow` limits targets; `action=save_modules` saves rebuilt module images (`modules`, `layout`, `imports`, `base`) |
 | | `live_break`: stop points with named stacks; managed DAC fetched only with `downloadDac=true` |
 | | `live_watch`: record calls with arguments and results |
 | | `live_read`: registers and memory of a held thread; YARA scan of memory (Windows, Linux) |

@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 public partial class NextHintTests
 {
     // Tool names in prose that are not calls: "tool k=v" pairs are checked, bare names only for existence.
-    private static readonly string[] NotTools = ["dump_from_memory", "list_changed", "patch_native", "stub_needs_reloc"];
+    private static readonly string[] NotTools = ["dump_from_memory", "list_changed", "patch_native", "save_modules", "stub_needs_reloc"];
 
     // A step that refines the call just made runs against the same target, so it may omit it.
     private static readonly string[] Targets = ["session", "image", "assembly", "path", "dump"];
