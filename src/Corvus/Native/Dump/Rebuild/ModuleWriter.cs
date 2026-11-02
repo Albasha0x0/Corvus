@@ -33,7 +33,7 @@ public static class ModuleWriter
                     results.Add(new WrittenModule(null, $"past the {totalLimit >> 20} MB total limit"));
                     continue;
                 }
-                var name = DumpModuleExport.NameFor(m.Target.Name, m.Target.Base, used);
+                var name = ModuleFileName.NameFor(m.Target.Name, m.Target.Base, used);
                 SafeFile.WriteUnderRoot(root, name, m.Bytes, overwrite: false);
                 created.Add(Path.Combine(root, name));
                 total += m.Bytes.Length;

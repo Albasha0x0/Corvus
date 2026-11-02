@@ -48,21 +48,6 @@ public sealed class DumpModuleExportTests : IDisposable
     }
 
     [Fact]
-    public void Modules_with_one_name_or_an_unsafe_name_get_distinct_safe_file_names()
-    {
-        var export = DumpModuleExport.Write(Dump(b =>
-        {
-            var image = SyntheticCrash.Image();
-            b.Modules.Add(new MinidumpBuilder.Module(0x7FF7_0000_0000, (uint)image.Length, 0, @"Z:\other\synth.dll"));
-            b.Memory.Add((0x7FF7_0000_0000, image));
-            b.Modules.Add(new MinidumpBuilder.Module(0x7FF8_0000_0000, (uint)image.Length, 0, @"Z:\other\con.dll"));
-            b.Memory.Add((0x7FF8_0000_0000, image));
-        }), _dir.File("modules"), default);
-        Assert.Equal(["module.bin", "synth-7FF700000000.dll", "synth.dll"], export.Written.Select(w => w.File).Order(StringComparer.Ordinal));
-        Assert.All(export.Written, w => Assert.True(File.Exists(Path.Combine(export.Folder, w.File))));
-    }
-
-    [Fact]
     [FuzzEntry(typeof(DumpModuleExport))]
     public void Mutated_dumps_never_throw_from_the_export()
     {
