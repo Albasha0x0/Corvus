@@ -279,6 +279,12 @@ internal sealed class ValueResolver
         return null;
     }
 
+    private static readonly System.Text.RegularExpressions.Regex SameMarker = new(@" \(same on \d+ paths\)$");
+
+    // Replaces an inner join's marker, so a value carries one count: the outermost join's.
+    private static Val SameOnPaths(Val v, int paths) =>
+        v with { Why = SameMarker.Replace(v.Why, "") + $" (same on {paths} paths)" };
+
     private Val SliceMerge(Loc loc, Code.BasicBlock b)
     {
         var values = new List<Val>();
@@ -293,7 +299,7 @@ internal sealed class ValueResolver
             values.Add(v);
         }
         if (values.Count == 0) return new Val(VKind.Cycle, 0, 0, 0, "loop");
-        if (values.Count == 1 && !loop) return values[0] with { Why = values[0].Why + $" (same on {b.Predecessors.Count} paths)" };
+        if (values.Count == 1 && !loop) return SameOnPaths(values[0], b.Predecessors.Count);
         // The join's block start locates the merge and the loop, which have no defining instruction.
         if (loop) values.Add(new Val(VKind.Cycle, 0, 0, 0, $"carried around the loop at {Va(b.Start)}") { At = b.Start });
         return new Val(VKind.Merge, (ulong)b.Predecessors.Count, cut ? 1u : 0, 0, $"{b.Predecessors.Count} paths join at {Va(b.Start)}", [.. values]) { At = b.Start };
@@ -314,7 +320,7 @@ internal sealed class ValueResolver
             if (!values.Any(o => o.SameAs(in v))) values.Add(v);
         }
         if (values.Count == 0) return new Val(VKind.Cycle, 0, 0, 0, "loop");
-        if (values.Count == 1) return values[0] with { Why = values[0].Why + $" (same on {b.Predecessors.Count} paths)" };
+        if (values.Count == 1) return SameOnPaths(values[0], b.Predecessors.Count);
         return new Val(VKind.Unknown, 0, 0, 0, $"differs between paths ({string.Join(" / ", values.Take(MaxAlternatives).Select(Short))})",
             [.. values.Take(MaxAlternatives)]);
     }

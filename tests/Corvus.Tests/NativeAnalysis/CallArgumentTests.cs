@@ -187,6 +187,36 @@ public class CallArgumentTests(ITestOutputHelper output)
             [new EngineParameter("count", "int", "RCX")], "int", "RAX", false);
 
     [Fact]
+    public void A_value_joined_by_nested_merges_carries_one_path_count()
+    {
+        var code = Assemble(64, a =>
+        {
+            var e1 = a.CreateLabel(); var j1 = a.CreateLabel();
+            var e2 = a.CreateLabel(); var j2 = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.mov(ecx, 5);
+            a.test(edx, edx); a.je(e1);
+            a.nop(); a.jmp(j1);
+            a.Label(ref e1); a.nop();
+            a.Label(ref j1);
+            a.test(r8d, r8d); a.je(e2);
+            a.nop(); a.jmp(j2);
+            a.Label(ref e2); a.nop();
+            a.Label(ref j2);
+            a.mov(eax, ecx);
+            a.add(rsp, 0x28);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        var fn = index.Functions.First(f => f.Start == Code);
+        var slice = new OursSliceProvider(CallAnalysis.For(index)).Backward(fn, new SliceSeed(SliceSeedKind.Returns, Code, "rax"), default);
+        var derivations = slice.Nodes.Select(n => n.Derivation).ToList();
+        output.WriteLine(string.Join(Environment.NewLine, derivations));
+        Assert.Contains(derivations, d => d.Contains("(same on "));
+        Assert.All(derivations, d => Assert.True(System.Text.RegularExpressions.Regex.Count(d, "same on") <= 1, d));
+    }
+
+    [Fact]
     public void An_engine_prototype_names_and_types_the_arguments_of_a_local_callee()
     {
         var index = LocalCalleeIndex();
