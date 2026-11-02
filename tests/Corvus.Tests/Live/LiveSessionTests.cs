@@ -1137,7 +1137,8 @@ public sealed class LiveSessionEventTests : LiveSessionTestBase
     {
         await _tools.LiveSession("attach", program: "99994242");
         for (int i = 1; i <= 2000; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i, ["pad"] = new string('x', 60) });
-        for (int i = 0; i < 100 && !(await _tools.LiveEvents("live-1", kind: "script", limit: 1000, cursor: "1990")).Contains("\"n\":2000"); i++) await Task.Delay(20);
+        // CI run 41382205707 (Windows offload): 2 s was too short for the last event to arrive.
+        for (int i = 0; i < 1500 && !(await _tools.LiveEvents("live-1", kind: "script", limit: 1000, cursor: "1990")).Contains("\"n\":2000"); i++) await Task.Delay(20);
         using var pipeline = new OutputPipeline();
         var seen = await pipeline.PageAll("live_events", 600, (cursor, ct) => _tools.LiveEvents("live-1", cursor: cursor, kind: "script", limit: 1000, cancellationToken: ct),
             "\"n\":(\\d+)");
