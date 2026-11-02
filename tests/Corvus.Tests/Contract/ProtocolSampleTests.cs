@@ -206,6 +206,7 @@ public partial class ProtocolSampleTests
         await using var server = await InProcessServer.StartAsync(options: options);
         var values = await SetupAsync(server.Client);
         var stale = new List<string>();
+        var counted = new List<string>();
         foreach (var (tool, args) in calls.OrderBy(c => c.Key, StringComparer.Ordinal))
         {
             // An export starts from no directory, so every run records the same outcome.
@@ -213,6 +214,7 @@ public partial class ProtocolSampleTests
             foreach (var (before, beforeArgs) in Before.GetValueOrDefault(tool, [])) await CallAsync(server.Client, before, beforeArgs);
             var result = await server.Client.CallToolAsync(tool, Bind(args, values));
             foreach (var (cleanup, cleanupArgs) in After.GetValueOrDefault(tool, [])) await CallAsync(server.Client, cleanup, cleanupArgs);
+            if (TotalCharsMismatch(result) is { } mismatch) counted.Add($"{tool}: {mismatch}");
             var sample = new JsonObject
             {
                 ["tool"] = tool,
@@ -231,7 +233,32 @@ public partial class ProtocolSampleTests
             else if (File.ReadAllText(file).ReplaceLineEndings("\n") is var recorded && recorded != text)
                 stale.Add($"{tool}: {FirstDifference(recorded, text)}");
         }
+        Assert.True(counted.Count == 0, "totalChars differs from the text it counts:\n" + string.Join("\n", counted));
         Assert.True(stale.Count == 0, "protocol samples changed (check the diff, then CORVUS_UPDATE_DOCS=1 records them):\n" + string.Join("\n", stale));
+    }
+
+    /// <summary>Null when a live reply's totalChars equals the text it counts (its code, else the reply without the engine line); else what differs.</summary>
+    private static string? TotalCharsMismatch(CallToolResult result)
+    {
+        if (result.StructuredContent is not { ValueKind: JsonValueKind.Object } element) return null;
+        if (JsonNode.Parse(element.GetRawText()) is not JsonObject record) return null;
+        if (record["totalChars"] is not JsonValue v || !v.TryGetValue<int>(out var total)) return null;
+        int offset = record["offset"] is JsonValue o && o.TryGetValue<int>(out var off) ? off : 0;
+        bool more = record["nextOffset"] is not null;
+        if (record["code"] is JsonValue code && code.TryGetValue<string>(out var page))
+        {
+            int end = offset + page.Length;
+            if (more ? total <= end : total != end) return $"totalChars {total}, page ends at {end}";
+            return null;
+        }
+        if (more) return null;
+        var lines = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text)).Replace("\r\n", "\n").Split('\n').ToList();
+        while (lines.Count > 0 && (lines[0].StartsWith("Engine:", StringComparison.Ordinal) || lines[0].StartsWith("; Engine:", StringComparison.Ordinal))) lines.RemoveAt(0);
+        // Workspace notices follow the paged text, after its final line end.
+        int notices = 0;
+        while (lines.Count > 0 && lines[^1].StartsWith("[workspace]", StringComparison.Ordinal)) { lines.RemoveAt(lines.Count - 1); notices++; }
+        int actual = string.Join('\n', lines).Length + (notices > 0 ? 1 : 0);
+        return actual == total ? null : $"totalChars {total}, text {actual}";
     }
 
     /// <summary>The first line that differs, recorded then current, so a failure on another OS shows its cause.</summary>
