@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Corvus.Core;
-using Corvus.Services;
-using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using Xunit.Abstractions;
 
@@ -56,18 +54,10 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         return text;
     }
 
-    private protected async Task<InProcessServer> Server(bool scripting = false)
+    private protected Task<InProcessServer> Server(bool scripting = false) => Phases.Run("server start", () => InProcessServer.StartAsync(options: new ServerOptions
     {
-        var server = await Phases.Run("server start", () => InProcessServer.StartAsync(options: new ServerOptions
-        {
-            BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true, LiveScripting = scripting,
-        }));
-        // Ids start above those an earlier server kept, so each server gets its own recordings for live-1.
-        var kept = new TempDir();
-        server.Owned.Add(kept);
-        server.Services.GetRequiredService<LiveSessionService>().Kept = new LiveRecordings(() => kept.Path);
-        return server;
-    }
+        BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true, LiveScripting = scripting,
+    }));
 
     /// <summary>Starts <paramref name="exe"/> suspended as <paramref name="session"/>; returns its process id.</summary>
     private protected async Task<int> Spawn(InProcessServer server, string exe, string session, params string[] arguments)

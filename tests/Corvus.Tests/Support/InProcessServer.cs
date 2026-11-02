@@ -25,6 +25,10 @@ internal sealed class InProcessServer : IAsyncDisposable
         if (options.Preload.Count == 0) options.Preload.Add(Env.FixturePath);
         var server = new InProcessServer(options);
         await server._host.StartAsync();
+        // Ids start above those an earlier server kept, so each server keeps its own recordings.
+        var kept = new TempDir();
+        server.Owned.Add(kept);
+        server._host.Services.GetRequiredService<Corvus.Services.LiveSessionService>().Kept = new Corvus.Services.LiveRecordings(() => kept.Path);
         await server._host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed;
         server.Client = await McpClient.CreateAsync(new StreamClientTransport(server._toServer.Writer.AsStream(), server._toClient.Reader.AsStream()),
             new McpClientOptions
@@ -36,8 +40,7 @@ internal sealed class InProcessServer : IAsyncDisposable
         return server;
     }
 
-    /// <summary>Disposed after the host stops: folders the server writes to while it runs.</summary>
-    public List<IDisposable> Owned { get; } = [];
+    private List<IDisposable> Owned { get; } = [];
 
     public async ValueTask DisposeAsync()
     {
