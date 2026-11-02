@@ -22,8 +22,11 @@ public sealed class RelocationTests : IDisposable
     private RebuiltModule Rebuild(BaseMode mode, params uint[] omitted)
     {
         var image = RebuildFixtures.Build(Spec());
+        string folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
+        File.WriteAllBytes(Path.Combine(folder, "fixture.dll"), image.Bytes);
         using var dump = RebuildFixtures.Dump(_dir, new Placed("fixture.dll", image, Loaded, OmittedPages: omitted));
-        return ModuleRebuild.Rebuild(dump, RebuildTarget.Of(dump.Modules[0]), RebuildOptions.Default with { Base = mode, CompareWithDisk = false, Layout = OutputLayout.Mapped }, CancellationToken.None);
+        var options = RebuildOptions.Default with { Base = mode, CompareWithDisk = false, Layout = OutputLayout.Mapped, ImageDirectories = folder };
+        return ModuleRebuild.Rebuild(dump, RebuildTarget.Of(dump.Modules[0]), options, CancellationToken.None);
     }
 
     private static ulong At(RebuiltModule m, int offset) => BinaryPrimitives.ReadUInt64LittleEndian(m.Bytes!.AsSpan(offset));

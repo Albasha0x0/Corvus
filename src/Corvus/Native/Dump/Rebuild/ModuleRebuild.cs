@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 
 namespace Corvus.Native.Dump.Rebuild;
@@ -38,10 +39,10 @@ public sealed record RebuildTarget(string Name, ulong Base, uint Size, ModuleOri
     public static RebuildTarget Of(DumpModule m) => new(m.FileName, m.Base, m.Size, ModuleOrigin.Listed, m.Path);
 }
 
-/// <summary>A module image read from process memory, always in mapped layout (offset = RVA), with the pages that were captured.</summary>
+/// <summary>A module image read from process memory and returned in mapped layout (offset = RVA), with the pages that were captured.</summary>
 /// <param name="Image">The mapped image; pages that were not captured are zero.</param>
 /// <param name="Captured">One flag per 4 KB page: true when the page was read.</param>
-/// <param name="InputLayout">How the image lay in memory: mapped by a loader, or flat (a file read into memory, as Assembly.Load(byte[]) keeps it).</param>
+/// <param name="InputLayout">How the image lay in memory: mapped by a loader, flat (a file read into memory, as Assembly.Load(byte[]) keeps it), or unknown when the sections cannot tell.</param>
 public sealed record CapturedImage(RebuildTarget Target, byte[] Image, bool[] Captured, string InputLayout)
 {
     public long CapturedBytes => (long)Captured.Count(c => c) * 0x1000;
@@ -105,19 +106,66 @@ public static class ModuleRebuild
         if (target.Size > MaxImageBytes) return Refuse(target, $"larger than {MaxImageBytes >> 20} MB");
         if (memory is CoreFile core) return ElfRebuild.FromCore(core, target, options, ct);
         if (target.Origin == ModuleOrigin.Managed && target.Base == 0) return Refuse(target, "an emitted assembly has no image to rebuild");
-        var read = CapturedImageReader.Read(memory, target, ct);
+        var checks = new List<RebuildCheck>();
+        var read = CapturedImageReader.Read(memory, target, ct, checks);
         if (read == null) return Refuse(target, "the memory does not hold the image headers");
         var captured = read;
-        var checks = new List<RebuildCheck>();
         var image = (byte[])captured.Image.Clone();
+        var file = FindFile(captured, options);
+        // Headers come first: relocations and layout read the optional header they restore.
+        var restored = PeHeaderRestore.Restore(image, file);
+        image = restored.Image;
+        checks.Add(restored.Check);
         // Relocations and imports are fixed in mapped layout, where offsets are RVAs; the file layout is made last.
-        PeRelocations.Apply(image, captured, options.Base, checks);
+        PeRelocations.Apply(image, captured, options.Base, checks, PreferredBaseOf(file));
         var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct);
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
         if (bytes == null) return Refuse(target, checks[^1].Detail);
         var verified = PeVerify.Check(bytes, target, checks);
         var disk = options.CompareWithDisk ? DiskCompare.Compare(bytes, captured, options, checks) : null;
         return new RebuiltModule(target, "pe", captured.InputLayout, bytes, captured.CapturedPercent, checks, imports, disk, verified?.State, verified?.Reason);
+    }
+
+    // The bytes of the first candidate file with the captured build's time stamp and image size; null when none.
+    private static byte[]? FindFile(CapturedImage captured, RebuildOptions options)
+    {
+        if (!DumpImages.TryHeader(captured.Image, out uint stamp, out uint size, out _)) return null;
+        var paths = new List<string>();
+        if (!string.IsNullOrWhiteSpace(captured.Target.Path)) paths.Add(captured.Target.Path);
+        string name = Path.GetFileName(captured.Target.Path ?? captured.Target.Name);
+        if (name.Length == 0) name = captured.Target.Name;
+        foreach (var dir in (options.ImageDirectories ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            try { paths.Add(Path.Combine(dir, name)); }
+            catch (ArgumentException) { }
+        }
+        foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                if (!File.Exists(path) || new FileInfo(path).Length > MaxImageBytes) continue;
+                var bytes = File.ReadAllBytes(path);
+                if (DumpImages.TryHeader(bytes, out uint fileStamp, out uint fileSize, out _) && fileStamp == stamp && fileSize == size) return bytes;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+            }
+        }
+        return null;
+    }
+
+    // The ImageBase the file holds: the base the build prefers; unknown without a readable file.
+    private static PeRelocations.PreferredBase PreferredBaseOf(byte[]? file)
+    {
+        if (file == null || file.Length < 0x40) return PeRelocations.PreferredBase.Unknown;
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(0x3C));
+        if (nt < 0 || nt + 24 + 32 > file.Length) return PeRelocations.PreferredBase.Unknown;
+        return BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(nt + 24)) switch
+        {
+            0x20B => PeRelocations.PreferredBase.FromFile(BinaryPrimitives.ReadUInt64LittleEndian(file.AsSpan(nt + 24 + 24))),
+            0x10B => PeRelocations.PreferredBase.FromFile(BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(nt + 24 + 28))),
+            _ => PeRelocations.PreferredBase.Unknown,
+        };
     }
 
     private static bool TryAddress(string text, out ulong address)
