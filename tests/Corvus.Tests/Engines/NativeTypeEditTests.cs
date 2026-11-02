@@ -291,6 +291,10 @@ public sealed class NativeTypeEditTests : IDisposable
                 items.Add(new("local", l.Function, l.Local, ok, ok ? null : $"the decompiler kept the name {l.Local}; the edit did not take", l.Local, l.Stack,
                     ok ? $"int {l.Name}" : null));
             }
+            foreach (var v in batch.StackVars)
+                items.Add(new("stack", v.Function, v.Offset.ToString(), true, null, null, v.Offset, v.Delete ? "deleted" : $"{v.Name ?? "var"}: {v.Type ?? "int"}"));
+            foreach (var x in batch.Analysis) items.Add(new("analysis", x.Rva, x.Kind, true, null, null, null, $"{x.Kind}{(x.Type != null ? " " + x.Type : "")}"));
+            foreach (var o in batch.Operands) items.Add(new("operand", o.Rva, $"#{o.Operand}", true, null, null, null, o.Display));
             if (stampKey != null) Stamps[stampKey] = stamp ?? "";
             return new UserTypeResult(0, [], declared, items, TimeSpan.Zero);
         }
@@ -314,6 +318,9 @@ public sealed class NativeTypeEditTests : IDisposable
         public Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default) =>
             provider.Types.TryGetValue(name, out var kind) ? Task.FromResult(new NativeTypeDetail(name, kind, 4, $"{kind} {name};", []))
                 : throw new ToolError(ErrorCode.NotFound, $"no type named {name}");
+
+        public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NativeFrame(rva, "scripted", 0x20, 8, 0x28, [new NativeFrameMember(0x10, "var_10", "int", 4, "local")], [], null));
 
         public Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default) => Task.FromResult(provider.Stamps.GetValueOrDefault(key));
         public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();

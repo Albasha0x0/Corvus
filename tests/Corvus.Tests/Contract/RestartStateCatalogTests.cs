@@ -16,7 +16,11 @@ public class RestartStateCatalogTests
             .Where(t => !probes.ContainsKey(t) && !RestartStateTests.NoRestartCase.ContainsKey(t) && !RestartStateTests.HeldElsewhere.ContainsKey(t))
             .Order(StringComparer.Ordinal).ToList();
         Assert.True(uncovered.Count == 0, "stateful tools with no restart case: " + string.Join(", ", uncovered));
-        Assert.All(RestartStateTests.HeldElsewhere.Values, m => Assert.NotNull(typeof(RestartStateTests).GetMethod(m)));
+        Assert.All(RestartStateTests.HeldElsewhere.Values, held =>
+        {
+            var (type, method) = (held[..held.IndexOf('.')], held[(held.IndexOf('.') + 1)..]);
+            Assert.NotNull(typeof(RestartStateTests).Assembly.GetTypes().Single(t => t.Name == type).GetMethod(method));
+        });
         Assert.All(RestartStateTests.NoRestartCase.Values, reason => Assert.NotEmpty(reason));
     }
 

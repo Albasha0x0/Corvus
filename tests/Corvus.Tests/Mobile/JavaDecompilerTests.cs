@@ -114,6 +114,24 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
+    // The second service holds only the cache folder.
+    [Fact]
+    public async Task A_new_service_on_the_same_cache_folder_answers_without_starting_the_decompiler()
+    {
+        var (first, env) = Fake();
+        using (env)
+        {
+            var apk = Apk();
+            string cold;
+            using (first) cold = await first.Decompile(apk, "com.example.app.Main", true, default);
+            int starts = _fake.ArgumentLists.Count(a => a.Contains("-jar"));
+            Assert.True(starts > 0);
+            using var second = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = new JavaSourceCache(_dir.File("java-cache")) };
+            Assert.Equal(cold, await second.Decompile(apk, "com.example.app.Main", true, default));
+            Assert.Equal(starts, _fake.ArgumentLists.Count(a => a.Contains("-jar")));
+        }
+    }
+
     /// <summary>An R8-shaped package (two classes in package a, overloads all named a, a field and a class both named b) and its mapping.</summary>
     private (string Apk, string Mapping) Obfuscated()
     {

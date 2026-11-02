@@ -8,33 +8,43 @@ namespace Corvus.Tests;
 [Trait("Speed", "Slow")]
 public partial class RestartStateTests
 {
-    /// <summary>Tools with no restart case yet; each names what the case needs.</summary>
-    internal static readonly Dictionary<string, string> NoRestartCase = BuildNoRestartCase();
-
-    private static Dictionary<string, string> BuildNoRestartCase()
+    /// <summary>Tools with no restart case, each with the reason the check cannot apply.</summary>
+    internal static readonly Dictionary<string, string> NoRestartCase = new(StringComparer.Ordinal)
     {
-        var d = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["decompile_java"] = "needs the Java decompiler",
-            ["migrate_native_names"] = "needs two builds with saved names; NativeBuildUpdateTests covers the update",
-            ["apply_metadata_names"] = "needs a built name-layer sample in the second process",
-            ["get_method_addresses"] = "needs a built name-layer sample in the second process",
-            ["find_method_by_address"] = "needs a built name-layer sample in the second process",
-        };
-        foreach (var t in new[] { "get_engine_status", "decompile_native", "search_decompiled", "emulate_native", "set_native_type", "set_native_local",
-            "set_native_stack_var", "get_native_frame", "declare_native_types", "list_native_types", "define_native", "reanalyze_native",
-            "set_native_operand", "ida_python", "ghidra_script", "export_engine_database" })
-            d[t] = "needs IDA or Ghidra";
-        foreach (var t in new[] { "live_events", "live_timeline", "live_coverage", "live_console" })
-            d[t] = "needs a live backend";
-        return d;
-    }
+        ["reanalyze_native"] = "the changed analysis lives in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
+        ["ida_python"] = "a script's effect is in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
+        ["ghidra_script"] = "a script's effect is in the engine's own database file, which the scripted engine does not keep; reserved for the lead heavy queue",
+        ["export_engine_database"] = "the exported file is the engine's own database, which the scripted engine does not keep; reserved for the lead heavy queue",
+        ["live_events"] = "a session is held in memory, so a restart ends it; RestartStateLiveTests checks the old id is refused with the list call",
+        ["live_timeline"] = "a timeline run is held in memory, so a restart ends it; RestartStateLiveTests checks the refusal names the list call",
+        ["live_coverage"] = "a coverage run is held in memory, so a restart ends it; RestartStateLiveTests checks the refusal names the list call",
+        ["live_console"] = "a console run is held in memory, so a restart ends it; RestartStateLiveTests checks the refusal names the list call",
+        ["emulate_native"] = "a stopped run is held in memory for resume, so a restart ends it; IntegerEmulationTests covers the refusal of an unknown run id",
+    };
 
-    /// <summary>Tools whose restart case is another test in this class.</summary>
+    /// <summary>Tools whose restart case is another test, as Class.Method.</summary>
     internal static readonly Dictionary<string, string> HeldElsewhere = new(StringComparer.Ordinal)
     {
-        ["load_assembly"] = nameof(Load_offers_the_journal_of_an_ended_process),
+        ["load_assembly"] = nameof(RestartStateTests) + "." + nameof(Load_offers_the_journal_of_an_ended_process),
+        ["apply_metadata_names"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
+        ["get_method_addresses"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
+        ["find_method_by_address"] = Held<RestartStateAotTests>(nameof(RestartStateAotTests.Aot_tools_answer_the_same_from_a_restored_name_layer_as_after_apply)),
+        ["migrate_native_names"] = Held<RestartStateBuildTests>(nameof(RestartStateBuildTests.Names_migrated_in_one_process_are_carried_in_the_next)),
+        ["decompile_java"] = Held<JavaDecompilerTests>(nameof(JavaDecompilerTests.A_new_service_on_the_same_cache_folder_answers_without_starting_the_decompiler)),
+        ["decompile_native"] = Held<RestartStateEngineTests>(nameof(RestartStateEngineTests.Engine_reads_answer_the_same_after_the_saved_names_reach_a_new_session)),
+        ["search_decompiled"] = Held<RestartStateEngineTests>(nameof(RestartStateEngineTests.Engine_reads_answer_the_same_after_the_saved_names_reach_a_new_session)),
+        ["get_engine_status"] = Held<RestartStateEngineTests>(nameof(RestartStateEngineTests.Engine_reads_answer_the_same_after_the_saved_names_reach_a_new_session)),
+        ["set_native_type"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["set_native_local"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["set_native_stack_var"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["get_native_frame"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["declare_native_types"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["list_native_types"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["define_native"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
+        ["set_native_operand"] = Held<RestartStateEngineTypesTests>(nameof(RestartStateEngineTypesTests.Engine_type_tools_restore_the_saved_user_types_into_a_new_session)),
     };
+
+    private static string Held<T>(string method) => typeof(T).Name + "." + method;
 
     /// <summary>Fields that name the moment or the process: timings and kept-result ids.</summary>
     [GeneratedRegex(@"\d+ parsed, \d+ cached|""(parsed|cached)"":\d+|\b\d+(\.\d+)? ?ms\b|""(elapsedMs|ms|durationMs)"":\d+|\br-[0-9a-f]{8,}\b")]

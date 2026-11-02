@@ -40,6 +40,10 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public TaskCompletionSource? ScriptGate { get; set; }
     public NativeScriptResult ScriptResult { get; set; } = new("1", "", "", null);
     public List<(IReadOnlyList<NativeMark> Marks, string Stamp)> MarkPushes { get; } = [];
+    /// <summary>Name batches the session received, with the stamp each carried.</summary>
+    public List<(IReadOnlyList<NativeNameItem> Items, string? Stamp)> NamePushes { get; } = [];
+    /// <summary>When set, a pushed name replaces the function's name in its pseudocode.</summary>
+    public bool NamesShowInText { get; set; }
 
     public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
     public Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default) => Task.FromResult(CheckAvailability());
@@ -180,7 +184,18 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         public Task<string> SetNameAsync(uint rva, string name, CancellationToken cancellationToken = default) => Task.FromResult(name);
         public Task<string> SetCommentAsync(uint rva, string text, bool repeatable = false, CancellationToken cancellationToken = default) => Task.FromResult(text);
         public Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
-            CancellationToken cancellationToken = default) => Task.FromResult(new NameBatchResult(items.Count, 0, 0, 0, TimeSpan.Zero, []));
+            CancellationToken cancellationToken = default)
+        {
+            lock (e)
+            {
+                e.NamePushes.Add((items, stamp));
+                if (e.NamesShowInText)
+                    foreach (var item in items)
+                        if (e.Functions.FirstOrDefault(f => f.Start == item.Rva) is { Name: not null } f && e.Texts.TryGetValue(f.Start, out var text))
+                            e.Texts[f.Start] = text.Replace(f.Name, item.Name);
+            }
+            return Task.FromResult(new NameBatchResult(items.Count, 0, 0, 0, TimeSpan.Zero, []));
+        }
         public Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default) =>
             Task.FromResult(key == EngineControl.MarksStampKey ? _marksStamp : null);
         public Task SaveAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
