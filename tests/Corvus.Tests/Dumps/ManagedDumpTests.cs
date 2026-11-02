@@ -189,13 +189,134 @@ public sealed class ManagedDumpTests
         Assert.True(time < DateTime.UtcNow.AddMonths(-11));
     }
 
+    // The signer's certificate ended six months ago; its root is current.
+    private static (X509Certificate2Collection Roots, X509Certificate2 Leaf, X509Certificate2 Root) ExpiredSigner(byte serial)
+    {
+        using var rootKey = ECDsa.Create();
+        var rootRequest = new CertificateRequest("CN=Test Root, O=Test Publisher", rootKey, HashAlgorithmName.SHA256);
+        rootRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        var root = rootRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-5), DateTimeOffset.UtcNow.AddYears(5));
+        var leaf = Issue(root, "CN=Signer, O=Test Publisher", "1.3.6.1.5.5.7.3.3", DateTimeOffset.UtcNow.AddYears(-2), DateTimeOffset.UtcNow.AddMonths(-6), serial);
+        return (new X509Certificate2Collection(root), leaf, root);
+    }
+
+    private static X509Certificate2 Issue(X509Certificate2 root, string subject, string usage, DateTimeOffset from, DateTimeOffset to, byte serial)
+    {
+        using var key = ECDsa.Create();
+        var request = new CertificateRequest(subject, key, HashAlgorithmName.SHA256);
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid(usage)], true));
+        using var issued = request.Create(root, from, to, new byte[] { 1, 2, 3, serial });
+        return issued.CopyWithPrivateKey(key);
+    }
+
+    private static SignedCms CounterSigned(X509Certificate2 leaf, DateTime countersignedAt)
+    {
+        var cms = new SignedCms(new ContentInfo(new byte[] { 1, 2, 3 }));
+        cms.ComputeSignature(new CmsSigner(leaf));
+        var counter = new CmsSigner(leaf);
+        counter.SignedAttributes.Add(new Pkcs9SigningTime(countersignedAt));
+        cms.SignerInfos[0].ComputeCounterSignature(counter);
+        return cms;
+    }
+
+    [Fact]
+    public void An_expired_signer_is_accepted_at_a_trusted_countersignature_time_and_names_it()
+    {
+        var (roots, leaf, root) = ExpiredSigner(5);
+        using (leaf) using (root)
+        {
+            var at = DateTime.UtcNow.AddYears(-1);
+            var cms = CounterSigned(leaf, at);
+            Assert.Null(Certificates.CheckSigner(cms, "Test Publisher", roots, out var note));
+            var expected = $"validated at the countersignature time {at:yyyy-MM-dd HH:mm}Z";
+            Assert.True(note == expected || note == expected + "; revocation not checked (CORVUS_OFFLINE=1 and no cached revocation data)"
+                || note == expected + "; revocation not checked (no revocation data could be retrieved)", note);
+        }
+    }
+
+    [Fact]
+    public void An_expired_signer_without_a_countersignature_is_refused()
+    {
+        var (roots, leaf, root) = ExpiredSigner(6);
+        using (leaf) using (root)
+        {
+            var cms = new SignedCms(new ContentInfo(new byte[] { 1, 2, 3 }));
+            cms.ComputeSignature(new CmsSigner(leaf));
+            Assert.Contains("NotTimeValid", Certificates.CheckSigner(cms, "Test Publisher", roots, out _));
+        }
+    }
+
+    [Fact]
+    public void A_countersignature_time_after_the_signer_expired_is_refused()
+    {
+        var (roots, leaf, root) = ExpiredSigner(7);
+        using (leaf) using (root)
+        {
+            var cms = CounterSigned(leaf, DateTime.UtcNow.AddMonths(-3));
+            Assert.Contains("NotTimeValid", Certificates.CheckSigner(cms, "Test Publisher", roots, out _));
+        }
+    }
+
+    [Fact]
+    public void A_countersignature_by_an_untrusted_signer_does_not_set_the_time()
+    {
+        var (roots, leaf, root) = ExpiredSigner(8);
+        using (leaf) using (root)
+        {
+            using var otherKey = ECDsa.Create();
+            var otherRequest = new CertificateRequest("CN=Other Root, O=Other", otherKey, HashAlgorithmName.SHA256);
+            otherRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+            using var other = otherRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-5), DateTimeOffset.UtcNow.AddYears(5));
+            using var stranger = Issue(other, "CN=Stranger, O=Other", "1.3.6.1.5.5.7.3.3", DateTimeOffset.UtcNow.AddYears(-2), DateTimeOffset.UtcNow.AddYears(1), 9);
+            var cms = new SignedCms(new ContentInfo(new byte[] { 1, 2, 3 }));
+            cms.ComputeSignature(new CmsSigner(leaf));
+            var counter = new CmsSigner(stranger);
+            counter.SignedAttributes.Add(new Pkcs9SigningTime(DateTime.UtcNow.AddYears(-1)));
+            cms.SignerInfos[0].ComputeCounterSignature(counter);
+            Assert.Contains("NotTimeValid", Certificates.CheckSigner(cms, "Test Publisher", roots, out _));
+        }
+    }
+
+    [Fact]
+    public void An_expired_signer_is_accepted_at_a_trusted_timestamp_token_time()
+    {
+        var (roots, leaf, root) = ExpiredSigner(10);
+        using (leaf) using (root)
+        {
+            using var tsa = Issue(root, "CN=Stamp, O=Test Publisher", "1.3.6.1.5.5.7.3.8", DateTimeOffset.UtcNow.AddYears(-2), DateTimeOffset.UtcNow.AddYears(2), 11);
+            var cms = new SignedCms(new ContentInfo(new byte[] { 1, 2, 3 }));
+            cms.ComputeSignature(new CmsSigner(leaf));
+            var stamped = new DateTimeOffset(DateTime.UtcNow.AddYears(-1).Date.AddHours(7), TimeSpan.Zero);
+            var info = new Rfc3161TimestampTokenInfo(new Oid("1.2.3.4"), new Oid("2.16.840.1.101.3.4.2.1"),
+                SHA256.HashData(cms.SignerInfos[0].GetSignature()), new byte[] { 1 }, stamped);
+            var token = new SignedCms(new ContentInfo(new Oid("1.2.840.113549.1.9.16.1.4"), info.Encode().ToArray()));
+            // The token must name its signer in an ESSCertIDv2 attribute (SHA-256 hash omitted as the default).
+            var ess = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
+            using (ess.PushSequence())
+            using (ess.PushSequence())
+            using (ess.PushSequence())
+                ess.WriteOctetString(SHA256.HashData(tsa.RawData));
+            var stampSigner = new CmsSigner(tsa);
+            stampSigner.SignedAttributes.Add(new AsnEncodedData(new Oid("1.2.840.113549.1.9.16.2.47"), ess.Encode()));
+            token.ComputeSignature(stampSigner);
+            cms.SignerInfos[0].AddUnsignedAttribute(new AsnEncodedData(new Oid("1.3.6.1.4.1.311.3.3.1"), token.Encode()));
+            var reread = new SignedCms();
+            reread.Decode(cms.Encode());
+            cms = reread;
+            var problem = Certificates.CheckSigner(cms, "Test Publisher", roots, out var note);
+            Assert.True(problem == null, problem);
+            Assert.StartsWith($"validated at the countersignature time {stamped:yyyy-MM-dd HH:mm}Z", note);
+        }
+    }
+
     [Fact]
     public void An_installed_dac_passes_the_usage_and_revocation_checks()
     {
         if (!OperatingSystem.IsWindows()) return;
         var dac = Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "mscordaccore.dll");
         Assert.Null(DacLocator.Verify(File.ReadAllBytes(dac), dac, out var note));
-        Assert.True(note == null || note.StartsWith("revocation not checked", StringComparison.Ordinal), note);
+        Assert.True(note == null || note.Contains("validated at the countersignature time", StringComparison.Ordinal)
+            || note.StartsWith("revocation not checked", StringComparison.Ordinal), note);
     }
 
     /// <summary>Windows' own files are signed through system catalogs, as the .NET Framework's DAC is.</summary>

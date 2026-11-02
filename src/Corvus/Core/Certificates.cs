@@ -244,8 +244,14 @@ public static class Certificates
     }
 
     /// <summary>Null when a PKCS #7 signer may sign code, is not revoked and chains to a root of <paramref name="organization"/>; else why not.</summary>
-    /// <remarks>Revocation is checked online, or from cached data when CORVUS_OFFLINE is set; an unknown status is accepted and named in <paramref name="note"/>.</remarks>
-    public static string? CheckSigner(SignedCms cms, string organization, out string? note)
+    /// <remarks>A verified countersignature or timestamp token sets the time the chain is checked at.
+    /// A certificate that expired after that time is accepted.
+    /// <paramref name="note"/> names that time, then any revocation status that was unknown.
+    /// Revocation is checked online, or from cached data when CORVUS_OFFLINE is set.</remarks>
+    public static string? CheckSigner(SignedCms cms, string organization, out string? note) => CheckSigner(cms, organization, null, out note);
+
+    /// <summary>As <see cref="CheckSigner(SignedCms, string, out string?)"/>, trusting only <paramref name="roots"/> when given.</summary>
+    internal static string? CheckSigner(SignedCms cms, string organization, X509Certificate2Collection? roots, out string? note)
     {
         note = null;
         try
@@ -258,7 +264,13 @@ public static class Certificates
             if (Organization(cert) != organization) return $"signed by '{cert.Subject}', not {organization}";
             if (!AllowsCodeSigning(cert)) return $"the signer certificate '{cert.Subject}' is not issued for code signing";
             bool offline = ReferencePacks.Offline;
-            using var chain = Chain(cms.Certificates, SigningTime(signer, cms.Certificates), revocation: offline ? X509RevocationMode.Offline : X509RevocationMode.Online);
+            var signedAt = SigningTime(signer, cms.Certificates, roots);
+            using var chain = Chain(cms.Certificates, signedAt, revocation: offline ? X509RevocationMode.Offline : X509RevocationMode.Online);
+            if (roots != null)
+            {
+                chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+                chain.ChainPolicy.CustomTrustStore.AddRange(roots);
+            }
             chain.ChainPolicy.ApplicationPolicy.Add(new Oid(CodeSigning));
             chain.Build(cert);
             var status = chain.ChainStatus.Select(s => s.Status).Where(s => s != X509ChainStatusFlags.NoError).ToHashSet();
@@ -268,7 +280,8 @@ public static class Certificates
                 return $"the signer's chain is not trusted on {TrustScope} ({string.Join(", ", status.Select(s => s.ToString()).Order(StringComparer.Ordinal))})";
             var root = chain.ChainElements[^1].Certificate;
             if (Organization(root) != organization) return $"the chain ends at '{root.Subject}', not a root of {organization}";
-            if (unknown) note = offline ? "revocation not checked (CORVUS_OFFLINE=1 and no cached revocation data)" : "revocation not checked (no revocation data could be retrieved)";
+            if (signedAt is { } at) note = $"validated at the countersignature time {at:yyyy-MM-dd HH:mm}Z";
+            if (unknown) note = (note == null ? "" : note + "; ") + (offline ? "revocation not checked (CORVUS_OFFLINE=1 and no cached revocation data)" : "revocation not checked (no revocation data could be retrieved)");
             return null;
         }
         catch (Exception ex) when (ex is CryptographicException or AsnContentException)
