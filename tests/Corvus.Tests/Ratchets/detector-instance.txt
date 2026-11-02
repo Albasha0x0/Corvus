@@ -1,3 +1,5 @@
-# registered signatures without a minimal instance in FirmwareSignatureValidityTests may only fall
+# registered signatures, file kinds, views and scans without a minimal instance may only fall
 # Measured ratchet: values may only fall (tests/Corvus.Tests/Support/CountRatchet.cs).
+file kinds = 10
 signatures = 123
+views = 43

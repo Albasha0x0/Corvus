@@ -130,7 +130,7 @@ public sealed class AndroidPackageTests : IDisposable
             ("classes.dex", "dex\n035\0"u8.ToArray()), ("classes2.dex", "dex\n035\0"u8.ToArray()), ("kotlin/kotlin.kotlin_builtins", [1]),
             ("lib/arm64-v8a/libil2cpp.so", [0x7F]), ("lib/armeabi-v7a/libil2cpp.so", [0x7F]), ("assets/bin/Data/Managed/Metadata/global-metadata.dat", metadata),
             ("lib/arm64-v8a/libflutter.so", [0x7F]), ("lib/arm64-v8a/libapp.so", [0x7F]),
-            ("lib/arm64-v8a/libassembly-store.so", [0x7F]), ("assets/index.android.bundle", [0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F]));
+            ("lib/arm64-v8a/libassembly-store.so", [0x7F]), ("assets/index.android.bundle", [0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F, 96, 0, 0, 0, .. new byte[20], 0x80, 0, 0, 0]));
         using var workspace = new AssemblyWorkspace(new ServerOptions());
         var summary = new InspectionService(workspace).Summarize(null, path, default);
         var a = summary.Android!;
@@ -139,7 +139,7 @@ public sealed class AndroidPackageTests : IDisposable
         Assert.Equal("AOT: metadata header readable, version 31; native code arm64-v8a (header unreadable), armeabi-v7a (header unreadable); "
             + $"load_assembly path={path} slice=arm64-v8a loads its library", a.Runtimes[1].Note);
         Assert.Contains("assets/bin/Data/Managed/Metadata/global-metadata.dat", a.Runtimes[1].Evidence);
-        Assert.StartsWith("React Native: Hermes bytecode bundle;", a.Runtimes[3].Note);
+        Assert.StartsWith("React Native: Hermes bytecode bundle (version 96);", a.Runtimes[3].Note);
         Assert.Equal(["arm64-v8a", "armeabi-v7a"], a.Abis);
         Assert.Equal((2, 16L), (a.DexFiles, a.DexBytes));
         Assert.Equal((6, 4), (a.Components, a.ExportedComponents));

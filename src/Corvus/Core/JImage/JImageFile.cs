@@ -33,9 +33,18 @@ internal sealed class JImageFile
     public int Directories { get; }
     public List<string> Notes { get; } = [];
 
-    /// <summary>Whether <paramref name="b"/> starts with the jimage magic in either byte order.</summary>
-    public static bool Looks(ReadOnlySpan<byte> b) =>
-        b.Length >= HeaderSize && (BinaryPrimitives.ReadUInt32LittleEndian(b) == Magic || BinaryPrimitives.ReadUInt32BigEndian(b) == Magic);
+    /// <summary>
+    /// Whether <paramref name="b"/> starts with the jimage magic in either byte
+    /// order and a format version whose parts are at most 15, so an unsupported
+    /// one is named by the reader.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < HeaderSize) return false;
+        bool little = BinaryPrimitives.ReadUInt32LittleEndian(b) == Magic;
+        if (!little && BinaryPrimitives.ReadUInt32BigEndian(b) != Magic) return false;
+        return (little ? BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) : BinaryPrimitives.ReadUInt32BigEndian(b[4..])) is var version && version >> 16 <= 15 && (version & 0xFFFF) <= 15;
+    }
 
     /// <summary>Parses the index of <paramref name="data"/>; throws <see cref="InvalidDataException"/> on a bad header or tables outside the file.</summary>
     public static JImageFile Read(byte[] data, CancellationToken ct = default) =>

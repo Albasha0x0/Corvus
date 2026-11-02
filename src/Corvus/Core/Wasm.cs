@@ -23,7 +23,7 @@ public sealed class WasmModule
 
     private const int MaxItems = 100_000;
 
-    public static bool IsWasm(ReadOnlySpan<byte> b) => b.Length >= 8 && b[..4].SequenceEqual("\0asm"u8);
+    public static bool IsWasm(ReadOnlySpan<byte> b) => FileHeaders.Wasm(b);
 
     public static WasmModule Read(byte[] data)
     {

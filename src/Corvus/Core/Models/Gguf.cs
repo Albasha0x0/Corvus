@@ -55,8 +55,18 @@ public sealed class Gguf
         _length = length;
     }
 
-    /// <summary>The file starts with "GGUF".</summary>
-    public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= 8 && head.StartsWith("GGUF"u8);
+    /// <summary>
+    /// The file starts with "GGUF", a version from 1 to 3 and tensor and key
+    /// counts of at most 2^32.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> head)
+    {
+        if (head.Length < 16 || !head.StartsWith("GGUF"u8)) return false;
+        uint version = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head[4..]);
+        if (version == 1) return true;
+        return version is 2 or 3 && head.Length >= 24 && System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(head[8..]) <= uint.MaxValue
+            && System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(head[16..]) <= uint.MaxValue;
+    }
 
     /// <summary>The name of GGML tensor type <paramref name="type"/>; null when the gguf package does not define it.</summary>
     public static string? TypeName(uint type) => Types.TryGetValue(type, out var t) ? t.Name : null;

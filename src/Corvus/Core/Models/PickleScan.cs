@@ -85,6 +85,12 @@ public sealed class PickleScan
     public long Opcodes { get; private set; }
     /// <summary>The position after STOP; the end of the stream when the pickle does not end.</summary>
     public long End { get; private set; }
+
+    /// <summary>
+    /// True when the walk met an opcode or stack error; a pickle that only ends
+    /// early is not damaged.
+    /// </summary>
+    public bool Damaged { get; private set; }
     public bool Complete { get; private set; }
     public List<Import> Imports { get; } = [];
     /// <summary>Calls (REDUCE, NEWOBJ, NEWOBJ_EX, OBJ, INST) by callee.</summary>
@@ -110,8 +116,16 @@ public sealed class PickleScan
         _end = end;
     }
 
-    /// <summary>The bytes start with a PROTO opcode of protocol 2 to 5.</summary>
-    public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= 3 && head[0] == 0x80 && head[1] is >= 2 and <= 5;
+    /// <summary>
+    /// The bytes start with a PROTO opcode of protocol 2 to 5 and the first 4
+    /// KB walk as opcodes without an opcode or stack error.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> head)
+    {
+        if (head.Length < 3 || head[0] != 0x80 || head[1] is < 2 or > 5) return false;
+        var prefix = head[..Math.Min(head.Length, 4096)].ToArray();
+        return !Read(new MemoryStream(prefix), prefix.Length).Damaged;
+    }
 
     /// <summary>The bytes start with an opcode a protocol 0 or 1 pickle starts with; these have no PROTO header, so only a file named as a pickle is tested.</summary>
     public static bool LooksUnversioned(ReadOnlySpan<byte> head) => head.Length > 0 && "ci(]})SVINKJ"u8.IndexOf(head[0]) >= 0;
@@ -122,7 +136,11 @@ public sealed class PickleScan
         var p = new PickleScan(s, end);
         long start = s.Position;
         try { p.Walk(ct); }
-        catch (InvalidDataException ex) { p.Issues.Add($"{ex.Message} (offset {s.Position - start:N0})"); }
+        catch (InvalidDataException ex)
+        {
+            p.Damaged = true;
+            p.Issues.Add($"{ex.Message} (offset {s.Position - start:N0})");
+        }
         catch (EndOfStreamException) { p.Issues.Add($"the pickle ends without STOP (offset {s.Position - start:N0})"); }
         p.End = s.Position;
         return p;

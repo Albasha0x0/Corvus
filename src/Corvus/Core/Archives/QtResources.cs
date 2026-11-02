@@ -21,8 +21,14 @@ internal static class QtResources
         public bool IsDefaultLocale => Language is 0 or 1 && Territory == 0;
     }
 
-    /// <summary>A binary .rcc file: "qres" and a format version from 1 to 3.</summary>
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 20 && b.StartsWith("qres"u8) && BinaryPrimitives.ReadUInt32BigEndian(b[4..]) is >= 1 and <= 3;
+    /// <summary>
+    /// A binary .rcc file: "qres", a format version from 1 to 3 and tree, data
+    /// and name offsets that differ and lie past the header.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= 20 && b.StartsWith("qres"u8) && BinaryPrimitives.ReadUInt32BigEndian(b[4..]) is >= 1 and <= 3
+        && BinaryPrimitives.ReadUInt32BigEndian(b[8..]) is var tree && BinaryPrimitives.ReadUInt32BigEndian(b[12..]) is var data && BinaryPrimitives.ReadUInt32BigEndian(b[16..]) is var names
+        && tree >= 20 && data >= 20 && names >= 20 && Math.Max(tree, Math.Max(data, names)) < 1 << 30 && tree != data && tree != names && data != names;
 
     /// <summary>The collection a binary .rcc file holds; throws <see cref="ToolError"/> when its offsets lie outside the file.</summary>
     public static Collection Header(ReadOnlySpan<byte> b, string name)

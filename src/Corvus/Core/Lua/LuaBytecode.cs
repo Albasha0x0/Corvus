@@ -23,7 +23,15 @@ public static class LuaBytecode
     // LUAC_DATA, written after the header from 5.2 on.
     private static readonly byte[] LuacData = [0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A];
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 12 && b.StartsWith("\x1bLua"u8) && b[4] is 0x51 or 0x52 or 0x53 or 0x54;
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < 18 || !b.StartsWith("\x1bLua"u8) || b[4] is not (0x51 or 0x52 or 0x53 or 0x54) || b[5] != 0) return false;
+        // 5.1 and 5.2 write the byte order and sizes first; 5.3 and 5.4 write
+        // LUAC_DATA first.
+        if (b[4] <= 0x52)
+            return b[6] <= 1 && b[7] is 2 or 4 or 8 && b[8] is 2 or 4 or 8 && b[9] == 4 && b[10] is 4 or 8 && b[11] <= 1 && (b[4] == 0x51 || b[12..18].SequenceEqual(LuacData));
+        return b[6..12].SequenceEqual(LuacData);
+    }
 
     public static LuaChunk Read(byte[] data)
     {

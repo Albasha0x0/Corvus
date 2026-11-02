@@ -19,7 +19,7 @@ internal sealed class Cabinet
     private readonly Dictionary<int, byte[]> _decoded = [];
     public string Name { get; }
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 36 && b.StartsWith("MSCF"u8) && b[25] == 1 && b[24] == 3;
+    public static bool Looks(ReadOnlySpan<byte> b) => b.StartsWith("MSCF"u8) && FileHeaders.Cabinet(b);
 
     private Cabinet(byte[] data, string name)
     {

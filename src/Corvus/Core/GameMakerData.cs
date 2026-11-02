@@ -10,7 +10,14 @@ public static class GameMakerData
     public const string Kind = "GameMaker data file";
     private const int MaxChunks = 256, MaxListCount = 4_000_000;
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 16 && b.StartsWith("FORM"u8) && b.Slice(8, 4).SequenceEqual("GEN8"u8);
+    /// <summary>
+    /// "FORM", a "GEN8" chunk first, and a form length that holds the chunk
+    /// length (32 to 4096 bytes) after it.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= 16 && b.StartsWith("FORM"u8) && b.Slice(8, 4).SequenceEqual("GEN8"u8)
+        && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[12..]) is var chunk and >= 32 and <= 4096
+        && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) >= chunk + 8;
 
     public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {

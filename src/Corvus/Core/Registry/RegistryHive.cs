@@ -37,8 +37,13 @@ internal sealed class RegistryHive
         Root = KeyAt(header.RootCell, recovered: false) ?? throw new InvalidDataException($"the root key cell 0x{header.RootCell:X} does not read");
     }
 
-    /// <summary>"regf" at offset 0.</summary>
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 4 && b[..4].SequenceEqual("regf"u8);
+    /// <summary>
+    /// "regf" at offset 0, format version 1.3 to 1.6, a primary-hive file type
+    /// and the direct-memory format.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= 36 && b[..4].SequenceEqual("regf"u8) && BinaryPrimitives.ReadUInt32LittleEndian(b[20..]) == 1 && BinaryPrimitives.ReadUInt32LittleEndian(b[24..]) is >= 3 and <= 6
+        && BinaryPrimitives.ReadUInt32LittleEndian(b[28..]) == 0 && BinaryPrimitives.ReadUInt32LittleEndian(b[32..]) == 1;
 
     /// <summary>Reads the base block and root key; throws <see cref="InvalidDataException"/> when either does not read.</summary>
     public static RegistryHive Read(byte[] data)

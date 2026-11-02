@@ -31,7 +31,7 @@ internal sealed class CompoundFile
     /// <summary>The root storage's class id (an MSI database, a Word document and others name themselves here).</summary>
     public Guid RootClsid { get; private set; }
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 512 && b.StartsWith(Magic) && BinaryPrimitives.ReadUInt16LittleEndian(b[28..]) == 0xFFFE;
+    public static bool Looks(ReadOnlySpan<byte> b) => b.StartsWith(Magic) && FileHeaders.Compound(b);
 
     private CompoundFile(byte[] data, string name)
     {

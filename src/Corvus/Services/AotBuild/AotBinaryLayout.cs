@@ -63,7 +63,7 @@ public sealed class AotBinaryLayout
         try
         {
             using var f = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            Span<byte> head = stackalloc byte[20];
+            Span<byte> head = stackalloc byte[32];
             if (RandomAccess.Read(f, head, 0) < head.Length) return false;
             // ELF: ELFCLASS32 and EM_ARM (40). Mach-O: MH_MAGIC and CPU_TYPE_ARM (12).
             return NativeImageLoader.Detect(head) switch

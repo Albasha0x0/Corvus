@@ -75,8 +75,8 @@ public static class HermesBundles
         {
             var full = InputFiles.RequireRegularFile(path, "file");
             using var s = System.IO.File.OpenRead(full);
-            Span<byte> head = stackalloc byte[12];
-            int n = s.ReadAtLeast(head, 12, throwOnEndOfStream: false);
+            Span<byte> head = stackalloc byte[36];
+            int n = s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
             if (HermesFile.Looks(head[..n])) return true;
             if (n < 4 || !Blob.StartsWith(head, "PK\x03\x04"u8)) return false;
             s.Position = 0;
@@ -93,13 +93,13 @@ public static class HermesBundles
             name.EndsWith("assets/index.android.bundle", StringComparison.Ordinal) ? 0
             : name.EndsWith(".app/main.jsbundle", StringComparison.Ordinal) ? 1
             : name.EndsWith(".bundle", StringComparison.Ordinal) || name.EndsWith(".jsbundle", StringComparison.Ordinal) || name.EndsWith(".hbc", StringComparison.Ordinal) ? 2 : 3;
-        Span<byte> head = stackalloc byte[12];
+        Span<byte> head = stackalloc byte[36];
         foreach (var e in zip.Entries.Where(e => Rank(e.FullName) < 3).OrderBy(e => Rank(e.FullName)).ThenBy(e => e.FullName, StringComparer.Ordinal).Take(64))
         {
             try
             {
                 using var s = e.Open();
-                if (s.ReadAtLeast(head, 12, throwOnEndOfStream: false) == 12 && HermesFile.Looks(head)) return e;
+                if (s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) == head.Length && HermesFile.Looks(head)) return e;
             }
             catch (InvalidDataException) { }
         }

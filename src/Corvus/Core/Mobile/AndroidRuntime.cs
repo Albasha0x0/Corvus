@@ -65,8 +65,8 @@ public static class AndroidRuntime
         foreach (var bundle in new[] { "assets/index.android.bundle" }.Where(package.Contains))
         {
             rn.Add(bundle);
-            var head = package.ReadHead(bundle, 12);
-            var note = head.Length >= 8 && BinaryPrimitives.ReadUInt64LittleEndian(head) == Hermes.HermesFile.Magic
+            var head = package.ReadHead(bundle, 36);
+            var note = Hermes.HermesFile.Looks(head)
                 ? "React Native: Hermes bytecode bundle" + (Hermes.HermesFile.VersionOf(head) is { } version ? $" (version {version})" : "")
                   + "; analyze_js path=<the package> lists, decompiles and searches its functions"
                 : "React Native: JavaScript bundle";

@@ -139,7 +139,7 @@ public sealed class FormatLoadTests
     [Fact]
     public void Identification_tells_MachO_from_Java_classes()
     {
-        Assert.Equal("mach-o", Blob.Identify([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 2, 1, 0, 0, 12, 0, 0, 0, 0]));
+        Assert.Equal("mach-o", Blob.Identify([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 1, 1, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 1, 0, 0, 0, 0, 14]));
         Assert.NotEqual("mach-o", Blob.Identify([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 0x2A, 0x0A, 0, 0, 0, 0, 0]));
         Assert.Equal("elf", Blob.Identify(File.ReadAllBytes(NativeFixtures.LinuxArm64DbgShim)));
     }

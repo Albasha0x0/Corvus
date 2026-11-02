@@ -27,8 +27,26 @@ public sealed class PcapReader(Stream stream)
 
     public delegate void SpanAction(ReadOnlySpan<byte> data);
 
-    public static bool Looks(ReadOnlySpan<byte> b) =>
-        b.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(b) is 0xA1B2C3D4 or 0xD4C3B2A1 or 0xA1B23C4D or 0x4D3CB2A1 or 0x0A0D0D0A;
+    /// <summary>
+    /// A pcap header (version 2.4, a link type under 65536) or a pcapng section
+    /// header (a byte-order mark, version 1);
+    /// a header cut short is checked as far as it goes.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < 4) return false;
+        uint magic = BinaryPrimitives.ReadUInt32LittleEndian(b);
+        if (magic == 0x0A0D0D0A)
+            return b.Length < 16 || (BinaryPrimitives.ReadUInt32LittleEndian(b[8..]) is 0x1A2B3C4D or 0x4D3C2B1A && BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) % 4 == 0
+                && (BinaryPrimitives.ReadUInt32LittleEndian(b[8..]) == 0x1A2B3C4D ? BinaryPrimitives.ReadUInt16LittleEndian(b[12..]) : BinaryPrimitives.ReadUInt16BigEndian(b[12..])) == 1);
+        if (magic is not (0xA1B2C3D4 or 0xD4C3B2A1 or 0xA1B23C4D or 0x4D3CB2A1)) return false;
+        bool little = magic is 0xA1B2C3D4 or 0xA1B23C4D;
+        return (b.Length < 6 || Half(b, 4, little) == 2) && (b.Length < 8 || Half(b, 6, little) == 4)
+            && (b.Length < 24 || (little ? BinaryPrimitives.ReadUInt32LittleEndian(b[20..]) : BinaryPrimitives.ReadUInt32BigEndian(b[20..])) < 65536);
+    }
+
+    private static uint Half(ReadOnlySpan<byte> b, int at, bool little) =>
+        little ? BinaryPrimitives.ReadUInt16LittleEndian(b[at..]) : BinaryPrimitives.ReadUInt16BigEndian(b[at..]);
 
     public IEnumerable<PcapFrame> Frames(CancellationToken ct)
     {

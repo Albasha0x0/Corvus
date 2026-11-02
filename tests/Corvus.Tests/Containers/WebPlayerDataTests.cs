@@ -96,7 +96,7 @@ public sealed class WebPlayerDataTests : IDisposable
     public void Corrupt_headers_are_reported()
     {
         var data = Sample();
-        BitConverter.GetBytes(0xFFFFFFF0u).CopyTo(data, 16);
+        BitConverter.GetBytes(0x0FFFFFF0u).CopyTo(data, 16);
         Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => Containers.Open(data, "x.data", AnalysisLimits.Default, default)).Code);
         var outside = Sample();
         // First entry's offset.

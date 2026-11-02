@@ -11,7 +11,14 @@ public sealed class NodeBundleTests
 {
     private const string Fuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 
-    internal static byte[] Image(params byte[][] parts) => [0x7F, (byte)'E', (byte)'L', (byte)'F', .. new byte[60], .. parts.SelectMany(p => p)];
+    // A 64-bit little-endian executable header of 64 bytes.
+    internal static byte[] Image(params byte[][] parts)
+    {
+        var header = new byte[64];
+        header[0] = 0x7F; header[1] = (byte)'E'; header[2] = (byte)'L'; header[3] = (byte)'F';
+        header[4] = 2; header[5] = 1; header[6] = 1; header[16] = 2; header[52] = 64;
+        return [.. header, .. parts.SelectMany(p => p)];
+    }
 
     private static ContainerContents Open(byte[] image) => Containers.Open(image, "app", AnalysisLimits.Default, default, allFiles: true);
 

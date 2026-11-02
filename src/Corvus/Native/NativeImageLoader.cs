@@ -44,21 +44,12 @@ public static class NativeImageLoader
     public static readonly IReadOnlyList<INativeFormatProvider> Providers =
     [
         new Provider(NativeFileKind.Pe, h => h.Length >= 2 && h[0] == 'M' && h[1] == 'Z', (p, _) => PeFile.Open(p), (b, p) => PeFile.FromBytes(b, p)),
-        new Provider(NativeFileKind.Elf, h => h.Length >= 4 && h[0] == 0x7F && h[1] == 'E' && h[2] == 'L' && h[3] == 'F', (p, _) => Elf.ElfFile.Open(p), (b, p) => Elf.ElfFile.FromBytes(b, p)),
-        new Provider(NativeFileKind.MachO, h => h.Length >= 4 && BinaryPrimitives.ReadUInt32BigEndian(h) is 0xFEEDFACE or 0xFEEDFACF or 0xCEFAEDFE or 0xCFFAEDFE,
+        new Provider(NativeFileKind.Elf, h => h.Length >= 4 && h[0] == 0x7F && h[1] == 'E' && h[2] == 'L' && h[3] == 'F' && Core.FileHeaders.Elf(h), (p, _) => Elf.ElfFile.Open(p), (b, p) => Elf.ElfFile.FromBytes(b, p)),
+        new Provider(NativeFileKind.MachO, Core.FileHeaders.MachO,
             (p, s) => MachO.MachOFile.Open(p, s), (b, p) => MachO.MachOFile.FromBytes(b, p)),
-        new Provider(NativeFileKind.MachOFat, IsFat, (p, s) => MachO.MachOFile.Open(p, s), (b, p) => MachO.MachOFile.FromBytes(b, p)),
+        new Provider(NativeFileKind.MachOFat, Core.FileHeaders.MachOFat, (p, s) => MachO.MachOFile.Open(p, s), (b, p) => MachO.MachOFile.FromBytes(b, p)),
         new Provider(NativeFileKind.Wasm, h => Core.WebAssembly.WasmBinary.Looks(h), (p, _) => WasmImage.Open(p), (b, p) => new WasmImage(b.ToArray(), p)),
     ];
-
-    /// <summary>0xCAFEBABE is also the Java class magic, so a fat header counts only with fewer than 64 slices whose first CPU type is a Mach-O one.</summary>
-    private static bool IsFat(ReadOnlySpan<byte> head)
-    {
-        if (head.Length < 12 || BinaryPrimitives.ReadUInt32BigEndian(head) is not (0xCAFEBABE or 0xCAFEBABF)) return false;
-        uint count = BinaryPrimitives.ReadUInt32BigEndian(head[4..]);
-        uint cpu = BinaryPrimitives.ReadUInt32BigEndian(head[8..]);
-        return count is > 0 and < 64 && (cpu & 0x00FFFFFF) is 7 or 12 or 18;
-    }
 
     /// <summary>The container format at the start of <paramref name="head"/>.</summary>
     public static NativeFileKind Detect(ReadOnlySpan<byte> head)
@@ -90,7 +81,7 @@ public static class NativeImageLoader
         try
         {
             using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            Span<byte> head = stackalloc byte[16];
+            Span<byte> head = stackalloc byte[64];
             return Detect(head[..stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false)]);
         }
         // PeFile.Open reports the path problem.

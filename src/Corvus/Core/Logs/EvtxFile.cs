@@ -30,8 +30,14 @@ public sealed class EvtxFile
     public long Recovered { get; private set; }
     public List<string> Notes { get; } = [];
 
-    /// <summary>True when the bytes start with the file header signature.</summary>
-    public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= 8 && head[..8].SequenceEqual("ElfFile\0"u8);
+    /// <summary>
+    /// True when the bytes start with the file header signature, a 128-byte
+    /// header and a 4096-byte header block, as far as they go.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> head) =>
+        head.Length >= 8 && head[..8].SequenceEqual("ElfFile\0"u8)
+        && (head.Length < 36 || System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head[32..]) == 128)
+        && (head.Length < 42 || System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(head[40..]) == 4096);
 
     /// <summary>Reads every chunk of <paramref name="stream"/> in order and passes each event to <paramref name="sink"/>.</summary>
     public static EvtxFile Read(Stream stream, Action<Event> sink, CancellationToken ct)

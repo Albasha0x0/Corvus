@@ -158,7 +158,7 @@ public sealed class AppendedArchiveTests
     public void A_later_archive_that_does_not_open_keeps_the_first_listing()
     {
         // A 7z start header with an empty next header, after the zip.
-        byte[] broken = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4, .. new byte[24]];
+        byte[] broken = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4, .. BitConverter.GetBytes(~Corvus.Core.Firmware.Crc.Raw(0xFFFFFFFF, new byte[20])), .. new byte[20]];
         var image = (byte[])[.. Zip(("a.txt", "first")), .. broken];
 
         var contents = Open(image);

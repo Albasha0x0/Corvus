@@ -12,7 +12,10 @@ public static class WebPlayerData
     private static ReadOnlySpan<byte> Magic => "UnityWebData1.0\0"u8;
     private const int MaxFiles = 100_000;
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.StartsWith(Magic);
+    /// <summary>
+    /// The 16-byte magic and a header length of 20 bytes to 256 MB.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 20 && b.StartsWith(Magic) && BinaryPrimitives.ReadUInt32LittleEndian(b[16..]) is >= 20 and <= 1 << 28;
 
     /// <summary>The data file inside a gzip or Brotli (.br, .unityweb) one; null when it is not a compressed WebPlayerData.</summary>
     /// <remarks>Brotli has no magic, so it is chosen by file name.</remarks>

@@ -35,7 +35,7 @@ public class RealWorldShapeTests : IDisposable
         return b;
     }
 
-    private static byte[] Png(int seed) => [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A, .. Random(3000, seed)];
+    private static byte[] Png(int seed) => [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R', .. Random(3000, seed)];
 
     /// <summary>A WPF-style ".g.resources" container: images and a large compressed asset.</summary>
     private static byte[] GResources()
@@ -58,8 +58,8 @@ public class RealWorldShapeTests : IDisposable
         Assert.False(Blob.LooksLikeText(noise));
         Assert.True(Blob.LooksLikeText(Encoding.UTF8.GetBytes("工具SkinId：不存在！ - a translated message")));
         Assert.True(Blob.LooksLikeText(Encoding.Latin1.GetBytes("A plain sentence with one café in it, mostly ASCII.")));
-        Assert.Equal("portable pdb", Blob.Identify("BSJB\x01\x00\x01\x00"u8));
-        Assert.Equal("pdb", Blob.Identify(Encoding.ASCII.GetBytes("Microsoft C/C++ MSF 7.00\r\n\u001aDS\0\0\0")));
+        Assert.Equal("portable pdb", Blob.Identify("BSJB\x01\x00\x01\x00\0\0\0\0\x0C\0\0\0v4.0.30319\0\0"u8));
+        Assert.Equal("pdb", Blob.Identify(Encoding.ASCII.GetBytes("Microsoft C/C++ MSF 7.00\r\n\u001aDS\0\0\0\0\x10\0\0")));
     }
 
     [Fact]

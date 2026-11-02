@@ -68,11 +68,11 @@ public static class StreamingInventory
 
     public static bool IsArchive(string path)
     {
-        Span<byte> magic = stackalloc byte[4];
+        Span<byte> head = stackalloc byte[32];
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1);
-            return fs.ReadAtLeast(magic, 4, throwOnEndOfStream: false) == 4 && Blob.Identify(magic) == "zip";
+            return Blob.Identify(head[..fs.ReadAtLeast(head, head.Length, throwOnEndOfStream: false)]) == "zip";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }

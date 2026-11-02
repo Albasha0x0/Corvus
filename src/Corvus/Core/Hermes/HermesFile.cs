@@ -80,7 +80,13 @@ public sealed class HermesFile
     public IReadOnlyList<(int From, int File, int SourceMap)> DebugRegions { get; private set; } = [];
     public (int Start, int Length) DebugData { get; private set; }
 
-    public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= 12 && BinaryPrimitives.ReadUInt64LittleEndian(head) == Magic;
+    /// <summary>
+    /// The bytecode magic, a version from 1 to 255 and a declared file length
+    /// of at least the 128-byte header.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> head) =>
+        head.Length >= 36 && BinaryPrimitives.ReadUInt64LittleEndian(head) == Magic && BinaryPrimitives.ReadUInt32LittleEndian(head[8..]) is >= 1 and <= 255
+        && BinaryPrimitives.ReadUInt32LittleEndian(head[32..]) >= 128;
 
     /// <summary>The bytecode version of an HBC file's head, or null.</summary>
     public static int? VersionOf(ReadOnlySpan<byte> head) => Looks(head) ? (int)BinaryPrimitives.ReadUInt32LittleEndian(head[8..]) : null;

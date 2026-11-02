@@ -88,7 +88,7 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
     {
         var rows = new List<ElectronRow>();
         var source = scope.Source;
-        byte[] head = new byte[8];
+        byte[] head = new byte[32];
         try
         {
             using var f = File.OpenRead(source);

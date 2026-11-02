@@ -33,8 +33,15 @@ public sealed class InesRom
     // Mappers whose PRG does not switch (NROM, CNROM, and CHR-only boards).
     private static readonly HashSet<int> Fixed = [0, 3, 13, 87, 185];
 
-    /// <summary>The file starts with "NES" and 0x1A.</summary>
-    public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= HeaderSize && head.StartsWith("NES\x1A"u8);
+    /// <summary>
+    /// The file starts with "NES" and 0x1A, and its remaining header bytes are
+    /// zero, text or NES 2.0 fields.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> head) =>
+        head.Length >= HeaderSize && head.StartsWith("NES\x1A"u8)
+        && ((head[7] & 0x0C) == 0x08
+            || (head[9] & 0xFE) == 0 && head[11] == 0
+            || head[7..16].IndexOfAnyExceptInRange((byte)0x20, (byte)0x7E) < 0);
 
     /// <summary>Reads the header and maps PRG-ROM; throws <see cref="InvalidDataException"/> when there is no header or no PRG-ROM.</summary>
     public static InesRom Read(ReadOnlySpan<byte> data)

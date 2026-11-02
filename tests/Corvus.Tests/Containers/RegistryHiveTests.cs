@@ -181,7 +181,8 @@ public sealed class RegistryHiveTests(ITestOutputHelper output) : IDisposable
         File.WriteAllBytes(path, [.. "regf"u8, .. new byte[5000]]);
         var f = FileInput.Open(path);
         f.Options = new FileViewOptions("registry");
-        Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => new RegistryFileView().Inspect(f, default)).Code);
+        // A base block with no version fields is not a hive.
+        Assert.Null(new RegistryFileView().Inspect(f, default));
     }
 
     [Fact]

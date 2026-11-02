@@ -11,7 +11,13 @@ public static class GodotPack
     private const uint DirEncrypted = 1, RelativeFileBase = 2, FileEncrypted = 1, FileRemoval = 2;
     private const int MaxFiles = 1_000_000, MaxPath = 4096;
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(b) == Magic;
+    /// <summary>
+    /// The pack magic, a format from 1 to 16 and an engine version of at most
+    /// 16.255.255.
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= 20 && BinaryPrimitives.ReadUInt32LittleEndian(b) == Magic && BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) is >= 1 and <= 16
+        && BinaryPrimitives.ReadUInt32LittleEndian(b[8..]) is >= 1 and <= 16 && BinaryPrimitives.ReadUInt32LittleEndian(b[12..]) <= 255 && BinaryPrimitives.ReadUInt32LittleEndian(b[16..]) <= 255;
 
     /// <summary>Where a pack embedded in an executable starts: the file ends with the pack's size and "GDPC". Null when none is.</summary>
     public static long? Embedded(ReadOnlySpan<byte> b)

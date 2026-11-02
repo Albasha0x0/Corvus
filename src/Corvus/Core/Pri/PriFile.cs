@@ -44,7 +44,9 @@ internal sealed class PriFile
     public List<Qualifier> DeclaredQualifiers { get; } = [];
 
     /// <summary>A known "mrm_pri" magic at offset 0.</summary>
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 8 && Magics.Contains(Encoding.ASCII.GetString(b[..8]));
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= HeaderSize && Magics.Contains(Encoding.ASCII.GetString(b[..8])) && U16(b, 8) == 0 && U16(b, 24) is >= 1 and <= 4096 && U16(b, 26) == 0xFFFF
+        && U32(b, 28) == 0 && U32(b, 16) >= HeaderSize;
 
     private PriFile(byte[] b, string format, IReadOnlyList<Section> sections)
     {

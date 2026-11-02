@@ -35,15 +35,20 @@ internal static class AppendedArchive
 
     private static ReadOnlySpan<byte> EndRecord => "PK\x05\x06"u8;
 
-    /// <summary>Returns the zip end record count and the first one's offset (-1 when none),
-    /// scanned in 1 MiB windows; stored entries can add false records.</summary>
+    /// <summary>
+    /// Returns the count of zip end records and the first one's offset (-1 when
+    /// none), scanned in 1 MiB windows.
+    /// A record counts when its entry counts agree and its central directory
+    /// fits before it, so a stored entry adds none unless it holds a whole
+    /// archive.
+    /// </summary>
     internal static (int Count, long First) CountEndRecords(Func<Stream> open, CancellationToken ct)
     {
-        const int Window = 1 << 20;
+        const int Window = 1 << 20, Record = 22;
         using var s = open();
-        var buffer = new byte[Window + 3];
+        var buffer = new byte[Window + Record - 1];
         int count = 0, carry = 0;
-        long first = -1, consumed = 0;
+        long first = -1, consumed = 0, decided = 0;
         while (true)
         {
             ct.ThrowIfCancellationRequested();
@@ -52,17 +57,30 @@ internal static class AppendedArchive
             int length = carry + read;
             // Offset of buffer[0] in the stream.
             long origin = consumed - carry;
-            for (int at = buffer.AsSpan(0, length).IndexOf(EndRecord); at >= 0;)
+            // A record is judged once all 22 bytes are in the buffer; later
+            // positions wait for the next window.
+            for (int at = buffer.AsSpan(0, length).IndexOf(EndRecord); at >= 0 && at + Record <= length;)
             {
-                if (count++ == 0) first = origin + at;
+                long position = origin + at;
+                if (position >= decided && Plausible(buffer.AsSpan(at, Record), position) && count++ == 0) first = position;
                 int next = buffer.AsSpan(at + 4, length - at - 4).IndexOf(EndRecord);
                 at = next < 0 ? -1 : at + 4 + next;
             }
+            decided = origin + length - (Record - 1);
             consumed += read;
-            // Keep the last 3 bytes so a signature split across windows is seen once.
-            carry = Math.Min(3, length);
+            carry = Math.Min(Record - 1, length);
             Buffer.BlockCopy(buffer, length - carry, buffer, 0, carry);
         }
+    }
+
+    // The central directory (size, then offset from the archive start) ends at
+    // the record; zip64 fields hold 0xFFFFFFFF.
+    private static bool Plausible(ReadOnlySpan<byte> record, long position)
+    {
+        uint onDisk = BinaryPrimitives.ReadUInt16LittleEndian(record[8..]), total = BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(record[12..]), offset = BinaryPrimitives.ReadUInt32LittleEndian(record[16..]);
+        if (onDisk > total) return false;
+        return size == uint.MaxValue || offset == uint.MaxValue || (long)size + offset <= position;
     }
 
     private static List<int> SevenZipEnds(byte[] data)

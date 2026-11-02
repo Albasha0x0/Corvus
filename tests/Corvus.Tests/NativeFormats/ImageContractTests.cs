@@ -12,10 +12,11 @@ public sealed class ImageContractTests
     public void Detection_recognizes_every_container()
     {
         Assert.Equal(NativeFileKind.Pe, NativeImageLoader.Detect("MZ\x90\0"u8));
-        Assert.Equal(NativeFileKind.Elf, NativeImageLoader.Detect([0x7F, (byte)'E', (byte)'L', (byte)'F', 2, 1]));
-        Assert.Equal(NativeFileKind.MachO, NativeImageLoader.Detect([0xCF, 0xFA, 0xED, 0xFE]));
-        Assert.Equal(NativeFileKind.MachO, NativeImageLoader.Detect([0xFE, 0xED, 0xFA, 0xCE]));
-        Assert.Equal(NativeFileKind.MachOFat, NativeImageLoader.Detect([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 2, 1, 0, 0, 12]));
+        Assert.Equal(NativeFileKind.Elf, NativeImageLoader.Detect([0x7F, (byte)'E', (byte)'L', (byte)'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0]));
+        // x86-64 executable with one 8-byte load command, little endian; then x86 big endian.
+        Assert.Equal(NativeFileKind.MachO, NativeImageLoader.Detect([0xCF, 0xFA, 0xED, 0xFE, 7, 0, 0, 1, 3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 8, 0, 0, 0]));
+        Assert.Equal(NativeFileKind.MachO, NativeImageLoader.Detect([0xFE, 0xED, 0xFA, 0xCE, 0, 0, 0, 7, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 8]));
+        Assert.Equal(NativeFileKind.MachOFat, NativeImageLoader.Detect([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 1, 1, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 1, 0, 0, 0, 0, 14]));
         // A Java class file shares 0xCAFEBABE: version 52 reads as 52 slices, but the "CPU type" is no Mach-O one.
         Assert.Equal(NativeFileKind.Unknown, NativeImageLoader.Detect([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 0x2A, 0x0A, 0]));
         Assert.Equal(NativeFileKind.Unknown, NativeImageLoader.Detect("ab"u8));

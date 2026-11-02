@@ -28,9 +28,14 @@ internal sealed class PdfFile
     public static bool Looks(ReadOnlySpan<byte> b)
     {
         var head = b[..Math.Min(b.Length, 1024)];
-        int at = head.IndexOf("%PDF-"u8);
-        // The header carries a version: a digit, a dot and a digit.
-        return at >= 0 && at + 8 <= head.Length && head[at + 5] is >= (byte)'0' and <= (byte)'9' && head[at + 6] == '.' && head[at + 7] is >= (byte)'0' and <= (byte)'9';
+        for (int from = 0; from < head.Length;)
+        {
+            int at = head[from..].IndexOf("%PDF-"u8);
+            if (at < 0) return false;
+            if (FileHeaders.Pdf(head[(from + at)..])) return true;
+            from += at + 5;
+        }
+        return false;
     }
 
     private PdfFile(byte[] data, string name)

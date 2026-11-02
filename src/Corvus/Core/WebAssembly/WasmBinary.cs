@@ -179,7 +179,7 @@ public sealed class WasmBinary
 
     private WasmBinary(byte[] bytes) => Bytes = bytes;
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 8 && b[..4].SequenceEqual("\0asm"u8);
+    public static bool Looks(ReadOnlySpan<byte> b) => FileHeaders.Wasm(b);
 
     public static WasmBinary Read(byte[] bytes, CancellationToken ct = default)
     {

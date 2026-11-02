@@ -11,7 +11,23 @@ public static class LuaJitBytecode
     private const int MaxCount = 50_000_000;
     private const uint BigEndian = 1, Strip = 2, Ffi = 4, TwoSlotFrames = 8;
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 5 && b.StartsWith("\x1bLJ"u8) && b[3] is 1 or 2;
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < 16 || !b.StartsWith("\x1bLJ"u8) || b[3] is not (1 or 2) || (b[4] & ~0x1F) != 0) return false;
+        // A named chunk gives its name first ("@file" or "=name"); the first
+        // prototype follows with its size and header bytes.
+        int p = 5;
+        if ((b[4] & Strip) == 0)
+        {
+            if (b[5] is 0 or >= 0x80 || b[6] is not ((byte)'@' or (byte)'=')) return false;
+            p += 1 + b[5];
+        }
+        if (p >= b.Length || b[p] == 0) return false;
+        for (int i = 0; b[p++] >= 0x80; i++)
+            if (i == 4 || p >= b.Length) return false;
+        // Prototype flags, parameter count, frame size and upvalue count.
+        return p + 4 <= b.Length && b[p + 2] is >= 1 and <= 250 && b[p + 3] <= 60 && b[p + 1] <= b[p + 2];
+    }
 
     /// <summary>The chunk and its prototypes in file order.</summary>
     public static (LuaChunk Chunk, IReadOnlyList<LuaFunction> Prototypes) Read(byte[] data)

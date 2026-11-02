@@ -23,9 +23,23 @@ internal sealed class SwfFile
 
     private const int MaxTags = 2_000_000;
 
-    /// <summary>"FWS", "CWS" or "ZWS" and a version byte of at most 64.</summary>
-    public static bool Looks(ReadOnlySpan<byte> b) =>
-        b.Length >= 8 && b[1] == 'W' && b[2] == 'S' && b[0] is (byte)'F' or (byte)'C' or (byte)'Z' && b[3] is > 0 and <= 64;
+    /// <summary>
+    /// "FWS", "CWS" or "ZWS", a version byte of at most 64 and a declared
+    /// length of 8 to 2^30;
+    /// then a frame rectangle and a known first tag (uncompressed), a zlib
+    /// header (CWS) or LZMA properties (ZWS).
+    /// </summary>
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < 12 || b[1] != 'W' || b[2] != 'S' || b[0] is not ((byte)'F' or (byte)'C' or (byte)'Z') || b[3] is 0 or > 64) return false;
+        uint declared = BinaryPrimitives.ReadUInt32LittleEndian(b[4..]);
+        if (declared is < 8 or > 1 << 30) return false;
+        if (b[0] == 'C') return b[8] == 0x78 && (b[8] << 8 | b[9]) % 31 == 0;
+        if (b[0] == 'Z') return b.Length >= 17 && b[16] < 225;
+        int bits = b[8] >> 3, rect = (5 + 4 * bits + 7) / 8;
+        if (bits == 0 || b.Length < 8 + rect + 6) return false;
+        return BinaryPrimitives.ReadUInt16LittleEndian(b[(8 + rect + 4)..]) >> 6 <= 100;
+    }
 
     /// <summary>Reads the header and every tag; throws <see cref="ToolError"/> on a header or body that does not read, notes a damaged tag list.</summary>
     public static SwfFile Read(byte[] data, string name, long maxBytes)
