@@ -29,9 +29,11 @@ public sealed class RestartStateLiveTests : LiveSessionTestBase
     {
         await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
-        await _tools.LiveTimeline("live-1", "start");
+        // Activity traces are collected on Windows only.
+        if (OperatingSystem.IsWindows())
+            await _tools.LiveTimeline("live-1", "start");
         var first = await Reads(_tools);
-        Assert.All(first.Where(p => p.Key is "live_coverage" or "live_timeline"), p => Assert.DoesNotContain("Error (", p.Value));
+        Assert.All(first.Where(p => p.Key is "live_coverage" || p.Key is "live_timeline" && OperatingSystem.IsWindows()), p => Assert.DoesNotContain("Error (", p.Value));
 
         using var second = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
         var restarted = await Reads(new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true }, second));
