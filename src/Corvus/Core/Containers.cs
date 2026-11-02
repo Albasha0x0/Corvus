@@ -111,6 +111,7 @@ public static class Containers
         if (kind == "webdata") return WebPlayerData.Open(data, name, location, allFiles, limits, ct);
         if (kind == "godotpck") return GodotPack.Open(data, 0, name, allFiles, limits, ct);
         if (kind == "jimage") return JImage.JImageFile.Open(data, name, allFiles, limits, ct);
+        if (kind == "nxpk archive") return NxpkArchive.Open(data, name, ct);
         if (kind == "unreal pak") return UnrealPak.Open(data, name, allFiles, limits, ct);
         if (kind == "unreal utoc") return UnrealIoStore.Open(data, name, location, allFiles, limits, ct);
         if (kind == "gamemaker data") return GameMakerData.Open(data, name, allFiles, limits, ct);
