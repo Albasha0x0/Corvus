@@ -631,4 +631,4 @@ function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
     @($over | Where-Object { $_ -in $before })
 }
 
-Export-ModuleMember -Function Get-PermitCounts, Get-EnginePermits, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Get-FamilyTimes, Save-TestTimes, Get-TimeSummary
+Export-ModuleMember -Function Get-PermitCounts, Get-EnginePermits, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Get-FamilyTimes, Get-RunSection, Save-TestTimes, Get-TimeSummary
