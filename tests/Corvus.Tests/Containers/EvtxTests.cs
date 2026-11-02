@@ -44,7 +44,7 @@ public sealed class EvtxTests(ITestOutputHelper output) : IDisposable
 
     private static readonly Guid ProviderGuid = Guid.Parse("0f3c9a52-7d4e-4b61-a2f8-5c1e9d73b046");
 
-    private static EvtxSamples.Sample Sample(ulong id, ushort eventId = 4104, string provider = "Sample-Provider", Guid? activity = null) =>
+    internal static EvtxSamples.Sample Sample(ulong id, ushort eventId = 4104, string provider = "Sample-Provider", Guid? activity = null) =>
         new(id, provider, ProviderGuid, eventId, 3, new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234567 + (long)id * 10_000_000), 1200, 34,
             "Sample/Operational", "build-host", @"C:\work\report.txt", ["one", "", "three"], activity, EvtxSamples.LocalSystem);
 

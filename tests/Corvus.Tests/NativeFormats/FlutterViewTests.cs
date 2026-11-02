@@ -23,7 +23,7 @@ public sealed class FlutterViewTests(ITestOutputHelper output)
         return b;
     }
 
-    private static byte[] App()
+    internal static byte[] App()
     {
         var vm = Snapshot();
         var data = new byte[0x200];

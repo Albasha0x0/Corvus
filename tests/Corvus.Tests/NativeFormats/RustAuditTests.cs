@@ -9,7 +9,7 @@ namespace Corvus.Tests.NativeFormats;
 /// <summary>cargo-auditable .dep-v0 dependency lists in ELF and PE images; summarize_file view=rust.</summary>
 public sealed class RustAuditTests
 {
-    private const string Json = """
+    internal const string Json = """
         {"packages":[
           {"name":"tool","version":"0.3.1","source":"local","dependencies":[1,2],"root":true},
           {"name":"serde","version":"1.0.210","source":"crates.io","dependencies":[]},
@@ -17,14 +17,14 @@ public sealed class RustAuditTests
         ]}
         """;
 
-    private static byte[] Zlib(string text)
+    internal static byte[] Zlib(string text)
     {
         var ms = new MemoryStream();
         using (var z = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true)) z.Write(Encoding.UTF8.GetBytes(text));
         return ms.ToArray();
     }
 
-    private static byte[] Elf(byte[] section) => new ElfWriter { DataSectionName = ".dep-v0", Data = section }.Build();
+    internal static byte[] Elf(byte[] section) => new ElfWriter { DataSectionName = ".dep-v0", Data = section }.Build();
 
     private static RustFileView.Facts? View(byte[] bytes, string path = "tool") =>
         new RustFileView().Inspect(new FileInput(path, bytes, Blob.Identify(bytes)), default)?.Detail as RustFileView.Facts;

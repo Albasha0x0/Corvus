@@ -18,7 +18,7 @@ public sealed class RegistryHiveTests(ITestOutputHelper output) : IDisposable
     private static readonly byte[] Big = [.. Enumerable.Range(0, 40_000).Select(i => (byte)(i * 7))];
 
     /// <summary>Software\Sample with one value of each type, a class name, a large value and a key named in Cyrillic.</summary>
-    private static HiveSamples.Node Sample()
+    internal static HiveSamples.Node Sample()
     {
         var sample = new HiveSamples.Node("Sample") { Class = "SampleClass" };
         sample.Values.AddRange(

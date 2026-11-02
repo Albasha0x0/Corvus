@@ -51,7 +51,7 @@ public sealed class ProcmonTests(ITestOutputHelper output) : IDisposable
     private static readonly byte[] V6Target = [0x20, 0x01, 0x0D, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5];
 
     /// <summary>A capture of worker.exe started by builder.exe: one event of each kind the reader names.</summary>
-    private static List<ProcmonSamples.Ev> SampleEvents() =>
+    internal static List<ProcmonSamples.Ev> SampleEvents() =>
     [
         new(0, 11, 1, 1, 0, ProcmonSamples.ProcessCreate(4200, @"C:\work\worker.exe", "worker.exe /job 7")),
         new(1, 77, 1, 3, 0, ProcmonSamples.ThreadCreate(78)),

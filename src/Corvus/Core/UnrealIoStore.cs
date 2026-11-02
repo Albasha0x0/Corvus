@@ -29,7 +29,9 @@ public static class UnrealIoStore
         "LoaderInitialLoadMeta", "LoaderGlobalNames", "LoaderGlobalNameHashes", "ContainerHeader", "ShaderCodeLibrary", "ShaderCode",
     ];
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= HeaderSize && b.StartsWith("-==--==--==--==-"u8);
+    /// <summary>True when the 16-byte magic is followed by a header that states its own size.</summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= HeaderSize && b.StartsWith("-==--==--==--==-"u8) && BinaryPrimitives.ReadUInt32LittleEndian(b[20..]) == HeaderSize;
 
     private readonly record struct Block(long Offset, int Compressed, int Uncompressed, int Method);
 

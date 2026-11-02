@@ -11,7 +11,7 @@ namespace Corvus.Tests;
 
 public sealed class SideloadTests : IDisposable
 {
-    private enum ImportTables { Start, Delay, Both }
+    internal enum ImportTables { Start, Delay, Both }
 
     private readonly TempDir _dir = new();
 
@@ -27,7 +27,7 @@ public sealed class SideloadTests : IDisposable
     }
 
     /// <summary>An image importing the name at start, delay-loading it, or both.</summary>
-    private static byte[] Importer(string name, ImportTables tables = ImportTables.Start)
+    internal static byte[] Importer(string name, ImportTables tables = ImportTables.Start)
     {
         var b = Basic(dll: false);
         void Table(bool d)
@@ -71,7 +71,7 @@ public sealed class SideloadTests : IDisposable
     }
 
     /// <summary>A DLL exporting Run, and Fwd forwarded to <paramref name="forward"/> when given.</summary>
-    private static byte[] Library(string name, string? forward = null)
+    internal static byte[] Library(string name, string? forward = null)
     {
         var b = Basic(dll: true);
         uint code = b.Sections[0].Rva, dir = 0, size = 0;
@@ -106,7 +106,7 @@ public sealed class SideloadTests : IDisposable
     }
 
     /// <summary>The image with a PKCS #7 signature from a throwaway certificate in its security directory.</summary>
-    private static byte[] Signed(byte[] image)
+    internal static byte[] Signed(byte[] image)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = new CertificateRequest("CN=test signer", key, HashAlgorithmName.SHA256);

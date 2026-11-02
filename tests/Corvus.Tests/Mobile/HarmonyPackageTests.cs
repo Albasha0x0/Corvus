@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 /// <summary>HarmonyOS modules and bundles: module.json and config.json, abilities, permissions, bytecode and native libraries.</summary>
 public sealed class HarmonyPackageTests
 {
-    private const string StageProfile = """
+    internal const string StageProfile = """
         {
           "app": { "bundleName": "com.example.ledger", "versionCode": 1000002, "versionName": "1.0.2", "minAPIVersion": 12, "targetAPIVersion": 14 },
           "module": {

@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 /// <summary>summarize_file view=firmware: formats found at their offsets, sized by their own headers.</summary>
 public sealed class FirmwareViewTests
 {
-    private static byte[] Image()
+    internal static byte[] Image()
     {
         var d = new byte[0x10000];
         new Random(7).NextBytes(d.AsSpan(0x100, 0x1000));

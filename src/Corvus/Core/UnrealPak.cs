@@ -31,7 +31,9 @@ public static class UnrealPak
     /// <summary>The parsed footer; null when <paramref name="b"/> does not end with a pak footer.</summary>
     private sealed record Footer(Layout Layout, bool EncryptedIndex, Guid KeyGuid, long IndexOffset, long IndexSize, bool Frozen, string?[] Compression);
 
-    public static bool Looks(ReadOnlySpan<byte> b) => ReadFooter(b) != null;
+    /// <summary>True when a footer names an index that lies inside the file; Open still names a damaged index.</summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        ReadFooter(b) is { } f && f.IndexOffset >= 0 && f.IndexSize >= 0 && f.IndexOffset <= b.Length - f.IndexSize;
 
     private static Footer? ReadFooter(ReadOnlySpan<byte> b)
     {

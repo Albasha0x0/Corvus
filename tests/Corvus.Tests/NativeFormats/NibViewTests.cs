@@ -15,7 +15,7 @@ public sealed class NibViewTests(ITestOutputHelper output) : IDisposable
     public void Dispose() => _dir.Dispose();
 
     /// <summary>A NIBArchive: objects as (class, fields); a field value is string (stored as an NSString object), long, or int (an object reference).</summary>
-    private static byte[] Nib(params (string Class, (string Key, object Value)[] Fields)[] objects)
+    internal static byte[] Nib(params (string Class, (string Key, object Value)[] Fields)[] objects)
     {
         var all = objects.ToList();
         var keys = new List<string>();

@@ -150,6 +150,26 @@ public sealed class FileKindValidityTests
 
     private static byte[] Lua() => Padded(32, "\x1bLua\x54\0\x19\x93\r\n\x1a\n", 4, 8, 8);
 
+    private static byte[] UnrealPakFooter()
+    {
+        var d = new byte[44];
+        BinaryPrimitives.WriteUInt32LittleEndian(d, 0x5A6F12E1);
+        d[4] = 1;
+        return d;
+    }
+
+    private static byte[] UnrealTocHeader()
+    {
+        var d = new byte[0x90];
+        "-==--==--==--==-"u8.CopyTo(d);
+        d[16] = 3; d[20] = 0x90;
+        return d;
+    }
+
+    private static byte[] AutoItData() => [.. Magics.First(m => m.Kind == "autoit script").Magic, .. "AU3!EA06"u8.ToArray()];
+
+    private static byte[] PythonBytecode() => Core.Python.PyVersion.WithHeader(Core.Python.PyVersion.MagicOf((3, 12))!, (3, 12), [0xE3, 0, 0, 0, 0]);
+
     private static byte[] LuaJit() => Padded(32, "\x1bLJ\x02\0", 6, "@a.lua", 20, 0, 0, 2, 0);
 
     /// <summary>A minimal instance of each kind, by the name Blob.Identify reports.</summary>
@@ -194,6 +214,16 @@ public sealed class FileKindValidityTests
         ["luajit bytecode"] = LuaJit,
         ["gguf"] = () => Bytes("GGUF", 3u, new byte[16]),
         ["pickle"] = () => new byte[] { 0x80, 2, (byte)'}', (byte)'q', 0, (byte)'.' },
+        ["esp32 flash"] = () => Esp32Samples.Flash(NvsWriter.Sample().Writer.Build()),
+        ["esp32 partition table"] = () => Esp32Samples.Table(Esp32Samples.Layout),
+        ["esp32 nvs"] = () => NvsWriter.Sample().Writer.Build(),
+        ["unreal pak"] = UnrealPakFooter,
+        ["unreal utoc"] = UnrealTocHeader,
+        ["autoit script"] = AutoItData,
+        ["safetensors"] = () => ModelSamples.Safetensors("""{"a":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}""", 4),
+        ["onnx"] = () => ModelSamples.Onnx(),
+        ["pyinstaller pyz"] = () => FrozenPythonTests.Pyz(null),
+        ["python bytecode"] = PythonBytecode,
     };
 
     /// <summary>Kinds that report a magic planted in random data, with the first case that did.</summary>
@@ -246,12 +276,11 @@ public sealed class FileKindValidityTests
     }
 
     [Fact]
-    public void The_kinds_without_a_minimal_instance_only_fall_in_number()
+    public void Every_kind_identify_can_return_has_a_minimal_instance()
     {
         var instances = Instances();
-        var missing = IdentifyKinds().Count(k => !instances.ContainsKey(k));
-        CountRatchet.Check("detector-instance", "registered signatures, file kinds, views and scans without a minimal instance may only fall",
-            new Dictionary<string, double> { ["file kinds"] = missing }, floor: false, partial: true);
+        var missing = IdentifyKinds().Where(k => !instances.ContainsKey(k)).Order(StringComparer.Ordinal).ToList();
+        Assert.True(missing.Count == 0, "no minimal instance for: " + string.Join(", ", missing));
     }
 
     /// <summary>Single-field changes, as (offset, value), each of which must stop the kind being identified.</summary>
@@ -279,6 +308,16 @@ public sealed class FileKindValidityTests
         ["registry hive"] = [(24, 9)],
         ["flash swf"] = [(3, 0), (4, 1)],
         ["lua bytecode"] = [(5, 1), (7, 0)],
+        ["unreal pak"] = [(0, 0), (4, 12), (15, 0x7F), (23, 0x7F)],
+        ["unreal utoc"] = [(0, 0), (15, 0), (20, 0x91)],
+        ["autoit script"] = [(0, 0), (23, (byte)'7')],
+        ["safetensors"] = [(7, 0xFF), (8, (byte)'x')],
+        ["onnx"] = [(1, 0), (2, 0x77)],
+        ["python bytecode"] = [(4, 9), (3, 0)],
+        ["pyinstaller pyz"] = [(0, 0), (6, 0)],
+        ["esp32 partition table"] = [(1, 0x51)],
+        ["esp32 flash"] = [(0, 0)],
+        ["esp32 nvs"] = [(4, 0x55)],
     };
 
     [Fact]
@@ -415,35 +454,62 @@ public sealed class FileViewValidityTests : IDisposable
         return hits;
     }
 
-    /// <summary>A minimal file each listed view applies to: its file name and bytes.</summary>
-    private static Dictionary<string, (string Name, Func<byte[]> Bytes)> Instances() => new()
-    {
-        ["wasm"] = ("sample.wasm", FileKindValidityTests.Instances()["wasm"]),
-        ["lnk"] = ("sample.lnk", FileKindValidityTests.Instances()["lnk shortcut"]),
-        ["hermes"] = ("sample.hbc", FileKindValidityTests.Instances()["hermes bytecode"]),
-        ["pdf"] = ("sample.pdf", () => Encoding.ASCII.GetBytes(string.Join("\n", "%PDF-1.4", "1 0 obj", "<< /Type /Catalog >>", "endobj", "trailer", "<< /Root 1 0 R >>", "%%EOF", ""))),
-    };
-
     [Fact]
     public void A_minimal_instance_of_each_listed_view_is_viewed()
     {
         var views = Providers.Of<IFileSummaryView>().ToDictionary(v => v.Name);
-        foreach (var (name, (file, bytes)) in Instances())
+        foreach (var (name, instance) in FileViewInstances.All())
         {
-            var path = Path.Combine(Directory.CreateDirectory(_dir.File("instance-" + name)).FullName, file);
-            var d = bytes();
-            File.WriteAllBytes(path, d);
-            Assert.NotNull(views[name].Inspect(new FileInput(path, d, Blob.Identify(d)) { Options = new FileViewOptions(name) }, default));
+            var path = instance.Place(Directory.CreateDirectory(_dir.File("instance-" + name)).FullName);
+            var d = File.ReadAllBytes(path);
+            Assert.True(views[name].Inspect(new FileInput(path, d, Blob.Identify(d)) { Options = new FileViewOptions(name) }, default) != null, $"{name}: nothing viewed for its instance");
         }
     }
 
     [Fact]
-    public void The_views_without_a_minimal_instance_only_fall_in_number()
+    public void Every_view_has_a_minimal_instance()
     {
-        var instances = Instances();
-        var missing = Providers.Of<IFileSummaryView>().Count(v => !instances.ContainsKey(v.Name) && !Exempt.ContainsKey(v.Name));
-        CountRatchet.Check("detector-instance", "registered signatures, file kinds, views and scans without a minimal instance may only fall",
-            new Dictionary<string, double> { ["views"] = missing }, floor: false, partial: true);
+        var instances = FileViewInstances.All();
+        var missing = Providers.Of<IFileSummaryView>().Where(v => !instances.ContainsKey(v.Name) && !Exempt.ContainsKey(v.Name)).Select(v => v.Name).Order(StringComparer.Ordinal).ToList();
+        Assert.True(missing.Count == 0, "no minimal instance for: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void A_changed_header_field_stops_the_view()
+    {
+        var views = Providers.Of<IFileSummaryView>().ToDictionary(v => v.Name);
+        var failures = new List<string>();
+        foreach (var (name, changes) in FileViewInstances.Mutations())
+            foreach (var (at, value) in changes)
+            {
+                var path = FileViewInstances.All()[name].Place(Directory.CreateDirectory(_dir.File($"mutated-{name}-{at}")).FullName);
+                var d = File.ReadAllBytes(path);
+                Assert.True(views[name].Inspect(new FileInput(path, d, Blob.Identify(d)) { Options = new FileViewOptions(name) }, default) != null, $"{name}: not viewed before the change");
+                d[at] = value;
+                File.WriteAllBytes(path, d);
+                FileView? shown = null;
+                try { shown = views[name].Inspect(new FileInput(path, d, Blob.Identify(d)) { Options = new FileViewOptions(name) }, default); }
+                catch (ToolError) { }
+                if (shown != null) failures.Add($"{name}: still viewed with byte {at} set to 0x{value:X2}");
+            }
+        Assert.True(failures.Count == 0, string.Join(", ", failures));
+    }
+
+    [Fact]
+    public void Every_mutation_names_a_listed_view()
+    {
+        var unknown = FileViewInstances.Mutations().Keys.Where(k => !FileViewInstances.All().ContainsKey(k)).ToList();
+        Assert.True(unknown.Count == 0, "mutation for a view with no instance: " + string.Join(", ", unknown));
+    }
+
+    [Fact]
+    public void Every_view_with_an_instance_has_a_mutation_or_a_reason()
+    {
+        var mutations = FileViewInstances.Mutations();
+        var missing = FileViewInstances.All().Keys.Where(k => !mutations.ContainsKey(k) && !FileViewInstances.NotMagicGated.ContainsKey(k)).Order(StringComparer.Ordinal).ToList();
+        Assert.True(missing.Count == 0, "no mutation and no reason for: " + string.Join(", ", missing));
+        var both = FileViewInstances.NotMagicGated.Keys.Where(mutations.ContainsKey).ToList();
+        Assert.True(both.Count == 0, "listed with a reason and a mutation: " + string.Join(", ", both));
     }
 
     [Fact]

@@ -188,12 +188,11 @@ public sealed partial class FirmwareSignatureValidityTests
     }
 
     [Fact]
-    public void The_signatures_without_a_minimal_instance_only_fall_in_number()
+    public void Every_signature_has_a_minimal_instance()
     {
         var instances = Instances();
-        var missing = FirmwareSignatures.All.Count(s => !instances.ContainsKey(s.Format));
-        CountRatchet.Check("detector-instance", "registered signatures without a minimal instance in FirmwareSignatureValidityTests may only fall",
-            new Dictionary<string, double> { ["signatures"] = missing }, floor: false, partial: true);
+        var missing = FirmwareSignatures.All.Where(s => !instances.ContainsKey(s.Format)).Select(s => s.Format).ToList();
+        Assert.True(missing.Count == 0, "no minimal instance for: " + string.Join(", ", missing));
     }
 
     /// <summary>Single-byte changes as (offset, value); a negative value inverts the byte.</summary>

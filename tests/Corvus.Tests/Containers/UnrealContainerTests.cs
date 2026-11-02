@@ -65,7 +65,8 @@ public sealed class UnrealContainerTests(ITestOutputHelper output)
         var data = File.ReadAllBytes(Fixture("v3.pak"));
         // The index offset follows the encrypted flag, magic and version of the 45-byte footer.
         BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(data.Length - 45 + 9), data.Length);
-        Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => Open(data)).Code);
+        // Identify refuses an index outside the file, so the reader is called directly.
+        Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => UnrealPak.Open(data, "x.pak", true, AnalysisLimits.Default, default)).Code);
     }
 
     [Fact]
