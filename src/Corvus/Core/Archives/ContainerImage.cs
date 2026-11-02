@@ -56,6 +56,12 @@ internal static class ContainerImage
             var bytes = new byte[r.Size];
             tar.Position = r.Offset;
             tar.ReadExactly(bytes);
+            // JsonDocument checks string bytes only when a string is read, so check them first.
+            if (!System.Text.Unicode.Utf8.IsValid(bytes))
+            {
+                notes.Add($"{path}: not valid UTF-8 JSON; not read.");
+                return null;
+            }
             try { return JsonDocument.Parse(bytes); }
             catch (JsonException ex)
             {
