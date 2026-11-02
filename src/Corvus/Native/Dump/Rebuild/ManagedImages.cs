@@ -67,7 +67,10 @@ public static class ManagedImages
             bool dynamic = module.IsDynamic;
             if (!dynamic && (module.ImageBase == 0 || module.Size == 0)) continue;
             if (!dynamic && !string.IsNullOrEmpty(module.Name) && memory.ModuleAt(module.ImageBase) != null) continue;
-            found.Add(new RebuildTarget(SimpleName(module) + ".dll", dynamic ? 0 : module.ImageBase,
+            var simple = SimpleName(module);
+            // A module loaded from bytes may report its name with the extension already.
+            var file = simple.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || simple.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? simple : simple + ".dll";
+            found.Add(new RebuildTarget(file, dynamic ? 0 : module.ImageBase,
                 dynamic ? 0 : (uint)Math.Min(module.Size, uint.MaxValue), ModuleOrigin.Managed));
         }
         return found;

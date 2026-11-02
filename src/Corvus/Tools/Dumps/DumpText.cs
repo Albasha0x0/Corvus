@@ -68,7 +68,13 @@ internal static class DumpText
         $"; local {m.LocalImage}{(m.LocalPath == null ? $" ({m.LocalDetail})" : m.LocalPath.Equals(m.Path, StringComparison.OrdinalIgnoreCase) ? "" : $" ({m.LocalPath})")}" + (m.Managed == true ? ", .NET" : "") + (m is MinidumpService.CheckedModule c ? Checks(c) + Metadata(c) : "") + $"\n{m.Path}";
 
     private static string Metadata(MinidumpService.CheckedModule m) =>
-        (m.Metadata != null ? $"; metadata {m.Metadata}{(m.MetadataReason != null ? $" ({m.MetadataReason})" : "")}" : "") + (m.ImageFile != null ? $"; image {m.ImageFile}" : "");
+        (m.Metadata != null ? $"; metadata {m.Metadata}{(m.MetadataReason != null ? $" ({m.MetadataReason})" : "")}" : "") + (m.ImageFile != null ? $"; image {m.ImageFile}{ImageChecks(m)}" : m.ImageReason != null ? $"; not written ({m.ImageReason})" : "");
+
+    private static string ImageChecks(MinidumpService.CheckedModule m)
+    {
+        var bad = m.ImageChecks?.Where(c => c.State != "ok").Select(c => $"{c.Name} {c.State}").ToList() ?? [];
+        return bad.Count == 0 ? "" : $" ({string.Join(", ", bad)}; captured {m.ImageCaptured}%)";
+    }
 
     private static string Checks(MinidumpService.CheckedModule m) =>
         (m.LoadPath != null ? $"; path {m.LoadPath}" : "") + (m.SignatureState != null ? $"; signature {m.SignatureState}{(m.Signer != null ? $" ({m.Signer})" : "")}" : "") +

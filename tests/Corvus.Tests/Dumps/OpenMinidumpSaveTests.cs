@@ -37,6 +37,30 @@ public sealed class OpenMinidumpSaveTests : IDisposable
         Assert.Contains(row.ImageChecks!, c => c.Name == "parse");
     }
 
+    [Fact]
+    public async Task An_unlisted_image_gets_a_row_with_its_checks_and_a_text_line()
+    {
+        var file = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, [0x90, 0xC3])], ImageBase: Base));
+        var mapped = RebuildFixtures.Mapped(file);
+        var b = new MinidumpBuilder { ProcessorArchitecture = 9 };
+        b.Modules.Add(new MinidumpBuilder.Module(Base, (uint)mapped.Length, 0, @"Z:\app\listed.dll"));
+        b.Memory.Add((Base, mapped));
+        b.Memory.Add((Base + 0x100000, mapped));
+        b.Memory.Sort((x, y) => x.Start.CompareTo(y.Start));
+        var dump = _dir.File("hidden.dmp");
+        File.WriteAllBytes(dump, b.Build());
+
+        using var service = new MinidumpService();
+        var rows = service.Modules(dump, null, 0, 10, _dir.File("out"), default, MinidumpService.ModuleOptions.Default with { Module = "unlisted" }).Rows;
+
+        var row = Assert.Single(rows, r => r.ImageFile != null);
+        Assert.StartsWith("image-", row.ImageFile);
+        Assert.Equal(64, row.ImageSha256!.Length);
+        Assert.NotNull(row.ImageCaptured);
+        Assert.Contains(row.ImageChecks!, c => c.Name == "parse");
+        Assert.Contains("image image-", Corvus.Tools.DumpText.Module(row));
+    }
+
     private string TwoModuleDump()
     {
         var first = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: Base));

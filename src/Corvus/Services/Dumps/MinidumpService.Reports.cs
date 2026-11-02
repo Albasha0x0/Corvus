@@ -334,7 +334,25 @@ public sealed partial class MinidumpService
             var state = DumpManagedMetadata.Inspect(d, m);
             return row with { Metadata = state?.State, MetadataReason = state?.Reason };
         }).ToList();
+        if (saved != null)
+            rows.AddRange(saved.Where(x => x.Module.Target.Origin != ModuleOrigin.Listed || !page.Any(m => m.Base == x.Module.Target.Base))
+                .Select(x => SavedRow(s, x.Module, x.Written)));
         return (s.Id, rows, d.Modules.Count, folder);
+    }
+
+    /// <summary>The row of a written module that is not on the listed page: its file, SHA-256, captured percent, checks and reason.</summary>
+    private static CheckedModule SavedRow(Session s, RebuiltModule r, WrittenModule w)
+    {
+        var t = r.Target;
+        var listed = t.Origin == ModuleOrigin.Listed ? s.Memory.Modules.FirstOrDefault(m => m.Base == t.Base) : null;
+        var row = listed != null ? Checked(s, listed)
+            : new CheckedModule(t.Name, t.Path ?? "", $"0x{t.Base:X}", $"0x{t.Size:X}", "", null, null, null, null, null, "missing", null,
+                t.Origin == ModuleOrigin.Managed ? "in-memory assembly" : "found outside the module list", null);
+        return row with
+        {
+            Metadata = r.Metadata, MetadataReason = r.MetadataReason, ImageFile = w.File, ImageReason = w.Reason,
+            ImageSha256 = r.Sha256, ImageCaptured = w.File != null ? r.CapturedPercent : null, ImageChecks = w.File != null ? r.Checks : null,
+        };
     }
 
     /// <summary>The module row with its load path class, the local file's signer and the code sections compared with that file.</summary>

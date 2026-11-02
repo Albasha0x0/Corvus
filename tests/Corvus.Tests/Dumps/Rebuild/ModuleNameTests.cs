@@ -33,4 +33,10 @@ public sealed class ModuleNameTests
         Assert.Equal("synth-2000.dll", Name("synth.dll", 0x2000, used));
         Assert.Equal("synth-2000-2.dll", Name("synth.dll", 0x2000, used));
     }
+
+    [Fact]
+    public void A_name_that_ends_in_its_extension_twice_keeps_it_once()
+    {
+        Assert.Equal("payload.dll", Name("payload.dll.dll", 0x1000, new(StringComparer.OrdinalIgnoreCase)));
+    }
 }
