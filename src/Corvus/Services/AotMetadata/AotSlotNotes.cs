@@ -12,17 +12,12 @@ namespace Corvus.Services;
 /// </summary>
 public static class AotSlotNotes
 {
-    private abstract record Value;
+    private sealed record Receiver(TypeDef Type);
 
-    private sealed record Constant(long Number) : Value;
-
-    private sealed record Receiver(TypeDef Type) : Value;
-
-    private sealed record ClassPointer(TypeDef Type) : Value;
-
-    private sealed record SlotEntry(TypeDef Type, long Slot) : Value;
-
-    /// <summary>A slot call: its address, the slot, the method found there and the receiver type (each null when unknown).</summary>
+    /// <summary>
+    /// A slot call: its address, the slot, the method found there and the
+    /// receiver type (each null when unknown).
+    /// </summary>
     public sealed record SlotCall(uint Rva, long Slot, MethodDef? Method, TypeDef? Receiver, string Note);
 
     private const int SlotSize = 16;
@@ -54,13 +49,6 @@ public static class AotSlotNotes
         var calls = new Dictionary<uint, SlotCall>();
         if (index.Image.Arch != NativeArch.X64 || AotNativeNames.Of(native) is not { } applied) return [];
         bool windows = native.Image.Format == ImageFormat.Pe;
-        Register[] args = windows
-            ? [Register.RCX, Register.RDX, Register.R8, Register.R9]
-            : [Register.RDI, Register.RSI, Register.RDX, Register.RCX, Register.R8, Register.R9];
-        Register[] clobbered = windows
-            ? [Register.RAX, Register.RCX, Register.RDX, Register.R8, Register.R9, Register.R10, Register.R11]
-            : [Register.RAX, Register.RCX, Register.RDX, Register.RSI, Register.RDI,
-               Register.R8, Register.R9, Register.R10, Register.R11];
         ulong imageBase = index.Image.ImageBase;
         var instructions = NativeAotCode.Decode(index.Image, index.Ranges(fn), ct);
         var helpers = new Dictionary<uint, (Register Object, Register Slot)?>();
@@ -81,86 +69,44 @@ public static class AotSlotNotes
             i.FlowControl == FlowControl.Call && i.Op0Kind == OpKind.NearBranch64
             && Helper((uint)(i.NearBranchTarget - imageBase)) != null;
         int vtableStart = VtableStart(applied.Image.Model?.MetadataVersion ?? CurrentMetadataVersion);
-        // A direct call needs the class pointer, loaded from a receiver's first field.
-        // A jump through a register, or through [class + offset], is a call in
-        // tail position; a jump with an index or a segment is a jump table.
+        // A direct call needs the class pointer, loaded from a receiver's
+        // first field. A jump through a register, or through [class + offset],
+        // is a call in tail position; a jump with an index or a segment is a
+        // jump table.
         bool IsVtableCall(in Instruction i) =>
             (i.FlowControl == FlowControl.IndirectCall && i.Op0Kind is OpKind.Memory or OpKind.Register)
             || (i.FlowControl == FlowControl.IndirectBranch && (i.Op0Kind == OpKind.Register || IsClassOffset(i)));
         // A register call needs a vtable entry loaded from memory in the function.
-        bool LoadsEntry = instructions.Any(i => i.Mnemonic == Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Memory);
+        bool LoadsEntry = instructions.Any(i =>
+            i.Mnemonic == Mnemonic.Mov && i.Op0Kind == OpKind.Register && i.Op1Kind == OpKind.Memory);
         if (!instructions.Any(i => IsHelperCall(i) || (IsVtableCall(i) && (i.Op0Kind == OpKind.Memory || LoadsEntry)))) return [];
         // A jump table or computed jump has targets this scan cannot see; a
         // register jump is checked against the slot entries when reached.
         for (int k = 0; k < instructions.Count - 1; k++)
-            if (instructions[k].FlowControl == FlowControl.IndirectBranch && instructions[k].Op0Kind != OpKind.Register && !IsClassOffset(instructions[k])) return [];
+            if (instructions[k].FlowControl == FlowControl.IndirectBranch
+                && instructions[k].Op0Kind != OpKind.Register && !IsClassOffset(instructions[k])) return [];
 
-        var state = new Dictionary<Register, Value>();
-        if (Owner(applied.Image.MethodsAt(fn.Start)) is { } method) Entry(method, args, windows, state);
-        var branches = instructions
-            .Where(i => i.FlowControl is FlowControl.ConditionalBranch or FlowControl.UnconditionalBranch
-                && i.Op0Kind == OpKind.NearBranch64).ToList();
-        var targets = branches.Select(i => i.NearBranchTarget).ToHashSet();
-        // A backward branch reaches its target with a state not yet seen.
-        var backward = branches
-            .Where(i => i.NearBranchTarget <= i.IP)
-            .Select(i => i.NearBranchTarget)
-            .ToHashSet();
-        var pending = new Dictionary<ulong, Dictionary<Register, Value>>();
-        var info = new InstructionInfoFactory();
-        bool blockStart = false;
-        foreach (var ins in instructions)
+        var argTypes = Owner(applied.Image.MethodsAt(fn.Start)) is { } method ? ArgumentTypes(method, windows) : [];
+        bool unreadable = false;
+        ValueProvenance.Walk(instructions, index.GetGraph(fn, ct), imageBase, windows, (ins, state) =>
         {
-            ct.ThrowIfCancellationRequested();
-            // Join the fall-through state with the state of each branch to this
-            // address; code only a branch reaches starts from those states.
-            if (blockStart || targets.Contains(ins.IP))
-            {
-                bool seen = pending.Remove(ins.IP, out var arrived);
-                if (backward.Contains(ins.IP)) state.Clear();
-                else if (blockStart) state = arrived ?? [];
-                else if (seen) Intersect(state, arrived!);
-            }
-            blockStart = ins.FlowControl is FlowControl.UnconditionalBranch or FlowControl.IndirectBranch
-                or FlowControl.Return or FlowControl.Exception;
-            if (ins.FlowControl is FlowControl.ConditionalBranch or FlowControl.UnconditionalBranch
-                && ins.Op0Kind == OpKind.NearBranch64 && ins.NearBranchTarget > ins.IP)
-            {
-                if (pending.TryGetValue(ins.NearBranchTarget, out var recorded)) Intersect(recorded, state);
-                else pending[ins.NearBranchTarget] = new Dictionary<Register, Value>(state);
-            }
             if (ins.FlowControl == FlowControl.Call)
             {
                 if (IsHelperCall(ins) && Helper((uint)(ins.NearBranchTarget - imageBase)) is { } h
-                    && state.GetValueOrDefault(h.Slot) is Constant slot
-                    && Describe(applied.Image, slot.Number, state.GetValueOrDefault(h.Object) as Receiver) is { } note)
+                    && state.Get(h.Slot) is ConstOrigin slot
+                    && Describe(applied.Image, slot.Number,
+                        ReceiverOf(state.Get(h.Object), argTypes) is { } r ? new Receiver(r) : null) is { } note)
                     calls[(uint)(ins.IP - imageBase)] = note with { Rva = (uint)(ins.IP - imageBase) };
-                foreach (var r in clobbered) state.Remove(r);
-                continue;
+                return;
             }
-            if (IsVtableCall(ins))
-            {
-                if (ins.FlowControl == FlowControl.IndirectBranch && VtableSlot(ins, vtableStart, state) == null) return [];
-                if (VtableSlot(ins, vtableStart, state) is { } direct
-                    && Describe(applied.Image, direct.Slot, new Receiver(direct.Type)) is { } directNote)
-                    calls[(uint)(ins.IP - imageBase)] = directNote with { Rva = (uint)(ins.IP - imageBase) };
-                foreach (var r in clobbered) state.Remove(r);
-                continue;
-            }
-            var loaded = Load(ins, state, vtableStart);
-            foreach (var u in info.GetInfo(ins).GetUsedRegisters())
-                if (u.Access is OpAccess.Write or OpAccess.ReadWrite or OpAccess.CondWrite or OpAccess.ReadCondWrite)
-                    state.Remove(u.Register.GetFullRegister());
-            if (loaded != null) state[ins.Op0Register.GetFullRegister()] = loaded;
-        }
-        return [.. calls.Values.OrderBy(c => c.Rva)];
-    }
-
-    // Mutates into: removes registers whose value differs or is missing in other.
-    private static void Intersect(Dictionary<Register, Value> into, Dictionary<Register, Value> other)
-    {
-        foreach (var r in into.Keys.ToList())
-            if (!other.TryGetValue(r, out var v) || !v.Equals(into[r])) into.Remove(r);
+            if (!IsVtableCall(ins)) return;
+            var direct = SlotEntryOf(ins.Op0Kind == OpKind.Register ? state.Get(ins.Op0Register) : state.Memory(ins), argTypes, vtableStart);
+            // A block no path reaches has no state to judge a jump by.
+            if (ins.FlowControl == FlowControl.IndirectBranch && direct == null && state.Reached) unreadable = true;
+            if (direct is { } d && Describe(applied.Image, d.Slot, new Receiver(d.Type)) is { } directNote)
+                calls[(uint)(ins.IP - imageBase)] = directNote with { Rva = (uint)(ins.IP - imageBase) };
+        }, ct);
+        return unreadable ? [] : [.. calls.Values.OrderBy(c => c.Rva)];
     }
 
     // A memory operand of one base register and a displacement.
@@ -168,23 +114,27 @@ public static class AotSlotNotes
         i.Op0Kind == OpKind.Memory && i.MemoryIndex == Register.None && i.SegmentPrefix == Register.None
         && i.MemoryBase.IsGPR64() && i.MemoryBase != Register.RIP;
 
-    // The slot a call [class + offset] addresses, or a call through a register
-    // loaded from one, when the base holds the class pointer of a known type;
-    // null for others.
-    private static (TypeDef Type, long Slot)? VtableSlot(
-        in Instruction ins, int start, Dictionary<Register, Value> state)
-    {
-        if (ins.Op0Kind == OpKind.Register)
-            return state.GetValueOrDefault(ins.Op0Register.GetFullRegister()) is SlotEntry e ? (e.Type, e.Slot) : null;
-        if (ins.MemoryIndex != Register.None || ins.SegmentPrefix != Register.None
-            || !ins.MemoryBase.IsGPR64() || ins.MemoryBase == Register.RIP
-            || state.GetValueOrDefault(ins.MemoryBase) is not ClassPointer klass) return null;
-        return SlotAt((long)ins.MemoryDisplacement64, start) is { } slot ? (klass.Type, slot) : null;
-    }
-
     // The slot index of a class record offset; null outside the vtable.
     private static long? SlotAt(long offset, int start) =>
         offset >= start && (offset - start) % SlotSize == 0 ? (offset - start) / SlotSize : null;
+
+    // The vtable entry a value loads from the class pointer of a known type.
+    private static (TypeDef Type, long Slot)? SlotEntryOf(Origin? value, Dictionary<int, TypeDef> args, int start) =>
+        value is LoadOrigin { Base: { } klass } entry && ClassOf(klass, args) is { } type
+            && SlotAt(entry.Disp, start) is { } slot
+            ? (type, slot) : null;
+
+    // The type whose class pointer a value is: a load at offset 0 of a known receiver.
+    private static TypeDef? ClassOf(Origin value, Dictionary<int, TypeDef> args) =>
+        value is LoadOrigin { Disp: 0 } load ? ReceiverOf(load.Base, args) : null;
+
+    // The class a value is declared as: a reference-typed argument, or a field of one.
+    private static TypeDef? ReceiverOf(Origin? value, Dictionary<int, TypeDef> args) => value switch
+    {
+        ArgOrigin a => args.GetValueOrDefault(a.Index),
+        LoadOrigin { Disp: not 0 } l when ReceiverOf(l.Base, args) is { } t => FieldType(t, l.Disp),
+        _ => null,
+    };
 
     // Shared, generic and value-type methods have no single receiver type.
     private static MethodDef? Owner(IReadOnlyList<AotMetadataService.MethodAddress> methods)
@@ -195,70 +145,37 @@ public static class AotSlotNotes
             && first.DeclaringType is { HasGenericParameters: false } ? first : null;
     }
 
-    // Reference-typed parameters start as receivers; Windows counts every
-    // parameter, System V only integer ones.
-    private static void Entry(MethodDef method, Register[] args, bool windows, Dictionary<Register, Value> state)
+    // Reference-typed parameters by argument register index; Windows counts
+    // every parameter, System V only integer ones.
+    private static Dictionary<int, TypeDef> ArgumentTypes(MethodDef method, bool windows)
     {
+        var types = new Dictionary<int, TypeDef>();
+        int count = ValueProvenance.ArgumentRegisters(windows).Length;
         // A struct return takes a hidden buffer pointer in the first register.
-        if (IsStruct(method.MethodSig.RetType)) return;
+        if (IsStruct(method.MethodSig.RetType)) return types;
         int next = 0;
         if (!method.IsStatic)
         {
             if (method.DeclaringType.IsValueType) next++;
-            else state[args[next++]] = new Receiver(method.DeclaringType);
+            else types[next++] = method.DeclaringType;
         }
         foreach (var p in method.MethodSig.Params)
         {
             bool floating = p.ElementType is ElementType.R4 or ElementType.R8;
             if (floating && !windows) continue;
-            if (next >= args.Length) break;
+            if (next >= count) break;
             // System V splits a struct over registers or the stack.
             if (IsStruct(p) && !windows) break;
             if (p is ClassSig cs && cs.TypeDefOrRef?.ResolveTypeDef() is { HasGenericParameters: false } t)
-                state[args[next]] = new Receiver(t);
+                types[next] = t;
             next++;
         }
+        return types;
     }
 
     private static bool IsStruct(TypeSig sig) =>
         sig.RemovePinnedAndModifiers() is { ElementType: ElementType.ValueType }
         or GenericInstSig { GenericType: ValueTypeSig };
-
-    // The value a mov, xor or field load leaves in its destination; null for
-    // others. A narrow destination keeps the old upper bits, so it is unknown.
-    private static Value? Load(in Instruction ins, Dictionary<Register, Value> state, int vtableStart)
-    {
-        if (ins.OpCount == 0 || ins.Op0Kind != OpKind.Register) return null;
-        var dest = ins.Op0Register;
-        if (!dest.IsGPR32() && !dest.IsGPR64()) return null;
-        if (ins.Mnemonic == Mnemonic.Xor && ins.Op1Kind == OpKind.Register
-            && dest.GetFullRegister() == ins.Op1Register.GetFullRegister())
-            return new Constant(0);
-        if (ins.Mnemonic != Mnemonic.Mov) return null;
-        switch (ins.Op1Kind)
-        {
-            case OpKind.Immediate8 or OpKind.Immediate16 or OpKind.Immediate32 or OpKind.Immediate64
-                or OpKind.Immediate8to32 or OpKind.Immediate8to64 or OpKind.Immediate32to64:
-                return new Constant((long)ins.GetImmediate(1));
-            case OpKind.Register when dest.IsGPR64() == ins.Op1Register.IsGPR64()
-                && (ins.Op1Register.IsGPR64() || ins.Op1Register.IsGPR32()):
-                var copied = state.GetValueOrDefault(ins.Op1Register.GetFullRegister());
-                // A 32-bit copy truncates a pointer.
-                return copied is Receiver or ClassPointer or SlotEntry && !dest.IsGPR64() ? null : copied;
-            case OpKind.Memory when dest.IsGPR64() && ins.SegmentPrefix == Register.None
-                && ins.MemoryIndex == Register.None && ins.MemoryBase.IsGPR64() && ins.MemoryBase != Register.RIP
-                && state.GetValueOrDefault(ins.MemoryBase) is ClassPointer klass:
-                return SlotAt((long)ins.MemoryDisplacement64, vtableStart) is { } entry ? new SlotEntry(klass.Type, entry) : null;
-            case OpKind.Memory when dest.IsGPR64() && ins.SegmentPrefix == Register.None
-                && ins.MemoryIndex == Register.None && ins.MemoryBase.IsGPR64() && ins.MemoryBase != Register.RIP
-                && state.GetValueOrDefault(ins.MemoryBase) is Receiver r:
-                // A receiver is always a reference type, so offset 0 is its class pointer.
-                if (ins.MemoryDisplacement64 == 0) return new ClassPointer(r.Type);
-                return FieldType(r.Type, (long)ins.MemoryDisplacement64) is { } t ? new Receiver(t) : null;
-            default:
-                return null;
-        }
-    }
 
     // The class a reference-typed field at the offset is declared as, searching
     // base types; null when not a known class.

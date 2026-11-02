@@ -19,12 +19,6 @@ public sealed class CompilerFixtureTests
 
     private const string Arm64Reason = "collapse=runtime applies to x86 and x64 images only";
     private const string Arm64SlotReason = "slot notes read x64 code only";
-    // Open defect: the slot matcher follows registers only, so a receiver kept
-    // in a stack slot is not resolved.
-    private const string UnoptimizedReason = "unfinished: slot notes do not follow stack slots";
-
-    private static bool Unoptimized(string build) => build.Contains("-Od", StringComparison.Ordinal) || build.Contains("-O0-", StringComparison.Ordinal);
-
     private static bool Arm64(string build) => build.Contains("-arm64", StringComparison.Ordinal);
 
     // Images a matcher is not run on, each with its reason; the theory of the
@@ -33,7 +27,6 @@ public sealed class CompilerFixtureTests
     {
         nameof(Collapse) when Arm64(build) => Arm64Reason,
         nameof(Slots) when Arm64(build) => Arm64SlotReason,
-        nameof(Slots) when Unoptimized(build) => UnoptimizedReason,
         _ => null,
     };
 
@@ -63,14 +56,12 @@ public sealed class CompilerFixtureTests
     }
 
     [Fact]
-    public void The_exempt_images_are_the_arm64_builds_and_the_unoptimized_builds_for_slots()
+    public void The_exempt_images_are_the_arm64_builds_for_slots_and_collapse()
     {
         string[] arm64 = ["shapes-clang-O0-arm64.elf", "shapes-clang-O1-arm64.elf", "shapes-clang-O2-arm64.elf"];
-        string[] unoptimized = ["shapes-clang-O0-x64.dll", "shapes-clang-O0-x64.elf", "shapes-msvc-Od.dll"];
         Assert.Equal(arm64, AllBuilds().Where(n => Exempt(nameof(Collapse), n) != null));
-        Assert.Equal(arm64.Concat(unoptimized).Order(StringComparer.Ordinal), AllBuilds().Where(n => Exempt(nameof(Slots), n) != null));
+        Assert.Equal(arm64, AllBuilds().Where(n => Exempt(nameof(Slots), n) != null));
         Assert.DoesNotContain(AllBuilds(), n => Exempt("All", n) != null);
-        Assert.All(AllBuilds().Where(n => Exempt(nameof(Slots), n) != null), n => Assert.StartsWith(Arm64(n) ? "slot notes read" : "unfinished", Exempt(nameof(Slots), n)));
     }
 
     private sealed record Built(string Name, INativeImage Image, NativeCodeIndex Index, Dictionary<string, uint> Methods)
