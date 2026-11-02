@@ -23,7 +23,7 @@ public sealed class RelocationTests : IDisposable
     {
         var image = RebuildFixtures.Build(Spec());
         using var dump = RebuildFixtures.Dump(_dir, new Placed("fixture.dll", image, Loaded, OmittedPages: omitted));
-        return ModuleRebuild.Rebuild(dump, RebuildTarget.Of(dump.Modules[0]), RebuildOptions.Default with { Base = mode, CompareWithDisk = false }, CancellationToken.None);
+        return ModuleRebuild.Rebuild(dump, RebuildTarget.Of(dump.Modules[0]), RebuildOptions.Default with { Base = mode, CompareWithDisk = false, Layout = OutputLayout.Mapped }, CancellationToken.None);
     }
 
     private static ulong At(RebuiltModule m, int offset) => BinaryPrimitives.ReadUInt64LittleEndian(m.Bytes!.AsSpan(offset));

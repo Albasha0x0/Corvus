@@ -25,7 +25,7 @@ public sealed class ImportRestoreTests : IDisposable
         using var dump = RebuildFixtures.Dump(_dir, new Placed("app.exe", app, appBase), new Placed("lib.dll", lib, libBase));
         var target = RebuildTarget.Of(dump.Modules.First(m => m.FileName == "app.exe"));
 
-        var result = ModuleRebuild.Rebuild(dump, target, new RebuildOptions(CompareWithDisk: false), CancellationToken.None);
+        var result = ModuleRebuild.Rebuild(dump, target, new RebuildOptions(CompareWithDisk: false, Layout: OutputLayout.Mapped), CancellationToken.None);
 
         var original = RebuildFixtures.Mapped(app.Bytes);
         int width = is64 ? 8 : 4;

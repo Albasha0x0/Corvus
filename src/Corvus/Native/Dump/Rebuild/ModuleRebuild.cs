@@ -13,7 +13,7 @@ public enum BaseMode { Loaded, Preferred }
 
 /// <summary>How a module is rebuilt from process memory.</summary>
 /// <param name="ImageDirectories">Folders searched for the module's file on disk, besides its recorded path; null for the recorded path only.</param>
-public sealed record RebuildOptions(OutputLayout Layout = OutputLayout.Mapped, ImportMode Imports = ImportMode.Restore, BaseMode Base = BaseMode.Loaded,
+public sealed record RebuildOptions(OutputLayout Layout = OutputLayout.File, ImportMode Imports = ImportMode.Restore, BaseMode Base = BaseMode.Loaded,
     bool CompareWithDisk = true, string? ImageDirectories = null)
 {
     public static readonly RebuildOptions Default = new();
