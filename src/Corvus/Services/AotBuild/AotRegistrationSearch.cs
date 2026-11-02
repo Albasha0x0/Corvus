@@ -126,7 +126,7 @@ public static class AotRegistrationSearch
         {
             if (section.IsExecutable || section.RawSize == 0 || section.MappedSize < (ulong)count * (uint)ptr) continue;
             ct.ThrowIfCancellationRequested();
-            var bytes = new byte[Math.Min(section.MappedSize, (uint)Array.MaxLength)];
+            var bytes = new byte[Math.Min(image.FileBackedLength(section.Rva, section.MappedSize), Array.MaxLength)];
             int n = image.Read(section.Rva, bytes) / ptr * ptr;
             ulong sectionVa = image.ImageBase + section.Rva;
             long start = 0, run = 0;

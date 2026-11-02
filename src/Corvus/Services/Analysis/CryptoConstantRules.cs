@@ -829,8 +829,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NativeCodeIndex, CryptoFacts> FactsCache = new();
 
-    private static long SectionSize(NativeSection section) =>
-        section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize);
+    // Header sizes past the end of the file read as zeros, which hold no constants.
+    private static long SectionSize(INativeImage image, NativeSection section) =>
+        image.FileBackedLength(section.Rva, section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize));
 
     /// <summary>The sections a scan reads, in image order, with the byte count taken from each within the limit.</summary>
     internal static IReadOnlyList<(NativeSection Section, int Size)> Plan(INativeImage image, long limit = ScanLimit)
@@ -839,7 +840,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         long budget = limit;
         foreach (var section in image.Sections)
         {
-            int size = (int)Math.Min(SectionSize(section), budget);
+            int size = (int)Math.Min(SectionSize(image, section), budget);
             if (size <= 0) continue;
             budget -= size;
             plan.Add((section, size));
@@ -849,7 +850,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     /// <summary>How many of the image's section bytes a scan with the limit reads.</summary>
     internal static ScanExtent Extent(INativeImage image, long limit = ScanLimit) =>
-        new(Plan(image, limit).Sum(p => (long)p.Size), image.Sections.Sum(s => Math.Max(0, SectionSize(s))));
+        new(Plan(image, limit).Sum(p => (long)p.Size), image.Sections.Sum(s => Math.Max(0, SectionSize(image, s))));
 
     /// <summary>
     /// The table ranges and block loops of the image, computed once per code index.

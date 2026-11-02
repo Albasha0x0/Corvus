@@ -376,6 +376,24 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Contains(lines, l => l.StartsWith("crypto: tables unknown (partial: scanned 16 of ", StringComparison.Ordinal));
     }
 
+    // Regression: a fuzzed header declaring 1 GB sections made the scan read
+    // 256 MB of zeros per call (NativeToolFuzzTests, iteration 1399).
+    [Fact]
+    public void Section_sizes_past_the_end_of_the_file_are_not_scanned()
+    {
+        var (path, _) = CipherSample(_dir);
+        var bytes = File.ReadAllBytes(path);
+        int pe = BitConverter.ToInt32(bytes, 0x3C), count = BitConverter.ToUInt16(bytes, pe + 6);
+        int last = pe + 24 + BitConverter.ToUInt16(bytes, pe + 20) + 40 * (count - 1);
+        BitConverter.GetBytes(0x3F000000u).CopyTo(bytes, last + 8);
+        BitConverter.GetBytes(0x3F000000u).CopyTo(bytes, last + 16);
+        var oversized = _dir.File("oversized.dll");
+        File.WriteAllBytes(oversized, bytes);
+        var facts = CryptoConstantRules.Scan(Index(oversized).Image, CryptoConstantRules.ScanLimit, CancellationToken.None);
+        Assert.InRange(facts.Extent.Total, 1, bytes.Length);
+        Assert.Contains(facts.Tables, t => t.Algorithm == "AES");
+    }
+
     [Fact]
     public async Task A_call_outside_a_loop_leaves_the_mode_undetermined()
     {
