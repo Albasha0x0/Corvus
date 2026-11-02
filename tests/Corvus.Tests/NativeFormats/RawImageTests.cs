@@ -48,7 +48,7 @@ public sealed class RawImageTests : IDisposable
         var code = await Call(server, "disassemble", new() { ["image"] = id, ["address"] = "0x400000", ["engine"] = "ours" });
         Assert.False(code.IsError, code.Text);
         Assert.True(code.Text.Contains("call"), code.Text);
-        Assert.True(code.Text.Contains("call   sub_B"), code.Text);
+        Assert.True(code.Text.Contains("call   sub_40000B"), code.Text);
 
         var xrefs = await Call(server, "find_xrefs", new() { ["image"] = id, ["address"] = "0x40000B", ["engine"] = "ours" });
         Assert.False(xrefs.IsError, xrefs.Text);

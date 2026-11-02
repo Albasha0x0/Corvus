@@ -89,6 +89,11 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("[RVA] exact start: Fixture.Native.NativeThing::Second()", paged);
         Assert.DoesNotContain("Shared<object>", paged);
         Assert.Contains("[More: offset=1]", paged);
+        // An unnamed function carries the same virtual-address name the native index gives it.
+        var collector = Corvus.Mcp.ToolOutput.Collect();
+        await tools.FindMethodByAddress("0x1350");
+        var lookup = Assert.IsType<Corvus.Tools.MethodAddressLookup>(collector.Value);
+        Assert.Equal("sub_180001340", Assert.Single(lookup.Items).Method);
         Assert.Contains("Shared<object>", await tools.FindMethodByAddress("0x1100", offset: 1));
         // Offset + limit must not wrap.
         Assert.DoesNotContain("[More:", await tools.FindMethodByAddress("0x1100", offset: int.MaxValue));

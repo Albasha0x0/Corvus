@@ -15,8 +15,9 @@ public static class AnnotationHeader
 
     /// <param name="nameAt">The name in effect at an RVA (user, export, PDB...), or null.</param>
     /// <param name="isFunction">Whether a function starts at an RVA.</param>
+    /// <param name="defaultName">The name of an unnamed function at an RVA, as the index names it.</param>
     /// <param name="imported">Names of the imported metadata layers, listed after the user's declarations.</param>
-    public static string Render(NativeAnnotations ann, Func<uint, string?> nameAt, Func<uint, bool> isFunction, ImportedNames? imported = null)
+    public static string Render(NativeAnnotations ann, Func<uint, string?> nameAt, Func<uint, bool> isFunction, Func<uint, string> defaultName, ImportedNames? imported = null)
     {
         var types = ann.UserTypes;
         var sb = new StringBuilder();
@@ -33,7 +34,7 @@ public static class AnnotationHeader
         var globals = new List<string>();
         foreach (var (rva, type) in types.Types.OrderBy(t => t.Key))
         {
-            var name = Identifier(nameAt(rva) ?? (isFunction(rva) ? $"sub_{rva:X}" : $"g_{rva:X}"));
+            var name = Identifier(nameAt(rva) ?? (isFunction(rva) ? defaultName(rva) : $"g_{rva:X}"));
             if (isFunction(rva) && Prototype(type, name) is { } proto) functions.Add($"{proto}; // rva 0x{rva:X}");
             else globals.Add($"extern {Declarator(type, name)}; // rva 0x{rva:X}");
         }

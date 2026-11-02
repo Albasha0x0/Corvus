@@ -192,7 +192,7 @@ public sealed class CodeIndexCacheTests : IDisposable
             Assert.Equal("my_function", index.FunctionByStart(rva)!.Name);
             // The saved index holds the analysis' names only.
             index.SetUserName(rva, null);
-            Assert.Equal($"sub_{rva:X}", index.FunctionByStart(rva)!.Name);
+            Assert.Equal(index.DefaultName(rva), index.FunctionByStart(rva)!.Name);
         }
     }
 

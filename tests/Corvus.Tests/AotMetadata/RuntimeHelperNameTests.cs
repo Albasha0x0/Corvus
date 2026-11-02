@@ -168,6 +168,6 @@ public sealed class RuntimeHelperNameTests : IDisposable
         foreach (var (name, rva) in Helpers)
             Assert.Equal(name, index.NameAt(rva));
         foreach (var rva in Decoys)
-            Assert.Equal($"sub_{rva:X}", index.NameAt(rva));
+            Assert.Equal($"sub_{Base + rva:X}", index.NameAt(rva));
     }
 }

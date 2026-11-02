@@ -144,7 +144,7 @@ public sealed class FunctionDiff(MatchResult match)
                 var fn = match.New.Functions[pair.New].Function;
                 return match.New.Index.NameAt(fn.Start) ?? fn.Name;
             }
-            return (old ? "old:" : "new:") + (index.NameAt(rva) ?? $"sub_{rva:X}");
+            return (old ? "old:" : "new:") + (index.NameAt(rva) ?? index.DefaultName(rva));
         }
         if (index.StringAt(rva) is { } s)
         {

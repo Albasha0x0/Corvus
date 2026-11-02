@@ -57,9 +57,9 @@ public sealed class ResolveAddressFacetTests : IDisposable
         var tools = new NativeTools(_env.Workspace, _env.Pager, code);
 
         var (mid, info) = await Resolve(tools, native.Id, "0x180001002");
-        Assert.Contains("in function sub_1000+0x2", mid);
+        Assert.Contains("in function sub_180001000+0x2", mid);
         Assert.Contains("inside the instruction at 0x180001000 (mov    rax, [rcx+8]): not an instruction boundary", mid);
-        Assert.Equal(("sub_1000+0x2", "mid_instruction", "0x180001000"), (info.Function, info.Status, info.ContainingInstruction));
+        Assert.Equal(("sub_180001000+0x2", "mid_instruction", "0x180001000"), (info.Function, info.Status, info.ContainingInstruction));
 
         var (text, str) = await Resolve(tools, native.Id, "0x180002003");
         Assert.Contains("string 0x180002000-0x18000200F (+0x3 into it): \"Hello, resolve\"", text);
@@ -68,6 +68,6 @@ public sealed class ResolveAddressFacetTests : IDisposable
         var (start, helper) = await Resolve(tools, native.Id, "0x180001011");
         Assert.Contains("an instruction start", start);
         Assert.Contains("referenced 1 time: 1 Call", start);
-        Assert.Equal(("sub_1011", "decoded", 1), (helper.Function, helper.Status, helper.ReferencesTo!["Call"]));
+        Assert.Equal(("sub_180001011", "decoded", 1), (helper.Function, helper.Status, helper.ReferencesTo!["Call"]));
     }
 }

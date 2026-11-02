@@ -196,7 +196,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         return (CodeTestImage.Synthetic(NativeArch.X64, code, d.ToArray(), exports: exports), vftables);
     }
 
-    private static string Name(NativeCodeIndex index, uint rva) => index.NameAt(rva) ?? $"sub_{rva:X}";
+    private static string Name(NativeCodeIndex index, uint rva) => index.NameAt(rva) ?? index.DefaultName(rva);
 
     /// <summary>"function: status target|target" per site, in address order.</summary>
     private static List<string> Describe(NativeCodeIndex index) =>
@@ -376,7 +376,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         using var dir = new TempDir();
         if (Compile(dir, arch, flags) is not var (image, names)) return;
         var index = NativeCodeIndex.Build(image);
-        string N(uint rva) => names.GetValueOrDefault(rva) ?? $"sub_{rva:X}";
+        string N(uint rva) => names.GetValueOrDefault(rva) ?? index.DefaultName(rva);
         var sites = index.VirtualCalls.Sites.Select(s => $"{N(s.Function)}: {VirtualCallSet.StatusCode(s.Status)} " +
             (s.Status == VirtualCallStatus.Unresolved ? VirtualCallSet.ReasonCode(s.Reason) : string.Join("|", index.VirtualTargets(s.Rva).Select(N).Order()))).ToList();
         foreach (var s in sites) output.WriteLine(s);

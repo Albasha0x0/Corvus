@@ -58,7 +58,7 @@ internal static class MachOEndpoints
                 .DistinctBy(x => x.Function!.Start).Take(MaxSites).ToList();
             if (functions.Count == 0) endpoints.Add(new CodeEndpoint("*", text, "url", file, null, Va(image, rva)));
             foreach (var (site, function) in functions)
-                endpoints.Add(new CodeEndpoint("*", text, "url", file, index!.NameAt(function!.Start) ?? $"sub_{image.ImageBase + function.Start:x}", Va(image, site)));
+                endpoints.Add(new CodeEndpoint("*", text, "url", file, index!.NameAt(function!.Start) ?? index.DefaultName(function.Start), Va(image, site)));
         }
     }
 

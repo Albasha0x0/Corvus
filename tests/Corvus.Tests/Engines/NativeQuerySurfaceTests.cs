@@ -85,6 +85,22 @@ public sealed class NativeQuerySurfaceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_function_is_named_and_found_by_its_virtual_and_relative_default_name_in_calls_references_and_listings()
+    {
+        var (tools, image) = await CodeImage();
+        var byVa = await tools.FindXrefs(image, "sub_180001100", engine: "ours");
+        Assert.Equal(byVa, await tools.FindXrefs(image, "sub_1100", engine: "ours"));
+        var from = await tools.FindXrefs(image, "sub_1000", engine: "ours", direction: "from");
+        Assert.Contains("(sub_180001100)", from);
+        Assert.DoesNotContain("sub_1100)", from);
+        var tree = await tools.NativeCallTree(image, "sub_1000", engine: "ours");
+        Assert.Contains("sub_180001100", tree);
+        Assert.DoesNotContain("sub_1100 ", tree);
+        var listed = await Structured<FunctionList>(() => tools.ListFunctions(image, "sub_1100", engine: "ours"));
+        Assert.Equal(["sub_180001100"], listed.Items.Select(i => i.Name));
+    }
+
+    [Fact]
     public async Task Find_xrefs_lists_references_from_a_function_and_filters_by_kind()
     {
         var (tools, image) = await CodeImage();
@@ -96,13 +112,13 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var from = await tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from");
         Assert.Contains("References from 0x180001000", from);
         Assert.Contains("(the whole function,", from);
-        Assert.Matches(@"0x18000100[0-9A-F]  Call\s+sub_1000\+0x[0-9A-F]+  -> 0x180001100 \(sub_1100\)", from);
-        Assert.Matches(@"Read\s+sub_1000\+0x0  -> 0x180005040", from);
+        Assert.Matches(@"0x18000100[0-9A-F]  Call\s+sub_180001000\+0x[0-9A-F]+  -> 0x180001100 \(sub_180001100\)", from);
+        Assert.Matches(@"Read\s+sub_180001000\+0x0  -> 0x180005040", from);
         var items = (await Structured<XrefList>(() => tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from"))).Items;
         Assert.Contains(items, i => i.Kind == "Call" && i.Target == "0x180001100");
 
         var data = await tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from", kind: "data");
-        Assert.DoesNotContain("sub_1100)", data);
+        Assert.DoesNotContain("sub_180001100)", data);
         Assert.Contains("data only", data);
         var code = (await Structured<XrefList>(() => tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from", kind: "code"))).Items;
         Assert.Equal(["Call"], code.Select(i => i.Kind).Distinct());
@@ -147,17 +163,17 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var (tools, image) = await CodeImage();
         static List<string> Names(FunctionList list) => list.Items.Select(i => i.Name).ToList();
         var all = await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours"));
-        Assert.Contains("sub_1000", Names(all));
-        Assert.Contains("sub_1100", Names(all));
+        Assert.Contains("sub_180001000", Names(all));
+        Assert.Contains("sub_180001100", Names(all));
         Assert.Equal(Names(all).Count, all.Total);
 
-        Assert.Equal(["sub_1100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "/^sub_11/", engine: "ours"))));
-        Assert.Equal(["sub_1100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "SUB_11*", engine: "ours"))));
-        Assert.Equal(["sub_1000", "sub_1100", "sub_1200"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "sub_1?00", engine: "ours"))).Take(3));
+        Assert.Equal(["sub_180001100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "/^sub_1800011/", engine: "ours"))));
+        Assert.Equal(["sub_180001100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "SUB_1800011*", engine: "ours"))));
+        Assert.Equal(["sub_180001000", "sub_180001100", "sub_180001200"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "sub_18000??00", engine: "ours"))).Take(3));
         Assert.Empty(Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "/^SUB_11/s", engine: "ours")))); // a flag drops the default i
         var ranged = await tools.ListFunctions(image, engine: "ours", from: "rva:0x1100", to: "rva:0x1200");
         Assert.Contains("Matching (start >= 0x180001100, start < 0x180001200): 1", ranged);
-        Assert.Equal(["sub_1100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours", from: "rva:0x1100", to: "rva:0x1200"))));
+        Assert.Equal(["sub_180001100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours", from: "rva:0x1100", to: "rva:0x1200"))));
 
         var sizes = all.Items.ToDictionary(i => i.Name, i => i.Size);
         int big = sizes.Values.Max();

@@ -101,7 +101,7 @@ public class NativeArm64Tests
         Assert.Contains(graph.Blocks[0].Successors, e => e.Kind == EdgeKind.ConditionalTaken && e.To == after);
 
         var text = string.Join("\n", index.DisassembleFunction(f, 100, out _).Select(l => l.Label ?? $"{l.Line!.Text} ; {l.Line.Comment}"));
-        Assert.Contains($"bl     sub_{helper:X}", text);
+        Assert.Contains($"bl     {index.DefaultName(helper)}", text);
         Assert.Contains("paciasp", text);
         Assert.Contains("\"Hello, arm\"", text);
         Assert.DoesNotContain("(bad)", text);

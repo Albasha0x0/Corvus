@@ -397,7 +397,7 @@ public sealed partial class CallAnalysis : ITraceHost
     private Callee Virtual(VirtualCallSite site)
     {
         var targets = Index.VirtualTargets(site.Rva);
-        string Name(uint t) => Index.NameAt(t) ?? $"sub_{t:X}";
+        string Name(uint t) => Index.NameAt(t) ?? Index.DefaultName(t);
         if (site.Status == VirtualCallStatus.Exact && targets.Count == 1)
             return new Callee(Name(targets[0]), CalleeKind.VirtualExact, null, targets[0], null, $"virtual call through slot {site.Slot}, the only implementation");
         var names = string.Join(" | ", targets.Take(4).Select(Name)) + (targets.Count > 4 ? " | ..." : "");
@@ -410,7 +410,7 @@ public sealed partial class CallAnalysis : ITraceHost
     {
         var f = Index.FunctionByStart(t);
         if (f?.ThunkImport is { } imp) return FromImport(imp);
-        return new Callee(Index.NameAt(t) ?? f?.Name ?? $"sub_{t:X}", CalleeKind.Function, null, t, null, null);
+        return new Callee(Index.NameAt(t) ?? f?.Name ?? Index.DefaultName(t), CalleeKind.Function, null, t, null, null);
     }
 
     private Callee FromValue(Val v, string? how)

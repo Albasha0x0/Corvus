@@ -460,7 +460,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     private string NativeName(NativeNode n) =>
-        code!.Ready(n.Image) is { } index ? index.NameAt(n.Start) ?? index.FunctionByStart(n.Start)?.Name ?? $"sub_{n.Start:X}" : $"sub_{n.Start:X}";
+        code!.Ready(n.Image) is { } index ? index.NameAt(n.Start) ?? index.FunctionByStart(n.Start)?.Name ?? index.DefaultName(n.Start) : $"sub_{n.Image.Image.ImageBase + n.Start:X}";
 
     private string NativeStep(NativeNode n) => $"[{n.Image.Id}] {NativeName(n)} at {NativeAddress.Va(n.Image.Image, n.Start)}";
 

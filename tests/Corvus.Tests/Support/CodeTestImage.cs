@@ -76,7 +76,7 @@ public sealed class CodeTestImage : INativeImage
     /// </summary>
     public static CodeTestImage Synthetic(NativeArch arch, byte[] code, byte[]? data = null, IEnumerable<NativeImport>? imports = null,
         IEnumerable<RuntimeFunction>? pdata = null, IEnumerable<uint>? relocations = null, uint entry = 0, IEnumerable<NativeExport>? exports = null,
-        uint dataVirtualSize = 0, ImageFormat format = ImageFormat.Pe, IEnumerable<uint>? tlsCallbacks = null)
+        uint dataVirtualSize = 0, ImageFormat format = ImageFormat.Pe, IEnumerable<uint>? tlsCallbacks = null, ulong? imageBase = null)
     {
         var image = new CodeTestImage(new byte[0x400])
         {
@@ -84,7 +84,7 @@ public sealed class CodeTestImage : INativeImage
             Path = "synthetic",
             Arch = arch,
             IsDll = true,
-            ImageBase = arch == NativeArch.X64 ? 0x140000000UL : 0x10000000UL,
+            ImageBase = imageBase ?? (arch == NativeArch.X64 ? 0x140000000UL : 0x10000000UL),
         };
         image._sections.Add((new NativeSection(".text", SyntheticCodeRva, (uint)code.Length, 0x400, (uint)code.Length,
             SectionAccess.Read | SectionAccess.Execute | SectionAccess.Code, 0x60000020), code));

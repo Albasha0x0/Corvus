@@ -87,7 +87,7 @@ public static class CallTargets
         uint rva = d.Rva;
         bool tail = a.SiteKindOf(code, in d) == 2;
         var c = a.CalleeAt(code, b, i);
-        string Name(uint t) => index.NameAt(t) ?? $"sub_{t:X}";
+        string Name(uint t) => index.NameAt(t) ?? index.DefaultName(t);
         CallTargetSite Site(string mechanism, string status, List<CallTarget> targets, string? reason = null, string? hint = null)
         {
             var distinct = targets.DistinctBy(t => (t.Address, t.Name)).ToList();
@@ -162,7 +162,7 @@ public static class CallTargets
         if (at is not { } rva || aot.Dispatch.CellAt(rva) is not { } cell) return null;
         string evidence = $"{cell.Target} through the interface dispatch cell at {a.Va(rva)}";
         return [.. aot.Dispatch.Implementers(cell.Interface, cell.Slot).Select(m =>
-            new CallTarget(m.Code, a.Index.NameAt(m.Code) ?? $"sub_{m.Code:X}", "interface_dispatch_cell", "possible", $"{m.TypeName}: {evidence}"))];
+            new CallTarget(m.Code, a.Index.NameAt(m.Code) ?? a.Index.DefaultName(m.Code), "interface_dispatch_cell", "possible", $"{m.TypeName}: {evidence}"))];
     }
 
     private static CallTargetSite GlobalWriters(CallAnalysis a, uint g, string mechanism,
@@ -178,7 +178,7 @@ public static class CallTargets
         buffer.Clear();
         if (a.IsRelocated(g) && a.Image.Read(g, buffer[..ptr]) == ptr
             && FunctionCode.TryRva(a.Image, a.Is64, BitConverter.ToUInt64(buffer), out uint init) && index.FunctionByStart(init) != null)
-            targets.Add(new CallTarget(init, index.NameAt(init) ?? $"sub_{init:X}", "initial_contents", "exact", $"relocated pointer at {a.Va(g)} in the image"));
+            targets.Add(new CallTarget(init, index.NameAt(init) ?? index.DefaultName(init), "initial_contents", "exact", $"relocated pointer at {a.Va(g)} in the image"));
         foreach (var w in writers.Take(MaxWriters))
         {
             if (index.FunctionAt(w.From) is not { } f) { unknown.Add(a.Va(w.From)); continue; }
@@ -187,7 +187,7 @@ public static class CallTargets
             if (b < 0) { unknown.Add(Where(w.From)); continue; }
             var v = new ValueResolver(a, code) { Budget = 3000 }.ValueStoredBy(b, i);
             if (v.Kind == VKind.Addr && index.FunctionByStart(v.Rva) != null)
-                targets.Add(new CallTarget(v.Rva, index.NameAt(v.Rva) ?? $"sub_{v.Rva:X}", "global_writers", "exact", $"stored at {Where(w.From)}"));
+                targets.Add(new CallTarget(v.Rva, index.NameAt(v.Rva) ?? index.DefaultName(v.Rva), "global_writers", "exact", $"stored at {Where(w.From)}"));
             else if (v.Kind == VKind.Load && a.ImportAtSlot(v.Rva) is { } imp)
                 targets.Add(new CallTarget(v.Rva, NativeCodeIndex.ImportName(imp), "global_writers", "exact", $"stored at {Where(w.From)}"));
             else if (!(v.Kind == VKind.Const && v.Num == 0)) unknown.Add(Where(w.From));
@@ -230,7 +230,7 @@ public static class CallTargets
             buffer.Clear();
             if (!a.IsRelocated(at) || a.Image.Read(at, buffer[..ptr]) != ptr || !FunctionCode.TryRva(a.Image, a.Is64, BitConverter.ToUInt64(buffer), out uint t)
                 || index.FunctionByStart(t) == null) break;
-            targets.Add(new CallTarget(t, index.NameAt(t) ?? $"sub_{t:X}", "pointer_table", "possible", $"entry {k} of the table at {a.Va(table)}"));
+            targets.Add(new CallTarget(t, index.NameAt(t) ?? index.DefaultName(t), "pointer_table", "possible", $"entry {k} of the table at {a.Va(table)}"));
         }
         if (targets.Count == 0) return null;
         // A bound: cmp idx, n; ja / jae earlier in the block.

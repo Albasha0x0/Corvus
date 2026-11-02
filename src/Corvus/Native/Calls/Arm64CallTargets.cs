@@ -68,7 +68,7 @@ internal static class Arm64CallTargets
         var index = a.Index;
         var s = code.Blocks[b][i];
         string text = index.Disassemble(s.Rva, 1) is [var line] ? line.Text : s.Text;
-        string Name(uint t) => index.NameAt(t) ?? $"sub_{t:X}";
+        string Name(uint t) => index.NameAt(t) ?? index.DefaultName(t);
         CallTargetSite Site(string mechanism, string status, List<CallTarget> targets, string? reason = null, string? hint = null)
         {
             var distinct = targets.DistinctBy(t => (t.Address, t.Name)).ToList();
@@ -168,7 +168,7 @@ internal static class Arm64CallTargets
             if (b < 0) { unknown.Add(Where(w.From)); continue; }
             var v = new Arm64Resolver(a, code) { Budget = 3000 }.Stored(b, i, g);
             if (v.Kind == A64Kind.Addr && index.FunctionByStart(v.Rva) != null)
-                targets.Add(new CallTarget(v.Rva, index.NameAt(v.Rva) ?? $"sub_{v.Rva:X}", "global_writers", "exact", $"stored at {Where(w.From)}"));
+                targets.Add(new CallTarget(v.Rva, index.NameAt(v.Rva) ?? index.DefaultName(v.Rva), "global_writers", "exact", $"stored at {Where(w.From)}"));
             else if (v.Kind == A64Kind.Import && a.ImportAt(v.Rva) is { } imp)
                 targets.Add(new CallTarget(v.Rva, NativeCodeIndex.ImportName(imp), "global_writers", "exact", $"stored at {Where(w.From)}"));
             else if (!(v.Kind == A64Kind.Const && v.Num == 0)) unknown.Add(Where(w.From));

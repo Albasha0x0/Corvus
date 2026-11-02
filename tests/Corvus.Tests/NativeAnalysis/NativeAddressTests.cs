@@ -151,6 +151,42 @@ public class NativeAddressTests
     }
 
     [Fact]
+    public void An_unnamed_function_is_named_by_its_virtual_address_everywhere_the_index_names_it()
+    {
+        var index = NativeCodeIndex.Build(Image(exports: false));
+        var unnamed = index.FunctionByStart(Second)!;
+        Assert.Equal("sub_140001010", index.DefaultName(Second));
+        Assert.Equal(index.DefaultName(Second), unnamed.Name);
+        Assert.Equal(Second, Assert.Single(index.AddressesOfName(unnamed.Name)).Rva);
+        // The relative form an earlier release printed still resolves to the same function.
+        Assert.Equal(Second, Assert.Single(index.AddressesOfName("sub_1010")).Rva);
+    }
+
+    [Fact]
+    public void A_default_name_read_as_both_an_address_and_a_relative_one_reports_both_functions()
+    {
+        // Base 0x10 puts the virtual address of one function on the relative address of another.
+        var code = new byte[0x40];
+        Array.Fill(code, (byte)0xCC);
+        foreach (var at in new[] { First, Second, Third }) code[at - CodeTestImage.SyntheticCodeRva] = 0xC3;
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: First, imageBase: 0x10));
+        Assert.Equal([Second, Third], index.DefaultFunctionStarts("sub_1020").Order());
+        Assert.Null(index.DefaultFunctionStart("sub_1020"));
+        Assert.Throws<ToolError>(() => index.AddressOfName("sub_1020"));
+        Assert.Equal(Third, index.AddressOfName("sub_1030"));
+    }
+
+    [Fact]
+    public void A_stored_relative_default_name_keeps_naming_its_function_next_to_the_virtual_form()
+    {
+        var index = NativeCodeIndex.Build(Image(exports: false));
+        index.SetSourceName(Third, "sub_1020", NativeNameSource.User);
+        Assert.Equal("sub_1020", index.NameAt(Third));
+        Assert.Equal(Third, NativeCodeTools.Address(index, "sub_1020"));
+        Assert.Equal(Third, NativeCodeTools.Address(index, index.DefaultName(Third)));
+    }
+
+    [Fact]
     public void A_real_name_that_looks_like_a_default_name_wins_over_the_default_form()
     {
         var index = NativeCodeIndex.Build(Image(exports: false));

@@ -185,7 +185,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
             return new VirtualCallRow(Va(s.Rva), Where(s.Rva), VirtualCallSet.StatusCode(s.Status), VirtualCallSet.ReasonCode(s.Reason),
                 VirtualCallSet.ReceiverCode(s.Receiver), ClassOf(s), s.Slot,
                 s.VfptrOffset, s.VftableRva != 0 ? Va(s.VftableRva) : null, s.TailCall, s.Incomplete, s.TargetCount,
-                targets.Take(16).Select(t => $"{index.NameAt(t) ?? $"sub_{t:X}"} @ {Va(t)}").ToList());
+                targets.Take(16).Select(t => $"{index.NameAt(t) ?? index.DefaultName(t)} @ {Va(t)}").ToList());
         }).Concat(slotCalls.Select(SlotRow)).Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
 
         var notes = new List<string>(set.Notes);

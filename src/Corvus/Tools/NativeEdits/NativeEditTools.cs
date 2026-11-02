@@ -336,7 +336,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         string? line = null, pseudo = null;
         if (scope is not CommentScopes.Pseudocode)
-            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {index.FunctionByStart(at)?.Name ?? index.NameAt(at) ?? $"sub_{at:X}"}" : kind ?? "line", kindChanges);
+            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {index.FunctionByStart(at)?.Name ?? index.NameAt(at) ?? index.DefaultName(at)}" : kind ?? "line", kindChanges);
         if (scope is CommentScopes.Pseudocode or "both")
             pseudo = Next(ann.PseudoCommentAt(at), "pseudocode");
         return new CommentPlan(at, line == null && pseudo == null ? null : new NativeEditService.CommentChange(at, line, pseudo) { Kind = kind },
@@ -404,7 +404,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var ann = edits.Annotations(native);
         var imported = ImportedNames.Of(NativeNameLayers.OfOrNull(native)?.Layers ?? [], ann);
         var text = fmt == AnnotationExport.Format.Header
-            ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null, imported)
+            ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null, index.DefaultName, imported)
             : AnnotationExport.Render(ann, fmt, imported);
         var target = SafeFile.WriteAllText(outputPath, text, overwrite);
         var bytes = System.Text.Encoding.UTF8.GetBytes(text);

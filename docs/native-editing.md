@@ -46,7 +46,7 @@ Covers general-purpose, SSE, AVX, AVX-512 and x87.
   Immediates in hex (`0x..`, `..h`, bare, optional `-`) or decimal (`#..`).
 - **Memory.** `[base+index*scale+disp]`, `fs:[..]`, size specifiers (`byte` to `zmmword ptr`), `[rip+X]`. On x64 a bare
   `[addr]` is RIP-relative; absolute `[disp32]` only when out of reach.
-- **Symbols.** `sub_<rva>`, export names, `loc_<rva>` labels, `module!import` (its IAT slot).
+- **Symbols.** `sub_<va>` (`sub_<rva>` is read too), export names, `loc_<rva>` labels, `module!import` (its IAT slot).
 - **Prefixes.** `lock`, `rep`/`repe`/`repne`, `bnd`; sized string instructions (`movs`/`stos`/`lods`/`scas`/`cmps`
   b/w/d/q).
 - The shortest encoding wins; aliases that do not decode back to themselves are rejected. The block is laid out at the

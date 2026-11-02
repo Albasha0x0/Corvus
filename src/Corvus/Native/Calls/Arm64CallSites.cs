@@ -130,7 +130,7 @@ internal sealed partial class Arm64CallSites : ICallSites
             target = s.Facts.Target;
             var fn = _index.FunctionByStart(s.Facts.Target);
             import = fn?.ThunkImport;
-            callee = import != null ? NativeCodeIndex.ImportName(import) : _index.NameAt(s.Facts.Target) ?? $"sub_{s.Facts.Target:X}";
+            callee = import != null ? NativeCodeIndex.ImportName(import) : _index.NameAt(s.Facts.Target) ?? _index.DefaultName(s.Facts.Target);
             kind = import != null ? CalleeKind.Import : CalleeKind.Function;
         }
         else if (s.Facts.HasMem && _slots.TryGetValue(s.Facts.MemTarget, out var slot))
@@ -264,7 +264,7 @@ internal sealed partial class Arm64CallSites : ICallSites
                 return (NativeCodeIndex.ImportName(imp), CalleeKind.Import, imp, imp.SlotRva, null);
             case A64Kind.Addr when _index.FunctionByStart(v.Rva) is { } f:
                 return f.ThunkImport is { } thunk ? (NativeCodeIndex.ImportName(thunk), CalleeKind.Import, thunk, v.Rva, null)
-                    : (_index.NameAt(v.Rva) ?? $"sub_{v.Rva:X}", CalleeKind.Function, null, v.Rva, null);
+                    : (_index.NameAt(v.Rva) ?? _index.DefaultName(v.Rva), CalleeKind.Function, null, v.Rva, null);
             case A64Kind.Result when _dynamic?.BySite.GetValueOrDefault(v.Rva) is { } dyn:
                 return (dyn.FullName, CalleeKind.Dynamic, null, dyn.PointerGlobal, dyn);
             case A64Kind.Global when _dynamic?.ByGlobal.GetValueOrDefault(v.Rva) is { } dyn:

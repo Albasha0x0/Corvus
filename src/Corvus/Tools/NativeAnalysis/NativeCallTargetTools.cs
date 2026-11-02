@@ -171,7 +171,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             if (r.Kind is "xref" or "direct" && r.Target is { } t)
             {
                 if (!ours.Contains(t) && added.All(a => a.Address != t))
-                    added.Add(new CallTarget(t, index.NameAt(t) ?? $"sub_{t:X}", r.Kind == "xref" ? engine + "_xref" : ida ? "hexrays_direct" : engine + "_direct", "candidate",
+                    added.Add(new CallTarget(t, index.NameAt(t) ?? index.DefaultName(t), r.Kind == "xref" ? engine + "_xref" : ida ? "hexrays_direct" : engine + "_direct", "candidate",
                         r.Kind == "xref" ? display + " code reference" : decompiler + " resolved the call"));
             }
             else if (r.Kind == "vftable") notes.Add($"{decompiler}: through {r.TypeName}+0x{r.MemberOffset:X}");

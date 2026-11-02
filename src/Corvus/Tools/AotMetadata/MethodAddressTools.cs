@@ -465,7 +465,7 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
             if (r.Total == 0)
             {
                 sb.AppendLine($"  [{k}] {f.Relation}: function at 0x{r.InKind(f.Start):X} (no method name in script.json)");
-                rows.Add(Match("function", $"sub_{f.Start:X}"));
+                rows.Add(Match("function", $"sub_{(r.Image.Dump?.Binary?.ImageBase ?? r.Image.ImageBases.FirstOrDefault()) + f.Start:X}"));
             }
             total = Math.Max(total, Math.Max(r.Total, 1));
             var start = r.InKind(f.Start);

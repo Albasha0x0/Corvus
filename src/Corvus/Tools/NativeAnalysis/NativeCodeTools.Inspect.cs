@@ -229,7 +229,7 @@ public sealed partial class NativeCodeTools
         {
             ct.ThrowIfCancellationRequested();
             int mark = sb.Length;
-            string? function = e.Function is { } f ? (index.NameAt(f) ?? $"sub_{f:X}") + (e.Rva != f ? $"+0x{e.Rva - f:X}" : "") : null;
+            string? function = e.Function is { } f ? (index.NameAt(f) ?? index.DefaultName(f)) + (e.Rva != f ? $"+0x{e.Rva - f:X}" : "") : null;
             var status = AddressClass.Name(e.Status);
             var section = image.SectionAt(e.Rva)?.Name;
             sb.Append($"{Va(e.Rva)}  {status}").Append(function != null ? $"  in {function}" : "").Append(section != null ? $"  section {section}" : "").AppendLine();

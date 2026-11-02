@@ -106,6 +106,15 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
+    public void Header_names_an_unnamed_function_by_the_index_default_name()
+    {
+        var ann = Open();
+        ann.ChangeUserTypes(l => l.WithType(0x1000, "void __cdecl(int)"));
+        var header = AnnotationHeader.Render(ann, _ => null, r => r == 0x1000, r => $"sub_{0x140000000 + r:X}");
+        Assert.Contains("void __cdecl sub_140001000(int); // rva 0x1000", header);
+    }
+
+    [Fact]
     public void Header_declares_types_prototypes_by_current_name_and_globals()
     {
         var ann = Open();
@@ -114,7 +123,7 @@ public class AnnotationStoreTests : IDisposable
         ann.ChangeUserTypes(l => l.WithDeclarations("struct S { int a; }").WithType(0x1000, "int __fastcall old(S *s)").WithType(0x2000, "void __cdecl(int)")
             .WithType(0x5000, "S *").WithType(0x6000, "int[4]").WithType(0x7000, "void (*)(int)"));
         var names = new Dictionary<uint, string> { [0x1000] = "Parse", [0x2000] = "ns::Init", [0x3000] = "Untyped" };
-        var header = AnnotationHeader.Render(ann, r => names.GetValueOrDefault(r), r => r is 0x1000 or 0x2000 or 0x3000);
+        var header = AnnotationHeader.Render(ann, r => names.GetValueOrDefault(r), r => r is 0x1000 or 0x2000 or 0x3000, r => $"sub_{0x140000000 + r:X}");
         Assert.Contains("#pragma once", header);
         Assert.Contains("struct S { int a; };", header);
         Assert.Contains("int __fastcall Parse(S *s); // rva 0x1000", header);

@@ -128,7 +128,7 @@ public static class VirtualCallCheck
             }
         }
 
-        string Name(uint rva) => index.NameAt(rva) ?? $"sub_{rva:X}";
+        string Name(uint rva) => index.NameAt(rva) ?? index.DefaultName(rva);
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);
         int ptr = index.Image.Is64Bit ? 8 : 4;
         int agree = 0, compatible = 0, disagree = 0, idaOnly = 0, oursOnly = 0, bothNone = 0, checkedSites = 0;

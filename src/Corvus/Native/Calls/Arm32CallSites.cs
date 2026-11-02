@@ -72,7 +72,7 @@ internal sealed class Arm32CallSites : ICallSites
         {
             target = s.Facts.Target;
             import = _index.FunctionByStart(s.Facts.Target)?.ThunkImport;
-            callee = import != null ? NativeCodeIndex.ImportName(import) : _index.NameAt(s.Facts.Target) ?? $"sub_{s.Facts.Target:X}";
+            callee = import != null ? NativeCodeIndex.ImportName(import) : _index.NameAt(s.Facts.Target) ?? _index.DefaultName(s.Facts.Target);
             kind = import != null ? CalleeKind.Import : CalleeKind.Function;
         }
         else if (s.Facts.HasMem && trace.ImportAt(s.Facts.MemTarget) is { } slot)
@@ -202,7 +202,7 @@ internal sealed class Arm32CallSites : ICallSites
         if (b < 0) return trace.Va(site);
         var f = code.Blocks[b][k].Facts;
         if (f.HasTarget)
-            return _index.FunctionByStart(f.Target) is { ThunkImport: { } imp } ? NativeCodeIndex.ImportName(imp) : _index.NameAt(f.Target) ?? $"sub_{f.Target:X}";
+            return _index.FunctionByStart(f.Target) is { ThunkImport: { } imp } ? NativeCodeIndex.ImportName(imp) : _index.NameAt(f.Target) ?? _index.DefaultName(f.Target);
         if (f.HasMem && trace.ImportAt(f.MemTarget) is { } slot) return NativeCodeIndex.ImportName(slot);
         return code.Blocks[b][k].Text;
     }

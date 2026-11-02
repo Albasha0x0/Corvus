@@ -120,8 +120,10 @@ public sealed class NativeFunction
     internal int FirstRange { get; set; }
     internal int RangeCount { get; set; }
 
-    /// <summary>The known name, or sub_&lt;rva&gt;.</summary>
-    public string Name => KnownName ?? $"sub_{Start:X}";
+    internal ulong Base { get; set; }
+
+    /// <summary>The known name, or sub_&lt;va&gt;.</summary>
+    public string Name => KnownName ?? $"sub_{Base + Start:X}";
 
     public override string ToString() => $"{Name} @ {Start:X}";
 }

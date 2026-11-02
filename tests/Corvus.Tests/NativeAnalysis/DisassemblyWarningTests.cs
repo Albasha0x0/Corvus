@@ -124,7 +124,7 @@ public class DisassemblyWarningTests
         var warnings = new List<string>();
         NativeCodeTools.AppendFunction(sb, index, new AddressClassifier(index), fn, 100, new Dictionary<uint, string>(), warnings, CancellationToken.None);
         var text = sb.ToString();
-        Assert.Contains($"; gap 0x{Base + tableRva:X}-0x{Base + tableRva + 12:X} (12 bytes): jump table: switch table of sub_1000 (jump at 0x{Base + rva(jump):X}): 3 entries of 4 bytes", text);
+        Assert.Contains($"; gap 0x{Base + tableRva:X}-0x{Base + tableRva + 12:X} (12 bytes): jump table: switch table of sub_{Base + 0x1000:X} (jump at 0x{Base + rva(jump):X}): 3 entries of 4 bytes", text);
         Assert.Single(warnings);
         // The gap line comes before the label of the block after it.
         Assert.True(text.IndexOf("; gap", StringComparison.Ordinal) < text.IndexOf($"loc_{rva(cases[0]):X}:", StringComparison.Ordinal));

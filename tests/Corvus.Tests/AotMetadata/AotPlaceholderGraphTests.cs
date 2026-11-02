@@ -88,8 +88,8 @@ public sealed class AotPlaceholderGraphTests : IDisposable
         await LoadBinary();
         var tree = await Tools().GetCallTree("Fixture.Native.NativeThing::First()", "callees");
         var rows = tree.ReplaceLineEndings("\n").Split("\n");
-        Assert.Contains(rows, l => l.StartsWith("  sub_1100 at 0x180001100"));
-        Assert.Contains(rows, l => l.StartsWith("    sub_1200 at 0x180001200"));
+        Assert.Contains(rows, l => l.StartsWith("  sub_180001100 at 0x180001100"));
+        Assert.Contains(rows, l => l.StartsWith("    sub_180001200 at 0x180001200"));
     }
 
     [Fact]

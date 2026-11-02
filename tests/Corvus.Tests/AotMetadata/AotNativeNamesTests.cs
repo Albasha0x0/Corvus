@@ -247,7 +247,7 @@ public sealed class AotNativeNamesTests : IDisposable
         Assert.Equal("StringLiteral_0", rebuilt.NameAt(0x5040));
         Assert.Equal(11, _names.Clear(native, rebuilt));
         Assert.Null(rebuilt.NameAt(0x5040));
-        Assert.Equal("sub_1000", rebuilt.NameAt(0x1000));
+        Assert.Equal("sub_180001000", rebuilt.NameAt(0x1000));
         Assert.Null(_names.Clear(native, rebuilt));
     }
 

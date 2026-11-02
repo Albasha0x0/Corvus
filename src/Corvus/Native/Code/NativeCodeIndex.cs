@@ -95,6 +95,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         SupportNote = note;
         _ctx = ctx;
         _functions = functions;
+        foreach (var f in functions) f.Base = image.ImageBase;
         _byStart = functions.ToDictionary(f => f.Start);
         FindJumpThunks();
         NameVirtualInvokers();
@@ -631,22 +632,28 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public IReadOnlyList<AddressCandidate> AddressesOfName(string name)
     {
         var exact = AddressesOfExactName(name);
-        if (exact.Count == 0 && DefaultFunctionStart(name) is { } start) return [new(start, "function")];
+        if (exact.Count == 0 && DefaultFunctionStarts(name) is { Count: > 0 } starts) return starts.Select(s => new AddressCandidate(s, "function")).ToList();
         if (exact.Count == 0 && name.Length > 1 && name[0] != '?' && Corvus.Native.Pdb.PdbNaming.Display(name) is var plain && plain != name)
             return AddressesOfExactName(plain);
         return exact;
     }
 
-    /// <summary>The function start a sub_ (RVA or VA) or FUN_ (VA, else RVA) default name denotes, case-insensitive; null for any other name or an address outside the image.</summary>
-    public uint? DefaultFunctionStart(string name)
+    /// <summary>The default name of the function at <paramref name="rva"/>: sub_ and its virtual address in hex, as the engines name it.</summary>
+    public string DefaultName(uint rva) => $"sub_{Image.ImageBase + rva:X}";
+
+    /// <summary>The function start a sub_ or FUN_ default name denotes, case-insensitive: null for any other name, an address outside the image or a start that is ambiguous (see <see cref="DefaultFunctionStarts"/>).</summary>
+    public uint? DefaultFunctionStart(string name) => DefaultFunctionStarts(name) is [var one] ? one : null;
+
+    /// <summary>The function starts a sub_ or FUN_ default name denotes, read as a virtual address and as the relative address an earlier release printed; empty for any other name, two when both start a function.</summary>
+    public IReadOnlyList<uint> DefaultFunctionStarts(string name)
     {
-        bool ghidra = name.StartsWith("FUN_", StringComparison.OrdinalIgnoreCase);
-        if (!ghidra && !name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase)) return null;
-        if (NativeAddress.Number(name[4..]) is not { } n) return null;
+        if (!name.StartsWith("FUN_", StringComparison.OrdinalIgnoreCase) && !name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase)) return [];
+        if (NativeAddress.Number(name[4..]) is not { } n) return [];
         uint? va = n >= Image.ImageBase && n - Image.ImageBase < Image.SizeOfImage ? (uint)(n - Image.ImageBase) : null;
         uint? rva = n < Image.SizeOfImage && FunctionByStart((uint)n) != null ? (uint)n : null;
-        // Ghidra names are always VAs; IDA-style sub_ also carries an RVA that starts a function.
-        return ghidra ? va ?? rva : rva ?? va;
+        // A virtual address that starts no function yields to a relative one that does; with neither, the address is kept as a bare location.
+        if (va is { } v && rva is { } r && v != r) return FunctionByStart(v) != null ? [v, r] : [r];
+        return (va ?? rva) is { } one ? [one] : [];
     }
 
     private List<AddressCandidate> AddressesOfExactName(string name)

@@ -96,7 +96,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
 
     /// <summary>Our name at a function start (user, PDB, metadata, export), else the engine's.</summary>
     private static string Name(NativeCodeIndex index, uint rva, string engineName) =>
-        index.Sourced.NameAt(rva)?.Name ?? index.FunctionByStart(rva)?.KnownName ?? (engineName.Length > 0 ? engineName : $"sub_{rva:X}");
+        index.Sourced.NameAt(rva)?.Name ?? index.FunctionByStart(rva)?.KnownName ?? (engineName.Length > 0 ? engineName : index.DefaultName(rva));
 
     /// <summary>The engine's own name beside ours when the two differ, else empty.</summary>
     private static string EngineAlias(string ours, string engineName) =>

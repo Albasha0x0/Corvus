@@ -84,7 +84,7 @@ public class InstructionInspectTests
         var s = Build();
         var item = One(s.Index, s.At["indexed"]);
         Assert.Equal("decoded", item.Status);
-        Assert.Equal("sub_1000+0x4", item.Function);
+        Assert.Equal("sub_140001000+0x4", item.Function);
         var insn = item.Instruction!;
         Assert.Equal("mov", insn.Mnemonic);
         Assert.Equal("legacy", insn.Encoding);

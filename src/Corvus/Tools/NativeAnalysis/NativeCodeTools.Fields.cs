@@ -105,7 +105,7 @@ public sealed partial class NativeCodeTools
         }
         var index = await code.Index(native, null, ct);
         string Where(NativeFieldAccess a) => a.FunctionRva is { } f
-            ? $"{index.Sourced.NameAt(f)?.Name ?? index.FunctionByStart(f)?.KnownName ?? $"sub_{f:X}"}+0x{a.Rva - f:X}"
+            ? $"{index.Sourced.NameAt(f)?.Name ?? index.FunctionByStart(f)?.KnownName ?? index.DefaultName(f)}+0x{a.Rva - f:X}"
             : "(no function)";
         var rows = r.Accesses.Select(a => $"{NativeAddress.Va(native.Image, a.Rva)}  {a.Kind}  {Where(a)}").ToList();
         var target = $"{r.Type}::{r.Member}";

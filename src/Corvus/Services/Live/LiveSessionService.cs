@@ -1273,7 +1273,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (code.Ready(native) is { } index && index.FunctionAt(call) is { } f)
         {
             var name = index.NameAt(f.Start);
-            function = name ?? $"sub_{native.Image.ImageBase + f.Start:X}";
+            function = name ?? index.DefaultName(f.Start);
             // Negative in a chunk placed before the entry.
             offset = (long)rva - f.Start;
             if (name != null) named = new(native.Id, native.OriginalSha256, f.Start, name);

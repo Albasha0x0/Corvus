@@ -68,7 +68,7 @@ public class NativeCodeTests
         var lines = index.DisassembleFunction(f, 100, out bool truncated);
         Assert.False(truncated);
         var text = string.Join("\n", lines.Select(l => l.Label ?? $"{l.Line!.Text} ; {l.Line.Comment}"));
-        Assert.Contains($"call   sub_{rva(helper):X}", text);
+        Assert.Contains($"call   {index.DefaultName(rva(helper))}", text);
         Assert.Contains("KERNEL32!ExitProcess", text);
         Assert.Contains("\"Hello, world\"", text);
         Assert.DoesNotContain("(bad)", text);
