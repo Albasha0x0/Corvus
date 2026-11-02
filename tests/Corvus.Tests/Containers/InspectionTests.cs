@@ -513,6 +513,25 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
+    public void Strings_of_a_native_image_are_typed_with_section_and_address()
+    {
+        var builder = new PeBuilder { EntryPoint = 0x1000 };
+        builder.Add(".text", [0xC3], 0x60000020);
+        var strings = new[] { "https://updates.example.net/v1/check", @"C:\ProgramData\Vendor\cache.bin", @"HKEY_LOCAL_MACHINE\SOFTWARE\Vendor\Setup", "192.0.2.44:8443" };
+        builder.Add(".rdata", System.Text.Encoding.ASCII.GetBytes("\0" + string.Join("\0", strings) + "\0"));
+        var path = Save("Typed.exe", builder.Build());
+
+        var report = Inspection.ExtractStrings(null, path, null, default);
+        var url = Assert.Single(report.Values, v => v.Type == "url");
+        Assert.Equal("https://updates.example.net/v1/check", url.Value);
+        Assert.Matches(@"^\.rdata 0x14[0-9A-F]+$", Assert.Single(url.Locations));
+        Assert.Contains(report.Values, v => v.Type == "file_path");
+        Assert.Contains(report.Values, v => v.Type == "registry_key");
+        Assert.Contains(report.Values, v => v.Type == "ipv4" && v.Value.StartsWith("192.0.2.44", StringComparison.Ordinal));
+        Assert.All(Inspection.ExtractStrings(null, path, ["url"], default).Values, v => Assert.Equal("url", v.Type));
+    }
+
+    [Fact]
     public void Embedded_a_native_file_without_inner_images_takes_the_existing_path()
     {
         var path = Save("Plain.exe", NativePeTests.KitchenSink(is64: true));

@@ -155,7 +155,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
     [Description("Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and " +
-                 "serialized asset fields, with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).")]
+                 "serialized asset fields, or native image strings (section, address), with count, locations and receiving APIs. " +
+                 "read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,
         [Description(PathParam)] string? path = null,

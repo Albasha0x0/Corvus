@@ -430,8 +430,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return built;
     }
 
-    /// <summary>The survey of a loaded native image or a native file indexed for this call; null when the input is not native.</summary>
-    private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct, TimeSpan? capaWait = null, CapaReport? given = null)
+    /// <summary>The code index and label of a loaded native image or a native file; null when the input is not native.</summary>
+    private (NativeCodeIndex Index, string Label)? NativeIndexOf(string? assembly, string? path, CancellationToken ct)
     {
         if ((assembly == null) == (path == null)) return null;
         NativeCodeIndex index;
@@ -471,6 +471,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 label = Path.GetFileName(full);
             }
         }
+        return (index, label);
+    }
+
+    /// <summary>The survey of a loaded native image or a native file indexed for this call; null when the input is not native.</summary>
+    private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct, TimeSpan? capaWait = null, CapaReport? given = null)
+    {
+        if (NativeIndexOf(assembly, path, ct) is not var (index, label)) return null;
         var plist = index.Image is Native.MachO.MachOFile ? AppleFileView.BundleInfo(index.Image.Path) : null;
         var report = NativeReport(index, label, plist, ct, category);
         if (index.Image is Native.MachO.MachOFile)
@@ -628,12 +635,38 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }
         }
         if (assembly == null && ContainerInput(path) is { } container) return StringsInContainer(container, types, ct);
+        if (NativeIndexOf(assembly, path, ct) is var (nativeIndex, nativeLabel)) return StringsInNative(nativeIndex, nativeLabel, types, ct);
         return WithAssembly(assembly, path, s =>
         {
             var found = Values.Find(s.Scan, Embedded.Find(s.Scan, Limits, ct), out int encodedDropped, ct);
             if (types is { Count: > 0 }) found = [.. found.Where(i => types.Contains(i.Type))];
             return new ValueReport(s.Label, found.Count, found, s.Scan.Notes) { Partial = encodedDropped > 0 ? EncodedGap(encodedDropped) : null };
         }, ct);
+    }
+
+    /// <summary>Typed values of a native image's strings, each location a section and address; empty for none.</summary>
+    private static ValueReport StringsInNative(NativeCodeIndex index, string label, IReadOnlyCollection<string>? types, CancellationToken ct)
+    {
+        // Unreferenced data is read by a sweep; referenced strings outside the swept runs (inline ones) are added.
+        var swept = StringSweep.Scan(index.Image, ct);
+        var literals = swept.Concat(index.Strings.Where(l => !InRun(swept, l.Rva)));
+        var fields = literals.Select(lit =>
+        {
+            var section = index.Image.SectionAt(lit.Rva)?.Name;
+            return (index.ReadString(lit, 2048), $"{(string.IsNullOrEmpty(section) ? "unmapped" : section)} {Native.NativeAddress.Va(index.Image, lit.Rva)}");
+        });
+        var found = Values.FromFields(fields, out int encodedDropped, ct);
+        if (types is { Count: > 0 }) found = [.. found.Where(i => types.Contains(i.Type))];
+        return new ValueReport(label, found.Count, found, []) { Partial = encodedDropped > 0 ? EncodedGap(encodedDropped) : null };
+    }
+
+    private static bool InRun(List<StringLiteral> runs, uint rva)
+    {
+        int at = runs.BinarySearch(new StringLiteral(rva, 0, default), Comparer<StringLiteral>.Create((x, y) => x.Rva.CompareTo(y.Rva)));
+        if (at < 0) at = ~at - 1;
+        if (at < 0) return false;
+        var r = runs[at];
+        return rva - r.Rva < (uint)(r.Length * (r.Encoding == StringEncoding.Utf16 ? 2 : 1));
     }
 
     /// <summary>Typed values of up to <see cref="MaxSummarizedAssemblies"/> own assemblies of a container; Partial names those not read.</summary>

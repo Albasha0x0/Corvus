@@ -189,13 +189,14 @@ public sealed class ManagedAgreementTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Extract_strings_refuses_a_native_image_and_names_search_native_strings()
+    public async Task Extract_strings_lists_the_strings_of_a_native_image()
     {
         var pe = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000UL };
         pe.EntryPoint = pe.Add(".text", [0xC3], 0x60000020).Rva;
+        pe.Add(".rdata", System.Text.Encoding.ASCII.GetBytes("\0https://updates.example.net/v1/check\0"));
         File.WriteAllBytes(_dir.File("plain.bin"), pe.Build());
-        var refused = await _server.Client.CallToolAsync("extract_strings", new Dictionary<string, object?> { ["path"] = _dir.File("plain.bin") });
-        Assert.True(refused.IsError);
-        Assert.Contains("search_native_strings", string.Concat(refused.Content.OfType<TextContentBlock>().Select(b => b.Text)));
+        var listed = await _server.Client.CallToolAsync("extract_strings", new Dictionary<string, object?> { ["path"] = _dir.File("plain.bin") });
+        Assert.NotEqual(true, listed.IsError);
+        Assert.Contains("https://updates.example.net/v1/check", string.Concat(listed.Content.OfType<TextContentBlock>().Select(b => b.Text)));
     }
 }

@@ -595,7 +595,7 @@ Structured output: `assembly`, `methodsScanned`, `features`, `category`.
 
 **Extract typed strings** (read-only, idempotent)
 
-Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and serialized asset fields, with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
+Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and serialized asset fields, or native image strings (section, address), with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
