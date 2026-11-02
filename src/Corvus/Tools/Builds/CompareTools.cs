@@ -137,7 +137,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                 [new KeptInput(oldAsm.Id, oldAsm.OriginalSha256), new KeptInput(newAsm.Id, newAsm.OriginalSha256)]))
                 ?? throw new ToolError(ErrorCode.Unsupported, "This server keeps no results, so the token map has nowhere to go.", "call compare_assemblies on the MCP server");
             mapEntries = map.Count;
-            sb.AppendLine($"Token map: {map.Count} old types and members kept: read_result id={mapId} outputPath=<file>.json writes it.");
+            sb.AppendLine($"Token map: {map.Count} old types and members kept.");
+            sb.AppendLine($"Next: read_result id={mapId} outputPath=<file>.json writes the token map.");
         }
 
         // One row per change; a row starting a new group (its type, or a section) prints the group's heading first.

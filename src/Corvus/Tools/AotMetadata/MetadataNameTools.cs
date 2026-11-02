@@ -77,10 +77,11 @@ public sealed class MetadataNameTools(AssemblyWorkspace workspace, NativeCodeSer
                       (r.HasScript ? "" : " (no script.json beside the dummy assemblies: only the dummy methods' addresses are known)"));
         sb.AppendLine($"  conflicts: {r.UserNamesKept} user name(s) kept over metadata names; {r.Suffixed} repeated name(s) suffixed with the RVA");
         sb.AppendLine($"  misses: {r.UnnamedStarts} function start(s) without a method, {r.OutsideImage} address(es) outside the image's sections");
-        foreach (var note in r.Notes) sb.AppendLine($"  note: {note}");
+        foreach (var note in r.Notes) sb.AppendLine($"Note: {note}");
         if (!r.Notes.Any(n => n.StartsWith("names not saved", StringComparison.Ordinal)))
-            sb.AppendLine("Saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).");
-        sb.AppendLine("Priority: user > pdb > metadata > discovered. find_method_by_address goes from an address back to the managed method.");
+            sb.AppendLine("Note: saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).");
+        sb.AppendLine("Priority: user > pdb > metadata > discovered.");
+        sb.AppendLine("Next: find_method_by_address goes from an address back to the managed method.");
         return sb.ToString();
     }
 }

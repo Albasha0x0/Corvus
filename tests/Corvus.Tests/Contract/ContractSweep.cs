@@ -305,6 +305,9 @@ public static partial class ContractSweep
     {
         /// <summary>The error text of a limit_exceeded outcome, for the summary.</summary>
         public string? Detail { get; init; }
+
+        /// <summary>The action lines of a success reply; empty for an error.</summary>
+        public IReadOnlyList<string> Notes { get; init; } = [];
     }
 
     /// <summary>
@@ -457,7 +460,7 @@ public static partial class ContractSweep
             if (Incomplete(c.Tool, string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text)), result.StructuredContent.Value) is { } missing)
                 return Fail("incomplete record", missing);
         }
-        return new Result(c, null, "ok", watch.Elapsed);
+        return new Result(c, null, "ok", watch.Elapsed) { Notes = [.. Corvus.Mcp.ToolOutput.ActionLines(text)] };
     }
 
     private static string Clip(string s) => s.Length > 400 ? s[..400] + "..." : s;

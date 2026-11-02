@@ -243,7 +243,8 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(result.Items[1], Assert.Single(second.Items));
         Assert.Contains("(showing 2-2)", page);
         Assert.Contains(result.Total > 2 ? "[More: offset=2]" : "[End:", page);
-        Assert.Contains($"Token map: {result.TokenMapEntries} old types and members kept: read_result id={result.TokenMapResultId} outputPath=<file>.json writes it.", text);
+        Assert.Contains($"Token map: {result.TokenMapEntries} old types and members kept.", text);
+        Assert.Contains($"Next: read_result id={result.TokenMapResultId} outputPath=<file>.json writes the token map.", text);
 
         using var json = System.Text.Json.JsonDocument.Parse(store.Read(result.TokenMapResultId!).Text);
         var root = json.RootElement;

@@ -78,7 +78,7 @@ public sealed partial class LiveSessionTools
                     var r = live.StartTimeline(s);
                     var text = $"{r.Id} tracing {s.Id} ({Path.GetFileName(r.Program)}, pid {r.ProcessId}) through {r.Source}: files, registry keys, endpoints and child processes\n" +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
-                               $"next: live_timeline action=list run={r.Id}\n" +
+                               $"Next: live_timeline action=list run={r.Id}\n" +
                                $"{r.Id} is kept until the server exits\n";
                     return ToolOutput.With(text, new LiveTimelinePage(TimelineSummary(r), [], null, []));
                 }

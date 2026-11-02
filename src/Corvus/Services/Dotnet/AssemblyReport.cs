@@ -80,13 +80,13 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
         sb.AppendLine($"Types: {types.Count} ({types.Count(t => t.DeclaringType != null)} nested)  Namespaces: {MetadataUtil.NamespaceCount(types)}  " +
                       $"Methods: {m.GetTypes().Sum(t => t.Methods.Count)}  Fields: {m.GetTypes().Sum(t => t.Fields.Count)}  Resources: {m.Resources.Count}");
         if (MetadataUtil.IsReferenceAssembly(m))
-            sb.AppendLine("Reference assembly: method bodies are `throw null`; load the implementation (lib/, not ref/) to read code.");
+            sb.AppendLine("Note: the assembly is a reference assembly; method bodies are `throw null`. Load the implementation (lib/, not ref/) to read code.");
         int addressed = aot.GetIndex(asm).Count;
         if (addressed > 0)
             sb.AppendLine($"AOT metadata: {addressed} methods carry [Address] attributes; bodies are stubs (get_method_addresses, find_method_by_address).");
         var health = asm.BodyHealth;
         if (health.MostlyInvalid)
-            sb.AppendLine($"IL: {health.Describe()} Load the decrypted image (e.g. a dump taken after the code ran) to read code.");
+            sb.AppendLine($"Note: {health.Describe()} Load the decrypted image (e.g. a dump taken after the code ran) to read code.");
         else if (health.Invalid > 0)
             sb.AppendLine($"IL: {health.Invalid} of {health.Bodies} method bodies are not valid IL (e.g. " +
                           string.Join(", ", m.GetTypes().SelectMany(t => t.Methods).Where(health.IsInvalid).Take(3).Select(Format.MemberLabel)) + ").");

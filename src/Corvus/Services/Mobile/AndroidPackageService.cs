@@ -85,7 +85,7 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
             {
                 var text = new StringBuilder($"{table.Name(id) ?? name} (0x{id:x8}): {rows.Count} value(s)\n");
                 foreach (var r in rows) text.AppendLine($"  [{(r.Config.Length == 0 ? "default" : r.Config)}] {r.ValueType}: {r.Value}");
-                if (files.Count > 0) text.AppendLine($"Files: {string.Join(", ", files)} (pass one as name to read it).");
+                if (files.Count > 0) text.AppendLine($"Next: pass one of {string.Join(", ", files)} as name to read the file.");
                 return new AndroidResourceRead(text.ToString(), "resources.arsc", null, null, null);
             }
             entry = files[0];

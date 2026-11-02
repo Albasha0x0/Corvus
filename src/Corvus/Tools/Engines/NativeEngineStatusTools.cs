@@ -251,11 +251,21 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
     private static string Render(LoadedNative native, List<EngineStatus> list, IReadOnlyList<NativeEngineService.ImageEngineStatus> states, string? waited, List<string>? stopped, List<string> uncancellable)
     {
         var sb = new StringBuilder($"Engine sessions of {native.Id}:\n");
+        // Text markers, not ToolOutput.Note: the lines must end this text and
+        // the sample records them from it; no indented row continues one.
+        var actions = new List<string>();
         foreach (var refusal in uncancellable) sb.AppendLine(refusal);
         if (stopped != null && (stopped.Count > 0 || uncancellable.Count == 0))
-            sb.AppendLine(stopped.Count > 0 ? $"cancelled: {string.Join(", ", stopped)}; the next engine call opens or reanalyzes again"
-                                           : $"nothing to cancel: no open or background run is going; reanalyze_native image={native.Id} starts one");
-        if (waited != null) sb.AppendLine(waited + "; call again to keep waiting");
+        {
+            sb.AppendLine(stopped.Count > 0 ? $"cancelled: {string.Join(", ", stopped)}" : "nothing to cancel: no open or background run is going");
+            actions.Add(stopped.Count > 0 ? "Note: the next engine call opens or reanalyzes again."
+                                          : $"Next: reanalyze_native image={native.Id} starts a run.");
+        }
+        if (waited != null)
+        {
+            sb.AppendLine(waited);
+            actions.Add($"Next: get_engine_status image={native.Id} waitSeconds=60 keeps waiting.");
+        }
         if (list.Count == 0) sb.AppendLine("  none: no engine is available");
         foreach (var s in list)
         {
@@ -269,7 +279,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 case "opening":
                     sb.AppendLine($"{name}: opening ({s.Stage ?? "start"}, {s.Seconds:0.#} s" +
                                   (s.ExpectedSeconds > 0 ? $", expected {s.ExpectedSeconds:0} s ({states.FirstOrDefault(e => e.Engine == s.Engine)?.ExpectedBasis ?? "default rate"}), about {s.RemainingSeconds:0} s left" : "") + ")");
-                    sb.AppendLine($"  next: get_engine_status image={native.Id} waitSeconds=60 waits for the end; cancel=true stops it; engine=ours answers now");
+                    actions.Add($"Next: get_engine_status image={native.Id} waitSeconds=60 waits for the end; cancel=true stops it; engine=ours answers now.");
                     if (s.OpenStages != null) sb.AppendLine($"  stages so far: {EngineOpenProfile.Describe(s.OpenStages)}");
                     continue;
                 case "failed":
@@ -290,7 +300,10 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 foreach (var b in s.Bookmarks ?? []) sb.AppendLine("    " + b);
             }
             if (s.Analysis == "partial")
-                sb.AppendLine($"  the analysis budget ran out; reanalyze_native image={native.Id} engine={s.Engine} completes it");
+            {
+                sb.AppendLine("  the analysis budget ran out");
+                actions.Add($"Next: reanalyze_native image={native.Id} engine={s.Engine} completes it.");
+            }
             sb.AppendLine($"  {s.Processor} {s.Language}" + (s.Compiler != null ? $", compiler {s.Compiler}" : "") + $", {s.Format}, {s.PointerSize * 8}-bit {s.Endian}, base {s.ImageBase}");
             if (s.ImportOverrides != null) sb.AppendLine($"  import overrides: {s.ImportOverrides}");
             sb.AppendLine($"  {s.Functions} functions, {s.ExternalFunctions} external; decompiler {(s.Decompiler == true ? "available" : "not available")}");
@@ -298,7 +311,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (s.Sha256 != null || s.Md5 != null) sb.AppendLine($"  input: sha256 {s.Sha256 ?? "-"}, md5 {s.Md5 ?? "-"}");
             sb.AppendLine($"  database {s.Database}; worker pid {s.WorkerPid?.ToString() ?? "none"}; {s.UnsavedEdits} unsaved edit(s)" +
                           (s.Changed == true ? ", changes not yet saved" : ""));
-            foreach (var w in s.Warnings ?? []) sb.AppendLine($"  warning: {w}");
+            foreach (var w in s.Warnings ?? []) actions.Add($"Warning: {w}");
             if (s.Blocks is { Count: > 0 } blocks)
             {
                 sb.AppendLine($"  {blocks.Count} memory blocks:");
@@ -307,6 +320,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             }
             if (s.Error != null) sb.AppendLine($"  error: {s.Error}");
         }
+        foreach (var action in actions.Distinct()) sb.AppendLine(action);
         return sb.ToString();
     }
 }

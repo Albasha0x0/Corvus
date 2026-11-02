@@ -137,7 +137,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Matches(@"step 1\s+wait goodbye\s+running", await _tools.LiveConsole("status", waitSeconds: 1));
         Assert.Contains("con-1 prompt.exe", text);
         Assert.Contains("the script runs in the background, at most 10 s", text);
-        Assert.Contains("next: live_console action=status run=con-1 waitSeconds=10 waits for the script", text);
+        Assert.Contains("Next: live_console action=status run=con-1 waitSeconds=10 waits for the script", text);
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Matches(@"step 2\s+wait goodbye\s+running", status);
         Assert.Matches(@"step 3\s+send y\s+pending", status);
         Assert.Contains("script running at step 2 of 3", status);
-        Assert.Contains("next: live_console action=status run=con-1 waitSeconds=30", status);
+        Assert.Contains("Next: live_console action=status run=con-1 waitSeconds=30", status);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("status", waitSeconds: 301))).Code);
     }
 
@@ -212,7 +212,7 @@ public sealed class LiveConsoleTests : IDisposable
     {
         await _tools.LiveConsole("start", program: _program);
         var status = await _tools.LiveConsole("status", waitSeconds: 300);
-        Assert.Contains("next: live_console action=transcript run=con-1", status);
+        Assert.Contains("Next: live_console action=transcript run=con-1", status);
     }
 
     [Fact]

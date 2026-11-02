@@ -10,10 +10,10 @@
   },
   "isError": false,
   "content": [
-    "Dry run (nothing changed): sample-build-a.dll -> sample-build-b.dll, 2 of 2 old functions matched. names: not applicable (sample-build-a.dll has no user names, comments or types). patches: not applicable (sample-build-a.dll has no in-memory patches). Run again with dryRun=false to apply.\n0 items:\n[End: 0 items]\n"
+    "Dry run: nothing changed. sample-build-a.dll -> sample-build-b.dll, 2 of 2 old functions matched. names: not applicable (sample-build-a.dll has no user names, comments or types). patches: not applicable (sample-build-a.dll has no in-memory patches).\nNext: run again with dryRun=false to apply.\n0 items:\n[End: 0 items]\n"
   ],
   "structuredContent": {
-    "summary": "Dry run (nothing changed): sample-build-a.dll -> sample-build-b.dll, 2 of 2 old functions matched. names: not applicable (sample-build-a.dll has no user names, comments or types). patches: not applicable (sample-build-a.dll has no in-memory patches). Run again with dryRun=false to apply.",
+    "summary": "Dry run: nothing changed. sample-build-a.dll -> sample-build-b.dll, 2 of 2 old functions matched. names: not applicable (sample-build-a.dll has no user names, comments or types). patches: not applicable (sample-build-a.dll has no in-memory patches).",
     "oldImage": "sample-build-a.dll",
     "newImage": "sample-build-b.dll",
     "dryRun": true,
@@ -126,7 +126,9 @@
     "items": [],
     "offset": 0,
     "total": 0,
-    "notes": [],
+    "notes": [
+      "Next: run again with dryRun=false to apply."
+    ],
     "limit": 100,
     "totalExact": true,
     "hasMore": false

@@ -232,7 +232,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
                           (r.Candidates.Count < r.TotalCandidates ? $" (showing {r.Offset + 1}-{r.Offset + r.Candidates.Count})" : "") + ":");
             foreach (var x in r.Candidates) sb.AppendLine($"  {x.Id}  {x.Kind} {x.Name}{(x.Size >= 0 ? $"  {x.Size} bytes" : "")}  [{x.Source}]");
             if (r.Truncated) sb.AppendLine($"More: offset={r.Offset + r.Candidates.Count}");
-            sb.AppendLine("get_native_type id=<id> shows one.");
+            sb.AppendLine("Next: get_native_type id=<id> shows one.");
             foreach (var n in r.Notes) sb.AppendLine($"Note: {n}");
             return sb.ToString();
         }

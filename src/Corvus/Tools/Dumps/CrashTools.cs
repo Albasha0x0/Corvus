@@ -39,7 +39,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
             header += $"exception: {e.Code}{(e.Name != null ? $" ({e.Name})" : "")} {e.Type} {e.Message}".Replace("  ", " ").TrimEnd() + "\n" +
                       string.Concat(e.Inner.Select(i => $"  inner: {i.Type}: {i.Message}\n"));
         header += string.Concat(r.ModulesMissing.Select(m => $"not loaded: {m.Module}{(m.Version != null ? $" {m.Version}" : "")}{(m.TimeDateStamp != null ? $" stamp {m.TimeDateStamp}" : "")} ({ToolSupport.Plural(m.Frames, "frame")})\n"));
-        header += string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+        header += string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
         if (r.UnrecognizedSample.Count > 0 && r.Frames == 0) header += string.Concat(r.UnrecognizedSample.Select(l => $"unrecognized: {l}\n"));
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.TextFrame, page => r with { Items = page }, "row", header);
     }, cancellationToken);
@@ -80,7 +80,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
             }
             var c = r.Dumps;
             var header = $"{r.Folder}: {ToolSupport.Plural(c.Seen, "dump")} ({c.Parsed} parsed, {c.Cached} cached, {c.Failed} failed{(c.Pending > 0 ? $", {c.Pending} pending" : "")}{(c.LimitReached ? ", maxDumps reached: the newest bucketed" : "")})\n" +
-                         string.Concat(r.Failed.Select(f => $"failed: {f.Path}: {f.Reason}\n")) + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+                         string.Concat(r.Failed.Select(f => $"failed: {f.Path}: {f.Reason}\n")) + string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
             return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.Bucket, page => r with { Items = page }, "bucket", header);
         }, cancellationToken));
 }

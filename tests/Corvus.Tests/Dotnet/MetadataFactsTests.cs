@@ -62,7 +62,7 @@ public class MetadataFactsTests : IDisposable
         File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Api",
             "[assembly: System.Runtime.CompilerServices.ReferenceAssembly] public class Client { public string Get() => throw null; }"));
         using var env = new Env(path);
-        Assert.Contains("Reference assembly: method bodies are `throw null`", env.Workspace.Read(() => env.Report.Build(env.Fixture)));
+        Assert.Contains("reference assembly; method bodies are `throw null`", env.Workspace.Read(() => env.Report.Build(env.Fixture)));
         Assert.Contains("// Note: reference assembly", env.Decompile("Client::Get"));
         using var normal = new Env();
         Assert.DoesNotContain("Reference assembly", normal.Workspace.Read(() => normal.Report.Build(normal.Fixture)));

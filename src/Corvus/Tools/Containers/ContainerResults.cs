@@ -335,7 +335,7 @@ internal static class ContainerText
         var byType = report.Values.GroupBy(v => v.Type).ToDictionary(g => g.Key, g => g.Count());
         var header = new StringBuilder($"{Escape(report.Assembly)}: {string.Join(", ", byType.Select(t => $"{t.Value} {t.Key}"))}"
                                        + (byType.Count == 0 ? "no typed values" : "") + ".\n");
-        if (kept != null) header.Append($"All values: read_result id={kept} (outputPath writes them; format=text is CSV, json the records).\n");
+        if (kept != null) header.Append($"Next: read_result id={kept} outputPath=<file> writes all values (format=text is CSV, json the records).\n");
         foreach (var n in report.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
         return ToolOutput.List(report.Values, offset, limit, ValueRow,
             rows => new ValuePage(report.Assembly, rows, offset, report.Total)

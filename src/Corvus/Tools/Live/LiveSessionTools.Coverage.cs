@@ -80,7 +80,7 @@ public sealed partial class LiveSessionTools
                                (r.DetachFunctions > 0 ? $"{ToolSupport.Plural(r.DetachFunctions, "function")} reached from TLS callbacks or the DLL entry point left out: they run at process exit, after the other threads end\n" : "") +
                                string.Concat(r.Unplaced.Values.Select(x => x.Split('\n')[0]).GroupBy(x => x).Select(g => $"{ToolSupport.Plural(g.Count(), "function")} left out: {g.Key}\n")) +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
-                               $"next: live_coverage action=report run={r.Id}\n" +
+                               $"Next: live_coverage action=report run={r.Id}\n" +
                                $"{r.Id} is kept until the server exits\n";
                     return ToolOutput.With(text, new LiveCoverageReport(Summary(r), [], 0, 0, []));
                 }

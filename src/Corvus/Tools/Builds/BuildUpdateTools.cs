@@ -69,7 +69,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         int Ambiguous);
 
     public sealed record UpdateReport(
-        [property: Description("What carried over, what did not, and the next step.")] string Summary,
+        [property: Description("What carried over and what did not.")] string Summary,
         string OldImage, string NewImage, bool DryRun,
         [property: Description("The journaled edits (undo_native_edit): names and comments, user types, patches.")] IReadOnlyList<EditId> EditIds,
         [property: Description("Categories included in this run.")] IReadOnlyList<string> Included,
@@ -105,7 +105,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         var r = await Update(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldMetadata, newMetadata, codeOnly, maxPatterns, category, outcome,
             0, int.MaxValue, progress, cancellationToken);
-        var head = new StringBuilder(r.Summary).Append('\n');
+        var head = new StringBuilder(r.Summary).Append('\n').Append(NextStep(r)).Append('\n');
         if (r.EditIds.Count > 0) head.Append($"Recorded as {string.Join(", ", r.EditIds)} (undo_native_edit editId={r.EditIds[0]}).\n");
         foreach (var c in r.Categories.Where(c => c.Considered > 0))
             head.Append($"{c.Category} ({c.Status}): {string.Join(", ", c.Reasons.Take(6).Select(x => $"{x.Reason} {x.Count}"))}\n");
@@ -342,14 +342,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         var page = filtered.Skip(offset).Take(limit).Select(i => new UpdateItem(i.Category, i.Kind,
             i.OldRva is { } o ? $"0x{o:X8}" : null, i.NewRva is { } n ? $"0x{n:X8}" : null,
             i.Value, i.Outcome, i.Reason, Math.Round(i.Confidence, 3), i.Tier, i.Detail)).ToList();
-        var sb = new StringBuilder(dryRun ? "Dry run (nothing changed): " : "Applied: ");
+        var sb = new StringBuilder(dryRun ? "Dry run: nothing changed. " : "Applied: ");
         sb.Append($"{oldAsm.Id} -> {newAsm.Id} (.NET), {cmp.MemberMap.Count} member(s) matched. ");
         AppendCategories(sb, categoryList, dryRun, null);
-        sb.Append("Edits: export_edits, then apply_edits targetBuild=other.");
         int Methods(LoadedAssembly a) => workspace.Read(() => a.Module.GetTypes().Sum(t => t.Methods.Count));
         return new UpdateReport(sb.ToString(), oldAsm.Id, newAsm.Id, dryRun, [], CategoryOrder.Where(included.Contains).ToList(),
             Methods(oldAsm), Methods(newAsm), cmp.MemberMap.Keys.Count(k => k is dnlib.DotNet.MethodDef), categoryList, null,
-            page, offset, filtered.Count, ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"]);
+            page, offset, filtered.Count, [DotnetPairNote]);
     }
 
     /// <summary>Records the old build's member notes on their counterparts; ambiguous and unmatched members are reported, not guessed.</summary>
@@ -441,14 +440,21 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             { NotCarriedBy = Count(mine.Where(i => i.Outcome is "refused" or "not_applicable" or "ambiguous")) };
     }
 
+    private const string DotnetPairNote = "a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens";
+
+    // The next call is text only, so the summary field holds facts alone.
+    private static string NextStep(UpdateReport r) =>
+        r.Notes.Contains(DotnetPairNote) ? "Next: export_edits, then apply_edits targetBuild=other."
+        : r.DryRun ? "Next: run again with dryRun=false to apply."
+        : "Next: run again to verify: carried items then report already_present.";
+
     private static string Summary(string oldId, string newId, bool dryRun, MatchResult match, List<UpdateCategory> categories, MethodMappingSummary? map)
     {
         var sb = new StringBuilder();
-        sb.Append(dryRun ? "Dry run (nothing changed): " : "Applied: ");
+        sb.Append(dryRun ? "Dry run: nothing changed. " : "Applied: ");
         sb.Append($"{oldId} -> {newId}, {match.Pairs.Count} of {match.Old.Functions.Length} old functions matched. ");
         AppendCategories(sb, categories, dryRun, map);
-        sb.Append(dryRun ? "Run again with dryRun=false to apply." : "Run again to verify: carried items then report already_present.");
-        return sb.ToString();
+        return sb.ToString().TrimEnd();
     }
 
     private static void AppendCategories(StringBuilder sb, List<UpdateCategory> categories, bool dryRun, MethodMappingSummary? map)

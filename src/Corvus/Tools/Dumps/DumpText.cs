@@ -31,6 +31,7 @@ internal static class DumpText
         }
         if (r.FaultingModule is { } m) sb.AppendLine("Faulting module: " + Module(m));
         if (r.FaultingThread is { } t) sb.AppendLine("Faulting thread: " + Thread(t));
+        var managedNotes = new List<string>();
         if (r.Managed is { } mg)
         {
             sb.AppendLine($".NET: {mg.Runtime}; DAC {mg.Dac.Status}{(mg.Dac.Path != null ? $" ({mg.Dac.Path})" : "")}: {mg.Dac.Detail}");
@@ -40,14 +41,14 @@ internal static class DumpText
             if (mg.Heap is { } h) counts.Add(h.Walkable ? $"heap walkable, {Plural(h.Segments, "segment")}, {h.Bytes:N0} bytes" : $"heap: {h.Reason}");
             if (counts.Count > 0) sb.AppendLine("  " + string.Join("; ", counts));
             if (mg.Exception is { } x) ManagedException(sb, x, "  ");
-            foreach (var n in mg.Notes) sb.AppendLine("  note: " + n);
+            managedNotes.AddRange(mg.Notes);
         }
         sb.AppendLine($"Counts: {Plural(c.Modules, "module")}, {Plural(c.Threads, "thread")}, {Plural(c.UnloadedModules, "unloaded module")}, " +
                       $"{Plural(c.MemoryRegions, "memory region")}, {Plural(c.MemoryRanges, "captured range")} ({c.CapturedBytes:N0} bytes), {Plural(c.Handles, "handle")} " +
                       "(view=modules, threads, memory, unloaded list them)");
         if (r.HandleTypes is { Count: > 0 } ht) sb.AppendLine("Handles: " + string.Join(", ", ht));
         foreach (var x in r.Issues ?? []) sb.AppendLine("Issue: " + x);
-        foreach (var x in r.Notes ?? []) sb.AppendLine("Note: " + x);
+        foreach (var x in managedNotes.Concat(r.Notes ?? [])) sb.AppendLine("Note: " + x);
         return sb.ToString();
     }
 
@@ -116,7 +117,7 @@ internal static class DumpText
         $"pid {r.ProcessId} {r.Name}: {r.Architecture}{(r.Wow64 ? " (WoW64)" : "")}{(r.Runtime != null ? $", {r.Runtime}" : "")}{(r.StillRunning ? "" : ", exited")}" +
         $"{(r.StartTimeUtc != null ? $", started {r.StartTimeUtc}" : "")}\n" + (r.Path != null ? $"  path: {r.Path}\n" : "") +
         $"handles: {r.HandlesOpened} opened, {r.HandlesClosed} closed{(r.Detached ? " (all closed)" : " (NOT all closed)")}; read-only access:\n" +
-        string.Concat(r.Access.Select(a => $"  {a}\n")) + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+        string.Concat(r.Access.Select(a => $"  {a}\n")) + string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
 
     public static string LiveSummary(LiveProcessService.LiveReport r)
     {

@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "metadata.dll: metadata names from TestFixture\n  functions named: 2 (1 at addresses the code index did not find as function starts: named as labels)\n  string literals: 0; metadata slots: 0; MethodInfo slots: 0 (no script.json beside the dummy assemblies: only the dummy methods' addresses are known)\n  conflicts: 0 user name(s) kept over metadata names; 0 repeated name(s) suffixed with the RVA\n  misses: 0 function start(s) without a method, 0 address(es) outside the image's sections\nSaved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).\nPriority: user > pdb > metadata > discovered. find_method_by_address goes from an address back to the managed method.\n",
+    "metadata.dll: metadata names from TestFixture\n  functions named: 2 (1 at addresses the code index did not find as function starts: named as labels)\n  string literals: 0; metadata slots: 0; MethodInfo slots: 0 (no script.json beside the dummy assemblies: only the dummy methods' addresses are known)\n  conflicts: 0 user name(s) kept over metadata names; 0 repeated name(s) suffixed with the RVA\n  misses: 0 function start(s) without a method, 0 address(es) outside the image's sections\nNote: saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).\nPriority: user > pdb > metadata > discovered.\nNext: find_method_by_address goes from an address back to the managed method.\n",
     "[workspace] loaded metadata.dll from <fixtures>/samples/metadata.dll"
   ],
   "structuredContent": {
@@ -24,7 +24,10 @@
     "misses": 0,
     "saved": true,
     "removed": 0,
-    "notes": [],
+    "notes": [
+      "Note: saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).",
+      "Next: find_method_by_address goes from an address back to the managed method."
+    ],
     "notices": [
       "loaded metadata.dll from <fixtures>/samples/metadata.dll"
     ]

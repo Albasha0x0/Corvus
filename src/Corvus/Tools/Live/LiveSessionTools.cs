@@ -270,7 +270,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var report = await dumps.Summarize(full, null, ct).ConfigureAwait(false);
         var text = $"{s.Id}: process {s.ProcessId} written to {full} ({bytes:N0} bytes), opened as {report.Id}; the program keeps running\n" +
                    (stop != null ? $"the stop of thread {stop.ThreadId} at {held!.Point} is {(OperatingSystem.IsWindows() ? "the dump's exception (a breakpoint)" : "the core's signal (SIGTRAP), with the stop's registers")}; dump_stack walks from it\n" : "") +
-                   $"next: open_minidump path={report.Id} view=threads, dump_stack dump={report.Id}\n";
+                   $"Next: open_minidump path={report.Id} view=threads, dump_stack dump={report.Id}\n";
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
     }
 

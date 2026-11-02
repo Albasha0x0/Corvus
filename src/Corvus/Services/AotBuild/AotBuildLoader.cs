@@ -227,7 +227,7 @@ public sealed class AotBuildLoader(AssemblyWorkspace workspace, string? cacheRoo
             sb.AppendLine($"  dummy assemblies: loaded {r.Load.Loaded.Count} from {r.DummyDirectory}" + (r.Load.Skipped.Count > 0 ? $", {r.Load.Skipped.Count} not loaded" : ""));
             sb.AppendLine($"  signature types are {AotMetadataOnly.Placeholder}; types, method addresses and field offsets need the binary");
             sb.AppendLine(m.Unreadables.Count == 0 ? "  unreadable items: none" : $"  unreadable items: {m.Unreadables.Count} (e.g. {string.Join("; ", m.Unreadables.Take(3).Select(u => $"{u.Item}: {u.Reason}"))})");
-            foreach (var note in r.Notes.Take(12)) sb.AppendLine($"  note: {Format.Clip(note, 400)}");
+            foreach (var note in r.Notes.Take(12)) sb.AppendLine($"Note: {Format.Clip(note, 400)}");
             sb.Append("Next: list_types / search_symbols / get_type_info / search_strings on these assemblies; load the native binary beside the metadata for types, addresses and offsets.");
             return sb.ToString();
         }
@@ -252,7 +252,7 @@ public sealed class AotBuildLoader(AssemblyWorkspace workspace, string? cacheRoo
                 sb.AppendLine($"    {reason}: {count} (e.g. {string.Join("; ", examples.Select(e => $"{e.Item}: {Format.Clip(e.Detail, 120)}"))})");
         }
         sb.AppendLine("  not covered: attribute arguments, custom attributes other than field attribute types, script.json C prototypes");
-        foreach (var note in r.Notes.Take(12)) sb.AppendLine($"  note: {Format.Clip(note, 400)}");
+        foreach (var note in r.Notes.Take(12)) sb.AppendLine($"Note: {Format.Clip(note, 400)}");
         sb.Append("Next: get_method_addresses / find_method_by_address / search_strings on these assemblies; apply_metadata_names to name the native image.");
         return sb.ToString();
     }

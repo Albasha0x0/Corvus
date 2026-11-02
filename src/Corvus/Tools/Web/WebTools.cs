@@ -140,7 +140,7 @@ public sealed partial class WebTools(OutputPager pager, ServerOptions? serverOpt
                 var rows = found.Select(e => JsAnalysis.Endpoint(e, map)).Where(e => query == null || e.Url.Contains(query, StringComparison.OrdinalIgnoreCase) || e.Client.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
                 var text = $"{rows.Count} endpoint(s)" + (rows.Count > 0 ? $" ({string.Join(", ", rows.GroupBy(e => e.Client.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}"))})" : "") + ":\n" +
                            string.Join("\n", rows.Select(e => $"  {e.Verb} {e.Url}  [{e.Client}] {e.Site}" + (e.Module != null ? $" {e.Module}" : "") + (e.Original != null ? $"  <- {e.Original}" : ""))) +
-                           "\nsearch_container kind=endpoint capture=<HAR or pcap> joins these to a capture (seen in code, in the capture, or both).";
+                           "\nNext: search_container kind=endpoint capture=<HAR or pcap> joins these to a capture (seen in code, in the capture, or both).";
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("endpoints", Total: rows.Count) { Endpoints = rows.Take(500).ToList() });
             }
             case "diff":

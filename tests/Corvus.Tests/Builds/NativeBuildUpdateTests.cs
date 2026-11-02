@@ -265,7 +265,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         // The tool: summary, category reasons and rows in the text.
         var (tool, text) = await BuildToolCalls.Collected<BuildUpdateTools.UpdateReport>(() => h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: ["patches"], limit: 1));
         Assert.Equal((1, 0), (tool.Items.Count, tool.Offset));
-        Assert.StartsWith("Dry run (nothing changed): ", text);
+        Assert.StartsWith("Dry run: nothing changed. ", text);
         Assert.Contains("patches (previewed): ", text);
         Assert.Contains("[More: offset=1]", text);
 

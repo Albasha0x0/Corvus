@@ -61,8 +61,8 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
         var withMetadata = symbols.Where(s => aot.GetIndex(s.Assembly).Count > 0 || (slot != null && navigator.ImageOf(s.Assembly) != null)).ToList();
         if (withMetadata.Count > 0 && withMetadata.Count < symbols.Count)
         {
-            sb.AppendLine($"({symbols.Count - withMetadata.Count} match(es) in assemblies without metadata skipped: " +
-                          string.Join(", ", symbols.Except(withMetadata).Select(s => s.Assembly.Id).Distinct().Take(5)) + ")");
+            sb.AppendLine($"Note: {symbols.Count - withMetadata.Count} match(es) in assemblies without metadata skipped: " +
+                          string.Join(", ", symbols.Except(withMetadata).Select(s => s.Assembly.Id).Distinct().Take(5)) + ".");
             sb.AppendLine();
             symbols = withMetadata;
         }

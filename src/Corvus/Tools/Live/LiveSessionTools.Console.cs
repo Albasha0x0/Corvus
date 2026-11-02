@@ -94,8 +94,8 @@ public sealed partial class LiveSessionTools
                     var text = new StringBuilder($"{r.Id} {Path.GetFileName(r.Program)} (pid {r.ProcessId}) in a {r.Columns}x{r.Rows} {r.Host}\n");
                     ConsoleSteps(r, r.Steps, text);
                     text.AppendLine(r.IsScriptRunning
-                        ? $"next: live_console action=status run={r.Id} waitSeconds=30 waits for the script; action=stop ends it"
-                        : $"next: live_console action=transcript run={r.Id}");
+                        ? $"Next: live_console action=status run={r.Id} waitSeconds=30 waits for the script; action=stop ends it"
+                        : $"Next: live_console action=transcript run={r.Id}");
                     return ToolOutput.With(text.ToString(), new LiveConsolePage(ConsoleSummary(r), [], null, []) { Steps = StepRows(r.Steps) });
                 }
                 case "transcript":
@@ -109,12 +109,12 @@ public sealed partial class LiveSessionTools
     /// <summary>The longest the script can run and the call that waits for it.</summary>
     private static string ScriptNext(LiveConsoleRun r, IReadOnlyList<LiveConsoleStep> steps, int timeoutSeconds)
     {
-        if (steps.Count == 0) return $"next: live_console action=transcript run={r.Id}";
+        if (steps.Count == 0) return $"Next: live_console action=transcript run={r.Id}";
         var bound = steps.Count(s => s.Verb == "wait") * (double)timeoutSeconds + steps.Where(s => s.Verb == "delay").Sum(s => s.First) / 1000.0;
         var wait = Math.Clamp((int)Math.Ceiling(bound), 1, 300);
         var more = bound > wait ? "; repeat it while the script is running" : "";
         return $"the script runs in the background, at most {bound:0.###} s (timeoutSeconds per wait step plus delays)\n" +
-               $"next: live_console action=status run={r.Id} waitSeconds={wait} waits for the script{more}; action=stop ends it";
+               $"Next: live_console action=status run={r.Id} waitSeconds={wait} waits for the script{more}; action=stop ends it";
     }
 
     private static string DefaultSize() => $"{LiveSessionService.DefaultColumns}x{LiveSessionService.DefaultRows}";

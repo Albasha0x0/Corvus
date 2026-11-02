@@ -471,7 +471,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             if (flow.Count > 0) sb.Append("\n  ").Append(string.Join(", ", flow));
         }
         if (changed.Count > MaxReportedMethods)
-            sb.Append($"\n… {changed.Count - MaxReportedMethods} more changed method(s) (narrow the scope to a type or method for details)");
+            sb.Append($"\nNote: {changed.Count - MaxReportedMethods} more changed method(s); narrow the scope to a type or method for details.");
 
         var bailouts = changes.SelectMany(c => c.Bailouts.Select(b => $"{Format.MemberLabel(c.Method)} {b}")).ToList();
         AppendList(sb, "Not folded (evaluation bailed out; the call is kept):", bailouts);

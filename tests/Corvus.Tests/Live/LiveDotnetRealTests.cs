@@ -691,7 +691,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             Assert.Fail($"no \"ready\" within 90 s\n{await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" })}\nmodule events:\n{await Events(server, "live-1", kind: "module", log: false)}\nerrors:\n{await Events(server, "live-1", kind: "error", log: false)}");
         var stats = await Ok(server, "dump_heap", new() { ["dump"] = "live-1", ["type"] = "Item" });
         Assert.Matches(@"(?m)^ *Item  1,234 objects, [\d,]+ bytes", stats);
-        Assert.Contains("note: The program runs during the read", stats);
+        Assert.Contains("Note: The program runs during the read", stats);
         var objects = await Ok(server, "dump_heap", new() { ["dump"] = "live-1", ["mode"] = "objects", ["type"] = "Item", ["limit"] = 1 });
         var address = Regex.Match(objects, @"(0x[0-9A-F]+)  Item  \d+ bytes").Groups[1].Value;
         Assert.False(address.Length == 0, objects);

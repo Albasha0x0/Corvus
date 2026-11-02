@@ -69,7 +69,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
             if (shown == 0)
                 throw new ToolError(ErrorCode.Unsupported, "No precompiled code: " + string.Join("; ", missing),
                     "decompile_member / get_il show the IL the JIT compiles at run time" + (instantiation != null ? "; or drop the instantiation filter" : ""));
-            if (shown > bodiesLimit) sb.AppendLine($"({shown - bodiesLimit} more bodies not disassembled; raise maxBodies or filter with instantiation)");
+            if (shown > bodiesLimit) sb.AppendLine($"Note: {shown - bodiesLimit} more bodies not disassembled; raise maxBodies or filter with instantiation.");
             foreach (var m in missing) sb.AppendLine("No precompiled code: " + m);
             return ToolOutput.Text(pager, sb.ToString(), offset,
                 new CodePage("asm", "", 0, null, 0) { Symbols = shownSymbols.Select(SymbolRef.Of).ToList(), Bodies = listed }, maxTokens);

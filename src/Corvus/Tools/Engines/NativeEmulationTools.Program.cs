@@ -139,7 +139,7 @@ public sealed partial class NativeEmulationTools
             sb.Append(CultureInfo.InvariantCulture, $"wrote {f.Path} ({f.Size:N0} bytes){(f.SavedAs != null ? ", saved as " + f.SavedAs : "")}\n");
         if (run.RegionSet != null)
             sb.Append(CultureInfo.InvariantCulture, $"memory: {run.Regions} region(s), {run.RegionBytes:N0} bytes, in {run.RegionSet} (open_minidump reads it)\n");
-        foreach (var n in run.Notes) sb.Append("note: ").Append(n).Append('\n');
+        foreach (var n in run.Notes) sb.Append("Note: ").Append(n).Append('\n');
         sb.Append("run folder: ").Append(output).Append('\n');
         return sb.ToString();
     }

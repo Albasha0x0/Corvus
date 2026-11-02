@@ -2,7 +2,7 @@
   "type": "object",
   "properties": {
     "summary": {
-      "description": "What carried over, what did not, and the next step.",
+      "description": "What carried over and what did not.",
       "type": "string"
     },
     "oldImage": {

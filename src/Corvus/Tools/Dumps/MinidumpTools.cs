@@ -69,7 +69,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         IReadOnlyList<string>? notes = null) where T : notnull =>
         ToolOutput.List(rows, offset, limit, total, render,
             page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total, Notes = notes }, noun,
-            notes is { Count: > 0 } ? string.Concat(notes.Select(n => $"note: {n}\n")) : null);
+            notes is { Count: > 0 } ? string.Concat(notes.Select(n => $"Note: {n}\n")) : null);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
     [Description("Walk the call stack of a dump thread, naming frames from loaded images, PDBs or exports. .NET frames add token, IL " +
@@ -93,7 +93,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             cancellationToken);
         var header = $"{r.Dump} thread {r.ThreadId}{(r.ThreadName != null ? $" \"{r.ThreadName}\"" : "")}, {r.Architecture}, from the {r.Context} context; walk ended: {r.Stop}" +
                      (r.ScannedFrames > 0 ? $"; {r.ScannedFrames} scanned" : "") + (r.Managed != null ? $"; managed frames: {r.Managed}" : "") + "\n" +
-                     (r.Registers != null ? $"registers: {r.Registers}\n" : "") + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+                     (r.Registers != null ? $"registers: {r.Registers}\n" : "") + string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.Frame, page => r with { Items = page }, "frame", header);
     }, cancellationToken);
 
@@ -115,7 +115,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             ? dumps.Heap(session, await sessions!.ClrAsync(session, cancellationToken), mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken)
             : await HeapOfDump(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
         var header = $"{r.Dump}: {r.Walked:N0} objects walked, {r.MatchedBytes:N0} bytes matching{(r.Type != null ? $" type {r.Type}" : "")}{(minSize > 0 ? $" of at least {minSize} bytes" : "")}\n" +
-                     string.Concat(r.Notes.Select(n => $"note: {n}\n"));
+                     string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.HeapRow, page => r with { Items = page }, r.Mode == "stats" ? "type" : "object", header, r.TotalExact);
     }, cancellationToken);
 
@@ -178,7 +178,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         var h = read.Head;
         offset = Math.Clamp(offset, 0, read.Data.Length);
         string header = $"{h.Dump} {h.Address}: {h.Length:N0} of {h.Requested:N0} bytes, {h.Source}" + (h.Location != null ? $", at {h.Location}" : "") +
-                        (h.Region != null ? $", captured {h.Region}" : "") + (h.Protection != null ? $", {h.Protection}" : "") + "\n" + (h.Note != null ? $"note: {h.Note}\n" : "");
+                        (h.Region != null ? $", captured {h.Region}" : "") + (h.Protection != null ? $", {h.Protection}" : "") + "\n" + (h.Note != null ? $"Note: {h.Note}\n" : "");
         (string Text, MinidumpService.MemoryRead Record) Page(int end)
         {
             var text = header + MinidumpService.HexDump(read.Va + (ulong)offset, read.Data.AsSpan(offset, end - offset), read.Is64);

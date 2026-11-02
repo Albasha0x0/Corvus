@@ -381,7 +381,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         gate.SetResult();
         await Settled(engines, native);
         var row = Assert.Single(report.Engines, e => e.State == "opening");
-        Assert.Contains("next: get_engine_status image=", text);
+        Assert.Contains("Next: get_engine_status image=", text);
         Assert.True(row.ExpectedSeconds > 0, "the default rate stands in without earlier opens");
         Assert.True(row.RemainingSeconds > 0);
         var job = Assert.IsType<NativeEngineStatusTools.EngineJob>(row.Job);

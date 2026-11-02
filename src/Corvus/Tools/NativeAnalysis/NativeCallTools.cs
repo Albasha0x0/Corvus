@@ -300,7 +300,7 @@ public sealed class NativeCallTools(NativeCodeService code, NativeEngineService?
         if (set.Imports.Count > 40) sb.AppendLine($"  ... {set.Imports.Count - 40} more");
         if (set.Modules.Count > 0)
             sb.AppendLine("Modules loaded or looked up by name: " + string.Join(", ", set.Modules.Select(m => m.Module).Distinct(StringComparer.OrdinalIgnoreCase).Take(40)));
-        foreach (var n in set.Notes.Take(10)) sb.AppendLine("  note: " + n);
+        foreach (var n in set.Notes.Take(10)) sb.AppendLine("Note: " + n);
         return sb.ToString();
     }
 

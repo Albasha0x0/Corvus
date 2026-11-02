@@ -61,7 +61,7 @@ public sealed class ResourceService
             if (outputPath != null) outputPath = SafeFile.WriteAllBytes(outputPath, data, overwrite);
             var sb = new StringBuilder($"{er.Name}: .resources container with {set.ResourceElements.Count()} entries");
             if (outputPath != null) sb.Append($" (raw container saved to {outputPath})");
-            sb.AppendLine().AppendLine("Pass entry=<name> to read or save one entry.").AppendLine();
+            sb.AppendLine().AppendLine("Next: pass entry=<name> to read or save one entry.").AppendLine();
             foreach (var el in set.ResourceElements.OrderBy(e => e.Name, StringComparer.Ordinal))
                 sb.AppendLine($"  {el.Name}  [{DescribeType(el.ResourceData)}]  {Preview(el.ResourceData)}");
             return sb.ToString();

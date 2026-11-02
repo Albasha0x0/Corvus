@@ -131,7 +131,7 @@ public sealed class DumpUnbackedTests : IDisposable
         using var service = new MinidumpService();
         var text = await new MinidumpTools(service).OpenMinidump(Dump(), "memory", regionFilter: "unbacked");
         Assert.Contains("[noteworthy unbacked, PE header]", text);
-        Assert.Contains("note: 5 executable region(s) with no image: 1 noteworthy", text);
+        Assert.Contains("Note: 5 executable region(s) with no image: 1 noteworthy", text);
     }
 
     [YaraFact]

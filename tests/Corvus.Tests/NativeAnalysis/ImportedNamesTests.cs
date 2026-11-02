@@ -63,7 +63,7 @@ public class ImportedNamesTests(ITestOutputHelper output)
         await using (var first = await McpProtocolTests.StartServerInAsync(dir.Path, "--load", Env.FixturePath))
         {
             Assert.Contains("saved: reapplied when this file loads again", await Call(first, "load_pdb", new() { ["image"] = image, ["path"] = syms }));
-            Assert.Contains("Saved with the image's annotations", await Call(first, "apply_metadata_names", new() { ["image"] = "tiny.dll", ["assembly"] = "TestFixture" }));
+            Assert.Contains("saved with the image's annotations", await Call(first, "apply_metadata_names", new() { ["image"] = "tiny.dll", ["assembly"] = "TestFixture" }));
             var listed = await Call(first, "list_native_edits", new() { ["image"] = "tiny.dll" });
             Assert.Contains("saved for the next load", listed);
             Assert.DoesNotContain("restored on load", listed);
