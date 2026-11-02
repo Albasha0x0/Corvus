@@ -106,12 +106,12 @@ public static partial class EvidenceBundle
         {
             var bundle = JsonSerializer.Deserialize<Bundle>(File.ReadAllText(full), Json);
             if (bundle?.Format != FormatName || bundle.Records == null)
-                throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a {FormatName} bundle.", "pass a file written by read_result format=evidence");
+                throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a {FormatName} bundle.", "pass a file written by read_result id=<resultId> format=evidence");
             return bundle;
         }
         catch (JsonException e)
         {
-            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not an evidence bundle: {e.Message}", "pass a file written by read_result format=evidence");
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not an evidence bundle: {e.Message}", "pass a file written by read_result id=<resultId> format=evidence");
         }
     }
 

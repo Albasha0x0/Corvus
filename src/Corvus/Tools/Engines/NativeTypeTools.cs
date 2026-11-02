@@ -470,7 +470,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var (native, rva, session) = await Open(image, function, engine, progress, ct);
         var frame = await session.GetFrameAsync(rva, true, ct);
         var arg = frame.Locals.FirstOrDefault(l => l.Name == request.Target || (request.Stack != null && l.Stack == request.Stack))
-            ?? throw new ToolError(ErrorCode.NotFound, $"The function has no local {local}.", "get_native_frame locals=true lists them");
+            ?? throw new ToolError(ErrorCode.NotFound, $"The function has no local {local}.", "get_native_frame function=<address> locals=true lists them");
         if (!arg.IsArgument) throw new ToolError(ErrorCode.InvalidArgument, $"{arg.Name} is not an argument; storage applies to arguments.", "pass an argument's name");
         var kept = (code?.Annotations(native).UserTypes ?? UserTypeLayer.Empty).LocalEdit(rva, request.Target, request.Stack);
         var edit = new NativeLocalEdit(rva, request.Target, request.Stack, request.Name, request.Type) { Storage = storage };

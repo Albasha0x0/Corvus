@@ -386,10 +386,10 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         if (runtimes.FirstOrDefault(r => r.Family == "aot") is { } aot)
             return new ToolError(ErrorCode.Unsupported,
                 $"{full} is an AOT build ({string.Join(", ", aot.Evidence.Take(2))}): its C# is native code, with no .NET assemblies to map.",
-                $"load_assembly path={full} reads the C# types from the metadata; search_strings finds Java class names passed to AndroidJavaClass; get_dex_class path={full} shows the Java side")
+                $"load_assembly path={full} reads the C# types from the metadata; search_strings finds Java class names passed to AndroidJavaClass; get_dex_class path={full} class=<Lname;> shows the Java side")
             { Details = new { reason = "aot" } };
         return new ToolError(ErrorCode.NotFound, $"{full} has no .NET assemblies: a Java-only package has no .NET side.",
-            $"get_dex_class path={full} and decompile_java read its Java classes");
+            $"get_dex_class path={full} class=<Lname;> and decompile_java read its Java classes");
     }
 
     private static Index BuildIndex(List<Source> sources, List<string> notes, CancellationToken ct)
