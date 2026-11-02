@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using Corvus.Core;
+using Corvus.Core.Firmware;
 
 namespace Corvus.Services.Analysis;
 
@@ -26,17 +27,47 @@ internal static class WebGlBuild
         foreach (var d in new[] { dir, Path.Combine(dir, "Build") }.Where(Directory.Exists))
         {
             var files = Directory.EnumerateFiles(d).Take(256).ToList();
-            var data = File.Exists(full) && IsData(full) ? full : files.FirstOrDefault(IsData);
+            var data = File.Exists(full) && IsData(full) ? full : files.FirstOrDefault(f => IsData(f) && LooksPacked(f));
             if (data == null) continue;
             return new Build(data, files.FirstOrDefault(f => Path.GetFileName(f).Contains(".wasm", StringComparison.OrdinalIgnoreCase)));
         }
         return null;
     }
 
+    /// <summary>
+    /// The .data files of a folder (or its Build folder) that are not read,
+    /// each with the reason; empty for a file or a folder without any.
+    /// </summary>
+    public static List<(string File, string Reason)> NotWebData(string full)
+    {
+        if (!Directory.Exists(full)) return [];
+        return [.. new[] { full, Path.Combine(full, "Build") }.Where(Directory.Exists)
+            .SelectMany(d => Directory.EnumerateFiles(d).Take(256)).Where(f => IsData(f) && !LooksPacked(f))
+            .Select(f => (f, ReadableHead(f) ? "not WebPlayerData, gzip or Brotli data." : "the file cannot be read."))];
+    }
+
+    private static bool ReadableHead(string file)
+    {
+        try { File.OpenHandle(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete).Dispose(); return true; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     private static bool IsData(string f)
     {
         var name = Path.GetFileName(f).ToLowerInvariant();
         return name.EndsWith(".data") || name.EndsWith(".data.gz") || name.EndsWith(".data.br") || name.EndsWith(".data.unityweb");
+    }
+
+    /// <summary>
+    /// True when a .data file starts with the table or gzip magic, or is named
+    /// as Brotli (which has no magic); an unreadable file is false.
+    /// </summary>
+    private static bool LooksPacked(string file)
+    {
+        var name = file.ToLowerInvariant();
+        if (name.EndsWith(".br") || name.EndsWith(".unityweb")) return true;
+        var head = BuildSummary.ReadHead(file, 300);
+        return FirmwareSignatures.Holds(head, long.MaxValue, "WebPlayerData table") || head is [0x1F, 0x8B, ..];
     }
 
     /// <summary>The extracted build folder; <paramref name="notes"/> gets the code's facts.</summary>
@@ -77,7 +108,7 @@ internal static class WebGlBuild
     /// <summary>gzip by its magic, the plain table, else brotli (the build writes no brotli magic).</summary>
     private static byte[] Decompress(byte[] raw, string file)
     {
-        if (raw.AsSpan().StartsWith("UnityWebData"u8) || WasmModule.IsWasm(raw)) return raw;
+        if (FirmwareSignatures.Holds(raw, long.MaxValue, "WebPlayerData table") || WasmModule.IsWasm(raw)) return raw;
         try
         {
             using Stream inner = raw.Length > 2 && raw[0] == 0x1F && raw[1] == 0x8B

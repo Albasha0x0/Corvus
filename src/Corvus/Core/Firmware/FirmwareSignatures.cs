@@ -134,6 +134,7 @@ internal static class FirmwareSignatures
             ? Sized(w, at, 32 + (long)w.Le64(at + 12) + (long)w.Le64(at + 20), $"version 0.{w.U8(at + 7)}") : null));
         list.Add(S("Microsoft cabinet", Arc, "MSCF", (w, at) => w.Le32(at + 4) == 0 && w.U8(at + 25) == 1 && w.U8(at + 24) == 3 ? Sized(w, at, w.Le32(at + 8), $"{w.Le16(at + 28)} files") : null));
         list.Add(S("ar archive", Arc, "!<arch>\n", Ar));
+        list.Add(S("WebPlayerData table", Arc, "UnityWebData1.0\0", WebPlayerData));
         list.Add(S("RPM package", Arc, [0xED, 0xAB, 0xEE, 0xDB], (w, at) => w.U8(at + 4) is 3 or 4 && w.Be16(at + 6) <= 1 && w.Printable(at + 10, 1) ? Found($"'{w.Ascii(at + 10, 66)}'") : null));
         list.Add(S("xar archive", Arc, "xar!", (w, at) => w.Be16(at + 4) >= 28 && w.Be16(at + 6) == 1 ? Found() : null));
         list.Add(S("ARJ archive", Arc, [0x60, 0xEA], (w, at) => w.Le16(at + 2) is > 0 and <= 2600 && w.U8(at + 4) is >= 30 and < 64 && w.U8(at + 10) == 2 ? Found() : null));
@@ -308,6 +309,14 @@ internal static class FirmwareSignatures
     }
 
     // The frame header, then chained block headers that fit the file.
+    // The header length covers the first entry's name; its data starts after the header.
+    private static (long? Size, string? Detail)? WebPlayerData(Window w, int at)
+    {
+        uint header = w.Le32(at + 16), nameLength = w.Le32(at + 28);
+        if (header == 20) return Found();
+        return header > 20 && w.Fits(at, header) && w.Le32(at + 20) >= header && nameLength is >= 1 and <= 255 && header >= 32 + nameLength ? Found() : null;
+    }
+
     private static (long? Size, string? Detail)? Zstd(Window w, int at)
     {
         int fhd = w.U8(at + 4);

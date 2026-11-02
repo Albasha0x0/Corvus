@@ -117,12 +117,27 @@ public static class BuildSummary
 
         string? package = null;
         var webNotes = new List<string>();
+        bool webRead = false;
         if (WebGlBuild.Find(full) is { } web)
         {
-            package = web.Data;
-            full = WebGlBuild.Extract(web, Path.GetFullPath(AotBuildLoader.DefaultRoot), webNotes, ct);
+            // A folder's unreadable .data file is skipped with a note.
+            // A file given directly is the input and fails.
+            try
+            {
+                var extracted = WebGlBuild.Extract(web, Path.GetFullPath(AotBuildLoader.DefaultRoot), webNotes, ct);
+                package = web.Data;
+                full = extracted;
+                webRead = true;
+            }
+            catch (ToolError e) when (Directory.Exists(full) && e.Code is ErrorCode.MalformedInput or ErrorCode.LimitExceeded)
+            {
+                webNotes.Add($"Skipped {web.Data}: {e.Message}");
+            }
         }
-        else if (AotPackages.IsPlayerPackage(full))
+        if (!webRead)
+            foreach (var (other, why) in WebGlBuild.NotWebData(full))
+                webNotes.Add($"Skipped {other}: {why}");
+        if (!webRead && AotPackages.IsPlayerPackage(full))
         {
             // Packages and zip archives: the build files the overview reads are extracted to a short cache path.
             package = full;
@@ -134,7 +149,7 @@ public static class BuildSummary
             $"{full} is not a build (no UnityPlayer, libunity, GameAssembly or data folder in it or 4 folders above): reason not_a_build.",
             "pass the application folder (the one with the executable), its <Product>_Data folder, UnityPlayer.dll or GameAssembly.dll")
         {
-            Details = new { reason = "not_a_build", path = full, lookedFor = LookedFor },
+            Details = new { reason = "not_a_build", path = full, lookedFor = LookedFor, skipped = webNotes },
         };
         var notes = new List<string>(layout.Notes);
         notes.AddRange(webNotes);

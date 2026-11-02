@@ -50,6 +50,78 @@ public sealed class BuildSummaryTests : IDisposable
         return folder;
     }
 
+    // A .data file is not assumed to be WebPlayerData by its extension.
+    [Fact]
+    public void An_unreadable_data_file_is_skipped_with_a_note_and_the_summary_goes_on()
+    {
+        var folder = MonoSample(_dir, "SkipApp");
+        File.WriteAllBytes(Path.Combine(folder, "bad.data"), [1, 2, 3, 4, 5, 6, 7, 8]);
+        File.WriteAllBytes(Path.Combine(folder, "gz.data"), [0x1F, 0x8B, 8, 0, 9, 9, 9, 9, 9, 9]);
+        var report = BuildSummary.Inspect(folder, false, default);
+        Assert.Equal("windows", report.Platform);
+        Assert.Contains(report.Notes, n => n.StartsWith("Skipped ") && n.Contains("bad.data"));
+        Assert.Contains(report.Notes, n => n.StartsWith("Skipped ") && n.Contains("gz.data"));
+    }
+
+    private static readonly string[] SkippedNames = ["bad.dll", "bad.exe"];
+
+    private static readonly string[] CorruptNames = ["bad.data", "bad.dll", "bad.exe", "bad.so", "bad.dat", "bad.zip", "bad.apk", "bad.assets", "bad.unity3d", "bad.pak", "bad.wasm", "bad.json"];
+
+    // One corrupt file of each reader kind sits beside a valid build.
+    private string CorruptSample(string name)
+    {
+        var folder = MonoSample(_dir, name);
+        foreach (var file in CorruptNames) File.WriteAllBytes(Path.Combine(folder, file), [0x50, 0x4B, 3, 4, 0xFF, 0xFF, 0xFF, 0xFF, 1, 2, 3]);
+        return folder;
+    }
+
+    [Fact]
+    public void Summarize_build_names_the_skipped_file_among_corrupt_ones_of_every_reader_kind()
+    {
+        var notes = BuildSummary.Inspect(CorruptSample("CatalogBuild"), false, default).Notes;
+        Assert.Contains(notes, n => n.StartsWith("Skipped ") && n.Contains("bad.data") && n.Contains("not WebPlayerData"));
+    }
+
+    [Fact]
+    public void Load_assembly_on_a_folder_names_each_corrupt_assembly_it_skipped()
+    {
+        using var workspace = new AssemblyWorkspace();
+        var load = workspace.LoadDirectory(CorruptSample("CatalogLoad"), false);
+        Assert.Contains(load.Skipped, s => s.Path.EndsWith("bad.dll") && s.Error.Length > 0);
+        Assert.Contains(load.Skipped, s => s.Path.EndsWith("bad.exe") && s.Error.Length > 0);
+    }
+
+    [Fact]
+    public void Summarize_file_on_a_folder_names_the_skipped_files()
+    {
+        using var workspace = new AssemblyWorkspace();
+        var summary = new InspectionService(workspace).Summarize(null, CorruptSample("CatalogSummary"), default);
+        foreach (var name in SkippedNames) Assert.Contains(summary.Notes, n => n.StartsWith(name) && n.Contains("not read"));
+    }
+
+    // The .wasm keeps the Webcil magic with its section count zeroed.
+    [Fact]
+    public void List_assemblies_on_a_Blazor_folder_names_a_damaged_assembly_and_lists_the_rest()
+    {
+        var framework = Path.Combine(_dir.Path, "BlazorSkip", "_framework");
+        Directory.CreateDirectory(framework);
+        File.WriteAllBytes(Path.Combine(framework, "Good.wasm"), WebcilTests.ToWasm(File.ReadAllBytes(Env.FixturePath)));
+        var damaged = WebcilTests.ToWasm(File.ReadAllBytes(Env.FixturePath));
+        damaged[damaged.AsSpan().IndexOf("WbIL"u8) + 8] = 0;
+        File.WriteAllBytes(Path.Combine(framework, "Damaged.wasm"), damaged);
+        using var workspace = new AssemblyWorkspace();
+        var listing = new UnpackService(workspace).List(framework, AnalysisLimits.Default, default);
+        Assert.NotEmpty(listing.Assemblies);
+        Assert.Contains(listing.Notes, n => n.StartsWith("Skipped ") && n.Contains("Damaged.wasm"));
+    }
+
+    [Fact]
+    public void Compare_folders_lists_each_corrupt_file_of_every_reader_kind()
+    {
+        var compared = new FolderCompare().Compare(CorruptSample("CatalogOld"), CorruptSample("CatalogNew"), "all", null, null, 1000, 0, 2000, null, default);
+        foreach (var name in CorruptNames) Assert.Contains(compared.Entries, e => (e.NewPath ?? e.OldPath)!.EndsWith(name));
+    }
+
     // The fixture marks a 70-method type with XLua.HotfixAttribute, one method
     // with IFix.PatchAttribute and a HarmonyPatch type with Prefix and Helper.
     [Fact]

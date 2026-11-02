@@ -77,7 +77,6 @@ src/Corvus/Services/Analysis/InstallerFileView.cs = 1
 src/Corvus/Services/Analysis/PlistFileView.cs = 1
 src/Corvus/Services/Analysis/PythonFileView.cs = 2
 src/Corvus/Services/Analysis/RustFileView.cs = 1
-src/Corvus/Services/Analysis/WebGlBuild.cs = 1
 src/Corvus/Services/AotBuild/AotPackages.cs = 1
 src/Corvus/Services/Dotnet/XbfReader.cs = 1
 src/Corvus/Services/Web/Packages/AssetReview.cs = 6

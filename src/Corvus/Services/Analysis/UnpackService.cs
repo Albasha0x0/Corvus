@@ -579,14 +579,29 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
-            var bytes = File.ReadAllBytes(file);
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(file); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                notes.Add($"Skipped {Path.GetFileName(file)}: {ex.Message}");
+                continue;
+            }
             if (found.Count >= limits.MaxItems || (total += bytes.Length) > limits.MaxTotalBytes)
             {
                 notes.Add(AnalysisLimits.Reached(limits, found.Count, files.Count - files.IndexOf(file)));
                 break;
             }
             bool named = manifest != null && (manifest.Contains(Path.GetFileName(file)) || manifest.Contains(Webcil.Integrity(bytes)));
-            foreach (var item in Containers.Open(bytes, file, limits, ct).Items)
+            ContainerContents opened;
+            try { opened = Containers.Open(bytes, file, limits, ct); }
+            catch (ToolError ex)
+            {
+                notes.Add($"Skipped {Path.GetFileName(file)}: {ex.Message}");
+                continue;
+            }
+            if (opened.Items.Count == 0)
+                notes.AddRange(opened.Notes.Select(n => $"Skipped {Path.GetFileName(file)}: {n}"));
+            foreach (var item in opened.Items)
             {
                 var itemSha = Blob.Sha256(item.Bytes);
                 var entry = new Found(item.Name, item.Bytes, DotNet, itemSha, Path.GetFileName(file));
