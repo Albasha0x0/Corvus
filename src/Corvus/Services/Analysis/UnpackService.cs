@@ -70,6 +70,13 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         string? keyLog = null, string? password = null) =>
         Finish(Extract(path, outputDirectory, limits, ct, progress, keyLog, password), load, progress);
 
+    // Asset bundles and serialized files hold typed objects, not text: only
+    // view=assets reads them.
+    private static string NotAContainerNext(string source, byte[]? data) =>
+        data != null && (Core.Assets.AssetBundle.IsBundle(data) || Core.Assets.SerializedFile.IsSerializedFile(data, data.Length))
+            ? $"summarize_file path={source} view=assets lists the asset objects and their fields"
+            : $"extract_strings path={source} lists the text the file holds";
+
     /// <summary>A container's files written to disk and not loaded: in walk order, with the input's kind for the next call.</summary>
     public sealed record Extraction(string Source, string Container, string Kind, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes);
 
@@ -99,7 +106,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
         if (walked.Container == "none" && walked.Items.Count == 0 && kind != DotNet && !NativeKinds.Contains(kind))
             throw new ToolError(ErrorCode.Unsupported, $"{source} is not a known container ({kind}): nothing to unpack.",
-                $"extract_strings path={source} lists the text the file holds");
+                NotAContainerNext(source, data));
         var root = PrepareOutput(outputDirectory ?? DefaultOutput(source, sha), source, sha);
         var notes = walked.Notes;
         var files = new List<UnpackedFile>();

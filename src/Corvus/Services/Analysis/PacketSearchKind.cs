@@ -88,7 +88,7 @@ internal sealed class PacketSearchKind : IContainerSearchKind
         if (run.StartError != null) throw new ToolError(ErrorCode.Unsupported, $"TShark could not be started: {run.StartError}.", ExternalTools.Remediation(tool));
         if (run.StalledAt is { } reached)
             throw new ToolError(ErrorCode.Timeout, $"TShark was stopped: no output for {ServerOptions.StallWindow().TotalSeconds:0.###} s and under 1% of a core after {reached:N0} bytes.",
-                $"repeat the same search_container kind=packet call, narrow the filter to in-process fields, or raise {ServerOptions.StallWindowVariable} (seconds without progress)");
+                $"repeat the same search_container kind=packet query=<filter> call, narrow the filter to in-process fields, or raise {ServerOptions.StallWindowVariable} (seconds without progress)");
         if (run.ExitCode != 0)
         {
             var reason = run.Stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? $"exit code {run.ExitCode}";

@@ -22,7 +22,7 @@ public sealed partial class LiveSessionService
         Live(session);
         NativeOnly(session, "A memory scan");
         if (session.Platform == "darwin")
-            throw new ToolError(ErrorCode.Unsupported, "a live YARA scan is not supported on macOS.", "search_container kind=yara scans the program's files");
+            throw new ToolError(ErrorCode.Unsupported, "a live YARA scan is not supported on macOS.", "search_container kind=yara query=<rules> scans the program's files");
         var dir = Native.Providers.PrivateFolder.Temp("live-yara", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         // The capture holds the program's memory: readable by this user only, and deleted after the scan.
         Native.Providers.PrivateFolder.Create(dir);
@@ -56,7 +56,7 @@ public sealed partial class LiveSessionService
             var notes = new List<string>
             {
                 $"Writable memory: {listed:N0} ranges, {bytes:N0} bytes saved while the program ran; changes meanwhile may be missed. " +
-                "Image code and read-only data are not scanned (search_container kind=yara scans a module's file).",
+                "Image code and read-only data are not scanned (search_container kind=yara query=<rules> scans a module's file).",
             };
             if (unread > 0) notes.Add($"{unread:N0} bytes could not be read (freed or protected meanwhile); they are unknown, not clean.");
             if (left > 0) notes.Add($"{left:N0} ranges past the {MaxCaptureBytes >> 20:N0} MB capture limit were not scanned.");

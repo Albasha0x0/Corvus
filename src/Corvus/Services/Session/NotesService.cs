@@ -238,7 +238,7 @@ public sealed class NotesService(AnnotationStore store)
         var note = new Note(NewId(), CheckKind(kind), CheckStatus(status), CheckText(text), Merge([], tags, null, MaxTags, MaxTagChars, "tag"),
             MergeEvidence([], evidence), anchor, 1, now, now, author, origin);
         if (CountAll() >= MaxTotal)
-            throw new ToolError(ErrorCode.LimitExceeded, $"The note store holds {MaxTotal:N0} notes, its limit.", "update_note status=dropped, or remove note files under " + Root);
+            throw new ToolError(ErrorCode.LimitExceeded, $"The note store holds {MaxTotal:N0} notes, its limit.", "update_note id=<id> expectedRevision=<revision> status=dropped, or remove note files under " + Root);
         Write(anchor.StoreKey, file =>
         {
             if (file.Notes.Count >= MaxPerFile)
@@ -262,7 +262,7 @@ public sealed class NotesService(AnnotationStore store)
             var current = file.Notes[i];
             if (current.Revision != expectedRevision)
                 throw new ToolError(ErrorCode.Conflict, $"Note {id} is at revision {current.Revision}, not {expectedRevision}: it changed since it was read.",
-                    "merge with the current note in details.current and call update_note with its revision")
+                    $"merge with the current note in details.current and call update_note id={id} expectedRevision={current.Revision}")
                 { Details = new { reason = "revision_conflict", current } };
             var text = change.Text != null ? CheckText(change.Text) : current.Text;
             if (!string.IsNullOrWhiteSpace(change.AppendText)) text = CheckText(text + "\n" + change.AppendText.Trim());

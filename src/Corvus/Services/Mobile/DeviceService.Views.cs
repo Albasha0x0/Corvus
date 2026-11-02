@@ -182,7 +182,7 @@ public sealed partial class DeviceService
             var bytes = Check(Run(ExternalTools.Arguments(Adb, "size", ("serial", serial), ("remote", remote)), Short, 4096, ct), $"checking {remote}").Trim();
             if (long.TryParse(bytes, NumberStyles.Integer, CultureInfo.InvariantCulture, out var remoteSize) && remoteSize > MaxBugreportBytes)
                 throw new ToolError(ErrorCode.LimitExceeded, $"the bugreport ({remoteSize >> 20} MB) is over {MaxBugreportBytes >> 20} MB; it stays on the device at {remote}.",
-                    $"pull_android_file remotePath={remote}");
+                    $"pull_android_file remotePath={remote} outputPath=<file>");
             Check(RunLong(ExternalTools.Arguments(Adb, "pull", ("serial", serial), ("remote", remote), ("local", zip)), 1 << 20, $"pulling {remote}", ct, FileBytes(zip)), $"pulling {remote}");
             if (!File.Exists(zip)) throw new ToolError(ErrorCode.IoError, $"adb reported success but wrote nothing for {remote}.");
             using (var f = File.OpenRead(zip)) (size, sha) = (f.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(f)));
