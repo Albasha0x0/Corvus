@@ -104,7 +104,8 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
     // The parsed bundle is cached first; a dedicated thread cancels a quarter
     // into the view's uncancelled time, as a thread-pool timer fires late on
     // a busy 2-core runner (release.yml, v2.10.0). A view that ends before
-    // the cancel is retried; the thread ends before its source is disposed.
+    // the cancel is retried with half the delay, down to 1/64; the thread
+    // ends before its source is disposed.
     [Theory]
     [InlineData("flow", "sinks")]
     [InlineData("secrets", null)]
@@ -119,23 +120,28 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
         await Uncancelled();
         var whole = System.Diagnostics.Stopwatch.StartNew();
         await Uncancelled();
-        var quarter = whole.Elapsed / 4;
+        var elapsed = whole.Elapsed;
         bool cancelled = false;
-        for (int attempt = 0; attempt < 5 && !cancelled; attempt++)
+        var attempts = new List<string>();
+        for (int share = 4; share <= 64 && !cancelled; share *= 2)
         {
+            var delay = elapsed / share;
             var cts = new CancellationTokenSource();
-            var canceller = new Thread(() => { Thread.Sleep(quarter); cts.Cancel(); }) { IsBackground = true };
+            var canceller = new Thread(() => { Thread.Sleep(delay); cts.Cancel(); }) { IsBackground = true };
+            var call = System.Diagnostics.Stopwatch.StartNew();
             canceller.Start();
-            try { await tools.AnalyzeJs(js, view, query: query, cancellationToken: cts.Token); }
-            catch (OperationCanceledException) { cancelled = true; }
-            catch (ToolError) { }
+            string outcome;
+            try { await tools.AnalyzeJs(js, view, query: query, cancellationToken: cts.Token); outcome = "ended"; }
+            catch (OperationCanceledException) { cancelled = true; outcome = "cancelled"; }
+            catch (ToolError e) { outcome = $"error {e.Code}"; }
             finally
             {
                 canceller.Join();
                 cts.Dispose();
             }
+            attempts.Add($"{outcome} in {call.Elapsed.TotalMilliseconds:0.0} ms, cancel at {delay.TotalMilliseconds:0.0} ms");
         }
-        Assert.True(cancelled, $"{view} ended before a cancel {quarter.TotalMilliseconds:0.0} ms in, five times");
+        Assert.True(cancelled, $"{view}, uncancelled {elapsed.TotalMilliseconds:0.0} ms: {string.Join("; ", attempts)}");
     }
 
     // The flow record crosses the worker boundary as JSON with its nested steps and endpoint.
