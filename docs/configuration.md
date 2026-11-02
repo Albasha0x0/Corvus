@@ -305,6 +305,7 @@ the server keeps answering.
 | `CORVUS_REQUIRE_ATTESTATION` | `1`: the install scripts and `update` refuse a build whose provenance `gh` could not check; `0`: skip the provenance and signature checks (self-built archive) |
 | `CORVUS_RELAY_DIR` | staged copies of the [development reload](installation.md#development-reload) relay |
 | `CORVUS_RELAY_TARGET` | set by the relay for its server: the publish folder, which takes no outputs |
+| `CORVUS_RELAY_HOST_HANDOFF` | set by the relay for the newer relay copy it starts, which then starts no further copy |
 | `CORVUS_SESSION` | `NAME`: every `call` routes to the session `serve --session NAME` holds ([cli.md](cli.md#session)) |
 | `CORVUS_LOCK_CHECK` | `1`: a read without the workspace lock fails (development check) |
 | `CORVUS_CLEANUP_LOG` | set: record the decompiler cleanup's rewrite decisions |

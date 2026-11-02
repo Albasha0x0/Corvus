@@ -23,7 +23,7 @@ public static class ConfigFile
         ServerOptions.LiveScriptingVariable, ServerOptions.LiveInstallFridaVariable, ServerOptions.IdaScriptingVariable, ServerOptions.GhidraScriptingVariable,
         ServerOptions.AllowReplaceOriginalVariable, ServerOptions.AllowRemotePathsVariable, ServerOptions.AllowDeviceChangesVariable, ServerOptions.TraceArgsVariable,
         ServerOptions.InProcessParsingVariable, Services.LiveSessionService.MaxMinutesVariable, ServerOptions.AllowWindowCaptureVariable, ServerOptions.FenceFileTextVariable, ServerOptions.RedactOutputVariable,
-        Native.Providers.DataFolder.RootVariable, Variable, Setup.Installation.RepositoryVariable, Relay.RelayBuilds.TargetVariable,
+        Native.Providers.DataFolder.RootVariable, Variable, Setup.Installation.RepositoryVariable, Relay.RelayBuilds.TargetVariable, Relay.RelayHandoff.GuardVariable,
     };
 
     /// <summary>

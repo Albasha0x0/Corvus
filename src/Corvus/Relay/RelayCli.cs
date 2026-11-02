@@ -21,6 +21,8 @@ public static class RelayCli
         if (RelayBuilds.IsInside(AppContext.BaseDirectory, options.Target))
             Console.Error.WriteLine($"corvus relay: running from inside {options.Target}, which other publish tools may fail to overwrite; " +
                                     "run a staged copy: corvus install --dev-reload <publishDir>.");
+        // Run the publish folder's relay code, so fixes reach a registration made earlier.
+        if (RelayHandoff.TryHandOff(options, args, AppContext.BaseDirectory, Console.Error, RelayHandoff.RunInherited) is { } code) return code;
         var relay = new DevRelay(options, Console.OpenStandardInput(), Console.OpenStandardOutput(), Console.Error);
         return relay.RunAsync().GetAwaiter().GetResult();
     }

@@ -286,6 +286,7 @@ The client sees each new build without reconnecting.
 
 - The relay runs from a staged copy under `<LocalAppData>/Corvus/relay` (`CORVUS_RELAY_DIR`) and runs the published
   server as a child.
+- At start, the relay runs the publish folder's own relay code when it differs from the staged copy; register again once to get a copy that does.
 - When a build is stable and no call runs, the relay switches to it, replays the workspace calls that succeeded and sends
   `list_changed`. A build that fails to start keeps the old server.
 - Unsaved edits and engine sessions wait until they are saved or reverted; `relay_apply` switches at once.

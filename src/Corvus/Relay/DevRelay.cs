@@ -69,7 +69,7 @@ public sealed partial class DevRelay : IAsyncDisposable
     private bool _initialized, _swapping, _force, _postponed, _clientSpoke;
     private TaskCompletionSource _swapDone = Done();
     private RelayBuild? _pending;
-    private string? _failedMarker, _postponeNoticeFor, _waitNoticeFor;
+    private string? _failedMarker, _postponeNoticeFor, _waitNoticeFor, _hostNoticeFor, _hostNotice;
     private long _ids;
     private int _generation;
 
@@ -403,6 +403,12 @@ public sealed partial class DevRelay : IAsyncDisposable
                     _waitNoticeFor = _pending.Marker + why;
                     _notices.Add($"new build {_pending.Id} is ready but not applied yet: {why}. It is applied once that clears, or call {ApplyTool}.");
                 }
+                // Last, so the notice of a swap leads.
+                if (_hostNotice != null && result["content"] is JsonArray)
+                {
+                    _notices.Add(_hostNotice);
+                    _hostNotice = null;
+                }
                 if (_notices.Count > 0 && result["content"] is JsonArray content)
                 {
                     content.Insert(0, new JsonObject { ["type"] = "text", ["text"] = string.Join("\n", _notices.Select(n => "[relay] " + n)) + "\n\n" });
@@ -470,6 +476,12 @@ public sealed partial class DevRelay : IAsyncDisposable
                 if (_active == null || marker == _active.Build.Marker || marker == _failedMarker || marker == _pending?.Marker) continue;
                 _pending = RelayBuild.From(marker);
                 _postponed = false;
+                if (_hostNoticeFor != marker && RelayHandoff.Differs(AppContext.BaseDirectory, _options.Target))
+                {
+                    _hostNoticeFor = marker;
+                    _log.WriteLine("corvus relay: the newer build has different relay code; it takes effect at the next connection.");
+                    _hostNotice = "the relay code of the new build differs from this relay; it takes effect at the next connection.";
+                }
             }
             TryBeginSwap();
         }
