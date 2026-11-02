@@ -182,6 +182,35 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Equal(first, await Answer(() => tools.AnalyzeNativeFunction(path, "Main", sections: "flow")));
     }
 
+    [Fact]
+    public async Task The_cut_count_stops_where_the_next_called_function_starts()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            var a = new Assembler(64);
+            var exit = slots["KERNEL32.dll!ExitProcess"];
+            var helper = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.call(helper);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + exit), 8)));
+            // Two pushes and a jump whose displacement bytes begin the called function: 7 bytes decode, 3 are Main's.
+            a.db(0x50);
+            a.db(0x50);
+            a.db(0xE9);
+            a.Label(ref helper);
+            a.db(0xC3, 0x00, 0x00, 0x00);
+            var stream = new MemoryStream();
+            a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text);
+            return stream.ToArray();
+        }
+        var path = _dir.File("bound.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("bound.dll", [("Main", 0)], [("KERNEL32.dll", ["ExitProcess"])], Code));
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, "Main", sections: "flow"));
+        NativeLinkTests.Has(text, "the 3 bytes after it decode as code");
+    }
+
     /// <summary>
     /// cipher.dll: Block reads the AES S-box; Wrapper calls Block in a loop that steps 16 bytes and names a storage
     /// operation; Open and Save call Wrapper.

@@ -222,23 +222,42 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         public DossierSection Record() => new(name, Total, Items, Error);
     }
 
-    /// <summary>Bytes after a no-return call that decode as the body going on, up to a return or jump; null when the call ends the function.</summary>
-    internal static int? CutAfter(NativeCodeIndex index, FunctionGraph graph, BasicBlock call)
+    /// <summary>
+    /// The end of the code a function may own: its unwind end, else the next referenced function, else the section end;
+    /// <see cref="uint.MaxValue"/> when the image places the address in no section.
+    /// </summary>
+    internal static uint BodyLimit(INativeImage image, NativeCodeIndex index, NativeFunction f)
+    {
+        if (UnwindFrames.Of(image, f.Start) is { } bounds && bounds.End > f.Start) return bounds.End;
+        var functions = index.Functions;
+        int lo = 0, hi = functions.Count - 1;
+        while (lo < hi) { int mid = (lo + hi) >>> 1; if (functions[mid].Start <= f.Start) lo = mid + 1; else hi = mid; }
+        for (int i = lo, seen = 0; i < functions.Count && seen < 64; i++, seen++)
+            if (functions[i].Start > f.Start && index.CountRefsTo(functions[i].Start) > 0) return functions[i].Start;
+        return image.SectionAt(f.Start) is { } section ? section.Rva + section.MappedSize : uint.MaxValue;
+    }
+
+    /// <summary>
+    /// Bytes after a no-return call that decode as the body going on, up to a return or jump or <paramref name="limit"/>;
+    /// null when the call ends the function.
+    /// </summary>
+    internal static int? CutAfter(NativeCodeIndex index, FunctionGraph graph, BasicBlock call, uint limit = uint.MaxValue)
     {
         uint after = call.End;
+        if (after >= limit) return null;
         // A function discovered there that nothing references is the same code split off.
         if (graph.BlockAt(after) != null || index.FunctionAt(after) is { } next && (next.Start != after || index.CountRefsTo(after) > 0)) return null;
         var bytes = new byte[8];
         int read = index.Image.Read(after, bytes);
         if (read < 4 || bytes.Take(read).All(b => b is 0xCC or 0x90 or 0x00)) return null;
-        var lines = new NativeDisassembler(index.Image).Disassemble(after, 16, after + 128);
+        var lines = new NativeDisassembler(index.Image).Disassemble(after, 16, Math.Min(after + 128, limit));
         int n = 0;
         foreach (var l in lines)
         {
             n++;
             if (l.Facts.Flow is FlowKind.Invalid or FlowKind.Trap) return null;
             if (l.Facts.Flow is FlowKind.Return or FlowKind.Jump or FlowKind.IndirectJump)
-                return n >= 2 ? (int)(l.Rva + (uint)l.Facts.Length - after) : null;
+                return n >= 2 ? (int)(Math.Min(l.Rva + (uint)l.Facts.Length, limit) - after) : null;
         }
         return null;
     }
@@ -525,7 +544,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             foreach (var b in graph.Blocks.Where(b => b.EndKind == BlockEnd.NoReturnCall))
             {
                 x.Add(Va(b.LastInstruction), "call that does not return", "noreturn");
-                if (CutAfter(index, graph, b) is { } cut)
+                // Code past the function's end belongs to the next function.
+                if (CutAfter(index, graph, b, BodyLimit(image, index, f)) is { } cut)
                 {
                     var callee = index.Callees(f).FirstOrDefault(c => c.From == b.LastInstruction) is { } site
                         ? site.Import != null ? NativeCodeIndex.ImportName(site.Import) : site.Function?.Name ?? Va(site.Target) : "its callee";
