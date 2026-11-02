@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,7 +10,16 @@ public static class ResultHashes
 {
     private const int MaxRecent = 1_000;
 
-    private static readonly ConcurrentDictionary<(string Tool, string Args), string> Recent = new();
+    // Calls with larger arguments, such as patch bodies, are not remembered.
+    private const int MaxArgsChars = 16_384;
+
+    // Arguments that only size or page a result; a call may carry them beyond the evidence.
+    private static readonly HashSet<string> SizeArgs = new(StringComparer.Ordinal)
+    {
+        "limit", "offset", "maxTokens", "maxInstructions", "maxResults", "maxBytes", "maxDepth", "waitSeconds",
+    };
+
+    private static readonly List<(string Tool, string Canonical, Dictionary<string, string> Members, string Result)> Recent = [];
 
     private static readonly JsonSerializerOptions Compact = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -28,14 +36,47 @@ public static class ResultHashes
 
     public static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
-    /// <summary>Records a successful call: <paramref name="argsSha256"/> is the SHA-256 of its canonical arguments.</summary>
-    public static void Remember(string tool, string argsSha256, string resultSha256)
+    /// <summary>Records a successful call with its arguments and result hash; arguments over 16,384 characters are not kept.</summary>
+    public static void Remember(string tool, JsonNode? args, string resultSha256)
     {
-        // A bounded memory of this process's calls, not a cache that must hold everything.
-        if (Recent.Count >= MaxRecent) Recent.Clear();
-        Recent[(tool, argsSha256)] = resultSha256;
+        var call = args as JsonObject ?? new JsonObject();
+        var canonical = Canonical(call);
+        if (canonical.Length > MaxArgsChars) return;
+        var members = Members(call);
+        lock (Recent)
+        {
+            // A bounded memory of this process's calls, not a cache that must hold everything.
+            if (Recent.Count >= MaxRecent) Recent.RemoveRange(0, MaxRecent / 2);
+            Recent.Add((tool, canonical, members, resultSha256));
+        }
     }
 
-    /// <summary>The resultSha256 of this process's latest successful call of <paramref name="tool"/> with these arguments, or null.</summary>
-    public static string? Latest(string tool, JsonNode? args) => Recent.GetValueOrDefault((tool, Sha256(Canonical(args ?? new JsonObject()))));
+    /// <summary>
+    /// The resultSha256 of this process's newest successful call of <paramref name="tool"/> with arguments identical to
+    /// <paramref name="args"/>, else the newest whose extra arguments are only size or paging ones (limit, offset,
+    /// maxTokens, maxInstructions and the like); null when none. Empty arguments match only a call without arguments.
+    /// </summary>
+    public static string? Latest(string tool, JsonNode? args)
+    {
+        var wanted = args as JsonObject ?? new JsonObject();
+        var exact = Canonical(wanted);
+        var wantedMembers = Members(wanted);
+        lock (Recent)
+        {
+            for (int i = Recent.Count - 1; i >= 0; i--)
+                if (Recent[i].Tool == tool && Recent[i].Canonical == exact) return Recent[i].Result;
+            if (wantedMembers.Count == 0) return null;
+            for (int i = Recent.Count - 1; i >= 0; i--)
+            {
+                var call = Recent[i].Members;
+                if (Recent[i].Tool != tool) continue;
+                if (wantedMembers.All(w => call.TryGetValue(w.Key, out var v) && v == w.Value)
+                    && call.Keys.All(k => wantedMembers.ContainsKey(k) || SizeArgs.Contains(k)))
+                    return Recent[i].Result;
+            }
+        }
+        return null;
+    }
+
+    private static Dictionary<string, string> Members(JsonObject args) => args.ToDictionary(p => p.Key, p => Canonical(p.Value), StringComparer.Ordinal);
 }

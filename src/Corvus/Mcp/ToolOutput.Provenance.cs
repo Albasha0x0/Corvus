@@ -49,7 +49,7 @@ public static partial class ToolOutput
         // An error is no result to verify: what was asked of which inputs is its provenance.
         if (result.IsError == true) return p;
         p["resultSha256"] = resultSha256 ?? ResultSha256(result);
-        ResultHashes.Remember(tool, ResultHashes.Sha256(ResultHashes.Canonical(args == null ? new JsonObject() : JsonSerializer.SerializeToNode(args))), (string)p["resultSha256"]!);
+        ResultHashes.Remember(tool, args == null ? null : JsonSerializer.SerializeToNode(args), (string)p["resultSha256"]!);
         p["coverage"] = call.Coverage?.Status ?? (call.Whole || !ToolContract.ScanOutput.Contains(tool) ? "complete" : "unknown");
         if (call.Facets is { Count: > 0 } facets) p["facets"] = Facets(facets);
         if (call.Coverage is { Limitations.Count: > 0 } c)

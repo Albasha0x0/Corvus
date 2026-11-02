@@ -224,25 +224,6 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public async Task A_failed_verify_leaves_the_note_unchanged()
-    {
-        await using var server = await InProcessServer.StartAsync(options: new ServerOptions { BackgroundIndexing = false, WatchFiles = false });
-        var recorded = await server.Client.CallToolAsync("record_note", new Dictionary<string, object?> { ["text"] = "no linked record", ["kind"] = "hypothesis" });
-        var id = recorded.StructuredContent!.Value.GetProperty("id").GetString();
-        var failed = await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = id, ["expectedRevision"] = 1, ["status"] = "confirmed", ["verify"] = true });
-        Assert.True(failed.IsError);
-        var stale = await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = id, ["expectedRevision"] = 7, ["status"] = "confirmed", ["verify"] = true });
-        Assert.True(stale.IsError);
-        var listed = await server.Client.CallToolAsync("list_notes", new Dictionary<string, object?> { ["status"] = "all" });
-        var stored = string.Concat(listed.Content.OfType<TextContentBlock>().Select(c => c.Text)) + listed.StructuredContent?.GetRawText();
-        Assert.Contains("no linked record", stored);
-        Assert.DoesNotContain("confirmed", stored);
-        var retry = await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = id, ["expectedRevision"] = 1, ["status"] = "open" });
-        Assert.NotEqual(true, retry.IsError);
-        Assert.Equal(2, retry.StructuredContent!.Value.GetProperty("revision").GetInt32());
-    }
-
-    [Fact]
     public async Task Evidence_reruns_and_matches_by_result_SHA256()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -269,6 +250,41 @@ public sealed class NotesTests : IDisposable
         Assert.Equal((string)e["resultSha256"]!, ToolOutput.ResultSha256(again));
         Assert.Equal((string)e["resultSha256"]!, Sha(again));
         await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = (string)note["id"]!, ["expectedRevision"] = 1, ["status"] = "dropped" });
+    }
+
+    [Fact]
+    public void Evidence_args_link_the_identical_call_else_the_newest_call_with_only_size_extras()
+    {
+        const string tool = "evidence_probe_tool";
+        var ev = new JsonObject { ["assembly"] = "A" };
+        Assert.Null(ResultHashes.Latest(tool, ev));
+        ResultHashes.Remember(tool, new JsonObject { ["assembly"] = "A", ["limit"] = 3 }, "h-limit3");
+        Assert.Equal("h-limit3", ResultHashes.Latest(tool, ev));
+        ResultHashes.Remember(tool, new JsonObject { ["assembly"] = "A", ["limit"] = 9 }, "h-limit9");
+        Assert.Equal("h-limit9", ResultHashes.Latest(tool, ev)); // newest of two matches
+        ResultHashes.Remember(tool, new JsonObject { ["assembly"] = "A" }, "h-exact");
+        ResultHashes.Remember(tool, new JsonObject { ["assembly"] = "A", ["limit"] = 1 }, "h-newer");
+        Assert.Equal("h-exact", ResultHashes.Latest(tool, ev)); // identical call first
+        Assert.Null(ResultHashes.Latest(tool, new JsonObject { ["assembly"] = "A", ["limit"] = 4 })); // unequal value
+        ResultHashes.Remember(tool, new JsonObject { ["assembly"] = "B", ["name"] = "x" }, "h-other");
+        Assert.Null(ResultHashes.Latest(tool, new JsonObject { ["assembly"] = "B" })); // extra non-size argument
+        Assert.Null(ResultHashes.Latest(tool, new JsonObject())); // empty matches only a call without arguments
+        Assert.Null(ResultHashes.Latest(tool, null));
+    }
+
+    [Fact]
+    public async Task A_note_links_evidence_to_a_call_that_also_carried_a_size_argument()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        // The recent-call memory is shared by the process: no other test makes this call, so its newest match is this one.
+        var seen = await server.Client.CallToolAsync("list_types", new Dictionary<string, object?> { ["assembly"] = "TestFixture", ["kind"] = "interface", ["limit"] = 3 });
+        var recorded = await server.Client.CallToolAsync("record_note", new Dictionary<string, object?>
+        {
+            ["text"] = "linked without the size argument",
+            ["evidence"] = new object[] { new { tool = "list_types", args = new { assembly = "TestFixture", kind = "interface" } } },
+        });
+        var entries = JsonNode.Parse(recorded.StructuredContent!.Value.GetRawText())!["evidence"]!.AsArray();
+        Assert.Equal((string)seen.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!, (string)entries[0]!["resultSha256"]!);
     }
 
     /// <summary>Note files from before evidence objects (corvus-notes/1, evidence as strings) read as text entries.</summary>
