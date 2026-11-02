@@ -14,6 +14,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     {
         if (string.IsNullOrWhiteSpace(newName))
             throw new ToolError(ErrorCode.InvalidArgument, "New name is empty.");
+        RequireNoControlCharacters(newName, "New name");
         var member = symbol.Member;
         var oldLabel = symbol.Label;
         if (member is TypeDef generic) newName = KeepArity(generic.Name, newName);
@@ -68,8 +69,17 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return newName;
     }
 
+    /// <summary>Throws when a metadata name holds a control character, which no writer or decompiler round-trips.</summary>
+    internal static void RequireNoControlCharacters(string name, string what)
+    {
+        foreach (var c in name)
+            if (char.IsControl(c))
+                throw new ToolError(ErrorCode.InvalidArgument, $"{what} holds the control character U+{(int)c:X4}.", "use printable characters");
+    }
+
     public string RenameNamespace(LoadedAssembly asm, string oldNamespace, string newNamespace, bool includeSubNamespaces, bool dryRun = false)
     {
+        RequireNoControlCharacters(newNamespace, "New namespace");
         // Only top-level types carry a namespace.
         var targets = asm.Module.Types
             .Where(t => t.Namespace == oldNamespace || (includeSubNamespaces && t.Namespace.String.StartsWith(oldNamespace + ".", StringComparison.Ordinal)))
