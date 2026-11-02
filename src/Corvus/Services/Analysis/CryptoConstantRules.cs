@@ -970,6 +970,8 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         var image = index.Image;
         var locations = new List<string>();
         int count = 0;
+        // A name that is a prefix of another ("argon2i", "argon2id") reaches one address twice.
+        var seen = new HashSet<uint>();
         foreach (var (section, size) in Plan(image))
         {
             bool code = (section.Access & (SectionAccess.Execute | SectionAccess.Code)) != 0;
@@ -982,6 +984,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                 {
                     ct.ThrowIfCancellationRequested();
                     uint rva = section.Rva + (uint)at;
+                    if (!seen.Add(rva)) continue;
                     count++;
                     if (locations.Count < Evidence.MaxLocations)
                     {
@@ -1010,6 +1013,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             kept.Sort((x, y) => x.Start.CompareTo(y.Start));
             foreach (var (pattern, rva, _) in kept)
             {
+                if (!seen.Add(rva)) continue;
                 count++;
                 if (locations.Count < Evidence.MaxLocations)
                 {

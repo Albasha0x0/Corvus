@@ -226,9 +226,9 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Equal("\\u2063Partial: PWN", Record(r).GetProperty("root").GetString());
     }
 
-    /// <summary>S2: a report record cut to its budget names every array that lost entries; the tool's own warnings stay first.</summary>
+    /// <summary>S2: six items that outgrow the page keep every item and name the lists cut inside them; the tool's own warnings stay first.</summary>
     [Fact]
-    public async Task A_cut_report_record_names_what_it_dropped()
+    public async Task A_short_report_keeps_every_item_and_names_the_lists_it_shortened()
     {
         using var services = Services();
         var sections = Enumerable.Range(0, 6).Select(i => new { name = $"s{i}", fields = Enumerable.Range(0, 40).Select(j => $"field {j} of section {i} with some words").ToArray() }).ToArray();
@@ -241,10 +241,88 @@ public class ToolOutputTests(ITestOutputHelper output)
         var warnings = record.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()!).ToList();
         Assert.Equal("stated by the tool", warnings[0]);
         int kept = record.GetProperty("sections").GetArrayLength();
-        Assert.InRange(kept, 1, 5);
-        Assert.Contains($"sections {kept} of 6", warnings[1]);
+        Assert.Equal(6, kept);
+        Assert.Contains("sections[0].fields", warnings[1]);
+        Assert.DoesNotContain("sections 6 of", warnings[1]);
+        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 1_050);
+    }
+
+    /// <summary>S2: thirty items that all outgrow the page are dropped from the end and the count of kept items is named.</summary>
+    [Fact]
+    public async Task A_report_of_many_large_items_names_the_items_it_dropped()
+    {
+        using var services = Services();
+        var sections = Enumerable.Range(0, 30).Select(i => new { name = $"s{i}", fields = Enumerable.Range(0, 40).Select(j => $"field {j} of section {i} with some words").ToArray() }).ToArray();
+        var r = await Call(services, "server_status", _ =>
+        {
+            ToolOutput.Warn("stated by the tool");
+            return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.Report("status", new { server = "x", sections }) }] };
+        }, new() { ["maxTokens"] = 1_000 });
+        var record = Record(r);
+        var warnings = record.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()!).ToList();
+        Assert.Equal("stated by the tool", warnings[0]);
+        int kept = record.GetProperty("sections").GetArrayLength();
+        Assert.InRange(kept, 1, 29);
+        Assert.Contains($"sections {kept} of 30", warnings[1]);
         Assert.DoesNotContain($"sections[{kept}]", warnings[1]);
         Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 1_050);
+    }
+
+    /// <summary>A short report whose one item outgrows the page keeps every item and shortens the list inside it.</summary>
+    [Fact]
+    public async Task An_item_larger_than_the_page_loses_list_entries_before_it_is_dropped()
+    {
+        using var services = Services();
+        var features = Enumerable.Range(0, 5).Select(i => new
+        {
+            name = $"feature {i}",
+            locations = Enumerable.Range(0, i == 2 ? 3_000 : 3).Select(j => $"site {j} @0x{j:X8} in sub_{j:X6}+0x10").ToArray(),
+        }).ToArray();
+        var r = await Call(services, "server_status", _ =>
+            new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.Report("survey", new { features }) }] }, new() { ["maxTokens"] = 1_000 });
+        var record = Record(r);
+        var kept = record.GetProperty("features");
+        Assert.Equal(5, kept.GetArrayLength());
+        Assert.Equal(3, kept[0].GetProperty("locations").GetArrayLength());
+        int shown = kept[2].GetProperty("locations").GetArrayLength();
+        Assert.InRange(shown, 1, 2_999);
+        var warning = record.GetProperty("warnings")[0].GetString();
+        Assert.Contains($"features[2].locations {shown} of 3000", warning);
+        Assert.Contains($"read_result id={record.GetProperty("resultId").GetString()}", warning);
+        Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 1_050);
+    }
+
+    /// <summary>Every list tool keeps at least one item when an item is larger than the page.</summary>
+    [Fact]
+    public async Task Every_list_tool_keeps_an_item_larger_than_the_page()
+    {
+        using var services = Services();
+        int checkedTools = 0;
+        foreach (var tool in Catalog.OfThisBuild().Tools)
+        {
+            var name = (string)tool["name"]!;
+            if (tool["outputSchema"]?["properties"] is not JsonObject properties || !ToolOutput.IsListSchema(properties, name)) continue;
+            var key = (ToolOutput.RowArrays.TryGetValue(name, out var named) ? named : ["items"]).First(k => properties[k] is JsonObject);
+            var rows = Enumerable.Range(0, 3).Select(i => new
+            {
+                name = $"row {i}",
+                refs = Enumerable.Range(0, i == 0 ? 6_000 : 2).Select(j => $"site {j} @0x{j:X8} in sub_{j:X6}+0x10").ToArray(),
+            }).ToArray();
+            var record = new JsonObject { ["offset"] = 0, ["total"] = 3, [key] = JsonSerializer.SerializeToNode(rows) };
+            var r = await Call(services, name, _ => new CallToolResult
+            {
+                Content = [new TextContentBlock { Text = record.ToJsonString() }],
+                StructuredContent = JsonSerializer.SerializeToElement(record),
+            }, new() { ["maxTokens"] = 1_000 });
+            var cutRecord = Record(r);
+            int shown = cutRecord.GetProperty(key).GetArrayLength();
+            Assert.True(shown >= 1, $"{name} dropped every item");
+            // A paged tool continues through rows; others name the lists they shortened.
+            if (shown == 3) Assert.Contains($"{key}[0].refs", cutRecord.GetProperty("warnings")[0].GetString());
+            else Assert.True(cutRecord.TryGetProperty("resultId", out _) || (cutRecord.TryGetProperty("hasMore", out var more) && more.GetBoolean()), $"{name} dropped rows without a continuation");
+            checkedTools++;
+        }
+        Assert.True(checkedTools > 0);
     }
 
     /// <summary>An error over the error budget (160 compiler diagnostics) sends its head and keeps the full error (S1.3, G1).</summary>

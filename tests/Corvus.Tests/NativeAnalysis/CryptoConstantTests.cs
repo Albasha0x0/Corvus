@@ -39,6 +39,16 @@ public sealed class CryptoConstantTests : IDisposable
     private static void AssertAt(string label, int offset, string text) =>
         Assert.Matches($"{System.Text.RegularExpressions.Regex.Escape(label)} @0x{offset:X}(?![0-9A-Fa-f])", text);
 
+    // Regression for the repeated location in survey_features: "argon2i" is a prefix of "argon2id".
+    [Fact]
+    public async Task A_name_that_is_a_prefix_of_another_is_listed_once_at_its_address()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "argon2id\0"u8.ToArray(), .. Pad(0x40)]);
+        const string Kdf = "Key derivation or CMAC (algorithm name string) [confidence=low]";
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(text, System.Text.RegularExpressions.Regex.Escape(Kdf) + " @0x100(?![0-9A-Fa-f])"));
+    }
+
     [Fact]
     public async Task The_TEA_delta_is_named_without_the_XTEA_or_XXTEA_labels()
     {

@@ -417,7 +417,8 @@ public static partial class ToolOutput
         var cut = new Dictionary<string, (int Kept, int Total)>(StringComparer.Ordinal);
         var warnings = record["warnings"] as JsonArray;
         int stated = warnings?.Count ?? 0;
-        while (record.ToJsonString(Wire) is var json && !call.Fits(json) && TrimLargest(record, cut, Excess(call, json)))
+        while (record.ToJsonString(Wire) is var json && !call.Fits(json)
+            && (TrimLargest(record, cut, Excess(call, json), keepOne: true) || TrimLargest(record, cut, Excess(call, json), keepOne: false)))
         {
             call.CutPasses++;
             warnings ??= (JsonArray)(record["warnings"] = new JsonArray());
@@ -436,10 +437,13 @@ public static partial class ToolOutput
         return (int)Math.Clamp(over / 2, 1, int.MaxValue);
     }
 
-    /// <summary>Takes about <paramref name="chars"/> characters off the record by trimming the largest arrays or halving the largest string; false when nothing is left.</summary>
-    private static bool TrimLargest(JsonObject record, Dictionary<string, (int Kept, int Total)> cut, int chars)
+    /// <summary>Takes about <paramref name="chars"/> characters off the record by shortening the lists inside oversized items, then trimming the largest arrays or halving the largest string; false when nothing changed. With <paramref name="keepOne"/> an array keeps its first item.</summary>
+    private static bool TrimLargest(JsonObject record, Dictionary<string, (int Kept, int Total)> cut, int chars, bool keepOne)
     {
-        var (best, arrays) = Parts(record, record["warnings"]);
+        var (best, arrays, groups) = Parts(record, record["warnings"]);
+        // An item larger than the page loses list entries before any item is
+        // dropped: items of a short array, and items well above the median.
+        if (ShortenNested(groups, cut, chars)) return true;
         if (best is JsonValue v)
         {
             var str = v.GetValue<string>();
@@ -451,6 +455,7 @@ public static partial class ToolOutput
             return true;
         }
         if (arrays.Count == 0) return false;
+        bool changed = false;
         // The level that leaves the arrays above it `chars` smaller in all.
         arrays.Sort((a, b) => b.Size.CompareTo(a.Size));
         long sum = 0, level = 0;
@@ -468,18 +473,19 @@ public static partial class ToolOutput
             int total = cut.TryGetValue(path, out var c) ? c.Total : a.Count;
             int removed = 0, count = a.Count;
             // An array's size is its elements plus a comma each.
-            while (count > 0 && (first && removed == 0 || size - removed > level))
+            while (count > (keepOne ? 1 : 0) && (first && removed == 0 || size - removed > level))
             {
                 removed += (a[count - 1]?.ToJsonString(Json).Length ?? 4) + 1;
                 count--;
             }
             first = false;
             if (count == a.Count) continue;
+            changed = true;
             for (int i = a.Count - 1; i >= count; i--) a.RemoveAt(i);
             cut[path] = (count, total);
             foreach (var gone in cut.Keys.Where(k => Index(k, path) >= count).ToList()) cut.Remove(gone);
         }
-        return true;
+        return changed;
 
         // The element index of a path below `prefix` ("prefix[3].x" -> 3), else -1.
         static int Index(string key, string prefix) =>
@@ -487,14 +493,53 @@ public static partial class ToolOutput
             && key.IndexOf(']', prefix.Length) is var end and > 0 && int.TryParse(key.AsSpan(prefix.Length + 1, end - prefix.Length - 1), out var i) ? i : -1;
     }
 
+    /// <summary>Removes list entries from the lists inside oversized items, largest list first, keeping the first entry; false when none is left to shorten.</summary>
+    private static bool ShortenNested(List<List<(long Size, List<(JsonArray Array, long Size)> Lists)>> groups, Dictionary<string, (int Kept, int Total)> cut, int chars)
+    {
+        var candidates = new List<(JsonArray Array, long Size)>();
+        foreach (var items in groups)
+        {
+            var sizes = items.Select(i => i.Size).OrderBy(x => x).ToList();
+            long median = sizes[sizes.Count / 2];
+            foreach (var (size, lists) in items)
+                if (items.Count <= 8 || size > 2 * median) candidates.AddRange(lists);
+        }
+        if (candidates.Count == 0) return false;
+        candidates.Sort((x, y) => y.Size.CompareTo(x.Size));
+        long left = chars;
+        bool changed = false;
+        foreach (var (a, size) in candidates)
+        {
+            if (left <= 0) break;
+            if (a.Count < 2) continue;
+            var path = a.GetPath().TrimStart('$', '.');
+            int total = cut.TryGetValue(path, out var was) ? was.Total : a.Count;
+            long removed = 0;
+            int count = a.Count;
+            while (count > 1 && removed < left)
+            {
+                removed += (a[count - 1]?.ToJsonString(Json).Length ?? 4) + 1;
+                count--;
+            }
+            for (int i = a.Count - 1; i >= count; i--) a.RemoveAt(i);
+            cut[path] = (count, total);
+            left -= removed;
+            changed = true;
+        }
+        return changed;
+    }
+
     /// <summary>The largest part and the outermost non-empty arrays, from one bottom-up pass, leaving out <paramref name="own"/>.</summary>
-    private static (JsonNode? Best, List<(JsonArray Array, long Size)> Arrays) Parts(JsonObject record, JsonNode? own)
+    private static (JsonNode? Best, List<(JsonArray Array, long Size)> Arrays, List<List<(long Size, List<(JsonArray Array, long Size)> Lists)>> Groups) Parts(JsonObject record, JsonNode? own)
     {
         JsonNode? best = null;
         long largest = 0;
         var arrays = new List<(JsonArray, long)>();
+        // Per outermost array: each item's size and the lists inside it.
+        var groups = new List<List<(long, List<(JsonArray, long)>)>>();
+        List<(JsonArray, long)>? lists = null;
         Measure(record, inArray: false);
-        return (best, arrays);
+        return (best, arrays, groups);
 
         long Measure(JsonNode? node, bool inArray)
         {
@@ -504,12 +549,22 @@ public static partial class ToolOutput
                     return 4;
                 case JsonArray a:
                     long s = 2 + Math.Max(0, a.Count - 1);
-                    foreach (var child in a) s += Measure(child, true);
+                    var items = !inArray && a.Count > 0 && a != own ? new List<(long, List<(JsonArray, long)>)>() : null;
+                    foreach (var child in a)
+                    {
+                        var before = lists;
+                        if (items != null) lists = [];
+                        long size = Measure(child, true);
+                        s += size;
+                        if (items != null) { items.Add((size, lists!)); lists = before; }
+                    }
                     if (a.Count > 0 && a != own)
                     {
                         if (s > largest) { largest = s; best = a; }
                         if (!inArray) arrays.Add((a, s));
+                        else if (a.Count > 1) lists?.Add((a, s));
                     }
+                    if (items != null) groups.Add(items);
                     return s;
                 case JsonObject o:
                     long t = 2 + Math.Max(0, o.Count - 1);
