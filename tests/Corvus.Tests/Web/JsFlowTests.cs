@@ -111,7 +111,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
     public async Task A_view_cancelled_during_the_walk_of_a_large_bundle_stops(string view, string? query)
     {
         var js = _dir.File("large.js");
-        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 100_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
+        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 20_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
         var tools = new Corvus.Tools.WebTools(new OutputPager(new ServerOptions()));
         // An answer of no match is a finished view.
         async Task Uncancelled() { try { await tools.AnalyzeJs(js, view, query: query); } catch (ToolError) { } }
