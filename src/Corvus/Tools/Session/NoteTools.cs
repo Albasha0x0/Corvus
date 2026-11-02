@@ -60,10 +60,13 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var note = notes.Update((id ?? "").Trim(), expectedRevision, new NoteChange(status, text, appendText, addTags, removeTags, Evidence(Link(addEvidence, context)), kind));
-        if (!verify) return note;
-        var (evidence, verified) = await Verify(note, context, cancellationToken).ConfigureAwait(false);
-        return notes.Update(note.Id, note.Revision, new NoteChange(verified, AddEvidence: evidence));
+        var change = new NoteChange(status, text, appendText, addTags, removeTags, Evidence(Link(addEvidence, context)), kind);
+        id = (id ?? "").Trim();
+        if (!verify) return notes.Update(id, expectedRevision, change);
+        // Check everything first, then write once, so a failed call changes nothing.
+        var preview = notes.Preview(id, expectedRevision, change);
+        var (evidence, verified) = await Verify(preview, context, cancellationToken).ConfigureAwait(false);
+        return notes.Update(id, expectedRevision, change with { Status = verified ?? change.Status, AddEvidence = [.. change.AddEvidence ?? [], .. evidence] });
     }, cancellationToken);
 
     /// <summary>Checked evidence; a call this process has no result for keeps no hash, with a warning.</summary>

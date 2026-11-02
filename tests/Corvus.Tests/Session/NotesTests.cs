@@ -224,6 +224,25 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_failed_verify_leaves_the_note_unchanged()
+    {
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions { BackgroundIndexing = false, WatchFiles = false });
+        var recorded = await server.Client.CallToolAsync("record_note", new Dictionary<string, object?> { ["text"] = "no linked record", ["kind"] = "hypothesis" });
+        var id = recorded.StructuredContent!.Value.GetProperty("id").GetString();
+        var failed = await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = id, ["expectedRevision"] = 1, ["status"] = "confirmed", ["verify"] = true });
+        Assert.True(failed.IsError);
+        var stale = await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = id, ["expectedRevision"] = 7, ["status"] = "confirmed", ["verify"] = true });
+        Assert.True(stale.IsError);
+        var listed = await server.Client.CallToolAsync("list_notes", new Dictionary<string, object?> { ["status"] = "all" });
+        var stored = string.Concat(listed.Content.OfType<TextContentBlock>().Select(c => c.Text)) + listed.StructuredContent?.GetRawText();
+        Assert.Contains("no linked record", stored);
+        Assert.DoesNotContain("confirmed", stored);
+        var retry = await server.Client.CallToolAsync("update_note", new Dictionary<string, object?> { ["id"] = id, ["expectedRevision"] = 1, ["status"] = "open" });
+        Assert.NotEqual(true, retry.IsError);
+        Assert.Equal(2, retry.StructuredContent!.Value.GetProperty("revision").GetInt32());
+    }
+
+    [Fact]
     public async Task Evidence_reruns_and_matches_by_result_SHA256()
     {
         await using var server = await InProcessServer.StartAsync();

@@ -260,25 +260,39 @@ public sealed class NotesService(AnnotationStore store)
             int i = file.Notes.FindIndex(n => n.Id == id);
             if (i < 0) throw new ToolError(ErrorCode.NotFound, $"No note has the id '{id}'.", "list_notes shows the ids");
             var current = file.Notes[i];
-            if (current.Revision != expectedRevision)
-                throw new ToolError(ErrorCode.Conflict, $"Note {id} is at revision {current.Revision}, not {expectedRevision}: it changed since it was read.",
-                    $"merge with the current note in details.current and call update_note id={id} expectedRevision={current.Revision}")
-                { Details = new { reason = "revision_conflict", current } };
-            var text = change.Text != null ? CheckText(change.Text) : current.Text;
-            if (!string.IsNullOrWhiteSpace(change.AppendText)) text = CheckText(text + "\n" + change.AppendText.Trim());
-            updated = current with
-            {
-                Kind = change.Kind != null ? CheckKind(change.Kind) : current.Kind,
-                Status = change.Status != null ? CheckStatus(change.Status) : current.Status,
-                Text = text,
-                Tags = Merge(current.Tags, change.AddTags, change.RemoveTags, MaxTags, MaxTagChars, "tag"),
-                Evidence = MergeEvidence(current.Evidence, change.AddEvidence),
-                Revision = current.Revision + 1,
-                Updated = DateTime.UtcNow,
-            };
+            updated = Apply(current, expectedRevision, change);
             file.Notes[i] = updated;
         });
         return updated!;
+    }
+
+    /// <summary>The note <paramref name="change"/> would produce at <paramref name="expectedRevision"/>; nothing is written.</summary>
+    public Note Preview(string id, int expectedRevision, NoteChange change)
+    {
+        var key = KeyOf(id) ?? throw new ToolError(ErrorCode.NotFound, $"No note has the id '{id}'.", "list_notes shows the ids");
+        var current = Read(key).FirstOrDefault(n => n.Id == id) ?? throw new ToolError(ErrorCode.NotFound, $"No note has the id '{id}'.", "list_notes shows the ids");
+        return Apply(current, expectedRevision, change);
+    }
+
+    private static Note Apply(Note current, int expectedRevision, NoteChange change)
+    {
+        var id = current.Id;
+        if (current.Revision != expectedRevision)
+            throw new ToolError(ErrorCode.Conflict, $"Note {id} is at revision {current.Revision}, not {expectedRevision}: it changed since it was read.",
+                $"merge with the current note in details.current and call update_note id={id} expectedRevision={current.Revision}")
+            { Details = new { reason = "revision_conflict", current } };
+        var text = change.Text != null ? CheckText(change.Text) : current.Text;
+        if (!string.IsNullOrWhiteSpace(change.AppendText)) text = CheckText(text + "\n" + change.AppendText.Trim());
+        return current with
+        {
+            Kind = change.Kind != null ? CheckKind(change.Kind) : current.Kind,
+            Status = change.Status != null ? CheckStatus(change.Status) : current.Status,
+            Text = text,
+            Tags = Merge(current.Tags, change.AddTags, change.RemoveTags, MaxTags, MaxTagChars, "tag"),
+            Evidence = MergeEvidence(current.Evidence, change.AddEvidence),
+            Revision = current.Revision + 1,
+            Updated = DateTime.UtcNow,
+        };
     }
 
     /// <summary>Adds notes made elsewhere; an existing id is replaced only by a higher revision. Returns the counts.</summary>
