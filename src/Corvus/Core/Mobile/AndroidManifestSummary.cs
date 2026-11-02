@@ -138,7 +138,31 @@ public sealed record AndroidManifestSummary(string Package, string? VersionCode,
         var links = s.Components.SelectMany(c => c.DeepLinks).Distinct().ToList();
         if (links.Count > 0) h.Add($"Deep links: {string.Join(", ", links.Take(10))}{(links.Count > 10 ? ", ..." : "")}.");
         if (s.Package.Length == 0) h.Add("The manifest has no package attribute.");
+        if (AccessibilityCombination(s) is { } combination) h.Add(combination);
         return h;
+    }
+
+    private static readonly string[] SmsPermissions = ["READ_SMS", "RECEIVE_SMS", "SEND_SMS"];
+
+    // Notes an AccessibilityService bound with BIND_ACCESSIBILITY_SERVICE that
+    // the package also grants overlay, SMS or notification listener access.
+    private static string? AccessibilityCombination(AndroidManifestSummary s)
+    {
+        var accessibility = s.Components
+            .Where(c => c.Kind == "service" && c.Permission == "android.permission.BIND_ACCESSIBILITY_SERVICE")
+            .Select(c => c.Name).ToList();
+        if (accessibility.Count == 0) return null;
+        bool Has(string name) => s.Permissions.Any(p => p.Name == "android.permission." + name);
+        var with = new List<string>();
+        if (Has("SYSTEM_ALERT_WINDOW")) with.Add("SYSTEM_ALERT_WINDOW (display over other apps)");
+        var sms = SmsPermissions.Where(Has).ToList();
+        if (sms.Count > 0) with.Add(string.Join(", ", sms) + " (SMS)");
+        var listeners = s.Components
+            .Where(c => c.Kind == "service" && c.Permission == "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE")
+            .Select(c => c.Name).ToList();
+        if (listeners.Count > 0) with.Add($"NotificationListenerService {string.Join(", ", listeners)}");
+        if (with.Count == 0) return null;
+        return $"AccessibilityService {string.Join(", ", accessibility)} declared with {string.Join("; ", with)}.";
     }
 
     /// <summary>The base level and its flags, as the platform names them.</summary>

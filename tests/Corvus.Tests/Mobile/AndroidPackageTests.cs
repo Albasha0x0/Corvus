@@ -53,6 +53,50 @@ public sealed class AndroidPackageTests : IDisposable
         Assert.Empty(m.Issues);
     }
 
+    private const string AccessibilityBind = "android.permission.BIND_ACCESSIBILITY_SERVICE";
+    private const string ListenerBind = "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE";
+
+    private string AccessibilityNote(string[] permissions, params (string Name, string Bind)[] services)
+    {
+        AxmlWriter.Node Svc((string Name, string Bind) v) =>
+            new("service", AxmlWriter.String("name", v.Name, 0x01010003), AxmlWriter.String("permission", v.Bind, 0x01010006), AxmlWriter.Bool("exported", true, 0x01010010));
+        var root = new AxmlWriter.Node("manifest", AxmlWriter.String("package", "com.example.app", ns: null));
+        foreach (var p in permissions) root.Add(new AxmlWriter.Node("uses-permission", AxmlWriter.String("name", "android.permission." + p, 0x01010003)));
+        root.Add(new AxmlWriter.Node("application").Add([.. services.Select(Svc)]));
+        var path = AndroidSamples.Save(_dir, $"acc-{Guid.NewGuid():N}.apk", ContainerFixtures.Zip([("AndroidManifest.xml", AxmlWriter.Write(root))]));
+        return _service.Manifest(path).Highlights.SingleOrDefault(h => h.Contains("AccessibilityService", StringComparison.Ordinal)) ?? "";
+    }
+
+    [Fact]
+    public void Accessibility_service_with_overlay_SMS_and_listener_names_each_grant()
+    {
+        var note = AccessibilityNote(["SYSTEM_ALERT_WINDOW", "READ_SMS", "SEND_SMS"],
+            (".Reader", AccessibilityBind), (".Listener", ListenerBind));
+        Assert.Equal("AccessibilityService com.example.app.Reader declared with SYSTEM_ALERT_WINDOW (display over other apps); READ_SMS, SEND_SMS (SMS); NotificationListenerService com.example.app.Listener.", note);
+    }
+
+    [Theory]
+    [InlineData("SYSTEM_ALERT_WINDOW", "SYSTEM_ALERT_WINDOW (display over other apps)")]
+    [InlineData("RECEIVE_SMS", "RECEIVE_SMS (SMS)")]
+    public void Accessibility_service_with_one_permission_is_noted(string permission, string grant) =>
+        Assert.Equal($"AccessibilityService com.example.app.Reader declared with {grant}.", AccessibilityNote([permission], (".Reader", AccessibilityBind)));
+
+    [Fact]
+    public void Accessibility_service_with_a_listener_service_is_noted() =>
+        Assert.Equal("AccessibilityService com.example.app.Reader declared with NotificationListenerService com.example.app.Listener.",
+            AccessibilityNote([], (".Reader", AccessibilityBind), (".Listener", ListenerBind)));
+
+    [Fact]
+    public void Accessibility_service_alone_is_not_noted() =>
+        Assert.Equal("", AccessibilityNote([], (".Reader", AccessibilityBind)));
+
+    [Fact]
+    public void Overlay_SMS_and_listener_grants_without_an_accessibility_service_are_not_noted()
+    {
+        Assert.Equal("", AccessibilityNote(["SYSTEM_ALERT_WINDOW", "READ_SMS"], (".Listener", ListenerBind)));
+        Assert.Equal("", AccessibilityNote(["RECEIVE_SMS"]));
+    }
+
     [Fact]
     public void Manifest_for_API_31_flags_a_filter_without_exported()
     {
