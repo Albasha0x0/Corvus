@@ -126,14 +126,29 @@ public static partial class IntegerEmulation
     private const string NullPageHint = "args can pass a pointer to a buffer (buf:N)";
 
     /// <summary>
-    /// Names a fault below the first page as a null page access: the argument
-    /// holding the base and the offset; null for any other fault.
+    /// Names a fault below the first page as a null page access: the register
+    /// holding the base, the argument it came from and the offset; null for
+    /// any other fault.
     /// </summary>
     private static string? NullPageDetail(EmulatorFaultException f, IEmulatorCpu cpu)
     {
         if (f.Address >= (ulong)EmulatorMemory.PageSize) return null;
         var args = cpu.Arguments(6);
-        // A zero argument is the base; else the nearest value below the address.
+        if (cpu.LastMemoryOperand is { } op)
+        {
+            // The base is the register that is small; else the index.
+            foreach (var (reg, source) in new[] { (op.Base, op.BaseSource), (op.Index, op.IndexSource) })
+            {
+                if (reg == null || !cpu.TryGet(reg, out var held) || held >= NullPageSpan) continue;
+                int k = source == null ? -1 : args.ToList().FindIndex(a => string.Equals(a.Register, source, StringComparison.OrdinalIgnoreCase));
+                string where = k < 0 ? reg.ToUpperInvariant()
+                    : string.Equals(reg, source, StringComparison.OrdinalIgnoreCase) ? $"argument {k + 1} ({source})"
+                    : $"argument {k + 1} ({source}, copied to {reg.ToUpperInvariant()})";
+                return $"{f.Message}: null page, {where} plus 0x{f.Address - held:x}; {NullPageHint}";
+            }
+        }
+        // No operand is known (x86-32, ARM64, short history): a zero argument is the
+        // base, else the nearest value below the address.
         int pick = -1;
         ulong pickValue = 0;
         for (int k = 0; k < args.Count; k++)
@@ -143,8 +158,8 @@ public static partial class IntegerEmulation
             if (pick < 0 || v == 0 && pickValue != 0) { pick = k; pickValue = v; }
         }
         if (pick < 0) return $"{f.Message}: null page";
-        string reg = args[pick].Register!;
-        return $"{f.Message}: null page, argument {pick + 1} ({reg}) plus " +
+        string name = args[pick].Register!;
+        return $"{f.Message}: null page, argument {pick + 1} ({name}) plus " +
             $"0x{f.Address - pickValue:x}; {NullPageHint}";
     }
 

@@ -191,7 +191,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             Label hashName = a.CreateLabel(), ticks = a.CreateLabel(), deref = a.CreateLabel(), spin = a.CreateLabel();
             Label alloc = a.CreateLabel(), roundTrip = a.CreateLabel(), reuse = a.CreateLabel(), twice = a.CreateLabel();
             Label calloc = a.CreateLabel(), realloc = a.CreateLabel(), free = a.CreateLabel(), thunkCall = a.CreateLabel();
-            Label field = a.CreateLabel(), trapAfterCall = a.CreateLabel();
+            Label field = a.CreateLabel(), fieldOfCopy = a.CreateLabel(), trapAfterCall = a.CreateLabel();
             Label thunk = a.CreateLabel(), useAfterFree = a.CreateLabel(), pastEnd = a.CreateLabel();
             Label growFail = a.CreateLabel(), reallocZero = a.CreateLabel(), tickLoop = a.CreateLabel(), tickAgain = a.CreateLabel(), tickFlood = a.CreateLabel();
             void CallImport(string key) => a.AddInstruction(Instruction.Create(
@@ -253,6 +253,11 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             Pad(a);
             a.Label(ref field);
             a.mov(eax, __dword_ptr[rdx + 0x38]);
+            a.ret();
+            Pad(a);
+            a.Label(ref fieldOfCopy);
+            a.mov(rbx, rdx);
+            a.mov(rdi, __qword_ptr[rbx + 0x38]);
             a.ret();
             Pad(a);
             a.Label(ref trapAfterCall);
@@ -408,6 +413,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             at["Deref"] = Rva(deref);
             at["Spin"] = Rva(spin);
             at["FieldOfSecond"] = Rva(field);
+            at["FieldOfCopy"] = Rva(fieldOfCopy);
             at["TrapAfterCall"] = Rva(trapAfterCall);
             at["Alloc"] = Rva(alloc);
             at["HeapRoundTrip"] = Rva(roundTrip);
@@ -436,7 +442,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         }
         (string, string[])[] imports = [("KERNEL32.dll", ["GetTickCount"]), ("msvcrt.dll", ["malloc", "calloc", "realloc", "free"])];
         LinkedImages.Build("emu.dll", [], imports, Code, Data);
-        string[] exported = ["XorDecode", "Fnv1a", "HashName", "Ticks", "Deref", "FieldOfSecond", "TrapAfterCall", "Spin", "Alloc", "HeapRoundTrip", "HeapReuse", "DoubleFree",
+        string[] exported = ["XorDecode", "Fnv1a", "HashName", "Ticks", "Deref", "FieldOfSecond", "FieldOfCopy", "TrapAfterCall", "Spin", "Alloc", "HeapRoundTrip", "HeapReuse", "DoubleFree",
             "Calloc", "Realloc", "Free", "ThunkAlloc", "UseAfterFree", "PastEnd", "GrowFail", "ReallocZero", "TickLoop", "TickFlood"];
         var path = dir.File("emu.dll");
         File.WriteAllBytes(path, LinkedImages.Build("emu.dll", [.. exported.Select(n => (n, (object)(int)(at[n] - LinkedImages.Text)))], imports, Code, Data));

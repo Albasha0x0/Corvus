@@ -197,6 +197,15 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
         Assert.Contains("null page, argument 2 (RDX) plus 0x38", e.Message);
     }
 
+    // The second argument is copied to RBX; the first and third are zero too.
+    [Fact]
+    public async Task A_null_page_read_names_the_copied_register_and_its_argument()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("FieldOfCopy", args: "0, 0, 0"));
+        output.WriteLine(e.Message);
+        Assert.Contains("null page, argument 2 (RDX, copied to RBX) plus 0x38", e.Message);
+    }
+
     // An int3 follows a stubbed call.
     [Fact]
     public async Task A_trap_after_a_call_is_a_stop_not_an_error()

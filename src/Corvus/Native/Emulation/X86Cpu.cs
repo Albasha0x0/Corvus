@@ -15,6 +15,10 @@ public sealed class X86Cpu : IEmulatorCpu
     private readonly byte[] _fetch = new byte[15];
     private readonly MasmFormatter _formatter = new();
     private Instruction _last;
+    // Recent instructions, newest last, for tracing a register through copies.
+    private const int HistorySize = 64;
+    private readonly Instruction[] _history = new Instruction[HistorySize];
+    private long _stepCount;
 
     /// <param name="windows">The Microsoft x64 convention (RCX, RDX, R8, R9, 32 bytes of shadow space) rather than System V's.</param>
     public X86Cpu(bool is64, bool windows)
@@ -143,6 +147,49 @@ public sealed class X86Cpu : IEmulatorCpu
         // A 32-bit write zero-extends to 64 bits; 8- and 16-bit writes keep the rest.
         _r[idx] = size >= 4 ? value & Mask(size) : _r[idx] & ~Mask(size) | value & Mask(size);
     }
+
+    public MemoryOperandOrigin? LastMemoryOperand
+    {
+        get
+        {
+            var i = _last;
+            if (!_is64 || _stepCount == 0 || i.MemoryBase == None && i.MemoryIndex == None || i.IsIPRelativeMemoryOperand) return null;
+            return new MemoryOperandOrigin(
+                i.MemoryBase == None ? null : i.MemoryBase.ToString(), Trace(i.MemoryBase),
+                i.MemoryIndex == None || !i.MemoryIndex.IsGPR() ? null : i.MemoryIndex.ToString(), Trace(i.MemoryIndex));
+        }
+    }
+
+    // Follows register copies back from the last instruction.
+    // Null once other code changes the register or the history ends.
+    private string? Trace(Register reg)
+    {
+        if (reg == None || !reg.IsGPR()) return null;
+        var target = reg.GetFullRegister();
+        long oldest = Math.Max(0, _stepCount - HistorySize);
+        for (long n = _stepCount - 2; n >= oldest; n--)
+        {
+            var h = _history[n % HistorySize];
+            if (h.Mnemonic is Mnemonic.Call)
+            {
+                if (!NonVolatile(target)) return null;
+                continue;
+            }
+            if (h.Mnemonic is Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Nop or Mnemonic.Jmp || h.OpCount == 0) continue;
+            if (h.Op0Kind != OpKind.Register || h.Op0Register.GetFullRegister() != target) continue;
+            if (h.Mnemonic is Mnemonic.Mov && h.Op1Kind == OpKind.Register && h.Op1Register.IsGPR()
+                && h.Op0Register.GetSize() >= 4 && h.Op1Register.GetSize() == h.Op0Register.GetSize())
+            {
+                target = h.Op1Register.GetFullRegister();
+                continue;
+            }
+            return null;
+        }
+        // A run longer than the history may have changed the register earlier.
+        return _stepCount <= HistorySize ? target.ToString() : null;
+    }
+
+    private bool NonVolatile(Register r) => r is RBX or RBP or R12 or R13 or R14 or R15 || _windows && r is RDI or RSI;
 
     // ---- operands ----
 
@@ -297,6 +344,7 @@ public sealed class X86Cpu : IEmulatorCpu
         var decoder = Decoder.Create(_is64 ? 64 : 32, new ByteArrayCodeReader(_fetch, 0, n), Pc);
         decoder.Decode(out _last);
         ref readonly var i = ref _last;
+        _history[_stepCount++ % HistorySize] = _last;
         if (i.IsInvalid) throw new EmulatorUnsupportedException($"no valid instruction at 0x{Pc:x}");
         ulong next = i.NextIP;
         Pc = next;

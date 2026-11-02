@@ -6,6 +6,9 @@ public readonly record struct EmulatorStep(bool IsCall, ulong Site, ulong FallTh
 /// <summary>Where an argument of the calling convention goes: a register, or the stack at an offset from the stack pointer on entry.</summary>
 public readonly record struct ArgumentSlot(string? Register, int StackOffset);
 
+/// <summary>The registers of an instruction's memory operand and the register each held at entry once register copies are followed; a null source means code changed the register.</summary>
+public readonly record struct MemoryOperandOrigin(string? Base, string? BaseSource, string? Index, string? IndexSource);
+
 /// <summary>A processor the built-in emulator models: registers, single steps and the calling convention.</summary>
 public interface IEmulatorCpu
 {
@@ -46,6 +49,9 @@ public interface IEmulatorCpu
 
     /// <summary>Restores what <see cref="Save"/> wrote.</summary>
     void Load(BinaryReader r);
+
+    /// <summary>The memory operand of the last instruction with its registers traced to entry; null when the processor does not trace it or the history is too short.</summary>
+    MemoryOperandOrigin? LastMemoryOperand => null;
 
     /// <summary>The places of the first <paramref name="count"/> integer arguments.</summary>
     IReadOnlyList<ArgumentSlot> Arguments(int count);
