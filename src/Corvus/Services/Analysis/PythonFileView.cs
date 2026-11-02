@@ -22,7 +22,13 @@ internal sealed class PythonFileView : IFileSummaryView
         IReadOnlyList<string> Imports, long Offset, long? Next,
         [property: Description("dis output from offset, as the file's own Python version prints it.")] string Disassembly, bool Complete,
         [property: Description("The source from CORVUS_PY_DECOMPILER, from the same offset.")] string? Source, long? SourceNext,
-        [property: Description("The program that wrote the source.")] string? Decompiler, IReadOnlyList<string>? Notes);
+        [property: Description("The program that wrote the source.")] string? Decompiler, IReadOnlyList<string>? Notes)
+    {
+        [Description("Code objects held as encoded constants (marshal, zlib, base64), outermost first; unpack_container extracts each as a .pyc.")]
+        public IReadOnlyList<Layer>? Layers { get; init; }
+    }
+
+    public sealed record Layer(int Depth, string Location, string Encodings, string Filename, [property: Description("Size of the decoded data.")] int Bytes);
 
     public string Name => "python";
 
@@ -116,7 +122,11 @@ internal sealed class PythonFileView : IFileSummaryView
         var (source, sourceNext, decompiler) = asked ? Decompile(file, offset, notes, ct) : (null, null, null);
         var facts = new Bytecode(label, PyVersion.Magic(data), code.Filename, count, functions, PyDisassembler.Imports(code, version), offset, next, window, complete,
             source, sourceNext, decompiler, notes.Count > 0 ? notes : null);
+        var layers = PyLayers.Find(code, version, MaxPyc, ct);
+        if (layers.Count > 0)
+            facts = facts with { Layers = [.. layers.Select(l => new Layer(l.Depth, l.Location, l.Encodings, l.Filename, l.Size))] };
         var highlight = $"Python {label} bytecode of {code.Filename}: {count:N0} code objects";
+        if (layers.Count > 0) highlight += $", {layers.Count:N0} encoded layers";
         if (!asked && PyDisassembler.Supports(version)) highlight += "; view=python shows the disassembly";
         return new FileView(facts, [highlight + "."]);
     }

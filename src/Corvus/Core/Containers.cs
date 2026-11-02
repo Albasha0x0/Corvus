@@ -129,8 +129,7 @@ public static class Containers
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
         if (kind == "pyinstaller pyz") return Python.PyInstallerArchive.OpenPyz(data, name, allFiles, limits, ct);
         if (kind is "text" or "data" && Python.FrozenPython.OpenZipApp(data, name, allFiles, limits, ct) is { } zipapp) return zipapp;
-        if (kind == "python bytecode")
-            return new ContainerContents("none", [], [$"A compiled Python module (.pyc, Python {Python.PyVersion.Label(Python.PyVersion.FromMagic(data)!.Value)}): code, not a container."]);
+        if (kind == "python bytecode") return Python.PyLayers.Open(data, ct);
         // A second archive laid before or after the first is opened as its own part.
         if (kind is "zip" or "7z" && Archives.AppendedArchive.Split(data, kind) is { } parts)
             return Archives.AppendedArchive.Join(data, parts, name, allFiles, limits, ct);
