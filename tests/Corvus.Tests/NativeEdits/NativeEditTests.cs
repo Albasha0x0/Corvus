@@ -784,6 +784,135 @@ public class NativeEditTests(ITestOutputHelper output)
         return off;
     }
 
+    // A .text of repeated bytes and a second section of the given characteristics; signed: a certificate table at the end.
+    private static byte[] WarningImage(uint packedCharacteristics, bool signed)
+    {
+        var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000 };
+        var text = b.Add(".text", Enumerable.Repeat((byte)0x90, 0x2000).ToArray(), 0x60000020);
+        var packed = new byte[0x4000];
+        new Random(7).NextBytes(packed);
+        b.Add(".vmp", packed, packedCharacteristics);
+        b.EntryPoint = text.Rva;
+        if (!signed) return b.Build();
+        int length = b.Build().Length;
+        b.Overlay = new byte[16];
+        b.Directories[4] = ((uint)length, 16);
+        return b.Build();
+    }
+
+    private async Task<(LoadedNative, NativeCodeIndex, string)> OpenWarning(Harness h, uint packedCharacteristics, bool signed)
+    {
+        var path = h.Dir.File("warn.dll");
+        File.WriteAllBytes(path, WarningImage(packedCharacteristics, signed));
+        var native = h.Env.Workspace.LoadAny(path).Native!;
+        return (native, await h.Code.Index(native, null, default), path);
+    }
+
+    [Fact]
+    public async Task A_site_in_a_writable_executable_section_is_warned_with_its_code()
+    {
+        using var h = new Harness();
+        var (native, _, _) = await OpenWarning(h, 0xE0000020, signed: false);
+        var section = native.Image.Sections.Single(s => s.Name == ".vmp");
+        var warnings = PatchWarnings.ForSites(native.Image, [section.Rva + 0x10]);
+        Assert.Contains(warnings, w => w.StartsWith(PatchWarnings.WritableExecutable + ": ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_site_in_high_entropy_bytes_is_warned_and_plain_code_is_not()
+    {
+        using var h = new Harness();
+        var (native, _, _) = await OpenWarning(h, 0x60000020, signed: false);
+        var packed = native.Image.Sections.Single(s => s.Name == ".vmp");
+        var text = native.Image.Sections.Single(s => s.Name == ".text");
+        Assert.Contains(PatchWarnings.ForSites(native.Image, [packed.Rva + 0x2000]), w => w.StartsWith(PatchWarnings.HighEntropy + ": ", StringComparison.Ordinal));
+        Assert.Empty(PatchWarnings.ForSites(native.Image, [text.Rva + 0x10]));
+    }
+
+    [Fact]
+    public async Task A_signed_image_is_warned_and_an_unsigned_one_is_not()
+    {
+        using var signed = new Harness();
+        var (signedNative, _, _) = await OpenWarning(signed, 0x60000020, signed: true);
+        Assert.StartsWith(PatchWarnings.SignatureInvalidated + ": ", PatchWarnings.ForSignature(signedNative.Image));
+        using var plain = new Harness();
+        var (plainNative, _, _) = await OpenWarning(plain, 0x60000020, signed: false);
+        Assert.Null(PatchWarnings.ForSignature(plainNative.Image));
+    }
+
+    private static bool Has(IEnumerable<string> warnings, string code) => warnings.Any(w => w.StartsWith(code + ": ", StringComparison.Ordinal));
+
+    [Fact]
+    public async Task A_patch_bytes_dry_run_in_a_packed_writable_section_returns_coded_warnings()
+    {
+        using var h = new Harness();
+        var (native, _, path) = await OpenWarning(h, 0xE0000020, signed: true);
+        var site = native.Image.ImageBase + native.Image.Sections.Single(s => s.Name == ".vmp").Rva + 0x2000;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        var text = await tools.PatchBytes(path, $"0x{site:X}", hex: "90", allowUnsafe: true);
+        Assert.Contains("dry run", text, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Has(call.Warnings, PatchWarnings.WritableExecutable) && Has(call.Warnings, PatchWarnings.HighEntropy) && Has(call.Warnings, PatchWarnings.SignatureInvalidated), string.Join("\n", call.Warnings));
+    }
+
+    [Fact]
+    public async Task A_patch_asm_dry_run_in_a_writable_executable_section_returns_coded_warnings()
+    {
+        using var h = new Harness();
+        var (native, _, path) = await OpenWarning(h, 0xE0000020, signed: true);
+        var site = native.Image.ImageBase + native.Image.Sections.Single(s => s.Name == ".vmp").Rva + 0x2000;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        await tools.PatchAsm(path, $"0x{site:X}", "nop", allowUnsafe: true);
+        Assert.True(Has(call.Warnings, PatchWarnings.WritableExecutable) && Has(call.Warnings, PatchWarnings.SignatureInvalidated), string.Join("\n", call.Warnings));
+    }
+
+    [Fact]
+    public async Task A_patch_in_plain_code_of_an_unsigned_image_returns_no_warnings()
+    {
+        using var h = new Harness();
+        var (native, _, path) = await OpenWarning(h, 0x60000020, signed: false);
+        var site = native.Image.ImageBase + native.Image.Sections.Single(s => s.Name == ".text").Rva + 0x10;
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        await new NativeEditTools(h.Env.Workspace, h.Code, h.Edits).PatchBytes(path, $"0x{site:X}", hex: "90", allowUnsafe: true);
+        Assert.Empty(call.Warnings);
+    }
+
+    [Fact]
+    public async Task Save_native_warns_of_the_signature_unless_stripSignature_removes_it()
+    {
+        using var h = new Harness();
+        var (native, _, path) = await OpenWarning(h, 0x60000020, signed: true);
+        var site = native.Image.ImageBase + native.Image.Sections.Single(s => s.Name == ".text").Rva + 0x10;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        await tools.PatchBytes(path, $"0x{site:X}", hex: "90", allowUnsafe: true, dryRun: false);
+        var kept = Corvus.Mcp.ToolOutput.Collect();
+        await tools.SaveNative(path, h.Dir.File("kept.dll"));
+        Assert.True(Has(kept.Warnings, PatchWarnings.SignatureInvalidated), string.Join("\n", kept.Warnings));
+        var stripped = Corvus.Mcp.ToolOutput.Collect();
+        await tools.SaveNative(path, h.Dir.File("stripped.dll"), stripSignature: true);
+        Assert.False(Has(stripped.Warnings, PatchWarnings.SignatureInvalidated), string.Join("\n", stripped.Warnings));
+    }
+
+    [Fact]
+    public async Task A_section_with_an_extreme_virtual_size_gives_a_bounded_result_without_throwing()
+    {
+        using var h = new Harness();
+        var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000 };
+        var text = b.Add(".text", Enumerable.Repeat((byte)0x90, 0x2000).ToArray(), 0x60000020);
+        var big = b.Add(".big", Enumerable.Repeat((byte)0x41, 0x2000).ToArray(), 0xE0000020);
+        big.VirtualSize = 0xF0000000;
+        b.EntryPoint = text.Rva;
+        var path = h.Dir.File("big.dll");
+        File.WriteAllBytes(path, b.Build());
+        var native = h.Env.Workspace.LoadAny(path).Native!;
+        var section = native.Image.Sections.Single(s => s.Name == ".big");
+        var warnings = PatchWarnings.ForSites(native.Image, [section.Rva + 0x10, section.Rva + 0x1000, 0x7FFFFFF0]);
+        Assert.Single(warnings);
+        Assert.True(Has(warnings, PatchWarnings.WritableExecutable));
+    }
+
+
     // ---- real signed image (a copy of a System32 DLL) ----
 
     [Trait("Speed", "Slow")]

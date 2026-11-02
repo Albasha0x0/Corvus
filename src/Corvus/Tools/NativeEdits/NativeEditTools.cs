@@ -431,7 +431,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Replace bytes at a native address in memory as an undoable edit. Unsafe sites need allowUnsafe; encrypted bytes are " +
-                 "refused; signatures become invalid.")]
+                 "refused; signatures become invalid. Warnings (writable_executable_section, high_entropy_section, signature_invalidated) name the site and the file.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -463,7 +463,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Assemble x86/x64 instructions and write them at a native address in memory. Safety rules and undo as patch_bytes; " +
-                 "PE absolute addresses get relocations.")]
+                 "PE absolute addresses get relocations. Warnings as patch_bytes.")]
     public Task<string> PatchAsm(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -509,10 +509,19 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     private string PatchOutcome(LoadedNative native, NativeCodeIndex index, NativeEditService.PatchResult prepared, bool dryRun, string note)
     {
         var applied = edits.Apply(native, index, prepared, dryRun);
+        WarnPatched(index.Image, [prepared.Patch.Rva]);
         var change = PatchChange(native, applied.Patch);
         var digest = EditDigest.Of([change]);
         return ToolOutput.Edit(new EditOutcome(!dryRun, dryRun, [change], applied.EditId is { } id ? [id] : []) { Digest = digest },
             note + applied.Text + $"\nDigest {digest}{(dryRun ? " (the applied patch and the save report the same)" : "")}.");
+    }
+
+    /// <summary>Adds the placement and signature warnings of patches at <paramref name="rvas"/> to the result.</summary>
+    internal static void WarnPatched(INativeImage image, IReadOnlyCollection<uint> rvas, bool signature = true)
+    {
+        if (rvas.Count == 0) return;
+        foreach (var w in PatchWarnings.ForSites(image, rvas)) ToolOutput.Warn(w);
+        if (signature && PatchWarnings.ForSignature(image) is { } caution) ToolOutput.Warn(caution);
     }
 
     /// <summary>A byte patch as an edit change: the dry run, the applied patch and the save's edit list digest the same.</summary>
@@ -681,7 +690,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "save_native", Title = "Save patched native image", UseStructuredContent = true, OutputSchemaType = typeof(NativeSaveResult))]
     [Description("Write the patched native image to a new file; the PE checksum is recomputed and a signature becomes invalid. " +
-                 "replaceOriginal=true keeps a .bak and refuses a file changed on disk.")]
+                 "replaceOriginal=true keeps a .bak and refuses a file changed on disk. Warnings as patch_bytes; stripSignature=true drops signature_invalidated.")]
     public Task<string> SaveNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
@@ -696,6 +705,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var (native, _) = await code.Open(image, NativeCodeTools.IndexProgress(image, progress), cancellationToken);
         var saved = edits.Write(native, outputPath, overwrite, stripSignature, replaceOriginal, versioned);
         journal?.Saved(native);
+        WarnPatched(native.Image, native.Patches.Patches.Select(x => x.Rva).ToList(), !stripSignature);
         var written = edits.Journal.Entries(native).Where(e => e.Patch != null).Select(e => new SavedEdit(e.Id, EditDigest.Of([PatchChange(native, e.Patch!)]))).ToList();
         var text = saved.Text + (written.Count > 0 ? $"\nPatches written: {string.Join(", ", written.Select(e => $"{e.Id} ({e.Digest})"))}." : "");
         return ToolOutput.Report(text, new NativeSaveResult(saved.OutputPath, saved.Bytes, saved.Patches, saved.Sha256, saved.Checksum, saved.Backup, saved.Verified, saved.Notes)

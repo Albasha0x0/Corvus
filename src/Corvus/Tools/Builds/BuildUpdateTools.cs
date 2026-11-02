@@ -778,6 +778,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             steps = updated;
         }
 
+        NativeEditTools.WarnPatched(newIndex.Image, steps.Where(s => s.Apply && s.NewRva != null).Select(s => s.NewRva!.Value).ToList());
         foreach (var s in steps)
         {
             var p = s.Patch;

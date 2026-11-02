@@ -222,6 +222,19 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Update_to_new_build_warns_of_a_writable_executable_site_and_a_signed_new_build()
+    {
+        using var h = new Harness();
+        var (oldN, oldIdx) = await h.Load(NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1, 0xE0000020), "old.dll", [0x1000, 0x1040]);
+        var (newN, _) = await h.Load(NativePatchMigrationTests.X64Image(0x1010, 0x2020, 0x1050, 1, 0xE0000020, signed: true), "new.dll", [0x1010, 0x1050]);
+        h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PreparePatch(oldIdx, 0x1040, [0xB8, 0x02, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: ["patches"]);
+        Assert.Contains(call.Warnings, w => w.StartsWith(PatchWarnings.WritableExecutable + ": ", StringComparison.Ordinal));
+        Assert.Contains(call.Warnings, w => w.StartsWith(PatchWarnings.SignatureInvalidated + ": ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Carries_each_category_previews_then_applies_and_a_rerun_is_idempotent()
     {
         using var h = new Harness();

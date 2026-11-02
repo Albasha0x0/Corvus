@@ -71,7 +71,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
     //   f1 @f1: mov eax, [rip+g] ; add eax, 0x11 ; ret   (RIP-relative load; the displacement moves between builds)
     //   f2 @f2: mov eax, f2Imm   ; add eax, 0x22 ; ret   (a plain immediate)
     // In the new build the functions and g are shifted, so f1's RIP-relative bytes differ but the opcode does not.
-    internal static byte[] X64Image(uint f1, uint gData, uint f2, byte f2Imm)
+    internal static byte[] X64Image(uint f1, uint gData, uint f2, byte f2Imm, uint textCharacteristics = 0x60000020, bool signed = false)
     {
         var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x180000000, DllCharacteristics = 0x0160 };
         var code = new byte[0x80];
@@ -84,11 +84,17 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         code[o2] = 0xB8; code[o2 + 1] = f2Imm;          // mov eax, imm32
         code[o2 + 5] = 0x83; code[o2 + 6] = 0xC0; code[o2 + 7] = 0x22; // add eax, 0x22
         code[o2 + 8] = 0xC3;                            // ret
-        var text = b.Add(".text", code, 0x60000020);
+        var text = b.Add(".text", code, textCharacteristics);
         var data = new byte[0x40];
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan((int)(gData - 0x2000)), 0xDEAD);
         b.Add(".data", data, 0xC0000040);
         b.EntryPoint = text.Rva;
+        if (signed)
+        {
+            int length = b.Build().Length;
+            b.Overlay = new byte[16];
+            b.Directories[4] = ((uint)length, 16);
+        }
         return b.Build();
     }
 
@@ -163,6 +169,19 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         var entry = Assert.Single(dry.Items);
         Assert.Equal("refused", entry.Status);
         Assert.Contains(entry.Reason, new[] { "function_not_matched", "ambiguous", "changed_region", "not_an_instruction", "original_bytes_differ" });
+    }
+
+    [Fact]
+    public async Task Migrate_native_patches_warns_of_a_writable_executable_site_and_a_signed_new_build()
+    {
+        using var h = new Harness();
+        var (oldN, oldIdx) = await h.Load(X64Image(0x1000, 0x2000, 0x1040, 1, 0xE0000020), "old.dll", [0x1000, 0x1040]);
+        var (newN, _) = await h.Load(X64Image(0x1010, 0x2020, 0x1050, 1, 0xE0000020, signed: true), "new.dll", [0x1010, 0x1050]);
+        h.Edits.ApplyPatch(oldN, oldIdx, h.Asm(oldIdx, 0x1006, "nop"), dryRun: false);
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        await h.Tools.MigrateNativePatches(oldN.Id, newN.Id);
+        Assert.Contains(call.Warnings, w => w.StartsWith(PatchWarnings.WritableExecutable + ": ", StringComparison.Ordinal));
+        Assert.Contains(call.Warnings, w => w.StartsWith(PatchWarnings.SignatureInvalidated + ": ", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -14,7 +14,7 @@ public sealed record PackerFinding(string Name, string Kind, string Evidence)
 /// <summary>Detects packers and protectors by section names, UPX headers and code heuristics; nothing is unpacked.</summary>
 public static class PackerDetection
 {
-    private const double HighEntropy = 7.2;
+    internal const double HighEntropy = 7.2;
     private static readonly byte[] UpxMagic = "UPX!"u8.ToArray();
     private static readonly byte[] UpxInfo = "This file is packed with the UPX"u8.ToArray();
 
@@ -131,7 +131,7 @@ public static class PackerDetection
     }
 
     /// <summary>Shannon entropy in bits per byte of the mapped bytes.</summary>
-    private static double Entropy(INativeImage image, uint rva, uint size, byte[] buffer)
+    internal static double Entropy(INativeImage image, uint rva, uint size, byte[] buffer)
     {
         Span<long> counts = stackalloc long[256];
         long total = 0;

@@ -92,7 +92,12 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         int Refused,
         IReadOnlyList<ReasonCount> RefusedBy,
         IReadOnlyList<MigrationPatchEntry> Items, int Offset, int Total,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        // Reported through the call's warnings, not as a field of its own.
+        [System.Text.Json.Serialization.JsonIgnore]
+        public IReadOnlyList<string> Warnings { get; init; } = [];
+    }
 
     [McpServerTool(Name = "migrate_native_patches", Title = "Migrate patches to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationPatchReport))]
     [Description("Carry byte patches from an old build to a new one through the function match. A patch applies only where the mapped " +
@@ -115,6 +120,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         head.Append(dryRun ? $"Dry run: {r.Carried} of {Plural(r.Patches, "patch")} ({r.Source}) would apply to {r.NewImage}{refused}. Nothing recorded; dryRun=false applies them.\n"
             : $"{r.Carried} of {Plural(r.Patches, "patch")} ({r.Source}) applied to {r.NewImage}{refused}. " +
               (r.EditIds.Count > 0 ? $"Recorded as {string.Join(", ", r.EditIds)} (undo_native_edit editId={r.EditIds[0]}).\n" : "Nothing changed.\n"));
+        foreach (var w in r.Warnings) ToolOutput.Warn(w);
         foreach (var n in r.Notes) head.Append("Note: ").Append(n).Append('\n');
         return ToolOutput.List(r.Items, offset, limit, e =>
                 $"#{e.Number} {e.OldAddress} -> {e.NewAddress ?? "-"} {e.Description}: {e.Status}" +
@@ -206,7 +212,16 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             s.NewReplacement is { } nr ? Convert.ToHexString(nr) : null)).ToList();
 
         return new MigrationPatchReport(oldNative.Id, newNative.Id, source, dryRun, ids.Count > 0, ids, patches.Count, carried, steps.Count - carried, refusedBy,
-            entries, 0, entries.Count, notes);
+            entries, 0, entries.Count, notes) { Warnings = Cautions(newIndex.Image, steps) };
+    }
+
+    private static IReadOnlyList<string> Cautions(INativeImage image, IReadOnlyList<PatchMigrationStep> steps)
+    {
+        var sites = steps.Where(s => s.Apply && s.NewRva != null).Select(s => s.NewRva!.Value).ToList();
+        if (sites.Count == 0) return [];
+        var all = PatchWarnings.ForSites(image, sites).ToList();
+        if (PatchWarnings.ForSignature(image) is { } signature) all.Add(signature);
+        return all;
     }
 
     private static async Task<string> ReadPatchSet(string patchSet, CancellationToken ct)
