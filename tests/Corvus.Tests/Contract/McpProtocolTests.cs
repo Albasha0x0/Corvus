@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ModelContextProtocol;
@@ -834,14 +835,16 @@ public abstract class McpProtocolTests : IAsyncLifetime
             }
             File.Copy(_dir.File("v2.dll"), path, overwrite: true);
 
-            string text = "";
-            for (int i = 0; i < 50 && !text.Contains("[workspace]"); i++)
+            // An indexing notice can ride an earlier reply; each notice rides
+            // one reply only.
+            var notices = new StringBuilder();
+            for (int i = 0; i < 50 && !notices.ToString().Contains("reloaded"); i++)
             {
                 await Task.Delay(200);
-                text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
+                var text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
+                if (text.Contains("[workspace]")) notices.AppendLine(text[text.IndexOf("[workspace]", StringComparison.Ordinal)..]);
             }
-            Assert.Contains("[workspace]", text);
-            Assert.Contains("reloaded", text);
+            Assert.True(notices.ToString().Contains("reloaded"), notices.ToString());
         }
     }
 
