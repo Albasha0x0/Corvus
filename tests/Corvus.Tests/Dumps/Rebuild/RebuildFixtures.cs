@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
+using Corvus.Native.Dump;
+using Corvus.Native.Pe;
 
 namespace Corvus.Tests;
 
@@ -33,6 +35,22 @@ internal sealed record PeSpec(
     public ulong Base => ImageBase ?? (Is64Bit ? 0x140000000UL : 0x10000000UL);
 }
 
+/// <summary>How a loader leaves an image in memory: sections at virtual addresses, or the file bytes unchanged.</summary>
+internal enum ImageLayout { Mapped, Flat }
+
+/// <summary>
+/// An image placed at <paramref name="Base"/> in a dump; <paramref name="Listed"/> adds it to the module list,
+/// <paramref name="OmittedPages"/> are RVAs of pages left out, and <paramref name="IatValues"/> overrides slot values
+/// keyed by <c>module!name</c> (by default the address of the named export in another placed image).
+/// </summary>
+internal sealed record Placed(
+    string Name,
+    PeBuilt Image,
+    ulong Base,
+    ImageLayout Layout = ImageLayout.Mapped,
+    bool Listed = true,
+    IReadOnlyList<uint>? OmittedPages = null,
+    IReadOnlyDictionary<string, ulong>? IatValues = null);
 /// <summary>Builds synthetic PE files and their mapped form for rebuild tests.</summary>
 internal static class RebuildFixtures
 {
@@ -195,6 +213,76 @@ internal static class RebuildFixtures
             file.AsSpan((int)rawAt, (int)Math.Min(rawSize, virtualSize)).CopyTo(mapped.AsSpan((int)va));
         }
         return mapped;
+    }
+
+    /// <summary>
+    /// Writes a minidump holding the images as a loader leaves them and opens it. A mapped image gets the
+    /// relocation delta applied at each pointer site and its import slots filled; a flat image keeps its file bytes.
+    /// </summary>
+    public static MinidumpFile Dump(TempDir dir, params Placed[] images)
+    {
+        const int page = 0x1000;
+        var first = PeFile.FromBytes(images[0].Image.Bytes);
+        var builder = new MinidumpBuilder { ProcessorArchitecture = first.Is64Bit ? (ushort)9 : (ushort)0 };
+        foreach (var p in images)
+        {
+            var pe = PeFile.FromBytes(p.Image.Bytes);
+            byte[] data = p.Layout == ImageLayout.Flat ? p.Image.Bytes : Loaded(p, pe, images);
+            uint stamp = BinaryPrimitives.ReadUInt32LittleEndian(p.Image.Bytes.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(p.Image.Bytes.AsSpan(0x3C)) + 8));
+            if (p.Listed) builder.Modules.Add(new MinidumpBuilder.Module(p.Base, (uint)data.Length, stamp, p.Name));
+            var omitted = (p.OmittedPages ?? []).Select(r => r / page).ToHashSet();
+            int start = -1;
+            for (int offset = 0; offset <= data.Length; offset += page)
+            {
+                bool present = offset < data.Length && !omitted.Contains((uint)(offset / page));
+                if (present && start < 0) start = offset;
+                if (!present && start >= 0)
+                {
+                    builder.Memory.Add((p.Base + (ulong)start, data[start..Math.Min(offset, data.Length)]));
+                    start = -1;
+                }
+            }
+        }
+        builder.Memory.Sort((a, b) => a.Start.CompareTo(b.Start));
+        string path = dir.File($"placed-{Guid.NewGuid():N}.dmp");
+        File.WriteAllBytes(path, builder.Build());
+        return MinidumpFile.Open(path);
+    }
+
+    private static byte[] Loaded(Placed p, PeFile pe, Placed[] all)
+    {
+        var data = Mapped(p.Image.Bytes);
+        int width = pe.Is64Bit ? 8 : 4;
+        ulong delta = p.Base - pe.ImageBase;
+        foreach (uint site in pe.RelocationRvas)
+        {
+            if (pe.Is64Bit)
+                BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan((int)site), BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan((int)site)) + delta);
+            else
+                BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan((int)site), BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan((int)site)) + (uint)delta);
+        }
+        foreach (var (key, slot) in p.Image.IatSlots)
+        {
+            ulong value;
+            if (p.IatValues is { } given && given.TryGetValue(key, out var chosen)) value = chosen;
+            else if (!TryExportAddress(all, key, out value)) continue;
+            if (width == 8) BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan((int)slot), value);
+            else BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan((int)slot), (uint)value);
+        }
+        return data;
+    }
+
+    private static bool TryExportAddress(Placed[] all, string key, out ulong address)
+    {
+        address = 0;
+        int bang = key.IndexOf('!');
+        string module = key[..bang], name = key[(bang + 1)..];
+        var target = all.FirstOrDefault(x => string.Equals(x.Name, module, StringComparison.OrdinalIgnoreCase));
+        if (target is null) return false;
+        var export = PeFile.FromBytes(target.Image.Bytes).Exports.FirstOrDefault(e => e.Name == name);
+        if (export is null) return false;
+        address = target.Base + export.Rva;
+        return true;
     }
 
     private static byte[] ExportDirectory(IReadOnlyList<ExportSpec> exports, uint rva)

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Corvus.Native.Dump;
 using Corvus.Native.Pe;
 
 namespace Corvus.Tests;
@@ -59,5 +60,44 @@ public sealed class RebuildFixturesTests
         Assert.Equal(pe.Imports.Select(i => i.SlotRva), built.IatSlots.Values);
         Assert.Equal(built.IatSlots["one.dll!Open"] + width, built.IatSlots["one.dll!Read"]);
         Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan((int)built.IatSlots["two.dll!Close"])));
+    }
+
+    [Fact]
+    public void A_module_placed_at_another_base_has_its_pointers_moved_by_the_delta()
+    {
+        var spec = Spec(true);
+        var image = RebuildFixtures.Build(spec);
+        using var dir = new TempDir();
+        ulong moved = spec.Base + 0x40000000;
+        using var dump = RebuildFixtures.Dump(dir, new Placed("moved.dll", image, moved));
+
+        Assert.True(dump.TryReadU64(moved + 0x2008, out var first));
+        Assert.True(dump.TryReadU64(moved + 0x2010, out var second));
+        Assert.Equal(moved + 0x1000, first);
+        Assert.Equal(moved + 0x1002, second);
+    }
+
+    [Fact]
+    public void An_import_slot_holds_the_address_of_the_export_it_names()
+    {
+        var exporter = RebuildFixtures.Build(Spec(true) with { ImageBase = 0x180000000, Exports = [new ExportSpec("Alpha", 0x1002)] });
+        var importer = RebuildFixtures.Build(Spec(true) with { Imports = [new ImportSpec("lib.dll", ["Alpha"])] });
+        using var dir = new TempDir();
+        using var dump = RebuildFixtures.Dump(dir, new Placed("lib.dll", exporter, 0x7FF700000000), new Placed("app.exe", importer, 0x140000000));
+
+        Assert.True(dump.TryReadU64(0x140000000UL + importer.IatSlots["lib.dll!Alpha"], out var slot));
+        Assert.Equal(0x7FF700000000UL + 0x1002UL, slot);
+    }
+
+    [Fact]
+    public void An_omitted_page_reads_as_missing()
+    {
+        var image = RebuildFixtures.Build(Spec(true));
+        using var dir = new TempDir();
+        using var dump = RebuildFixtures.Dump(dir, new Placed("gap.dll", image, 0x140000000, OmittedPages: [0x2000]));
+        var one = new byte[1];
+
+        Assert.Equal(1, dump.ReadMemory(0x140000000 + 0x1000, one));
+        Assert.Equal(0, dump.ReadMemory(0x140000000 + 0x2008, one));
     }
 }
