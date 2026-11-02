@@ -304,7 +304,11 @@ public static partial class ToolOutput
         if (line.StartsWith(NoticePrefix, StringComparison.Ordinal)) return record["notices"] is not null;
         // A text line carries its marker ("Warning: ", "Note: ") where the record's entry does not.
         var bare = BarePrefixes.FirstOrDefault(m => line.StartsWith(m, StringComparison.Ordinal)) is { } marker ? line[marker.Length..] : line;
-        return Strings(record).Any(s => s.Contains(bare, StringComparison.Ordinal));
+        var strings = Strings(record).ToList();
+        if (strings.Any(s => s.Contains(bare, StringComparison.Ordinal))) return true;
+        // A marker line over indented entries is carried when the record holds each entry.
+        var rows = line.Split('\n');
+        return rows.Length > 1 && rows[0].EndsWith(':') && rows.Skip(1).All(r => r.Trim() is { Length: > 0 } t && strings.Any(s => s.Contains(t, StringComparison.Ordinal)));
     }
 
     private static IEnumerable<string> Strings(JsonNode? node)

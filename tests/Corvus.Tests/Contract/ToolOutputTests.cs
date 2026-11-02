@@ -562,6 +562,9 @@ public class ToolOutputTests(ITestOutputHelper output)
         var record = new System.Text.Json.Nodes.JsonObject { ["notes"] = new System.Text.Json.Nodes.JsonArray("Target platform: windows, from requested.") };
         Assert.True(ToolOutput.Carries(record, "Note: Target platform: windows, from requested."));
         Assert.False(ToolOutput.Carries(record, "Note: No Windows system DLLs on this host."));
+        var listed = new System.Text.Json.Nodes.JsonObject { ["next"] = new System.Text.Json.Nodes.JsonArray("get_cfg image=a.dll", "disassemble image=a.dll") };
+        Assert.True(ToolOutput.Carries(listed, "Next:\n  get_cfg image=a.dll\n  disassemble image=a.dll"));
+        Assert.False(ToolOutput.Carries(listed, "Next:\n  get_cfg image=a.dll\n  decompile_native image=a.dll"));
     }
 
     /// <summary>RT-315: a dry-run header is lifted with its Before and After blocks.</summary>
