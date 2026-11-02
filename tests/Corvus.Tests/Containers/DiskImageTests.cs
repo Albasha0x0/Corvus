@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 /// <summary>Optical disc images (ISO 9660, Joliet, UDF) and virtual disks (VHD fixed and dynamic, VHDX) with MBR / GPT partitions, NTFS and FAT volumes.</summary>
 public sealed class DiskImageTests
 {
-    private static byte[] Fixture(string name)
+    internal static byte[] Fixture(string name)
     {
         using var z = new GZipStream(File.OpenRead(Path.Combine(AppContext.BaseDirectory, "Containers", "DiskFixtures", name + ".gz")), CompressionMode.Decompress);
         var o = new MemoryStream();

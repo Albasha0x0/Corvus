@@ -13,17 +13,25 @@ internal sealed class ArchiveReader : IContainerReader
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => Format(data) != null;
 
+    // The magic names the candidate; the signature registry checks the header
+    // fields behind it.
     private static string? Format(ReadOnlySpan<byte> b)
     {
         // A disk image's first chunk may be xz or bzip2: its koly trailer wins.
         if (Firmware.UdifReader.Looks(b)) return null;
-        if (b.Length > 262 && b[257..262].SequenceEqual("ustar"u8)) return "tar";
-        if (b.StartsWith((ReadOnlySpan<byte>)[0x1F, 0x8B])) return "gzip";
-        if (b.StartsWith((ReadOnlySpan<byte>)[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00])) return "xz";
-        if (b.StartsWith("BZh"u8)) return "bzip2";
-        if (b.StartsWith((ReadOnlySpan<byte>)[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return "7z";
-        if (b.StartsWith("Rar!\x1A\x07"u8)) return "rar";
-        return null;
+        var (format, signatures) = Candidate(b);
+        return format != null && Firmware.FirmwareSignatures.Holds(b, Containers.KnownLength(b), signatures) ? format : null;
+    }
+
+    private static (string?, string[]) Candidate(ReadOnlySpan<byte> b)
+    {
+        if (b.Length > 262 && b[257..262].SequenceEqual("ustar"u8)) return ("tar", ["POSIX tar archive"]);
+        if (b.StartsWith((ReadOnlySpan<byte>)[0x1F, 0x8B])) return ("gzip", ["gzip compressed data"]);
+        if (b.StartsWith((ReadOnlySpan<byte>)[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00])) return ("xz", ["xz compressed data"]);
+        if (b.StartsWith("BZh"u8)) return ("bzip2", ["bzip2 compressed data"]);
+        if (b.StartsWith((ReadOnlySpan<byte>)[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return ("7z", ["7-Zip archive"]);
+        if (b.StartsWith("Rar!\x1A\x07"u8)) return ("rar", ["RAR archive (v4)", "RAR archive (v5)"]);
+        return (null, []);
     }
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
@@ -34,7 +42,7 @@ internal sealed class ArchiveReader : IContainerReader
         Span<byte> head = stackalloc byte[263];
         int got = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
         stream.Position = 0;
-        var format = Format(head[..got])!;
+        var format = Candidate(head[..got]).Item1!;
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
         var notes = new List<string>();

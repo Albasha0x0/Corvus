@@ -145,7 +145,7 @@ internal static class FirmwareSignatures
         list.Add(S("gzip compressed data", Comp, [0x1F, 0x8B, 0x08], (w, at) => (w.U8(at + 3) & 0xE0) == 0 && w.U8(at + 9) is <= 13 or 19 or 255
             && Containers.GzipDecodes(w.Read(at, (int)Math.Min(w.Left(at), Containers.GzipProbeBytes)))
             ? Found((w.U8(at + 3) & 8) != 0 ? $"original name '{CString(w, at + 10, 64)}'" : null) : null));
-        list.Add(S("bzip2 compressed data", Comp, "BZh", (w, at) => w.U8(at + 3) is >= (byte)'1' and <= (byte)'9' && w.Is(at + 4, [0x31, 0x41, 0x59, 0x26, 0x53, 0x59])
+        list.Add(S("bzip2 compressed data", Comp, "BZh", (w, at) => w.U8(at + 3) is >= (byte)'1' and <= (byte)'9' && w.Is(at + 4, [0x31, 0x41, 0x59, 0x26, 0x53, 0x59]) || w.Is(at + 4, [0x17, 0x72, 0x45, 0x38, 0x50, 0x90])
             ? Found($"{(w.U8(at + 3) - '0') * 100} KiB blocks") : null));
         list.Add(S("xz compressed data", Comp, [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00], (w, at) => w.U8(at + 6) == 0 && w.U8(at + 7) is 0 or 1 or 4 or 10
             && ~Crc.Raw(0xFFFFFFFF, w.D.AsSpan(at + 6, 2)) == w.Le32(at + 8) ? Found() : null));
@@ -249,7 +249,8 @@ internal static class FirmwareSignatures
             ? Sized(w, at, (page == 1 ? 65536L : page) * w.Be32(at + 28)) : null));
         list.Add(S("XML document", Doc, "<?xml version=", (w, at) => w.U8(at + 14) is (byte)'"' or (byte)'\'' ? Found() : null));
         list.Add(S("HTML document", Doc, "<!DOCTYPE html", (w, at) => w.U8(at + 14) is '>' or ' ' or '\t' or '\r' or '\n' && PlainText(w, at, 48) ? Found() : null));
-        list.Add(S("VHD disk image", Fs, "conectix", (w, at) => w.Be32(at + 12) == 0x00010000 ? Found($"{(long)w.Be64(at + 48):N0}-byte disk") : null));
+        list.Add(S("VHD disk image", Fs, "conectix", VhdFooter));
+        list.Add(S("VHDX disk image", Fs, "vhdxfile", (w, at) => w.Is(at + 65536, "head"u8) || w.Is(at + 131072, "head"u8) ? Found() : null));
         list.Add(S("VMDK sparse extent", Fs, "KDMV", (w, at) => w.Le32(at + 4) is 1 or 2 or 3 ? Found() : null));
         list.Add(S("QEMU QCOW image", Fs, "QFIû", (w, at) => w.Be32(at + 4) is 1 or 2 or 3 ? Found($"version {w.Be32(at + 4)}, {(long)w.Be64(at + 24):N0}-byte disk") : null));
         list.Add(S("Apple disk image (koly)", Fs, "koly", (w, at) => w.Be32(at + 4) == 4 && w.Be32(at + 8) == 512 ? Found() : null));
@@ -442,11 +443,25 @@ internal static class FirmwareSignatures
             long nameAt = p + (newc ? 110 : 76);
             long data = newc ? (nameAt + nameSize + 3) & ~3L : nameAt + nameSize;
             long next = newc ? (data + fileSize + 3) & ~3L : data + fileSize;
-            if (w.Read(nameAt, (int)nameSize - 1) is { } name && name.AsSpan().SequenceEqual("TRAILER!!!"u8)) return Sized(w, at, next - at, $"{entries:N0} entries");
+            if (w.Read(nameAt, (int)nameSize - 1) is { } name && name.AsSpan().SequenceEqual("TRAILER!!!"u8))
+                // The padding after the trailer name may be cut off.
+                return Sized(w, at, w.Fits(at, next - at) ? next - at : nameAt + nameSize - at, $"{entries:N0} entries");
             p = next;
-            if (w.Read(p, 6) is not { } magic || !magic.AsSpan(0, 5).SequenceEqual("07070"u8)) return entries > 0 ? Found($"{entries + 1:N0} entries, no trailer") : null;
+            // A next header outside the bytes in hand is unknown, not absent.
+            if (w.Read(p, 6) is not { } magic) return Found();
+            if (!magic.AsSpan(0, 5).SequenceEqual("07070"u8)) return entries > 0 ? Found($"{entries + 1:N0} entries, no trailer") : null;
         }
         return Found();
+    }
+
+    // Version 1, a fixed, dynamic or differencing type, a disk size and the
+    // checksum: the one's complement of the footer bytes except itself.
+    private static (long? Size, string? Detail)? VhdFooter(Window w, int at)
+    {
+        if (w.Be32(at + 12) != 0x00010000 || w.Be32(at + 60) is not (2 or 3 or 4) || (long)w.Be64(at + 48) <= 0 || !w.Has(at, 512)) return null;
+        uint sum = 0;
+        for (int i = 0; i < 512; i++) sum += i is >= 64 and < 68 ? 0u : w.D[at + i];
+        return ~sum == w.Be32(at + 64) ? Found($"{(long)w.Be64(at + 48):N0}-byte disk") : null;
     }
 
     private static (long? Size, string? Detail)? Tar(Window w, int at)
@@ -638,6 +653,22 @@ internal static class FirmwareSignatures
             }
         }
         return skipUntil;
+    }
+
+    /// <summary>
+    /// Whether the file starting with <paramref name="head"/> is one of the
+    /// named formats and passes its header check; sizes compare against
+    /// <paramref name="length"/>, the whole file's.
+    /// </summary>
+    public static bool Holds(ReadOnlySpan<byte> head, long length, params string[] formats) => Holds(head, length, Containers.GzipProbeBytes, formats);
+
+    /// <summary>The same check, reading at most <paramref name="probe"/> bytes.</summary>
+    public static bool Holds(ReadOnlySpan<byte> head, long length, int probe, string[] formats)
+    {
+        var d = head[..Math.Min(head.Length, probe)].ToArray();
+        var hits = new List<SignatureHit>();
+        Scan(new Window(d, d.Length, 0, length, null), 1, 0, hits, 1, s => Array.IndexOf(formats, s.Format) >= 0, default);
+        return hits.Count > 0;
     }
 
     /// <summary>Every signature of a file in memory.</summary>

@@ -9,7 +9,7 @@ public sealed class InesRomTests
     private static string Fixture => Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", "nrom.nes");
 
     /// <summary>An iNES 1.0 header, then each 16 KiB PRG bank filled with its index and ending in that bank's vectors.</summary>
-    private static byte[] Rom(int prgBanks, int chrBanks, int mapper, bool trainer = false, bool nes2 = false)
+    internal static byte[] Rom(int prgBanks, int chrBanks, int mapper, bool trainer = false, bool nes2 = false)
     {
         var b = new byte[16 + (trainer ? 512 : 0) + prgBanks * 0x4000 + chrBanks * 0x2000];
         "NES\x1A"u8.CopyTo(b);
@@ -77,7 +77,8 @@ public sealed class InesRomTests
         "Ni"u8.CopyTo(data.AsSpan(12));
         Assert.Equal(2, InesRom.Read(data).Mapper);
         data[4] = 0;
-        var e = Assert.Throws<ToolError>(() => Containers.Open(data, "empty.nes", new AnalysisLimits(), default, allFiles: true));
+        Assert.False(new InesRomReader().Accepts(data, "empty.nes"));
+        var e = Assert.Throws<ToolError>(() => new InesRomReader().Open(data, "empty.nes", true, new AnalysisLimits(), default));
         Assert.Equal(ErrorCode.MalformedInput, e.Code);
     }
 

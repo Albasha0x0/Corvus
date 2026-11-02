@@ -9,7 +9,8 @@ internal sealed class ArReader : IContainerReader
 
     public string Kind => "ar archive";
 
-    public bool Accepts(ReadOnlySpan<byte> data, string name) => data.StartsWith("!<arch>\n"u8);
+    public bool Accepts(ReadOnlySpan<byte> data, string name) =>
+        data.StartsWith("!<arch>\n"u8) && Firmware.FirmwareSignatures.Holds(data, Containers.KnownLength(data), "ar archive");
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {

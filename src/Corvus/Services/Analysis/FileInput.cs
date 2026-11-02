@@ -9,7 +9,7 @@ public sealed class FileInput
     /// <summary>Files above this size are streamed rather than read whole up front.</summary>
     public const long StreamAbove = 64L << 20;
     /// <summary>Bytes kept from the start of a streamed file.</summary>
-    public const int HeadBytes = 1 << 20;
+    public const int HeadBytes = Corvus.Core.Containers.HeadBytes;
 
     private byte[]? _bytes;
 

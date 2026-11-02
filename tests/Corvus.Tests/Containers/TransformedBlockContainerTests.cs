@@ -6,7 +6,7 @@ namespace Corvus.Tests;
 /// <summary>Containers built here: a marker, a payload length, then pseudo-random 8-byte blocks.</summary>
 public sealed class TransformedBlockContainerTests
 {
-    private static byte[] Container(int payload, uint? declared = null, int truncate = 0, int trailing = 0)
+    internal static byte[] Container(int payload, uint? declared = null, int truncate = 0, int trailing = 0)
     {
         var bytes = new byte[8 + payload + trailing];
         new Random(3).NextBytes(bytes);

@@ -11,8 +11,16 @@ internal sealed class SwfReader : IContainerReader
 
     public string Kind => KindName;
 
+    // The declared length is the file's own (uncompressed) or at most 1032
+    // times a zlib stream; a compressed body starts with a valid stream header.
     public bool Accepts(ReadOnlySpan<byte> data, string name) =>
-        SwfFile.Looks(data) && (data[0] != 'F' || data.Length >= 21 && BinaryPrimitives.ReadUInt32LittleEndian(data[4..]) == data.Length);
+        SwfFile.Looks(data) && BinaryPrimitives.ReadUInt32LittleEndian(data[4..]) is var declared and >= 8
+        && data[0] switch
+        {
+            (byte)'F' => data.Length >= 21 && (declared == data.Length || !Containers.IsWhole(data)),
+            (byte)'C' => data.Length >= 10 && (data[8] & 0x0F) == 8 && (data[8] << 8 | data[9]) % 31 == 0 && (!Containers.IsWhole(data) || declared <= 1032L * data.Length),
+            _ => data.Length >= 17 && data[12] < 225,
+        };
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {

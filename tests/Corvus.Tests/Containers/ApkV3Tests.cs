@@ -104,7 +104,7 @@ public sealed class ApkV3Tests : IDisposable
     private static uint Depends(Tree t) => t.Array(t.Object(t.Text("libc")), t.Object(t.Text("libfoo"), t.Text("2.0"), Tree.Int(5)));
 
     /// <summary>A package: bin/tool (a program), bin/sh linked to it, etc/tool.conf, and a post-install script.</summary>
-    private static byte[] Package()
+    internal static byte[] Package()
     {
         var t = new Tree();
         var acl = t.Object(Tree.Int(493), t.Text("root"), t.Text("root"));
@@ -117,7 +117,7 @@ public sealed class ApkV3Tests : IDisposable
         return File("pckg", t.Done(root), (2, 1, Isa("mips32be.elf")), (3, 1, "a = 1\n"u8.ToArray()));
     }
 
-    private static byte[] Index()
+    internal static byte[] Index()
     {
         var t = new Tree();
         var root = t.Object(t.Text("test repository"), t.Array(Info(t, "tool", "1.0-r1", Depends(t)), Info(t, "libfoo", "2.0-r3", 0)));

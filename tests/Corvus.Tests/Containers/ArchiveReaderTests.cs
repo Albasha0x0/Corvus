@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 /// <summary>tar and compressed tars as containers: entries listed, binaries extracted, bombs stopped at the limits.</summary>
 public sealed class ArchiveReaderTests
 {
-    private static byte[] TarGz(params (string Name, byte[] Bytes)[] files)
+    internal static byte[] TarGz(params (string Name, byte[] Bytes)[] files)
     {
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))

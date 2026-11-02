@@ -86,7 +86,7 @@ public sealed class InstallerStubTests
         return image;
     }
 
-    private static byte[] Zip(params (string Name, byte[] Data)[] files)
+    internal static byte[] Zip(params (string Name, byte[] Data)[] files)
     {
         var o = new MemoryStream();
         using (var z = new ZipArchive(o, ZipArchiveMode.Create, leaveOpen: true))
@@ -111,7 +111,7 @@ public sealed class InstallerStubTests
         Assert.Contains(c.Items, i => i.Name == "App-1.2.3-full.nupkg" && i.Bytes.SequenceEqual(package));
     }
 
-    private static byte[] BurnFixture()
+    internal static byte[] BurnFixture()
     {
         var manifest = """
             <?xml version="1.0" encoding="utf-8"?>
@@ -145,7 +145,7 @@ public sealed class InstallerStubTests
     /// With <paramref name="commands"/>, entries 4 to 12 follow: Exec, ExecWait, ExecShell, two pushes, a plugin call,
     /// WriteRegStr twice and WriteRegDWORD; <paramref name="opcode"/> replaces the last entry's opcode.
     /// </summary>
-    private static byte[] NsisFixture(bool wide = false, bool commands = false, int opcode = 0)
+    internal static byte[] NsisFixture(bool wide = false, bool commands = false, int opcode = 0)
     {
         var strings = new MemoryStream();
         strings.Write([0, 0]);
@@ -232,7 +232,7 @@ public sealed class InstallerStubTests
     /// table (RCDATA 11111) points past the image. With <paramref name="script"/>, one [Registry] entry and two [Run] entries
     /// follow the files, and the header carries compiled Pascal code.
     /// </summary>
-    private static byte[] InnoFixture(bool older = false, bool script = false)
+    internal static byte[] InnoFixture(bool older = false, bool script = false)
     {
         var content = "inno file"u8.ToArray();
         byte[] Block(byte[] data)

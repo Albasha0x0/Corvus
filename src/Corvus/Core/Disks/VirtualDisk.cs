@@ -56,6 +56,17 @@ internal abstract class DiskStream : Stream
     public override void SetLength(long value) => throw new NotSupportedException();
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+    /// <summary>A VHDX, or a VHD with a valid footer at its end or start.</summary>
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < 512) return false;
+        long length = Containers.KnownLength(b);
+        // A fixed VHD has its only footer at the end, unseen in a head.
+        return FirmwareSignatures.Holds(b, length, 1 << 18, ["VHDX disk image"])
+            || Containers.IsWhole(b) && FirmwareSignatures.Holds(b[^512..], b.Length, "VHD disk image")
+            || b.Length >= 1024 && FirmwareSignatures.Holds(b, length, 512, ["VHD disk image"]);
+    }
+
     /// <summary>The disk of a VHD or VHDX file, or null for any other file.</summary>
     public static DiskStream? Open(FsSource src)
     {

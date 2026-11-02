@@ -52,7 +52,10 @@ internal sealed class ShellLink
         "DisableKnownFolderAlias", "AllowLinkToLink", "UnaliasOnSave", "PreferEnvironmentPath", "KeepLocalIDListForUNCTarget",
     ];
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 76 && BinaryPrimitives.ReadUInt32LittleEndian(b) == 0x4C && new Guid(b.Slice(4, 16)) == LinkClsid;
+    /// <summary>A shell link header: size 0x4C, the link class id and zero reserved fields.</summary>
+    public static bool Looks(ReadOnlySpan<byte> b) =>
+        b.Length >= 76 && BinaryPrimitives.ReadUInt32LittleEndian(b) == 0x4C && new Guid(b.Slice(4, 16)) == LinkClsid
+        && !b.Slice(0x42, 10).ContainsAnyExcept((byte)0);
 
     /// <summary>The shortcut's target as the shell resolves it: the environment target when it prefers one, else the local or network path, else the ID list.</summary>
     public string? Target => (Flags & 0x02000000) != 0 && EnvironmentTarget != null ? EnvironmentTarget

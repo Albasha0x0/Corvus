@@ -67,6 +67,15 @@ public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, L
 /// <summary>Opens one container level (callers recurse); offsets are bounds-checked, decompression bounded by <see cref="AnalysisLimits"/>.</summary>
 public static class Containers
 {
+    /// <summary>Length of the head a streamed file is read as.</summary>
+    public const int HeadBytes = 1 << 20;
+
+    /// <summary>Whether data is a whole file; a head is <see cref="HeadBytes"/> long.</summary>
+    internal static bool IsWhole(ReadOnlySpan<byte> data) => data.Length != HeadBytes;
+
+    /// <summary>The length sizes are checked against; unbounded for a head.</summary>
+    internal static long KnownLength(ReadOnlySpan<byte> data) => IsWhole(data) ? data.Length : long.MaxValue;
+
     /// <summary>SHA-256 of ".net core bundle": marks the bundle header offset slot in an apphost.</summary>
     private static readonly byte[] BundleSignature =
     [

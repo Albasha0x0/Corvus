@@ -30,7 +30,11 @@ internal sealed class XarReader : IContainerReader
 {
     public string Kind => "xar";
 
-    public static bool IsXar(ReadOnlySpan<byte> b) => b.Length >= 28 && b.StartsWith("xar!"u8);
+    // Header size at least 28, version 1 and, in a whole file, a table of
+    // contents inside it.
+    public static bool IsXar(ReadOnlySpan<byte> b) =>
+        b.Length >= 28 && b.StartsWith("xar!"u8) && BinaryPrimitives.ReadUInt16BigEndian(b[4..]) is var header and >= 28
+        && BinaryPrimitives.ReadUInt16BigEndian(b[6..]) == 1 && (!Containers.IsWhole(b) || BinaryPrimitives.ReadUInt64BigEndian(b[8..]) <= (ulong)Math.Max(0, b.Length - header));
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => IsXar(data);
 
@@ -115,6 +119,7 @@ internal sealed class CpioReader : IContainerReader
 
     public static bool IsCpio(ReadOnlySpan<byte> b) =>
         b.Length >= 6 && (b.StartsWith("070707"u8) || b.StartsWith("070701"u8) || b.StartsWith("070702"u8))
+        && Firmware.FirmwareSignatures.Holds(b, Containers.KnownLength(b), "cpio archive (newc)", "cpio archive (newc with CRC)", "cpio archive (odc)")
         || b.Length >= 26 && (b.StartsWith((ReadOnlySpan<byte>)[0xC7, 0x71]) || b.StartsWith((ReadOnlySpan<byte>)[0x71, 0xC7])) && Binary(b, b[0] == 0x71) is { NameSize: > 1 and <= 4096 };
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => IsCpio(data);

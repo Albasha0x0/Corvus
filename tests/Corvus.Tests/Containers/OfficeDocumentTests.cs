@@ -11,7 +11,7 @@ public sealed class OfficeDocumentTests
 {
     private const string StartupMacro = "Sub AutoOpen()\r\n  Dim s\r\n  s = \"https://example.test/readme.txt\"\r\n  Shell \"cmd /c echo \" & s, vbHide\r\n  x = \"6E6F74657061642E657865\"\r\nEnd Sub\r\n";
 
-    private static byte[] WordDocument() => Compound([("WordDocument", new byte[600]), .. VbaStreams("Macros/", ("ThisDocument", "document", ""), ("Module1", "standard", StartupMacro))]);
+    internal static byte[] WordDocument() => Compound([("WordDocument", new byte[600]), .. VbaStreams("Macros/", ("ThisDocument", "document", ""), ("Module1", "standard", StartupMacro))]);
 
     private static OfficeFileView.Facts? View(byte[] data, string name = "doc.doc") =>
         new OfficeFileView().Inspect(new FileInput(name, data, Blob.Identify(data)), default)?.Detail as OfficeFileView.Facts;

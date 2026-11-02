@@ -8,22 +8,22 @@ namespace Corvus.Tests;
 /// <summary>Standalone HTML and SVG pages that build a file in a Blob and save it yield that file as a member.</summary>
 public sealed class BlobPayloadTests
 {
-    private static byte[] ArchiveBytes(int size)
+    internal static byte[] ArchiveBytes(int size)
     {
         var data = new byte[size];
         new Random(7).NextBytes(data);
         return ContainerFixtures.Zip(("report.bin", data));
     }
 
-    private static string Script(string literal, string name = "invoice.zip") =>
+    internal static string Script(string literal, string name = "invoice.zip") =>
         $"var data = {literal}; var bin = atob(data); var bytes = new Uint8Array(bin.length); " +
         "for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); " +
         $"var blob = new Blob([bytes], {{ type: 'application/zip' }}); var a = document.createElement('a'); " +
         $"a.href = URL.createObjectURL(blob); a.download = '{name}'; a.click();";
 
-    private static string Html(string script) => $"<html><body><button>Open</button><script>{script}</script></body></html>";
+    internal static string Html(string script) => $"<html><body><button>Open</button><script>{script}</script></body></html>";
 
-    private static string Svg(string script) =>
+    internal static string Svg(string script) =>
         $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><script type=\"application/ecmascript\"><![CDATA[{script}]]></script></svg>";
 
     private static ContainerContents Open(string page, string name) => Containers.Open(Encoding.UTF8.GetBytes(page), name, AnalysisLimits.Default, default);

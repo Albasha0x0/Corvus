@@ -126,7 +126,7 @@ internal static class DiskVolumes
             ct.ThrowIfCancellationRequested();
             var prefix = whole ? "" : $"partition{p.Index}/";
             var window = new SubStream(disk, p.Offset, Math.Min(p.Length, disk.Length - p.Offset));
-            var head = Read(window, 0, 1 << 20);
+            var head = Read(window, 0, Containers.HeadBytes);
             var reader = Containers.ReaderFor(head, name);
             if (reader == null || reader is VirtualDiskReader)
             {
@@ -156,8 +156,7 @@ internal sealed class VirtualDiskReader : IContainerReader
 {
     public string Kind => "vhd";
 
-    public bool Accepts(ReadOnlySpan<byte> data, string name) =>
-        data.Length >= 512 && (data.StartsWith("vhdxfile"u8) || data.StartsWith("conectix"u8) || data[^512..].StartsWith("conectix"u8));
+    public bool Accepts(ReadOnlySpan<byte> data, string name) => DiskStream.Looks(data);
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
         Read(FsSource.Of(data, name), name, allFiles, limits, ct);

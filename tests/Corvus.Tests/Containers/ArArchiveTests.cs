@@ -34,7 +34,7 @@ public sealed class ArArchiveTests
         return o.ToArray();
     }
 
-    private static byte[] Deb()
+    internal static byte[] Deb()
     {
         var gz = new MemoryStream();
         using (var z = new GZipStream(gz, CompressionLevel.Fastest, leaveOpen: true)) z.Write(Tar(("./control", Encoding.ASCII.GetBytes(Control))));

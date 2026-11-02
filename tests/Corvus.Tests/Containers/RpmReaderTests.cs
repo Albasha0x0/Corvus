@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 /// <summary>rpm packages of ledger-tools.spec built by rpmbuild 4.17: header fields, file list, payload and scriptlets.</summary>
 public sealed class RpmReaderTests(ITestOutputHelper output)
 {
-    private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Containers", "RpmFixtures", name);
+    internal static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Containers", "RpmFixtures", name);
 
     private static ContainerContents Open(byte[] data, string name) => Containers.Open(data, name, AnalysisLimits.Default, default, allFiles: true);
 

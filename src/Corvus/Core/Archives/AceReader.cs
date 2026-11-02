@@ -14,8 +14,10 @@ internal sealed class AceReader : IContainerReader
 
     public string Kind => "ace";
 
+    // The main header is block type 0 and fits the file.
     public bool Accepts(ReadOnlySpan<byte> data, string name) =>
-        data.Length >= Signature + 7 && data.Slice(Signature, 7).SequenceEqual("**ACE**"u8);
+        data.Length >= Signature + 7 && data.Slice(Signature, 7).SequenceEqual("**ACE**"u8)
+        && BinaryPrimitives.ReadUInt16LittleEndian(data[2..]) is var size && size >= 10 && 4 + size <= data.Length && data[4] == 0;
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {

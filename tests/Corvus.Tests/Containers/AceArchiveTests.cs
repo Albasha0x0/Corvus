@@ -18,9 +18,9 @@ public sealed class AceArchiveTests
         return block;
     }
 
-    private static byte[] Main() => Block([0, 0, 0, .. "**ACE**"u8, 20, 20, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    internal static byte[] Main() => Block([0, 0, 0, .. "**ACE**"u8, 20, 20, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
-    private static byte[] File(string name, int size, byte[] packed, ushort flags = 0, uint attr = 0x20, byte tech = 1)
+    internal static byte[] File(string name, int size, byte[] packed, ushort flags = 0, uint attr = 0x20, byte tech = 1)
     {
         var body = new byte[31 + name.Length];
         body[0] = 1;
@@ -127,7 +127,9 @@ public sealed class AceArchiveTests
     [Fact]
     public void A_main_header_that_runs_past_the_end_is_refused_as_malformed()
     {
-        var ex = Assert.Throws<ToolError>(() => Containers.Open(Main().Take(20).ToArray(), "x.ace", AnalysisLimits.Default, default, allFiles: true));
+        var cut = Main().Take(20).ToArray();
+        Assert.False(new Core.Archives.AceReader().Accepts(cut, "x.ace"));
+        var ex = Assert.Throws<ToolError>(() => new Core.Archives.AceReader().Open(cut, "x.ace", true, AnalysisLimits.Default, default));
         Assert.Equal(ErrorCode.MalformedInput, ex.Code);
     }
 

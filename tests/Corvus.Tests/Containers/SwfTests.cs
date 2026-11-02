@@ -17,7 +17,7 @@ public sealed partial class SwfTests(ITestOutputHelper output)
     private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
 
     /// <summary>One tag of each kind the reader extracts, a sprite, and the names SymbolClass and ExportAssets give.</summary>
-    private static byte[] Sample(char compression) => SwfSamples.File(compression, 32, 2,
+    internal static byte[] Sample(char compression) => SwfSamples.File(compression, 32, 2,
         SwfSamples.Tag(69, SwfSamples.U32(0x08)),
         SwfSamples.Tag(77, Encoding.UTF8.GetBytes("<rdf:RDF/>\0")),
         SwfSamples.Tag(9, [0xFF, 0x80, 0x00]),

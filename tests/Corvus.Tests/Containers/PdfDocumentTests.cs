@@ -10,7 +10,7 @@ public sealed class PdfDocumentTests
 {
     private const string Script = "var s = unescape('%41%42');\nthis.exportDataObject({ cName: 'module.dll', nLaunch: 0 });\neval(s);\n";
 
-    private static PdfFixtures Base() => new PdfFixtures()
+    internal static PdfFixtures Base() => new PdfFixtures()
         .Add(1, "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS 5 0 R >> /Names << /EmbeddedFiles << /Names [(module.dll) 6 0 R] >> >> >>")
         .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
         .Add(3, "<< /Type /Page /Parent 2 0 R /AA << /O 4 0 R >> /Annots [8 0 R] >>")

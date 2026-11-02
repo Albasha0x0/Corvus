@@ -11,7 +11,7 @@ public sealed class ChmTests
     private const string ResetName = Lzx + "Transform/{7FC28940-9D31-11D0-9B27-00A0C91E9C7C}/InstanceData/ResetTable";
     private const int Frame = 0x8000;
 
-    private static byte[] Page(int length, byte seed)
+    internal static byte[] Page(int length, byte seed)
     {
         var b = new byte[length];
         for (int i = 0; i < length; i++) b[i] = (byte)('a' + (i * 7 + seed) % 26);
@@ -36,7 +36,7 @@ public sealed class ChmTests
     }
 
     /// <summary>A help image: stored files in section 0 and compressed files in section 1; the reset table can be left out.</summary>
-    private static byte[] Chm((string Name, byte[] Data)[] stored, (string Name, byte[] Data)[] compressed, bool resetTable = true, string? badName = null, int version = 3, int corruptSegment = -1)
+    internal static byte[] Chm((string Name, byte[] Data)[] stored, (string Name, byte[] Data)[] compressed, bool resetTable = true, string? badName = null, int version = 3, int corruptSegment = -1)
     {
         var section0 = new List<byte>();
         var listing = new List<(string Name, int Section, long Offset, long Length)>();

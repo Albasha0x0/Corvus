@@ -25,7 +25,13 @@ internal sealed class PdfFile
 
     private const int MaxObjects = 1_000_000;
 
-    public static bool Looks(ReadOnlySpan<byte> b) => b[..Math.Min(b.Length, 1024)].IndexOf("%PDF-"u8) >= 0;
+    public static bool Looks(ReadOnlySpan<byte> b)
+    {
+        var head = b[..Math.Min(b.Length, 1024)];
+        int at = head.IndexOf("%PDF-"u8);
+        // The header carries a version: a digit, a dot and a digit.
+        return at >= 0 && at + 8 <= head.Length && head[at + 5] is >= (byte)'0' and <= (byte)'9' && head[at + 6] == '.' && head[at + 7] is >= (byte)'0' and <= (byte)'9';
+    }
 
     private PdfFile(byte[] data, string name)
     {

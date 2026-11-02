@@ -12,9 +12,20 @@ internal sealed class Iso9660Reader : IContainerReader
     public string Kind => "iso9660";
 
     /// <summary>A volume descriptor ("CD001") at sector 16, or a UDF anchor at sector 256.</summary>
-    public static bool Looks(ReadOnlySpan<byte> b) =>
-        b.Length >= 16 * Sector + 6 && b.Slice(16 * Sector + 1, 5).SequenceEqual("CD001"u8)
-        || b.Length >= 256 * Sector + 16 && UdfReader.IsAnchor(b.Slice(256 * Sector, 16));
+    public static bool Looks(ReadOnlySpan<byte> b) => HasVolumeDescriptor(b) || b.Length >= 256 * Sector + 16 && UdfReader.IsAnchor(b.Slice(256 * Sector, 16));
+
+    // The chain from sector 16 holds a primary or supplementary volume before
+    // its terminator; a supplementary volume may be version 2.
+    private static bool HasVolumeDescriptor(ReadOnlySpan<byte> b)
+    {
+        for (int s = 16; s < 64 && b.Length >= (s + 1) * Sector; s++)
+        {
+            var vd = b.Slice(s * Sector, Sector);
+            if (!vd.Slice(1, 5).SequenceEqual("CD001"u8) || !(vd[6] == 1 || vd[0] == 2 && vd[6] == 2) || vd[0] == 255) return false;
+            if (vd[0] is 1 or 2) return true;
+        }
+        return false;
+    }
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => Looks(data);
 

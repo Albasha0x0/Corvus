@@ -18,19 +18,19 @@ internal sealed class NsisInstallerReader : IContainerReader
 
     public string Kind => "nsis";
 
-    public bool Accepts(ReadOnlySpan<byte> data, string name) => data.StartsWith("MZ"u8) && FirstHeader(data[..Math.Min(data.Length, HeadBytes)]) != null;
+    public bool Accepts(ReadOnlySpan<byte> data, string name) => data.StartsWith("MZ"u8) && FirstHeader(data[..Math.Min(data.Length, HeadBytes)], Containers.KnownLength(data)) != null;
 
     private sealed record First(long Offset, uint Flags, int HeaderSize, long DataSize);
 
-    /// <summary>The first header: flags, 0xDEADBEEF, "NullsoftInst", header size and data size, at a 512-byte boundary.</summary>
-    private static First? FirstHeader(ReadOnlySpan<byte> head)
+    /// <summary>The first header at a 512-byte boundary, its data inside <paramref name="length"/> bytes.</summary>
+    private static First? FirstHeader(ReadOnlySpan<byte> head, long length)
     {
         for (int at = 512; at + FirstHeaderBytes <= head.Length; at += 512)
             if (BinaryPrimitives.ReadUInt32LittleEndian(head[(at + 4)..]) == Signature && head.Slice(at + 8, 12).SequenceEqual("NullsoftInst"u8))
             {
                 int header = BinaryPrimitives.ReadInt32LittleEndian(head[(at + 20)..]);
                 long data = BinaryPrimitives.ReadUInt32LittleEndian(head[(at + 24)..]);
-                return header > 0 && data > FirstHeaderBytes ? new First(at, BinaryPrimitives.ReadUInt32LittleEndian(head[at..]), header, data) : null;
+                return header > 0 && data > FirstHeaderBytes && at + data <= length ? new First(at, BinaryPrimitives.ReadUInt32LittleEndian(head[at..]), header, data) : null;
             }
         return null;
     }
@@ -89,7 +89,7 @@ internal sealed class NsisInstallerReader : IContainerReader
     /// <summary>The first header, the data codec and the parsed script; throws a tool error for a header this reader cannot decode.</summary>
     private static Loaded Load(Stream stream, InstallerPe.Read read, string name)
     {
-        var first = FirstHeader(read(0, (int)Math.Min(stream.Length, HeadBytes))!) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no NSIS first header.");
+        var first = FirstHeader(read(0, (int)Math.Min(stream.Length, HeadBytes))!, stream.Length) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no NSIS first header.");
         if (first.HeaderSize > MaxHeader) throw new ToolError(ErrorCode.LimitExceeded, $"{name}: the NSIS header is {first.HeaderSize:N0} bytes, over {MaxHeader:N0}.");
         long body = first.Offset + FirstHeaderBytes, bodySize = Math.Min(first.DataSize - FirstHeaderBytes, stream.Length - body);
         var sig = (bodySize >= 16 ? read(body, 16) : null) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS data is cut short.");

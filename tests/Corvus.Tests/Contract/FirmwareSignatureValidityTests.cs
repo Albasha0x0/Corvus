@@ -91,6 +91,27 @@ public sealed class FirmwareSignatureValidityTests
         return d;
     }
 
+    internal static byte[] VhdFooter()
+    {
+        var d = new byte[512];
+        "conectix"u8.CopyTo(d);
+        d[13] = 1;
+        d[55] = 1;
+        d[63] = 3;
+        uint sum = 0;
+        foreach (byte b in d) sum += b;
+        BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(64), ~sum);
+        return d;
+    }
+
+    private static byte[] Vhdx()
+    {
+        var d = new byte[65_540];
+        "vhdxfile"u8.CopyTo(d);
+        "head"u8.CopyTo(d.AsSpan(65_536));
+        return d;
+    }
+
     /// <summary>A minimal instance of a format, by the signature name.</summary>
     private static Dictionary<string, Func<byte[]>> Instances() => new()
     {
@@ -114,6 +135,8 @@ public sealed class FirmwareSignatureValidityTests
         ["OpenSSH public key (ecdsa-sha2-nistp256)"] = () => OpenSsh("ecdsa-sha2-nistp256"),
         ["OpenSSL encrypted data"] = () => Bytes("Salted__", new byte[24]),
         ["U-Boot uImage"] = () => FirmwareImageTests.UImage(new byte[16]),
+        ["VHD disk image"] = VhdFooter,
+        ["VHDX disk image"] = Vhdx,
     };
 
     /// <summary>Signatures that report a magic planted in random data, with the first case that did.</summary>
@@ -171,6 +194,8 @@ public sealed class FirmwareSignatureValidityTests
         ["LZFSE compressed data"] = [(4, 0), (24, 0)],
         ["RAR archive (v5)"] = [(8, 0), (13, 2), (12, 0)],
         ["JPEG image"] = [(3, 0), (5, 0), (20, 0)],
+        ["VHD disk image"] = [(13, 0), (63, 1), (55, 0)],
+        ["VHDX disk image"] = [(65_536, 0)],
         ["TIFF image (little endian)"] = [(12, 0xFF), (14, 0), (8, 0)],
         ["TIFF image (big endian)"] = [(13, 0xFF), (17, 0), (9, 0)],
         ["RTF document"] = [(6, (byte)'A'), (10, 1)],
@@ -279,5 +304,14 @@ public sealed class FirmwareSignatureValidityTests
             "a magic comparison outside FirmwareSignatures; register the format there with its validity check:\n" + string.Join("\n", added));
         CountRatchet.Check("detector-registry", "magic comparisons per source file outside the signature registry may only fall",
             found.ToDictionary(f => "src/Corvus/" + f.Key, f => (double)f.Value.Count), floor: false);
+    }
+
+    [Fact]
+    public void An_empty_bzip2_stream_holds_and_an_empty_gzip_member_holds()
+    {
+        byte[] bzip2 = [.. "BZh9"u8, 0x17, 0x72, 0x45, 0x38, 0x50, 0x90, 0, 0, 0, 0];
+        Assert.True(FirmwareSignatures.Holds(bzip2, bzip2.Length, "bzip2 compressed data"));
+        byte[] gzip = [0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0xFF, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        Assert.True(FirmwareSignatures.Holds(gzip, gzip.Length, "gzip compressed data"));
     }
 }

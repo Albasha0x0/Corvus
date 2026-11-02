@@ -256,7 +256,7 @@ public sealed class MailMessageTests : IDisposable
     private static byte[] Crlf(string text) => Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n").Replace("\n", "\r\n"));
 
     /// <summary>A saved page: an HTML part and a PNG part, each with a Content-Location.</summary>
-    private static byte[] Mht() => Crlf("""
+    internal static byte[] Mht() => Crlf("""
         From: <Saved by Blink>
         Subject: Saved page
         Date: Tue, 6 Oct 2026 09:59:58 +0000
@@ -278,7 +278,7 @@ public sealed class MailMessageTests : IDisposable
 
         """);
 
-    private static byte[] Ics(string extra = "") => Crlf($"""
+    internal static byte[] Ics(string extra = "") => Crlf($"""
         BEGIN:VCALENDAR
         VERSION:2.0
         PRODID:-//Example//Sample//EN

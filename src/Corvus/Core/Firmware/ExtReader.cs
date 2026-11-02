@@ -12,7 +12,12 @@ internal sealed class ExtReader : IContainerReader
         b.Length >= 2048 && BinaryPrimitives.ReadUInt16LittleEndian(b[(1024 + 56)..]) == 0xEF53
         // Block size 1 KiB to 64 KiB.
         && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 24)..]) <= 6
-        && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 40)..]) > 0 && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 32)..]) > 0;
+        && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 40)..]) > 0 && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 32)..]) > 0
+        // Revision 0 has 128-byte inodes; revision 1 states a power of two up
+        // to the block size.
+        && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 76)..]) is var rev and <= 1
+        && (rev == 0 || BinaryPrimitives.ReadUInt16LittleEndian(b[(1024 + 88)..]) is var inode and >= 128 && (inode & (inode - 1)) == 0
+            && inode <= 1024 << (int)BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 24)..]));
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => Looks(data);
 

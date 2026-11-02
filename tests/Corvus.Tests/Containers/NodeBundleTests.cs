@@ -11,7 +11,7 @@ public sealed class NodeBundleTests
 {
     private const string Fuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 
-    private static byte[] Image(params byte[][] parts) => [0x7F, (byte)'E', (byte)'L', (byte)'F', .. new byte[60], .. parts.SelectMany(p => p)];
+    internal static byte[] Image(params byte[][] parts) => [0x7F, (byte)'E', (byte)'L', (byte)'F', .. new byte[60], .. parts.SelectMany(p => p)];
 
     private static ContainerContents Open(byte[] image) => Containers.Open(image, "app", AnalysisLimits.Default, default, allFiles: true);
 
@@ -301,11 +301,14 @@ public sealed class NodeBundleTests
         Assert.Contains("main.ts", Text(c, "deno-metadata.json"));
     }
 
+    internal static byte[] Seed() =>
+        Image(Encoding.ASCII.GetBytes(Fuse + ":1"), new byte[16], SeaBlob(8, Str("main.js"), Str("console.log(1)"), U64(1), Str("logo.txt"), Str("pixels")));
+
     [Fact]
     [FuzzEntry(typeof(NodeBundle), typeof(NodeBundleReader))]
     public void Fuzzed_node_executables_never_throw_unexpectedly()
     {
-        var seed = Image(Encoding.ASCII.GetBytes(Fuse + ":1"), new byte[16], SeaBlob(8, Str("main.js"), Str("console.log(1)"), U64(1), Str("logo.txt"), Str("pixels")));
+        var seed = Seed();
         var failures = FormatFuzz.Run(seed, b =>
         {
             try { NodeBundle.Open(b, AnalysisLimits.Default, default); } catch (ToolError) { }

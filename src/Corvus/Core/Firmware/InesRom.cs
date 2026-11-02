@@ -41,23 +41,16 @@ public sealed class InesRom
     {
         if (!Looks(data)) throw new InvalidDataException("no iNES header");
         byte f6 = data[6], f7 = data[7];
-        bool nes2 = (f7 & 0x0C) == 0x08;
-        long prg, chr;
+        Sizes(data, out bool nes2, out long prg, out long chr);
         int mapper = f6 >> 4 | f7 & 0xF0, sub = 0;
         if (nes2)
         {
             mapper |= (data[8] & 0x0F) << 8;
             sub = data[8] >> 4;
-            prg = Size(data[4], data[9] & 0x0F, PrgBank);
-            chr = Size(data[5], data[9] >> 4, ChrBank);
         }
-        else
-        {
-            prg = data[4] * (long)PrgBank;
-            chr = data[5] * (long)ChrBank;
-            // Headers written before iNES 1.0 carry text in bytes 12-15, and that text also overwrote byte 7's mapper nibble.
-            if (data.Slice(12, 4).ContainsAnyExcept((byte)0)) mapper &= 0x0F;
-        }
+        // Headers written before iNES 1.0 carry text in bytes 12-15, and that
+        // text also overwrote byte 7's mapper nibble.
+        else if (data.Slice(12, 4).ContainsAnyExcept((byte)0)) mapper &= 0x0F;
         if (prg < PrgBank) throw new InvalidDataException($"PRG-ROM is {prg:N0} bytes, under one 16 KiB bank");
         int banks = (int)Math.Min(prg / PrgBank, int.MaxValue);
         var rom = new InesRom
@@ -84,6 +77,26 @@ public sealed class InesRom
         return rom;
     }
 
+    private static void Sizes(ReadOnlySpan<byte> data, out bool nes2, out long prg, out long chr)
+    {
+        nes2 = (data[7] & 0x0C) == 0x08;
+        prg = nes2 ? Size(data[4], data[9] & 0x0F, PrgBank) : data[4] * (long)PrgBank;
+        chr = nes2 ? Size(data[5], data[9] >> 4, ChrBank) : data[5] * (long)ChrBank;
+    }
+
+    /// <summary>
+    /// An iNES or NES 2.0 header with a PRG-ROM bank, the trainer and PRG-ROM
+    /// inside the file (not checked in a head).
+    /// </summary>
+    public static bool Holds(ReadOnlySpan<byte> data)
+    {
+        if (!Looks(data)) return false;
+        // Text in bytes 7-15 (a header before iNES 1.0) sets bits 2-3 of byte 7.
+        if ((data[7] & 0x0C) is 0x04 or 0x0C && !data.Slice(12, 4).ContainsAnyExcept((byte)0)) return false;
+        Sizes(data, out _, out long prg, out _);
+        return prg >= PrgBank && HeaderSize + ((data[6] & 4) != 0 ? TrainerSize : 0) + prg <= Containers.KnownLength(data);
+    }
+
     // NES 2.0 sizes: an MSB nibble of 0xF selects the exponent-multiplier form.
     private static long Size(byte lsb, int msb, int unit) =>
         msb == 0xF ? (1L << Math.Min(lsb >> 2, 40)) * ((lsb & 3) * 2 + 1) : ((long)msb << 8 | lsb) * unit;
@@ -103,7 +116,7 @@ internal sealed class InesRomReader : IContainerReader
 {
     public string Kind => "ines rom";
 
-    public bool Accepts(ReadOnlySpan<byte> data, string name) => InesRom.Looks(data);
+    public bool Accepts(ReadOnlySpan<byte> data, string name) => InesRom.Holds(data);
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {

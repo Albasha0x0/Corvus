@@ -6,16 +6,16 @@ namespace Corvus.Tests;
 /// <summary>Packages built here: an offset and size index followed by blobs of text and of pseudo-random bytes.</summary>
 public sealed class IndexedBlobStoreTests
 {
-    private static byte[] Text(int n) => Enumerable.Range(0, n).Select(i => (byte)('a' + i % 3)).ToArray();
+    internal static byte[] Text(int n) => Enumerable.Range(0, n).Select(i => (byte)('a' + i % 3)).ToArray();
 
-    private static byte[] Noise(int n)
+    internal static byte[] Noise(int n)
     {
         var bytes = new byte[n];
         new Random(7).NextBytes(bytes);
         return bytes;
     }
 
-    private static byte[] Store(int truncate = 0, params byte[][] blobs)
+    internal static byte[] Store(int truncate = 0, params byte[][] blobs)
     {
         int indexEnd = 4 + 8 * blobs.Length;
         var index = new byte[indexEnd];

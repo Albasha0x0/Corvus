@@ -10,7 +10,11 @@ internal sealed class RpmReader : IContainerReader
 
     public string Kind => "rpm package";
 
-    public bool Accepts(ReadOnlySpan<byte> data, string name) => data.Length >= 96 && data.StartsWith((ReadOnlySpan<byte>)[0xED, 0xAB, 0xEE, 0xDB]);
+    // The lead is version 3 or 4, a binary or source package, and the
+    // signature header follows it.
+    public bool Accepts(ReadOnlySpan<byte> data, string name) =>
+        data.Length >= 100 && data.StartsWith((ReadOnlySpan<byte>)[0xED, 0xAB, 0xEE, 0xDB]) && data[4] is 3 or 4
+        && BinaryPrimitives.ReadUInt16BigEndian(data[6..]) <= 1 && data[96..].StartsWith((ReadOnlySpan<byte>)[0x8E, 0xAD, 0xE8]);
 
     /// <summary>A header's tags: the value of each, decoded by its type (strings, string arrays, integer arrays, binary).</summary>
     internal sealed class Header(Dictionary<int, object> tags)

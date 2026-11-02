@@ -16,7 +16,22 @@ internal sealed class FatReader : IContainerReader
         int perCluster = b[13];
         return bytesPerSector is 512 or 1024 or 2048 or 4096 && perCluster > 0 && (perCluster & (perCluster - 1)) == 0
                && BinaryPrimitives.ReadUInt16LittleEndian(b[14..]) > 0 && b[16] is 1 or 2
-               && (b[54..].StartsWith("FAT"u8) || b[82..].StartsWith("FAT32"u8));
+               && (b[54..].StartsWith("FAT"u8) || b[82..].StartsWith("FAT32"u8))
+               && TablesHold(b, bytesPerSector);
+    }
+
+    // The first table starts with the media byte of the parameter block and
+    // two end-of-chain bytes; in a whole file the tables and the root
+    // directory lie inside it. A table past the data of a head is unknown.
+    private static bool TablesHold(ReadOnlySpan<byte> b, int bytesPerSector)
+    {
+        long fatAt = (long)BinaryPrimitives.ReadUInt16LittleEndian(b[14..]) * bytesPerSector;
+        long fatSectors = BinaryPrimitives.ReadUInt16LittleEndian(b[22..]) is var f16 and not 0 ? f16 : BinaryPrimitives.ReadUInt32LittleEndian(b[36..]);
+        if (fatSectors == 0) return false;
+        long rootAt = fatAt + b[16] * fatSectors * bytesPerSector;
+        long dataAt = rootAt + (BinaryPrimitives.ReadUInt16LittleEndian(b[17..]) * 32L + bytesPerSector - 1) / bytesPerSector * bytesPerSector;
+        if (Containers.IsWhole(b) && dataAt >= b.Length) return false;
+        return fatAt + 3 > b.Length || b[(int)fatAt] == b[21] && b[(int)fatAt + 1] == 0xFF && b[(int)fatAt + 2] == 0xFF;
     }
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => Looks(data);

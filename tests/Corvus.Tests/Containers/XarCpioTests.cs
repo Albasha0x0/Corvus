@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 public sealed class XarCpioTests
 {
     /// <summary>newc cpio: one regular file, then the trailer.</summary>
-    private static byte[] Cpio(string name, byte[] bytes)
+    internal static byte[] Cpio(string name, byte[] bytes)
     {
         var o = new MemoryStream();
         void Entry(string n, byte[] b, uint mode)
@@ -27,7 +27,7 @@ public sealed class XarCpioTests
     }
 
     /// <summary>xar: header, zlib table of contents naming one stored file (in <paramref name="folder"/> when given), then the heap.</summary>
-    private static byte[] Xar(string name, byte[] bytes, string? folder = null)
+    internal static byte[] Xar(string name, byte[] bytes, string? folder = null)
     {
         var file = $"<file id=\"1\"><name>{name}</name><type>file</type><data><offset>0</offset><length>{bytes.Length}</length>" +
                    $"<size>{bytes.Length}</size><encoding style=\"application/octet-stream\"/></data></file>";

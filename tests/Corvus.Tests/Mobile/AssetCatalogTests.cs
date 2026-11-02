@@ -24,7 +24,7 @@ public sealed class AssetCatalogTests(ITestOutputHelper output)
         return bgra;
     }
 
-    private static AssetCatalogWriter Catalog()
+    internal static AssetCatalogWriter Catalog()
     {
         var bgra = Bgra(Premultiplied);
         return new AssetCatalogWriter()
