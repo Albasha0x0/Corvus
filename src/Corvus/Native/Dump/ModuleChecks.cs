@@ -16,7 +16,7 @@ public sealed record CodeComparison(string State, string Detail);
 public static class ModuleChecks
 {
     /// <summary>Largest local file whose signature is read, and most code bytes compared for one module.</summary>
-    public const long MaxSignedFile = 256L << 20, MaxCompareBytes = 64L << 20;
+    public const long MaxSignedFile = 256L << 20, MaxCompareBytes = Rebuild.ModuleRebuild.MaxImageBytes;
 
     private const int Page = 0x1000, Chunk = 0x10000, Lead = 8, MaxCached = 1024;
 
