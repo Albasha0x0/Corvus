@@ -27,12 +27,14 @@ public static class PeImportRestore
     /// As the overload without ref, and the slots named from exports are written into a new <c>.idata2</c> section;
     /// <paramref name="image"/> and <paramref name="captured"/> are then replaced by larger copies.
     /// Without room in the section table, or past 64 K slots or 16 MB of names, the names stay in the result and the check is partial.
-    /// An image with no readable import directory gets one in <c>.idata2</c> from the slots <see cref="ImportScan"/> finds.
+    /// An image with no readable import directory gets one in <c>.idata2</c> from the slots <see cref="ImportScan"/> finds,
+    /// unless <paramref name="file"/>, the file of the same build, has no import directory either: the check is then skipped.
+    /// A null <paramref name="file"/> means the file is unknown.
     /// </summary>
-    public static ImportSummary? Restore(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, List<RebuildCheck> checks, CancellationToken ct) =>
-        Run(ref image, ref captured, memory, mode, true, checks, ct);
+    public static ImportSummary? Restore(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, List<RebuildCheck> checks, CancellationToken ct, byte[]? file = null) =>
+        Run(ref image, ref captured, memory, mode, true, checks, ct, file);
 
-    private static ImportSummary? Run(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, bool grow, List<RebuildCheck> checks, CancellationToken ct)
+    private static ImportSummary? Run(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, bool grow, List<RebuildCheck> checks, CancellationToken ct, byte[]? file = null)
     {
         if (mode == ImportMode.Keep)
         {
@@ -41,7 +43,17 @@ public static class PeImportRestore
         }
         if (!TryDirectory(image, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0 || dirRva >= image.Length)
         {
-            if (grow && memory != null && TryDirectory(image, out is64, out _, out _)) return Rebuild(ref image, ref captured, memory, is64, checks);
+            if (grow && memory != null && TryDirectory(image, out is64, out _, out _))
+            {
+                // Only what the file had is rebuilt.
+                uint fileDirectory = 0;
+                if (file != null && (!TryDirectory(file, out _, out fileDirectory, out uint fileSize) || fileDirectory == 0 || fileSize == 0))
+                {
+                    checks.Add(RebuildCheck.Skipped("imports", "the file has no import directory"));
+                    return null;
+                }
+                return Rebuild(ref image, ref captured, memory, is64, fileDirectory, checks);
+            }
             checks.Add(RebuildCheck.Skipped("imports", "no import directory"));
             return null;
         }
@@ -115,9 +127,9 @@ public static class PeImportRestore
         return summary;
     }
 
-    private static ImportSummary? Rebuild(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, bool is64, List<RebuildCheck> checks)
+    private static ImportSummary? Rebuild(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, bool is64, uint fileDirectory, List<RebuildCheck> checks)
     {
-        var found = ImportScan.Find(image, captured, new ExportMap(memory));
+        var found = ImportScan.Find(image, captured, new ExportMap(memory), fileDirectory);
         if (found == null)
         {
             checks.Add(RebuildCheck.Skipped("imports", "no import directory and no import address table found"));

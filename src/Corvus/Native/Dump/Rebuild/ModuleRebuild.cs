@@ -119,7 +119,7 @@ public static class ModuleRebuild
         checks.Add(restored.Check);
         // Relocations and imports are fixed in mapped layout, where offsets are RVAs; the file layout is made last.
         PeRelocations.Apply(image, captured, options.Base, checks, PreferredBaseOf(file));
-        var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct);
+        var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct, file);
         // Delay-load slots are restored after the base is set, so a copied file
         // value takes the load delta once.
         var delayNames = PeDelayImports.Restore(image, captured, file, options.Base, memory, checks);
