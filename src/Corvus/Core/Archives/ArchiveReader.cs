@@ -54,6 +54,8 @@ internal sealed class ArchiveReader : IContainerReader
         // Read before SharpCompress takes the stream; its entry list omits service records.
         var streamRecords = format == "rar" && stream.CanSeek ? Rar5Streams.Names(stream) : [];
         stream.Position = 0;
+        bool headersEncrypted = format == "rar" && stream.CanSeek && Rar5Streams.HeadersEncrypted(stream);
+        stream.Position = 0;
 
         var password = ContainerPassword.Current;
 
@@ -127,7 +129,9 @@ internal sealed class ArchiveReader : IContainerReader
             if (format is "7z" or "rar")
             {
                 using var archive = ArchiveFactory.OpenArchive(stream, password == null ? null : new ReaderOptions { Password = password });
-                foreach (var e in archive.Entries)
+                // Read every header first: a failed entry read leaves the stream
+                // inside that entry's data, where the next header is not.
+                foreach (var e in archive.Entries.ToList())
                     if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream, e.IsEncrypted, format == "7z" && e.Crc != 0 ? (uint)e.Crc : null);
             }
             else if (format == "tar" && stream.CanSeek && TarParts(stream, ct) is { } parts)
@@ -168,6 +172,7 @@ internal sealed class ArchiveReader : IContainerReader
         }
         string[] paths = [.. entries.Select(e => e.Path), .. streamRecords];
         notes.AddRange(MemberNames.Notes(paths));
+        if (headersEncrypted) notes.Add("rar: stream records unknown; the header blocks are encrypted.");
         if (format == "tar" && !stream.CanSeek && ContainerImage.Looks(entries))
             notes.Add("image layers not read: the input is not seekable; save it to a file and open that file.");
         if (format == "tar" && stream.CanSeek && ContainerImage.Looks(entries) && ContainerImage.Read(stream, limits, ct) is { } image)

@@ -8,6 +8,20 @@ internal static class Rar5Streams
     private const int MaxBlocks = 100_000;
     private const int MaxHeader = 1 << 20;
 
+    /// <summary>Whether a RAR 5 archive opens with an encryption header, so its header blocks (and service records) cannot be read without the password; false for other formats.</summary>
+    public static bool HeadersEncrypted(Stream s)
+    {
+        Span<byte> sig = stackalloc byte[8];
+        s.Position = 0;
+        if (s.ReadAtLeast(sig, 8, throwOnEndOfStream: false) < 8 || !sig.SequenceEqual("Rar!\x1A\x07\x01\x00"u8)) return false;
+        s.Position += 4;
+        if (Vint(s) is not { } size || size is 0 or > MaxHeader) return false;
+        var header = new byte[size];
+        if (s.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length) return false;
+        int p = 0;
+        return Vint(header, ref p) == 4;
+    }
+
     /// <summary>The stream records as file:stream names; empty for other formats, or at the first damaged block.</summary>
     public static List<string> Names(Stream s)
     {
