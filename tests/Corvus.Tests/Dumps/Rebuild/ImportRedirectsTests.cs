@@ -61,4 +61,19 @@ public sealed class ImportRedirectsTests : IDisposable
         Assert.Null(row.Expected);
         Assert.Contains("gamma", row.Reason);
     }
+
+    // Regression: a 270-character C++ name past the old 256-byte window read
+    // as "import name was not captured".
+    [Fact]
+    public void A_redirected_slot_with_a_long_decorated_name_is_named()
+    {
+        string name = "?F@@YA" + new string('X', 300) + "@Z";
+        var lib = RebuildFixtures.Build(Spec(exports: [new ExportSpec(name, 0x1000)]));
+        var app = RebuildFixtures.Build(Spec([new ImportSpec("lib.dll", [name])]));
+
+        var row = Assert.Single(Run(app, lib, new Dictionary<string, ulong> { ["lib.dll!" + name] = 0x7FF000001000UL }));
+
+        Assert.Equal("redirected", row.State);
+        Assert.Equal("lib.dll!" + name, row.Import);
+    }
 }

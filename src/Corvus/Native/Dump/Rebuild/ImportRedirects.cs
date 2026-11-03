@@ -22,7 +22,7 @@ public static class ImportRedirects
     private const int DescriptorSize = 20;
     private const int MaxSlots = 64 * 1024;
     private const int MaxForwardDepth = 8;
-    private const int MaxNameBytes = 256;
+    private const int MaxNameBytes = PeLimits.MaxNameLength;
 
     /// <summary>Reads the API set map at <paramref name="address"/>; null when the memory is not a version 6 map.</summary>
     public static ApiSetSchema? ReadApiSetMap(IProcessMemory memory, ulong address)

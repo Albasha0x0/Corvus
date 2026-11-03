@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump.Rebuild;
 
@@ -9,7 +10,7 @@ public sealed class ExportMap
     /// <summary>Most exports read from one module; a directory past it is skipped.</summary>
     public const int MaxExportsPerModule = 1 << 16;
 
-    private const int MaxNameBytes = 256;
+    private const int MaxNameBytes = PeLimits.MaxNameLength;
 
     private readonly Dictionary<ulong, string> _byAddress = [];
     private readonly List<string> _forwarders = [];

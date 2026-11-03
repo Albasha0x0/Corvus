@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump.Rebuild;
 
@@ -33,7 +34,7 @@ public static class PeDelayImports
 
     private const int DescriptorSize = 32;
     private const int DelayDirectory = 13;
-    private const int MaxNameBytes = 4096;
+    private const int MaxNameBytes = PeLimits.MaxNameLength;
 
     /// <summary>
     /// Lists each delay-load descriptor of <paramref name="mapped"/> (offset = RVA) with its slots.

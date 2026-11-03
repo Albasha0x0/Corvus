@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump.Rebuild;
 
@@ -11,7 +12,7 @@ public sealed class ImageAddressNames
 
     private const uint Executable = 0x20000000;
     private const uint Code = 0x20;
-    private const int MaxNameBytes = 256;
+    private const int MaxNameBytes = PeLimits.MaxNameLength;
 
     private readonly ulong _base;
     private readonly List<Section> _sections = [];
