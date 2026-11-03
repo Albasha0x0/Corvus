@@ -44,15 +44,17 @@ public static class ImportRedirects
     /// A contract name (api-ms-*, ext-ms-*) resolves through <paramref name="dumpApiSets"/> when given, else through the system map;
     /// a row names that map in <see cref="ImportRedirect.Via"/>, and an unmapped contract stays unknown.
     /// A module name binds to the loaded module of the importer's machine, else of its bitness, else the first of that name.
+    /// A slot equal to the same slot of <paramref name="disk"/> (an unbound import) is not listed.
     /// </summary>
     public static IReadOnlyList<ImportRedirect> Find(
-        byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory, ApiSetSchema? dumpApiSets = null)
+        byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory, ApiSetSchema? dumpApiSets = null, PeFile? disk = null)
     {
         List<ImportRedirect> rows = [];
         if (!PeImportRestore.TryDirectory(mapped, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0) return rows;
 
         var index = new Index(memory, exports, dumpApiSets);
         ushort machine = BinaryPrimitives.ReadUInt16LittleEndian(mapped.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(mapped.AsSpan(0x3C)) + 4));
+        var onDisk = new byte[8];
         int width = is64 ? 8 : 4;
         long count = dirSize / DescriptorSize;
         int slots = 0;
@@ -83,6 +85,12 @@ public static class ImportRedirects
                 }
                 ulong entry = Read(mapped, (int)lookupAt, width);
                 if (entry == 0) break;
+
+                // An unbound slot still holds its file value, so nothing
+                // was written to it.
+                if (disk is not null && captured.PageCaptured((uint)slotAt) && captured.PageCaptured((uint)(slotAt + width - 1)) &&
+                    disk.Read((uint)slotAt, onDisk.AsSpan(0, width)) == width && Read(onDisk, 0, width) == Read(mapped, (int)slotAt, width))
+                    continue;
 
                 string function = Function(mapped, entry, is64);
                 string import = module + "!" + function;

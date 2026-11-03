@@ -259,7 +259,7 @@ public sealed partial class MinidumpService
                 range.FileBytes, range.MemoryBytes));
         }
 
-        foreach (var slot in ImportRedirects.Find(captured.Image, captured, exports, memory, apiSets))
+        foreach (var slot in ImportRedirects.Find(captured.Image, captured, exports, memory, apiSets, disk))
         {
             ulong address = target.Base + slot.SlotRva;
             string section = disk.Sections.FirstOrDefault(x => x.Contains(slot.SlotRva))?.Name ?? "";
