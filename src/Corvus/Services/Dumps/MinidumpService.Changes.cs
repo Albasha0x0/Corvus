@@ -22,7 +22,12 @@ public sealed partial class MinidumpService
     /// <param name="Via">The API set map that resolved an import contract name, <c>dump</c> or <c>system</c>; null otherwise.</param>
     public sealed record ModuleChange(string Module, string Section, string Start, string Rva, int Length, string Kind, string? Name,
         string? Description, string? File, string? FileBytes, string? MemoryBytes, string? BeforeBytes = null, string? AfterBytes = null,
-        string? Via = null);
+        string? Via = null)
+    {
+        // Kept for grouping only; internal, so not part of the output.
+        internal string? Target { get; init; }
+        internal NativeArch Machine { get; init; }
+    }
 
     /// <summary>
     /// The ranges changed in memory for each module <paramref name="module"/> names (default all), compared with its file of the same build,
@@ -175,11 +180,11 @@ public sealed partial class MinidumpService
             var window = range.Code
                 ? Window(Slice(mapped), Slice(oldCaptured.Image), address, rva, described, LeadInSection(layout, rva), mapped.Length)
                 : default;
-            string? description = range.Code
-                ? DescribeCode(afterBytes, beforeBytes, address, machine, layout.Is64, window, memory, exports)
+            var (description, valueTarget) = range.Code
+                ? (DescribeCode(afterBytes, beforeBytes, address, machine, layout.Is64, window, memory, exports), (string?)null)
                 : DescribeData(afterBytes, beforeBytes, address, layout.Is64, memory, exports);
             rows.Add(new ModuleChange(target.Name, range.Section, start, range.Rva, range.Length, range.Code ? "code" : "data", names.NameAt(rva),
-                description, otherId, null, null, range.Before, range.After));
+                description, otherId, null, null, range.Before, range.After) { Target = valueTarget, Machine = machine });
         }
         return rows;
     }
@@ -306,11 +311,11 @@ public sealed partial class MinidumpService
                 ? Window(Slice(mapped), (r, n) => { var b = new byte[n]; disk.Read(r, b); return b; }, address, rva, described,
                     LeadIn(disk.RuntimeFunctions, sectionRva, rva), mapped.Length)
                 : default;
-            string? description = range.Code
-                ? DescribeCode(memoryBytes, fileBytes, address, disk.Arch, disk.Is64Bit, window, memory, exports)
+            var (description, valueTarget) = range.Code
+                ? (DescribeCode(memoryBytes, fileBytes, address, disk.Arch, disk.Is64Bit, window, memory, exports), (string?)null)
                 : DescribeData(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports);
             rows.Add(new ModuleChange(target.Name, range.Section, start, range.Rva, range.Length, kind, names.NameAt(rva), description, filePath,
-                range.FileBytes, range.MemoryBytes));
+                range.FileBytes, range.MemoryBytes) { Target = valueTarget, Machine = disk.Arch });
         }
 
         foreach (var slot in ImportRedirects.Find(captured.Image, captured, exports, memory, apiSets, disk))
@@ -436,12 +441,13 @@ public sealed partial class MinidumpService
         return change.Indirect ? $"{change.Kind} through the pointer at 0x{target:X}{where}" : $"{change.Kind} to 0x{target:X}{where}";
     }
 
-    private static string DescribeData(byte[] memoryBytes, byte[] fileBytes, ulong address, bool is64, IProcessMemory memory,
-        ExportMap exports)
+    // The text and the first value's target; null target when no value decodes.
+    private static (string Text, string? Target) DescribeData(byte[] memoryBytes, byte[] fileBytes, ulong address, bool is64,
+        IProcessMemory memory, ExportMap exports)
     {
         var values = DataChangeValues.Decode(memoryBytes, fileBytes, address, is64, memory, exports);
-        if (values.Count == 0) return "bytes changed";
+        if (values.Count == 0) return ("bytes changed", null);
         var shown = values.Take(3).Select(v => $"0x{v.Address:X}: 0x{v.Old:X} to 0x{v.New:X} ({v.Target})");
-        return string.Join("; ", shown) + (values.Count > 3 ? $"; {values.Count - 3} more values" : "");
+        return (string.Join("; ", shown) + (values.Count > 3 ? $"; {values.Count - 3} more values" : ""), values[0].Target);
     }
 }
