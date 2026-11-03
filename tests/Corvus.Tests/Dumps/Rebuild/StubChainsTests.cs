@@ -161,9 +161,9 @@ public sealed class StubChainsTests
     [Fact]
     public void Another_machine_ends_as_unknown_and_names_the_machine()
     {
-        var chain = Run(NativeArch.Arm64, 0x70000000);
+        var chain = Run(NativeArch.Arm, 0x70000000);
         Assert.Equal("unknown", chain.End);
-        Assert.Contains("Arm64", chain.Detail);
+        Assert.Equal("Arm stubs are not followed", chain.Detail);
     }
 
     private sealed class Overlay(IProcessMemory inner, NativeArch arch, (ulong At, byte[] Bytes)[] placed) : IProcessMemory
