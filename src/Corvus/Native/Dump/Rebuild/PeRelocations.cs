@@ -10,10 +10,10 @@ public static class PeRelocations
     private const ushort RelocsStripped = 0x0001;
 
     /// <summary>The preferred base of a build: a value read from its file on disk, or unknown.</summary>
-    public readonly record struct PreferredBase(bool Known, ulong Value)
+    public readonly record struct PreferredBase(bool Known, ulong Value, byte[]? File = null)
     {
-        /// <summary>A preferred base read from the file of the same build.</summary>
-        public static PreferredBase FromFile(ulong value) => new(true, value);
+        /// <summary>A preferred base read from the file of the same build; <paramref name="file"/> adds its bytes for per-site checks.</summary>
+        public static PreferredBase FromFile(ulong value, byte[]? file = null) => new(true, value, file);
 
         /// <summary>No file of the same build was found; the header holds the loaded base.</summary>
         public static PreferredBase Unknown => new(false, 0);
@@ -28,6 +28,7 @@ public static class PeRelocations
     public static void Apply(byte[] image, CapturedImage captured, BaseMode mode, List<RebuildCheck> checks,
         PreferredBase? preferredBase = null)
     {
+        byte[]? file = null;
         if (!TryHeader(image, out int opt, out bool is64, out ulong preferred, out ushort characteristics))
         {
             checks.Add(RebuildCheck.Unknown("relocations", "the optional header is not readable"));
@@ -52,6 +53,7 @@ public static class PeRelocations
                 return;
             }
             preferred = given.Value;
+            file = given.File;
         }
 
         long delta = unchecked((long)(loaded - preferred));
@@ -85,10 +87,84 @@ public static class PeRelocations
 
         // The walk stays inside the directory and the image.
         long end = Math.Min((long)rva + size, image.Length);
+        int undone = 0, kept = 0, changed = 0, skipped = 0, unsupported = 0;
+        ulong imageSize = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 56));
+
+        // Without a file, a first pass finds an image the loader left
+        // unrelocated.
+        bool notRelocated = false;
+        if (file == null)
+        {
+            int asInFile = 0, asRelocated = 0;
+            Walk(image, rva, end, (site, type) =>
+            {
+                if (!Fits(image, captured, site, type)) return;
+                ulong value = Read(image, site, type);
+                if (InImage(value, preferred, imageSize)) asInFile++;
+                if (InImage(Minus(value, type, delta), preferred, imageSize)) asRelocated++;
+            }, out _);
+            notRelocated = asRelocated == 0 && asInFile > 0;
+        }
+
+        Walk(image, rva, end, (site, type) =>
+        {
+            if (type != Dir64 && type != HighLow)
+            {
+                unsupported++;
+                return;
+            }
+            if (!Fits(image, captured, site, type))
+            {
+                skipped++;
+                return;
+            }
+            ulong value = Read(image, site, type);
+            ulong undoneValue = Minus(value, type, delta);
+            if (FileValue(file, (uint)site, type == Dir64 ? 8 : 4) is { } original)
+            {
+                // The file value is the only reference: undo only file plus
+                // delta.
+                if (undoneValue != original)
+                {
+                    if (value == original) kept++; else changed++;
+                    return;
+                }
+            }
+            else if (notRelocated)
+            {
+                if (InImage(value, preferred, imageSize)) kept++; else changed++;
+                return;
+            }
+            if (type == Dir64) BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan((int)site), undoneValue);
+            else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan((int)site), (uint)undoneValue);
+            undone++;
+        }, out bool malformed);
+
+        if (is64) BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(opt + 24), preferred);
+        else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(opt + 28), (uint)preferred);
+
+        string counts = $"{undone} sites undone, {kept} kept as in the file, {changed} changed at run time";
+        if (skipped == 0 && unsupported == 0 && !malformed)
+        {
+            if (undone == 0 && changed == 0 && kept > 0)
+            {
+                checks.Add(RebuildCheck.Skipped("relocations", $"the image was not relocated by the loader; {kept} sites kept as in the file"));
+                return;
+            }
+            checks.Add(RebuildCheck.Ok("relocations", $"{counts}, delta {(delta < 0 ? "-" : "+")}0x{Math.Abs(delta):X}"));
+            return;
+        }
+        string detail = $"{counts}, {skipped} skipped on pages not captured, {unsupported} of an unsupported type";
+        if (malformed) detail += "; the table ends at a malformed block";
+        checks.Add(RebuildCheck.Partial("relocations", detail));
+    }
+
+    // Calls visit for each relocation entry that is not padding; malformed
+    // when the table ends inside a block.
+    private static void Walk(byte[] image, long rva, long end, Action<long, ushort> visit, out bool malformed)
+    {
+        malformed = false;
         long at = rva;
-        int undone = 0, skipped = 0, unsupported = 0;
-        bool malformed = false;
-        int width = is64 ? 8 : 4;
         while (at + 8 <= end)
         {
             uint page = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan((int)at));
@@ -96,47 +172,59 @@ public static class PeRelocations
             if (block < 8 || (block & 1) != 0 || at + block > end)
             {
                 malformed = true;
-                break;
+                return;
             }
             for (long e = at + 8; e < at + block; e += 2)
             {
                 ushort entry = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan((int)e));
                 ushort type = (ushort)(entry >> 12);
-                if (type == Absolute) continue;
-                if (type != Dir64 && type != HighLow)
-                {
-                    unsupported++;
-                    continue;
-                }
-                long site = (long)page + (entry & 0xFFF);
-                if (site + width > image.Length || !captured.PageCaptured((uint)site)
-                    || !captured.PageCaptured((uint)(site + width - 1)))
-                {
-                    skipped++;
-                    continue;
-                }
-                var at8 = image.AsSpan((int)site);
-                if (type == Dir64)
-                    BinaryPrimitives.WriteUInt64LittleEndian(at8, unchecked(BinaryPrimitives.ReadUInt64LittleEndian(at8) - (ulong)delta));
-                else
-                    BinaryPrimitives.WriteUInt32LittleEndian(at8, unchecked(BinaryPrimitives.ReadUInt32LittleEndian(at8) - (uint)delta));
-                undone++;
+                if (type != Absolute) visit((long)page + (entry & 0xFFF), type);
             }
             at += block;
         }
-        if (!malformed && at < end && end - at < 8) malformed = true;
+        if (at < end && end - at < 8) malformed = true;
+    }
 
-        if (is64) BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(opt + 24), preferred);
-        else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(opt + 28), (uint)preferred);
+    private static bool Fits(byte[] image, CapturedImage captured, long site, ushort type)
+    {
+        if (type != Dir64 && type != HighLow) return false;
+        int width = type == Dir64 ? 8 : 4;
+        return site + width <= image.Length && captured.PageCaptured((uint)site)
+            && captured.PageCaptured((uint)(site + width - 1));
+    }
 
-        if (skipped == 0 && unsupported == 0 && !malformed)
+    private static ulong Read(byte[] image, long site, ushort type) => type == Dir64
+        ? BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan((int)site))
+        : BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan((int)site));
+
+    private static ulong Minus(ulong value, ushort type, long delta) =>
+        type == Dir64 ? unchecked(value - (ulong)delta) : unchecked((uint)value - (uint)delta);
+
+    private static bool InImage(ulong value, ulong preferred, ulong size) => value >= preferred && value - preferred < size;
+
+    // The file's value at an RVA of a section's raw data; null when there is
+    // no file or the site is not backed by it.
+    private static ulong? FileValue(byte[]? file, uint rva, int width)
+    {
+        if (file == null || file.Length < 0x40) return null;
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(0x3C));
+        if (nt < 0 || nt + 24 > file.Length || BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(nt)) != 0x4550) return null;
+        int sections = BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(nt + 6));
+        int table = nt + 24 + BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(nt + 20));
+        for (int i = 0; i < sections && table + (i + 1) * 40 <= file.Length; i++)
         {
-            checks.Add(RebuildCheck.Ok("relocations", $"{undone} fixups undone, delta {(delta < 0 ? "-" : "+")}0x{Math.Abs(delta):X}"));
-            return;
+            var s = file.AsSpan(table + i * 40);
+            uint va = BinaryPrimitives.ReadUInt32LittleEndian(s[12..]);
+            uint raw = BinaryPrimitives.ReadUInt32LittleEndian(s[16..]);
+            uint ptr = BinaryPrimitives.ReadUInt32LittleEndian(s[20..]);
+            if (rva < va || (long)rva + width - va > raw) continue;
+            long at = (long)ptr + (rva - va);
+            if (at + width > file.Length) return null;
+            return width == 8
+                ? BinaryPrimitives.ReadUInt64LittleEndian(file.AsSpan((int)at))
+                : BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan((int)at));
         }
-        string detail = $"{undone} fixups undone, {skipped} skipped on pages not captured, {unsupported} of an unsupported type";
-        if (malformed) detail += "; the table ends at a malformed block";
-        checks.Add(RebuildCheck.Partial("relocations", detail));
+        return null;
     }
 
     private static bool TryHeader(byte[] image, out int opt, out bool is64, out ulong preferred, out ushort characteristics)

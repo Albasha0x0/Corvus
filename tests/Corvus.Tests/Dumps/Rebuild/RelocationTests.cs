@@ -40,7 +40,7 @@ public sealed class RelocationTests : IDisposable
         Assert.Equal(Spec().Base + 0x1002, At(m, 0x2010));
         var check = Assert.Single(m.Checks, c => c.Name == "relocations");
         Assert.Equal("ok", check.State);
-        Assert.StartsWith("2 fixups undone", check.Detail);
+        Assert.StartsWith("2 sites undone", check.Detail);
     }
 
     [Fact]
