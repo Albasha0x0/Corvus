@@ -19,7 +19,9 @@ public sealed class ImportRedirectsApiSetTests : IDisposable
         [new SectionSpec(".text", 0x60000020, [0x90, 0xC3, 0xCC, 0xCC])], Imports: imports, Exports: exports);
 
     // A version 6 map with one contract: name, host, no per-importer values.
-    private static ApiSetSchema Map(string contract, string host)
+    private static ApiSetSchema Map(string contract, string host) => ApiSetSchema.Parse(MapBytes(contract, host))!;
+
+    internal static byte[] MapBytes(string contract, string host)
     {
         string name = Path.GetFileNameWithoutExtension(contract);
         var text = new List<byte>();
@@ -46,7 +48,7 @@ public sealed class ImportRedirectsApiSetTests : IDisposable
         W(52 + 12, hostAt);
         W(52 + 16, host.Length * 2);
         text.CopyTo(map, namesAt);
-        return ApiSetSchema.Parse(map)!;
+        return map;
     }
 
     private IReadOnlyList<ImportRedirect> Run(PeBuilt app, IReadOnlyDictionary<string, ulong> values, ApiSetSchema? map, params Placed[] others)

@@ -1,4 +1,5 @@
 using Corvus.Core;
+using Corvus.Native;
 using Corvus.Native.Dump;
 using Corvus.Native.Dump.Rebuild;
 using Corvus.Native.Pe;
@@ -92,6 +93,7 @@ public sealed partial class MinidumpService
         var notes = new List<string>();
         var all = new List<(string Name, ulong Base, ulong Address, ModuleChange Row)>();
         ExportMap? exports = null;
+        var apiSets = other == null ? DumpApiSets(s.Memory, notes) : null;
         var ordered = targets.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Base).ToList();
         var counterparts = other == null ? null : Counterparts(ordered, ModuleRebuild.Select(other.Memory, selector, ct), s.Id, all);
         foreach (var target in ordered)
@@ -99,7 +101,7 @@ public sealed partial class MinidumpService
             ct.ThrowIfCancellationRequested();
             exports ??= new ExportMap(s.Memory);
             List<ModuleChange> rows;
-            if (other == null) rows = ModuleRows(s.Memory, target, options, exports, notes, ct);
+            if (other == null) rows = ModuleRows(s.Memory, target, options, exports, apiSets, notes, ct);
             else if (counterparts![target] is { } before) rows = DumpRows(s.Memory, target, other.Memory, before, other.Id, exports, notes, ct);
             else rows = [UnknownModule(target, $"not in {other.Id}")];
             foreach (var row in rows)
@@ -179,8 +181,21 @@ public sealed partial class MinidumpService
     private static ModuleChange UnknownModule(RebuildTarget t, string reason) =>
         new(t.Name, "", $"0x{t.Base:X}", "0x0", 0, "unknown", null, reason, null, null, null);
 
+    // The map of the dumped process; null falls back to the system map.
+    private static ApiSetSchema? DumpApiSets(IProcessMemory memory, List<string> notes)
+    {
+        var address = ProcessEnvironment.ApiSetMapAddress(memory, out string? reason);
+        if (address is { } at)
+        {
+            if (ImportRedirects.ReadApiSetMap(memory, at) is { } map) return map;
+            reason = $"0x{at:X} does not hold a version 6 map";
+        }
+        if (memory is MinidumpFile) notes.Add($"API set map of the dump not read, the system map resolves contracts: {reason}.");
+        return null;
+    }
+
     private static List<ModuleChange> ModuleRows(IProcessMemory memory, RebuildTarget target, RebuildOptions options, ExportMap exports,
-        List<string> notes, CancellationToken ct)
+        ApiSetSchema? apiSets, List<string> notes, CancellationToken ct)
     {
         var rebuilt = ModuleRebuild.Rebuild(memory, target, options, ct);
         if (rebuilt.Bytes == null) return [UnknownModule(target, $"not rebuilt: {rebuilt.Refused}")];
@@ -242,7 +257,7 @@ public sealed partial class MinidumpService
                 range.FileBytes, range.MemoryBytes));
         }
 
-        foreach (var slot in ImportRedirects.Find(captured.Image, captured, exports, memory))
+        foreach (var slot in ImportRedirects.Find(captured.Image, captured, exports, memory, apiSets))
         {
             ulong address = target.Base + slot.SlotRva;
             string section = disk.Sections.FirstOrDefault(x => x.Contains(slot.SlotRva))?.Name ?? "";
