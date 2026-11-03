@@ -94,7 +94,7 @@ public sealed partial class MinidumpService
         };
         var notes = new List<string>();
         var all = new List<(string Name, ulong Base, ulong Address, ModuleChange Row)>();
-        ExportMap? exports = null;
+        ExportMap? exports = null, oldExports = null;
         var apiSets = other == null ? DumpApiSets(s.Memory, notes) : null;
         var ordered = targets.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Base).ToList();
         var counterparts = other == null ? null : Counterparts(ordered, ModuleRebuild.Select(other.Memory, selector, ct), s.Id, all);
@@ -104,7 +104,7 @@ public sealed partial class MinidumpService
             exports ??= new ExportMap(s.Memory);
             List<ModuleChange> rows;
             if (other == null) rows = ModuleRows(s.Memory, target, options, exports, apiSets, notes, ct);
-            else if (counterparts![target] is { } before) rows = DumpRows(s.Memory, target, other.Memory, before, other.Id, exports, notes, ct);
+            else if (counterparts![target] is { } before) rows = DumpRows(s.Memory, target, other.Memory, before, other.Id, exports, oldExports ??= new ExportMap(other.Memory), notes, ct);
             else rows = [UnknownModule(target, $"not in {other.Id}")];
             foreach (var row in rows)
                 all.Add((target.Name, target.Base, ParseAddress(row.Start), row));
@@ -133,7 +133,7 @@ public sealed partial class MinidumpService
 
     // Rows for a module compared with the same module in another dump.
     private static List<ModuleChange> DumpRows(IProcessMemory memory, RebuildTarget target, IProcessMemory otherMemory, RebuildTarget before,
-        string otherId, ExportMap exports, List<string> notes, CancellationToken ct)
+        string otherId, ExportMap exports, ExportMap otherExports, List<string> notes, CancellationToken ct)
     {
         var captured = CapturedImageReader.Read(memory, target, ct);
         var oldCaptured = CapturedImageReader.Read(otherMemory, before, ct);
@@ -148,6 +148,11 @@ public sealed partial class MinidumpService
         var machine = MachineOf(mapped);
         var names = ImageAddressNames.For(mapped, target.Base);
         var rows = new List<ModuleChange>();
+        var newer = new ExportImage(target, memory, exports);
+        var older = new ExportImage(before, otherMemory, otherExports);
+        PeFile? asFile = null;
+        try { asFile = PeFile.FromBytes(mapped); }
+        catch (Exception e) when (e is InvalidDataException or ArgumentException or IOException) { }
         foreach (var range in set.Ranges)
         {
             uint rva = ParseRva(range.Rva);
@@ -159,6 +164,11 @@ public sealed partial class MinidumpService
                 continue;
             }
             string start = $"0x{address:X}";
+            if (!range.Code && asFile != null && DumpExportEntries(mapped, oldCaptured.Image, asFile, rva, range.Length) is { Count: > 0 } changed)
+            {
+                rows.Add(ExportTableRow(newer, older, range.Section, changed, mapped, (r, n) => oldCaptured.Image.AsSpan((int)r, n).ToArray(), otherId));
+                continue;
+            }
             int described = Math.Min(range.Length, MaxDescribedBytes);
             var afterBytes = mapped.AsSpan((int)rva, described).ToArray();
             var beforeBytes = oldCaptured.Image.AsSpan((int)rva, described).ToArray();
@@ -169,6 +179,16 @@ public sealed partial class MinidumpService
                 description, otherId, null, null, range.Before, range.After));
         }
         return rows;
+    }
+
+    // Entries of the newer table; the older value rides in FileRva (null when absent).
+    private static IReadOnlyList<ExportTableEntry> DumpExportEntries(byte[] mapped, byte[] older, PeFile layout, uint rva, int length)
+    {
+        var now = ExportTableEntries.Covering(mapped, layout, rva, length);
+        if (now.Count == 0) return now;
+        var was = ExportTableEntries.Covering(older, layout, rva, length).ToDictionary(e => e.EntryRva, e => e.MemoryRva);
+        return now.Select(e => e with { FileRva = was.TryGetValue(e.EntryRva, out uint v) ? v : null })
+            .Where(e => e.FileRva != e.MemoryRva).ToList();
     }
 
     private static NativeArch MachineOf(byte[] image)
@@ -271,7 +291,7 @@ public sealed partial class MinidumpService
             string kind = range.Code ? "code" : "data";
             if (!range.Code && ExportTableEntries.Covering(mapped, disk, rva, range.Length) is { Count: > 0 } entries)
             {
-                rows.Add(ExportTableRow(target, memory, exports, range, entries, mapped, disk, filePath));
+                rows.Add(ExportTableRow(new ExportImage(target, memory, exports), null, range.Section, entries, mapped, (r, n) => { var b = new byte[n]; disk.Read(r, b); return b; }, filePath, disk.Arch));
                 continue;
             }
             if (!range.Code && pointers.Covered.Any(c => rva >= c.Start && rva + (uint)range.Length <= c.End)) continue;
@@ -309,28 +329,34 @@ public sealed partial class MinidumpService
     private static string ChainSuffix(IProcessMemory memory, ExportMap exports, ulong? address, NativeArch machine) =>
         address is { } a ? ChainText(memory, exports, a, machine) : "";
 
-    // Whole entries, so a change to 3 of the 4 bytes reports the entry.
-    private static ModuleChange ExportTableRow(RebuildTarget target, IProcessMemory memory, ExportMap exports, ImageChange range,
-        IReadOnlyList<ExportTableEntry> entries, byte[] mapped, PeFile disk, string? filePath)
+    private sealed record ExportImage(RebuildTarget Target, IProcessMemory Memory, ExportMap Exports);
+
+    // Whole entries, so a change to 3 of the 4 bytes reports the entry. The
+    // old side is named too when it is another dump.
+    private static ModuleChange ExportTableRow(ExportImage after, ExportImage? before, string section, IReadOnlyList<ExportTableEntry> entries,
+        byte[] mapped, Func<uint, int, byte[]> readReference, string? reference, NativeArch? arch = null)
     {
+        var target = after.Target;
         uint start = entries[0].EntryRva;
         int length = 4 * entries.Count;
         int shown = Math.Min(length, ImageChanges.MaxBytes);
         var memoryBytes = mapped.AsSpan((int)start, shown).ToArray();
-        var fileBytes = new byte[shown];
-        disk.Read(start, fileBytes);
+        var fileBytes = readReference(start, shown);
+        var machine = arch ?? MachineOf(mapped);
         // The name column carries the export of a single entry.
         var texts = entries.Take(3).Select(e => (entries.Count > 1 ? $"{e.Export}: " : "") + "RVA " + (e.FileRva is { } f ? $"0x{f:X}" : "unknown") +
-            $" to 0x{e.MemoryRva:X}{ExportTarget(target, memory, exports, e.MemoryRva, disk.Arch)}");
+            (before != null && e.FileRva is { } o ? ExportTarget(before, o, machine) : "") +
+            $" to 0x{e.MemoryRva:X}{ExportTarget(after, e.MemoryRva, machine)}");
         string description = string.Join("; ", texts) + (entries.Count > 3 ? $"; {entries.Count - 3} more entries" : "");
-        return new ModuleChange(target.Name, range.Section, $"0x{target.Base + start:X}", $"0x{start:X}", length, "export", entries[0].Export,
-            description, filePath, Convert.ToHexStringLower(fileBytes), Convert.ToHexStringLower(memoryBytes));
+        return new ModuleChange(target.Name, section, $"0x{target.Base + start:X}", $"0x{start:X}", length, "export", entries[0].Export,
+            description, reference, Convert.ToHexStringLower(fileBytes), Convert.ToHexStringLower(memoryBytes));
     }
 
-    private static string ExportTarget(RebuildTarget target, IProcessMemory memory, ExportMap exports, uint rva, NativeArch machine)
+    private static string ExportTarget(ExportImage image, uint rva, NativeArch machine)
     {
-        string where = Where(memory, exports, target.Base + rva).Trim().Trim('(', ')');
-        string chain = ChainText(memory, exports, target.Base + rva, machine);
+        var target = image.Target;
+        string where = Where(image.Memory, image.Exports, target.Base + rva).Trim().Trim('(', ')');
+        string chain = ChainText(image.Memory, image.Exports, target.Base + rva, machine);
         if (chain.Length != 0) where += chain;
         if (rva < target.Size) return where.Length == 0 ? "" : $" ({where})";
         return where.Length == 0 ? " (past the image)" : $" (past the image; {where})";
