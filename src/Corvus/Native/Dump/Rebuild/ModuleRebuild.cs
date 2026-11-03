@@ -162,8 +162,8 @@ public static class ModuleRebuild
         if (nt < 0 || nt + 24 + 32 > file.Length) return PeRelocations.PreferredBase.Unknown;
         return BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(nt + 24)) switch
         {
-            0x20B => PeRelocations.PreferredBase.FromFile(BinaryPrimitives.ReadUInt64LittleEndian(file.AsSpan(nt + 24 + 24))),
-            0x10B => PeRelocations.PreferredBase.FromFile(BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(nt + 24 + 28))),
+            0x20B => PeRelocations.PreferredBase.FromFile(BinaryPrimitives.ReadUInt64LittleEndian(file.AsSpan(nt + 24 + 24)), file),
+            0x10B => PeRelocations.PreferredBase.FromFile(BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(nt + 24 + 28)), file),
             _ => PeRelocations.PreferredBase.Unknown,
         };
     }
