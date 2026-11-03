@@ -114,9 +114,12 @@ internal static class OfficeCrypto
         {
             "SHA512" => SHA512.HashData, "SHA384" => SHA384.HashData, "SHA256" => SHA256.HashData, "SHA1" => SHA1.HashData, _ => null,
         };
-        var keyHash = Hash(encryptedKey.GetAttribute("hashAlgorithm"));
-        var dataHash = Hash(keyData.GetAttribute("hashAlgorithm"));
-        if (keyHash == null || dataHash == null) return (null, "unsupported hash algorithm");
+        var keyHashName = encryptedKey.GetAttribute("hashAlgorithm");
+        var dataHashName = keyData.GetAttribute("hashAlgorithm");
+        var keyHash = Hash(keyHashName);
+        var dataHash = Hash(dataHashName);
+        if (keyHash == null) return (null, $"hash algorithm '{keyHashName}' is not read");
+        if (dataHash == null) return (null, $"hash algorithm '{dataHashName}' is not read");
         var salt = Convert.FromBase64String(encryptedKey.GetAttribute("saltValue"));
         int spin = int.Parse(encryptedKey.GetAttribute("spinCount"), System.Globalization.CultureInfo.InvariantCulture);
         if (spin is < 0 or > 10_000_000) return (null, $"spin count {spin} out of range");
