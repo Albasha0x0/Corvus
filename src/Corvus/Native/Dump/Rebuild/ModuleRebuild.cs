@@ -80,8 +80,8 @@ public sealed record RebuiltModule(RebuildTarget Target, string Format, string I
 /// <summary>Rebuilds loaded modules of a dump, core or running process into files a disassembler, decompiler or loader reads.</summary>
 public static class ModuleRebuild
 {
-    /// <summary>Largest image rebuilt, and most bytes rebuilt in one call.</summary>
-    public const long MaxImageBytes = 512L << 20, MaxTotalBytes = 2L << 30;
+    /// <summary>Largest image rebuilt (the largest file the PE reader loads), and most bytes rebuilt in one call.</summary>
+    public const long MaxImageBytes = Pe.PeLimits.MaxFileSize, MaxTotalBytes = 2L << 30;
 
     /// <summary>
     /// The modules <paramref name="module"/> names: "all" (listed and managed in-memory), "unlisted" (headers found outside the module

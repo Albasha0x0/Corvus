@@ -105,6 +105,8 @@ public sealed class DumpManagedMetadataTests : IDisposable
         Assert.Contains("new or empty folder", error.Message);
     }
 
+    private const uint OverLimit = (uint)Corvus.Native.Dump.Rebuild.ModuleRebuild.MaxImageBytes + 0x100_0000;
+
     private string HeaderlessDump(uint size, bool captureHeader)
     {
         var (mapped, _, _) = ManagedImage();
@@ -129,7 +131,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
     [Fact]
     public void A_managed_image_over_the_size_limit_reports_unknown_with_a_reason()
     {
-        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x2400_0000, true), null, 0, 10).Rows);
+        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(HeaderlessDump(OverLimit, true), null, 0, 10).Rows);
         Assert.Equal("unknown", row.Metadata);
         Assert.Contains("larger than", row.MetadataReason);
     }
@@ -138,7 +140,7 @@ public sealed class DumpManagedMetadataTests : IDisposable
     public void A_skipped_managed_module_reports_unknown_with_the_skip_reason_under_outputPath()
     {
         var folder = _dir.File("skipped");
-        var (_, rows, _, _) = new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x22000000, true), null, 0, 10, folder);
+        var (_, rows, _, _) = new Corvus.Services.MinidumpService().Modules(HeaderlessDump(OverLimit, true), null, 0, 10, folder);
         var row = Assert.Single(rows);
         Assert.Equal("unknown", row.Metadata);
         Assert.Contains("larger than", row.MetadataReason);
