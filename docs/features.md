@@ -180,7 +180,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 | .NET and native | `verify_native_imports`: check P/Invoke, native PE and Mach-O imports against library exports |
 | | `get_r2r_code`: ReadyToRun precompiled code of a method |
 | | `find_r2r_method`: the managed method at a ReadyToRun address |
-| Crash dumps | `open_minidump`: open a minidump, core dump or region set; DAC fetched only with `downloadDac=true`; `outputPath` saves rebuilt modules (`modules`, `layout`, `imports`, `base`); `view=changes` lists the ranges changed in memory against the file of the same build |
+| Crash dumps | `open_minidump`: open a minidump, core dump or region set; DAC fetched only with `downloadDac=true`; `outputPath` saves rebuilt modules (`modules`, `layout`, `imports`, `base`); `view=changes` lists the ranges changed in memory against the file of the same build; `group=shape` lists one row per shape |
 | | `dump_stack`: a thread's call stack, managed frames named |
 | | `dump_heap`: .NET heap of a dump or session |
 | | `dump_object`: one .NET object with its fields |

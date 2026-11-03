@@ -37,6 +37,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("outputPath: loaded or preferred.")] string? @base = null,
         [Description("outputPath: none, local or download PDBs.")] string? symbols = null,
         [Description("view=changes: dump to compare with.")] string? compareWith = null,
+        [Description("view=changes: none (default) or shape, one row per module, section, kind and shape.")] string? group = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -47,6 +48,11 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
         if (!string.IsNullOrWhiteSpace(compareWith) && v != "changes")
             throw new ToolError(ErrorCode.InvalidArgument, "compareWith goes with view=changes.", "pass view=changes");
+        var grouping = (group ?? "none").Trim().ToLowerInvariant();
+        if (grouping is not ("none" or "shape"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"group '{group}' is not one of none, shape.", "pass group=none or group=shape");
+        if (grouping != "none" && v != "changes")
+            throw new ToolError(ErrorCode.InvalidArgument, "group goes with view=changes.", "pass view=changes");
         var filter = (regionFilter ?? "all").Trim().ToLowerInvariant();
         if (!MinidumpService.MemoryFilters.Contains(filter))
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", MinidumpService.MemoryFilters)}.");
@@ -68,7 +74,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (staging != null) FileWork.RequireFreshFolder(final!);
         var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
             string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving || v == "changes" ? save.Module : null, save.Layout, save.Imports, save.Base,
-            string.IsNullOrWhiteSpace(compareWith) ? null : dumps.Resolve(compareWith, imageDirectories).Path, save.Symbols);
+            string.IsNullOrWhiteSpace(compareWith) ? null : dumps.Resolve(compareWith, imageDirectories).Path, save.Symbols, grouping == "shape" ? grouping : null);
         FileWork.DumpViewResult r;
         try
         {
@@ -77,6 +83,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         }
         finally { if (staging != null) FileWork.DeleteStaging(staging); }
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
+        if (r.Groups is { } grouped) return Rows(r.Id!, v, grouped, offset, limit, r.Total, GroupLine, "change group", r.Notes);
         if (r.Changes is { } changed) return Rows(r.Id!, v, changed, offset, limit, r.Total, ChangeLine, "changed range", r.Notes);
         if (r.Modules is { } written && saving) return Written(r.Id!, v, written, r.Notes);
         if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
@@ -85,6 +92,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (r.Memory is { } memory) return Rows(r.Id!, v, memory, offset, limit, r.Total, DumpText.Memory, "region");
         return Rows(r.Id!, v, r.Unloaded ?? [], offset, limit, r.Total, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
     }, cancellationToken);
+
+    private static string GroupLine(MinidumpService.ChangeGroupRow g) =>
+        $"{g.Module} {(g.Section.Length == 0 ? "-" : g.Section)} {g.Kind} x{g.Count} {g.FirstAddress}..{g.LastAddress} {g.Bytes} bytes {g.Shape}: {g.Description}";
 
     private static string ChangeLine(MinidumpService.ModuleChange c) =>
         $"{c.Module} {(c.Section.Length == 0 ? "-" : c.Section)} {c.Start} {c.Length} {c.Kind} {c.Name ?? "-"}: {c.Description}";

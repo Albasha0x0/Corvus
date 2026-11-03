@@ -337,7 +337,7 @@ public static class FileWork
     public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null, string? OutputPath = null,
         string? Module = null, Native.Dump.Rebuild.OutputLayout Layout = Native.Dump.Rebuild.OutputLayout.File,
         Native.Dump.Rebuild.ImportMode Imports = Native.Dump.Rebuild.ImportMode.Restore, Native.Dump.Rebuild.BaseMode Base = Native.Dump.Rebuild.BaseMode.Loaded,
-        string? CompareWith = null, string? Symbols = null);
+        string? CompareWith = null, string? Symbols = null, string? Group = null);
 
     public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
 
@@ -354,6 +354,8 @@ public static class FileWork
         public IReadOnlyList<MinidumpService.UnloadedModuleSummary>? Unloaded { get; init; }
         /// <summary>view=changes: the ranges changed in memory.</summary>
         public IReadOnlyList<MinidumpService.ModuleChange>? Changes { get; init; }
+        /// <summary>view=changes group=shape: the changed ranges grouped by shape.</summary>
+        public IReadOnlyList<MinidumpService.ChangeGroupRow>? Groups { get; init; }
         /// <summary>regionFilter=unbacked: the executable regions with no image.</summary>
         public IReadOnlyList<MinidumpService.UnbackedRegion>? Unbacked { get; init; }
         /// <summary>regionFilter=unbacked: the count of regions found and what was not checked.</summary>
@@ -485,6 +487,9 @@ public static class FileWork
             case "unloaded":
                 var (uId, unloaded, uTotal) = dumps.Unloaded(id, a.Offset, a.Limit);
                 return new DumpViewResult(null, uId, uTotal) { Unloaded = unloaded };
+            case "changes" when a.Group == "shape":
+                var (gId, groups, gTotal, gNotes) = dumps.ChangeGroups(id, directories, string.IsNullOrWhiteSpace(a.Module) ? null : a.Module, a.Offset, a.Limit, ct, a.CompareWith);
+                return new DumpViewResult(null, gId, gTotal) { Groups = groups, Notes = gNotes.Count == 0 ? null : gNotes };
             case "changes":
                 var (cId, changes, cTotal, cNotes) = dumps.Changes(id, directories, string.IsNullOrWhiteSpace(a.Module) ? null : a.Module, a.Offset, a.Limit, ct, a.CompareWith);
                 return new DumpViewResult(null, cId, cTotal) { Changes = changes, Notes = cNotes.Count == 0 ? null : cNotes };
