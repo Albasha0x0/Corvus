@@ -185,11 +185,15 @@ public static class DiskCompare
         }
     }
 
-    /// <summary>The recorded path, then the module's file name in each image directory, without repeats.</summary>
+    /// <summary>The recorded path, its WOW64 system folder twin, then the module's file name in each image directory, without repeats.</summary>
     internal static List<string> Candidates(RebuildTarget target, RebuildOptions options)
     {
         var list = new List<string>();
-        if (!string.IsNullOrWhiteSpace(target.Path)) list.Add(target.Path);
+        if (!string.IsNullOrWhiteSpace(target.Path))
+        {
+            list.Add(target.Path);
+            if (WowTwin(target.Path) is { } twin) list.Add(twin);
+        }
         string name = Path.GetFileName(target.Path ?? target.Name);
         if (name.Length == 0) name = target.Name;
         foreach (var dir in (options.ImageDirectories ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -198,6 +202,18 @@ public static class DiskCompare
             catch (ArgumentException) { }
         }
         return [.. list.Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    // A 32-bit module records System32 but its file is in the WOW64 folder; the
+    // build check picks the right one.
+    private static string? WowTwin(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var wow = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+        if (system.Length == 0 || wow.Length == 0 || system.Equals(wow, StringComparison.OrdinalIgnoreCase)) return null;
+        var prefix = system.TrimEnd('\\') + "\\";
+        return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? Path.Combine(wow, path[prefix.Length..]) : null;
     }
 
     /// <summary>True when the file's time stamp and image size equal the captured headers; unreadable files are not the same build.</summary>
