@@ -77,7 +77,7 @@ internal static class DumpText
     }
 
     private static string Checks(MinidumpService.CheckedModule m) =>
-        (m.LoadPath != null ? $"; path {m.LoadPath}" : "") + (m.SignatureState != null ? $"; signature {m.SignatureState}{(m.Signer != null ? $" ({m.Signer})" : "")}" : "") +
+        (m.LoadPath != null ? $"; path {m.LoadPath}" : "") + (m.SignatureState != null ? $"; signature {m.SignatureState}{(m.Signer != null ? $" ({m.Signer})" : "")}{(m.SignatureState == "unknown" && m.SignatureDetail != null ? $" ({m.SignatureDetail})" : "")}" : "") +
         (m.CodeState != null ? $"; code {m.CodeState}{(m.CodeState is "differs" or "partial" && m.CodeDetail != null ? $" ({m.CodeDetail})" : "")}" : "");
 
     public static string Thread(MinidumpService.ThreadSummary t) =>
