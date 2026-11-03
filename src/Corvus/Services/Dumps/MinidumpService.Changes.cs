@@ -161,7 +161,7 @@ public sealed partial class MinidumpService
             var beforeBytes = oldCaptured.Image.AsSpan((int)rva, described).ToArray();
             string? description = range.Code
                 ? DescribeCode(afterBytes, beforeBytes, address, layout.Is64, memory, exports)
-                : DescribeData(afterBytes, beforeBytes, address, layout.Is64, memory);
+                : DescribeData(afterBytes, beforeBytes, address, layout.Is64, memory, exports);
             rows.Add(new ModuleChange(target.Name, range.Section, start, range.Rva, range.Length, range.Code ? "code" : "data", names.NameAt(rva),
                 description, otherId, null, null, range.Before, range.After));
         }
@@ -252,7 +252,7 @@ public sealed partial class MinidumpService
             string kind = range.Code ? "code" : "data";
             string? description = range.Code
                 ? DescribeCode(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports)
-                : DescribeData(memoryBytes, fileBytes, address, disk.Is64Bit, memory);
+                : DescribeData(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports);
             rows.Add(new ModuleChange(target.Name, range.Section, start, range.Rva, range.Length, kind, names.NameAt(rva), description, filePath,
                 range.FileBytes, range.MemoryBytes));
         }
@@ -287,9 +287,10 @@ public sealed partial class MinidumpService
         return change.Indirect ? $"{change.Kind} through the pointer at 0x{target:X}{where}" : $"{change.Kind} to 0x{target:X}{where}";
     }
 
-    private static string DescribeData(byte[] memoryBytes, byte[] fileBytes, ulong address, bool is64, IProcessMemory memory)
+    private static string DescribeData(byte[] memoryBytes, byte[] fileBytes, ulong address, bool is64, IProcessMemory memory,
+        ExportMap exports)
     {
-        var values = DataChangeValues.Decode(memoryBytes, fileBytes, address, is64, memory);
+        var values = DataChangeValues.Decode(memoryBytes, fileBytes, address, is64, memory, exports);
         if (values.Count == 0) return "bytes changed";
         var shown = values.Take(3).Select(v => $"0x{v.Address:X}: 0x{v.Old:X} to 0x{v.New:X} ({v.Target})");
         return string.Join("; ", shown) + (values.Count > 3 ? $"; {values.Count - 3} more values" : "");

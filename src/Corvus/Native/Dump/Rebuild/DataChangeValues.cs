@@ -19,13 +19,20 @@ public static class DataChangeValues
     /// <c>module+0x..</c>, <c>unbacked</c>, <c>committed memory</c> or <c>not a pointer</c>. A short buffer limits the
     /// range to the shorter one.
     /// </summary>
-    public static IReadOnlyList<DataValueChange> Decode(ReadOnlySpan<byte> memory, ReadOnlySpan<byte> file, ulong address, bool is64, IProcessMemory process)
+    public static IReadOnlyList<DataValueChange> Decode(ReadOnlySpan<byte> memory, ReadOnlySpan<byte> file, ulong address, bool is64, IProcessMemory process) =>
+        Decode(memory, file, address, is64, process, null);
+
+    /// <summary>
+    /// As <see cref="Decode(ReadOnlySpan{byte}, ReadOnlySpan{byte}, ulong, bool, IProcessMemory)"/>, naming targets from
+    /// <paramref name="exports"/> so a caller decoding many ranges builds the map once; null builds it on the first changed value.
+    /// </summary>
+    public static IReadOnlyList<DataValueChange> Decode(ReadOnlySpan<byte> memory, ReadOnlySpan<byte> file, ulong address, bool is64, IProcessMemory process,
+        ExportMap? exports)
     {
         int width = is64 ? 8 : 4;
         int length = Math.Min(memory.Length, file.Length);
         int first = (int)((ulong)width - address % (ulong)width) % width;
         var rows = new List<DataValueChange>();
-        ExportMap? exports = null;
         for (int at = first; at + width <= length && rows.Count < MaxValues; at += width)
         {
             ulong now = Read(memory.Slice(at, width));

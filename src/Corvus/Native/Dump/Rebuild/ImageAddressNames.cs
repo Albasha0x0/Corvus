@@ -17,6 +17,7 @@ public sealed class ImageAddressNames
     private readonly List<Section> _sections = [];
     private readonly List<(uint Rva, string Name)> _exports = [];
     private readonly List<(uint Begin, uint End)> _functions = [];
+    private readonly Dictionary<uint, string> _exportAt = [];
 
     private ImageAddressNames(ulong imageBase) => _base = imageBase;
 
@@ -52,8 +53,7 @@ public sealed class ImageAddressNames
             if (index >= 0 && rva < _functions[index].End)
             {
                 uint begin = _functions[index].Begin;
-                int export = _exports.FindIndex(e => e.Rva == begin);
-                return export >= 0 ? _exports[export].Name : $"sub_{_base + begin:X}";
+                return _exportAt.GetValueOrDefault(begin) ?? $"sub_{_base + begin:X}";
             }
         }
         string? below = Below(rva, section);
@@ -64,10 +64,17 @@ public sealed class ImageAddressNames
     // not.
     private string? Below(uint rva, Section section)
     {
-        int best = -1;
-        for (int i = 0; i < _exports.Count; i++)
-            if (_exports[i].Rva <= rva && _exports[i].Rva >= section.Rva && (best < 0 || _exports[i].Rva > _exports[best].Rva)) best = i;
-        return best < 0 ? null : Offset(_exports[best].Name, rva - _exports[best].Rva);
+        int lo = 0, hi = _exports.Count;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (_exports[mid].Rva <= rva) lo = mid + 1; else hi = mid;
+        }
+        if (lo == 0) return null;
+        // Of equal addresses the first read wins, as the sort is stable.
+        uint best = _exports[lo - 1].Rva;
+        if (best < section.Rva) return null;
+        return Offset(_exportAt[best], rva - best);
     }
 
     private static string Offset(string name, uint delta) => delta == 0 ? name : $"{name}+0x{delta:X}";
@@ -98,8 +105,19 @@ public sealed class ImageAddressNames
         uint dirSize = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs + 3 * 8 + 4));
         if (dirRva != 0) (pdataRva, pdataSize) = (dirRva, dirSize);
 
-        ReadExports(image, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs)), BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs + 4)));
+        try { ReadExports(image, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs)), BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(dirs + 4))); }
+        finally { IndexExports(); }
         if (pdataRva != 0 && machine is 0x8664 or 0xAA64) ReadFunctions(image, pdataRva, pdataSize, machine == 0xAA64);
+    }
+
+    // Sorted by address for a binary search; the first export read at an
+    // address names it.
+    private void IndexExports()
+    {
+        var sorted = _exports.Select((e, i) => (e, i)).OrderBy(x => x.e.Rva).ThenBy(x => x.i).Select(x => x.e).ToList();
+        _exports.Clear();
+        _exports.AddRange(sorted);
+        foreach (var (rva, name) in sorted) _exportAt.TryAdd(rva, name);
     }
 
     private void ReadFunctions(byte[] image, uint rva, uint size, bool arm64)
