@@ -98,7 +98,7 @@ public static class PeImportRestore
         if (index >= 0)
         {
             var check = checks[index];
-            string state = check.State == "skipped" ? "partial" : check.State;
+            string state = !added || check.State == "skipped" ? "partial" : check.State;
             checks[index] = new RebuildCheck("imports", state, $"{check.Detail}; {tail}");
         }
         else checks.Add(RebuildCheck.Partial("imports", tail));
@@ -370,13 +370,17 @@ public static class PeImportRestore
         int coff = nt + 4, opt = coff + 20;
         int sections = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(coff + 2));
         int table = opt + BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(coff + 16));
-        long headerEnd = Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 60)), image.Length);
+        // The headers may grow up to the first section when the new entry's
+        // bytes are zero; the file layout widens SizeOfHeaders to the table.
+        long headerEnd = image.Length;
         for (int i = 0; i < sections && table + 40L * i + 40 <= image.Length; i++)
         {
             uint va = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(table + 40 * i + 12));
             if (va != 0) headerEnd = Math.Min(headerEnd, va);
         }
-        if (sections >= PeLimits.MaxSections || table + 40L * (sections + 1) > headerEnd) return "no room for an import section";
+        long entry = table + 40L * sections;
+        if (sections >= PeLimits.MaxSections || entry + 40 > headerEnd || image.AsSpan((int)entry, 40).ContainsAnyExcept((byte)0))
+            return "no room for an import section";
 
         uint alignment = SectionAlignment(image);
         uint imageSize = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 56));
@@ -412,6 +416,11 @@ public static class PeImportRestore
         BinaryPrimitives.WriteUInt32LittleEndian(h[36..], 0x40000040);
         BinaryPrimitives.WriteUInt16LittleEndian(grown.AsSpan(coff + 2), (ushort)(sections + 1));
         BinaryPrimitives.WriteUInt32LittleEndian(grown.AsSpan(opt + 56), (uint)Align((uint)(start + size), SectionAlignment(grown)));
+        uint tableEnd = (uint)(table + 40 * (sections + 1));
+        uint fileAlignment = BinaryPrimitives.ReadUInt32LittleEndian(grown.AsSpan(opt + 36));
+        if (fileAlignment == 0 || (fileAlignment & (fileAlignment - 1)) != 0) fileAlignment = 0x200;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(grown.AsSpan(opt + 60)) < tableEnd)
+            BinaryPrimitives.WriteUInt32LittleEndian(grown.AsSpan(opt + 60), (uint)Align(tableEnd, fileAlignment));
 
         var pages = new bool[grown.Length / 0x1000];
         captured.Captured.AsSpan(0, Math.Min(captured.Captured.Length, pages.Length)).CopyTo(pages);

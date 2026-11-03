@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Corvus.Native;
 using Corvus.Native.Dump;
 using Corvus.Native.Dump.Rebuild;
@@ -22,12 +23,13 @@ public sealed class LateBoundImportTests : IDisposable
 
     private sealed record Result(ImportSummary? Summary, PeFile Saved, byte[] Image, List<RebuildCheck> Checks, int Before);
 
-    private static Result Run(PointerTable table, ImportMode mode, int passes = 1)
+    private static Result Run(PointerTable table, ImportMode mode, int passes = 1, Action<byte[], int>? headers = null)
     {
         using var dump = MinidumpFile.Open(table.DumpPath);
         var target = RebuildTarget.Of(dump.Modules.First(m => m.FileName == table.MainName));
         var captured = CapturedImageReader.Read(dump, target, CancellationToken.None)!;
         var image = (byte[])captured.Image.Clone();
+        headers?.Invoke(image, TableEnd(image));
         var file = File.ReadAllBytes(Path.Combine(table.ImageFolder, table.MainName));
         var checks = new List<RebuildCheck>();
         ImportSummary? summary = null;
@@ -39,6 +41,17 @@ public sealed class LateBoundImportTests : IDisposable
         var bytes = PeFileLayout.ToFileLayout(image, captured, checks);
         return new Result(summary, PeFile.FromBytes(bytes!), image, checks, captured.Image.Length);
     }
+
+    // Offset just past the last section header.
+    private static int TableEnd(byte[] image)
+    {
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int sections = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 6));
+        return nt + 24 + BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 20)) + 40 * sections;
+    }
+
+    private static void HeadersEndAt(byte[] image, int end) =>
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C)) + 24 + 60), (uint)end);
 
     private static string Label(NativeImport import) =>
         $"{import.Module}!" + (import.Name ?? $"#{import.Ordinal}");
@@ -92,5 +105,32 @@ public sealed class LateBoundImportTests : IDisposable
 
         Assert.Empty(result.Saved.Imports);
         Assert.Equal(result.Before, result.Image.Length);
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void A_section_table_that_fills_its_headers_grows_them_for_the_import_section(bool is64, SlotPlacement placement)
+    {
+        var table = PointerTableFixtures.Table(_dir, is64, placement, 6);
+
+        // SizeOfHeaders ends at the last section header.
+        var result = Run(table, ImportMode.Restore, headers: HeadersEndAt);
+
+        Assert.Equal(table.SlotRvas, result.Saved.Imports.Select(i => i.SlotRva));
+        Assert.EndsWith("6 late-bound slots in 1 tables added from memory", Assert.Single(result.Checks, c => c.Name == "imports").Detail);
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void Header_bytes_past_the_section_table_are_kept_and_the_tables_reported_partial(bool is64, SlotPlacement placement)
+    {
+        var table = PointerTableFixtures.Table(_dir, is64, placement, 6);
+
+        var result = Run(table, ImportMode.Restore, headers: (image, end) => { HeadersEndAt(image, end); image[end + 8] = 0x5A; });
+
+        Assert.Empty(result.Saved.Imports);
+        var check = Assert.Single(result.Checks, c => c.Name == "imports");
+        Assert.Equal("partial", check.State);
+        Assert.EndsWith("6 late-bound slots in 1 tables not added: no room for an import section", check.Detail);
     }
 }

@@ -33,18 +33,20 @@ public sealed class ImportSectionTests : IDisposable
     private static PeBuilt Library() => RebuildFixtures.Build(new PeSpec(
         true, [new SectionSpec(".text", 0x60000020, new byte[0x40])], Exports: [new ExportSpec("Alpha", 0x1000)]));
 
-    private (ImportSummary? Summary, byte[] Image, CapturedImage Captured, List<RebuildCheck> Checks) Restore(bool shrinkHeaders)
+    private (ImportSummary? Summary, byte[] Image, CapturedImage Captured, List<RebuildCheck> Checks) Restore(bool fillHeaders)
     {
         using var dump = RebuildFixtures.Dump(_dir, new Placed("app.exe", App(), 0x140000000), new Placed("lib.dll", Library(), 0x180000000));
         var target = RebuildTarget.Of(dump.Modules.First(m => m.FileName == "app.exe"));
         var captured = CapturedImageReader.Read(dump, target, CancellationToken.None)!;
         var image = (byte[])captured.Image.Clone();
-        if (shrinkHeaders)
+        if (fillHeaders)
         {
             int nt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
             int opt = nt + 24;
             int tableEnd = opt + BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 20)) + 40 * BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 6));
             BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(opt + 60), (uint)tableEnd);
+            // Header bytes past the table are in use, so no section header fits.
+            image[tableEnd + 8] = 0x5A;
         }
         var checks = new List<RebuildCheck>();
         var summary = PeImportRestore.Restore(ref image, ref captured, dump, ImportMode.Restore, checks, CancellationToken.None);
