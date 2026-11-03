@@ -47,7 +47,8 @@ public static class DataChangeValues
     private static ulong Read(ReadOnlySpan<byte> value) =>
         value.Length == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(value) : BinaryPrimitives.ReadUInt32LittleEndian(value);
 
-    private static string Target(ulong value, IProcessMemory process, ExportMap exports)
+    /// <summary>Names what <paramref name="value"/> points at: <c>module!export</c>, <c>module+0x..</c>, <c>unbacked</c>, <c>committed memory</c> or <c>not a pointer</c>.</summary>
+    internal static string Target(ulong value, IProcessMemory process, ExportMap exports)
     {
         if (value == 0) return "not a pointer";
         if (process.ModuleAt(value) is { } module)
