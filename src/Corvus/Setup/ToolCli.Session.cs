@@ -163,7 +163,11 @@ internal static partial class ToolCli
             bool expired;
             try
             {
-                (result, expired) = await WithStepLimit(stepSeconds, cancellationToken, ct => routed == null ? Invoke(session!, step.Tool, step.Arguments, io, ct) : InvokeRemote(routed, step.Tool, step.Arguments, io, ct));
+                // A one-shot server ends with the batch, so a running step is joined here;
+                // a routed session keeps the work and reports it as running.
+                (result, expired) = await WithStepLimit(stepSeconds, cancellationToken, ct => routed == null
+                    ? JoinRunning(() => Invoke(session!, step.Tool, step.Arguments, io, ct), ct)
+                    : InvokeRemote(routed, step.Tool, step.Arguments, io, ct));
             }
             catch (SessionUnreachableException ex)
             {

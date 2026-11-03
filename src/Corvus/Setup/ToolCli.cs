@@ -216,6 +216,19 @@ internal static partial class ToolCli
         catch (OperationCanceledException) when (!outer.IsCancellationRequested && step.IsCancellationRequested) { return (default, true); }
     }
 
+    /// <summary>Repeats a call whose answer leaves its work running until an answer ends it; null when the call is refused.</summary>
+    internal static async Task<CallToolResult?> JoinRunning(Func<Task<CallToolResult?>> call, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var result = await call();
+            if (result?.IsError != true || !IsStillRunning(Split(result).Error)) return result;
+            // A repeat joins the work and answers at the next deadline; the pause
+            // bounds a server that answers at once.
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+    }
+
     /// <summary>Reports an ordinary-batch step that hit --step-timeout (stderr, and a timeout record with --json); true when --stop-on-error ends the run.</summary>
     internal static bool ReportStepTimeout(CliIo io, bool json, int step, int count, string tool, double? seconds, bool stopOnError, ref int exit)
     {

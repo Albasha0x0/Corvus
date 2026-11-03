@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Setup;
 using ModelContextProtocol.Protocol;
 
@@ -39,6 +40,33 @@ public class StepTimeoutTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             ToolCli.WithStepLimit<int>(30, outer.Token, async ct => { await Task.Delay(Timeout.Infinite, ct); return 1; }));
     }
+
+    // Regression for the release changes job: a one-shot batch exited 5 on a
+    // compare_assemblies step past the 30 s deadline, and its work was lost.
+    [Fact]
+    public async Task A_one_shot_batch_step_left_running_is_repeated_until_it_ends()
+    {
+        int calls = 0;
+        var result = await ToolCli.JoinRunning(() => Task.FromResult<CallToolResult?>(++calls == 1 ? Running() : new CallToolResult()), CancellationToken.None);
+        Assert.Equal(2, calls);
+        Assert.NotEqual(true, result!.IsError);
+    }
+
+    [Fact]
+    public async Task A_failed_step_is_not_repeated()
+    {
+        int calls = 0;
+        var failed = new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = "Error (not_found) in x: gone." }] };
+        var result = await ToolCli.JoinRunning(() => { calls++; return Task.FromResult<CallToolResult?>(failed); }, CancellationToken.None);
+        Assert.Equal(1, calls);
+        Assert.Same(failed, result);
+    }
+
+    private static CallToolResult Running() => new()
+    {
+        IsError = true,
+        Content = [new TextContentBlock { Text = ErrorResult.JsonMarker + """{"code":"timeout","details":{"stillRunning":true}}""" }],
+    };
 
     [Theory]
     [InlineData("0")]

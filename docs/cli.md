@@ -92,6 +92,7 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - The file is a JSON array or JSON Lines of `{"tool": "...", "args": {...}}` (`arguments` also accepted).
   `#` starts a comment line. Every tool name is checked before the first step runs.
 - With `--json`, one line per step: `{step, tool, isError, state, text, structured, error}`; `state` is `ok`, `failed` or `running`.
+- A step whose work keeps running is repeated until it ends; `running` is left only by a `--session` batch, whose session keeps the work.
 - Later steps run after a failed one unless `--stop-on-error` is given. The exit code is the first failed step's.
 - `--keep-going` runs the valid steps and names each invalid line on stderr (not in `--json` output); exit 2 if no step failed.
   A malformed JSON array still fails the batch.
