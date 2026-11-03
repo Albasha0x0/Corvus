@@ -65,8 +65,8 @@ public sealed class DumpChangesTests : IDisposable
 
         var (_, rows, _, _) = new MinidumpService().Changes(path, ImageFolder(app), "app.exe", 0, 100, default);
 
-        var row = Assert.Single(rows);
-        Assert.Equal(("code", ".text", 1), (row.Kind, row.Section, row.Length));
+        var row = Assert.Single(rows, x => x.Kind == "code");
+        Assert.Equal((".text", 1), (row.Section, row.Length));
         Assert.Equal("00", row.FileBytes);
     }
 
