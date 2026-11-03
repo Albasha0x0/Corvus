@@ -45,7 +45,7 @@ public static class PeImportRestore
         try
         {
             var pe = PeFile.FromBytes(file ?? image);
-            return [.. LateBoundPointers.Find(image, captured, pe, memory, new ExportMap(memory)).Where(r => r.IsTable)];
+            return [.. LateBoundPointers.Find(image, captured, pe, memory, new ExportMap(memory), file is not null).Where(r => r.IsTable)];
         }
         catch (Exception e) when (e is InvalidDataException or ArgumentException or IOException or IndexOutOfRangeException)
         {

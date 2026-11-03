@@ -17,19 +17,23 @@ public sealed record LateBoundRun(string Module, IReadOnlyList<uint> SlotRvas, I
 public static class LateBoundPointers
 {
     /// <summary>
-    /// Scans the zero-initialized part of each non-code section of <paramref name="mapped"/>: bytes past the raw data,
-    /// or the whole section when it has none. Returns runs in RVA order, empty when nothing is found.
+    /// Scans each non-code section of <paramref name="mapped"/> for slots the file holds as zeros: bytes past the raw
+    /// data, the whole section when it has none, and slots inside the raw data whose file bytes are zero when
+    /// <paramref name="fileHasRawData"/> is set. Returns runs in RVA order, empty when nothing is found.
     /// A run ends at a zero value, a value that names no export, a value into the image itself or another module
     /// without an export there, or a page not captured.
     /// </summary>
-    public static IReadOnlyList<LateBoundRun> Find(byte[] mapped, CapturedImage captured, PeFile file, IProcessMemory memory, ExportMap exports)
+    public static IReadOnlyList<LateBoundRun> Find(byte[] mapped, CapturedImage captured, PeFile file, IProcessMemory memory, ExportMap exports,
+        bool fileHasRawData = true)
     {
         var runs = new List<LateBoundRun>();
         int width = file.Is64Bit ? 8 : 4;
         foreach (var section in file.Sections.OrderBy(s => s.Rva))
         {
             if (DiskCompare.IsCode(section.Characteristics)) continue;
-            long start = section.Rva + (long)(section.RawOffset == 0 ? 0 : section.RawSize);
+            long rawSize = section.RawOffset == 0 ? 0 : section.RawSize;
+            long start = section.Rva + rawSize;
+            if (fileHasRawData && rawSize > 0) start = section.Rva;
             long end = Math.Min(section.Rva + (long)section.MappedSize, mapped.Length);
             start = (start + width - 1) / width * width;
 
@@ -37,7 +41,7 @@ public static class LateBoundPointers
             var names = new List<string>();
             for (long at = start; at + width <= end; at += width)
             {
-                string? name = Name(mapped, captured, memory, exports, at, width);
+                string? name = !ZeroInFile(file, section, rawSize, at, width, fileHasRawData) ? null : Name(mapped, captured, memory, exports, at, width);
                 if (name is not null)
                 {
                     rvas.Add((uint)at);
@@ -49,6 +53,18 @@ public static class LateBoundPointers
             Flush(runs, captured, rvas, names);
         }
         return runs;
+    }
+
+    // Past the raw data is zero by definition; inside it the file bytes decide, and a straddling slot is skipped.
+    private static bool ZeroInFile(PeFile file, NativeSection section, long rawSize, long at, int width, bool fileHasRawData)
+    {
+        long offset = at - section.Rva;
+        if (offset >= rawSize) return true;
+        if (!fileHasRawData || offset + width > rawSize) return false;
+        long position = section.RawOffset + offset;
+        var bytes = file.FileBytes.Span;
+        if (position + width > bytes.Length) return false;
+        return !bytes.Slice((int)position, width).ContainsAnyExcept((byte)0);
     }
 
     private static string? Name(byte[] mapped, CapturedImage captured, IProcessMemory memory, ExportMap exports, long at, int width)
