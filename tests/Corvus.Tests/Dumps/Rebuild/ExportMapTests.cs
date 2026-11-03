@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using Corvus.Native;
+using Corvus.Native.Dump;
 using Corvus.Native.Dump.Rebuild;
 using Corvus.Native.Pe;
 
@@ -65,5 +67,45 @@ public sealed class ExportMapTests : IDisposable
 
         Assert.Equal(1, map.SkippedModules);
         Assert.Null(map.NameAt(0x180001000));
+    }
+
+    [Fact]
+    public void A_shared_map_is_reused_while_the_module_list_is_unchanged()
+    {
+        using var dump = RebuildFixtures.Dump(_dir, new Placed("fixture.dll", Library(new ExportSpec("Alpha", 0x1000)), 0x180000000));
+        var memory = new Listed(dump, dump.Modules);
+
+        Assert.Same(ExportMap.For(memory), ExportMap.For(memory));
+    }
+
+    [Fact]
+    public void A_changed_module_list_builds_a_new_map()
+    {
+        using var dump = RebuildFixtures.Dump(_dir,
+            new Placed("fixture.dll", Library(new ExportSpec("Alpha", 0x1000)), 0x180000000),
+            new Placed("other.dll", Library(new ExportSpec("Beta", 0x1000)), 0x190000000));
+        var memory = new Listed(dump, [dump.Modules[0]]);
+        var first = ExportMap.For(memory);
+        memory.Modules = dump.Modules;
+
+        var second = ExportMap.For(memory);
+
+        Assert.NotSame(first, second);
+        Assert.Null(first.NameAt(0x190001000));
+        Assert.Equal("other.dll!Beta", second.NameAt(0x190001000));
+    }
+
+    /// <summary>A process whose module list the test sets.</summary>
+    private sealed class Listed(IProcessMemory inner, IReadOnlyList<DumpModule> modules) : IProcessMemory
+    {
+        public NativeArch Arch => inner.Arch;
+        public bool Is64Bit => inner.Is64Bit;
+        public string Identity => inner.Identity;
+        public IReadOnlyList<DumpModule> Modules { get; set; } = modules;
+        public IReadOnlyList<DumpUnloadedModule> UnloadedModules => inner.UnloadedModules;
+        public int ReadMemory(ulong address, Span<byte> destination) => inner.ReadMemory(address, destination);
+        public DumpModule? ModuleAt(ulong address) => Modules.FirstOrDefault(m => address >= m.Base && address - m.Base < m.Size);
+        public DumpMemoryRegion? RegionAt(ulong address) => inner.RegionAt(address);
+        public ulong ReadableExtent(ulong start, ulong size) => inner.ReadableExtent(start, size);
     }
 }

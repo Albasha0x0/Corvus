@@ -45,7 +45,7 @@ public static class PeImportRestore
         try
         {
             var pe = PeFile.FromBytes(file ?? image);
-            return [.. LateBoundPointers.Find(image, captured, pe, memory, new ExportMap(memory), file is not null).Where(r => r.IsTable)];
+            return [.. LateBoundPointers.Find(image, captured, pe, memory, ExportMap.For(memory), file is not null).Where(r => r.IsTable)];
         }
         catch (Exception e) when (e is InvalidDataException or ArgumentException or IOException or IndexOutOfRangeException)
         {
@@ -211,7 +211,7 @@ public static class PeImportRestore
 
     private static ImportSummary? Rebuild(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, bool is64, uint fileDirectory, List<RebuildCheck> checks)
     {
-        var found = ImportScan.Find(image, captured, new ExportMap(memory), fileDirectory);
+        var found = ImportScan.Find(image, captured, ExportMap.For(memory), fileDirectory);
         if (found == null)
         {
             checks.Add(RebuildCheck.Skipped("imports", "no import directory and no import address table found"));
@@ -447,7 +447,7 @@ public static class PeImportRestore
     private static List<(uint Rva, string Name)> Name(List<(uint Rva, ulong Value)> pending, IProcessMemory memory)
     {
         if (pending.Count == 0 || memory == null) return [];
-        var map = new ExportMap(memory);
+        var map = ExportMap.For(memory);
         List<(uint, string)> named = [];
         foreach (var (rva, value) in pending)
             if (map.NameAt(value) is { } name) named.Add((rva, name));

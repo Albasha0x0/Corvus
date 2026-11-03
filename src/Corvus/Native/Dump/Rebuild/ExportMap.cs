@@ -24,6 +24,23 @@ public sealed class ExportMap
             if (!Read(memory, module)) SkippedModules++;
     }
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IProcessMemory, Shared> Cache = [];
+
+    private sealed record Shared((ulong Base, uint Size)[] Modules, ExportMap Map);
+
+    /// <summary>
+    /// The map of <paramref name="memory"/>, shared by every caller while its module list is unchanged; a rebuild of
+    /// each saved module otherwise reads every module's exports again.
+    /// </summary>
+    public static ExportMap For(IProcessMemory memory)
+    {
+        var modules = memory.Modules.Select(m => (m.Base, m.Size)).ToArray();
+        if (Cache.TryGetValue(memory, out var shared) && shared.Modules.AsSpan().SequenceEqual(modules)) return shared.Map;
+        var map = new ExportMap(memory);
+        Cache.AddOrUpdate(memory, new Shared(modules, map));
+        return map;
+    }
+
     /// <summary>Modules whose export directory was not captured, was malformed or held more than <see cref="MaxExportsPerModule"/> exports.</summary>
     public int SkippedModules { get; private set; }
 

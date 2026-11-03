@@ -154,7 +154,7 @@ public static class PeDelayImports
                 checks.Add(RebuildCheck.Ok(name, "0 slots restored"));
                 return [];
             }
-            var exports = resolved.Count == 0 ? null : new ExportMap(memory);
+            var exports = resolved.Count == 0 ? null : ExportMap.For(memory);
             var names = resolved.Select(s => (s, Name: exports!.NameAt(s.Value))).Where(x => x.Name != null)
                 .Select(x => new ResolvedImport($"0x{x.s.Rva:X}", x.Name!)).ToList();
             checks.Add(RebuildCheck.Unknown(name, $"{resolved.Count} resolved slots kept: no file of the same build{limit}"));
