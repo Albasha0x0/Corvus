@@ -69,6 +69,7 @@ internal static class DumpText
 
     // Written bytes are non-zero bytes past the raw data; unknown bytes lie in pages the dump lacks.
     private static string RuntimeSections(MinidumpService.CheckedModule m) =>
+        m.RuntimeSections is null ? "\nsections written at run time: unknown" :
         m.RuntimeSections is not { Count: > 0 } rows ? "" :
         "\nsections written at run time: " + string.Join(", ", rows.Select(r =>
             $"{r.Name} ({r.Kind}, {ByteSize(r.BytesWritten)}{(r.BytesUnknown > 0 ? $", {ByteSize(r.BytesUnknown)} unknown" : "")})"));

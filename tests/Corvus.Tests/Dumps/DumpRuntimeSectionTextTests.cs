@@ -55,4 +55,13 @@ public sealed class DumpRuntimeSectionTextTests
 
         Assert.DoesNotContain("written at run time", await Modules(dump));
     }
+
+    [Fact]
+    public async Task A_module_whose_header_page_is_not_captured_reports_its_sections_as_unknown()
+    {
+        using var dir = new TempDir();
+        var image = RuntimeSectionFixtures.NoRawData(dir, true, ".rt", Tail(0x40), true, false, [0]);
+
+        Assert.Contains("sections written at run time: unknown", await Modules(image.DumpPath));
+    }
 }

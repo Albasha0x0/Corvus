@@ -82,7 +82,7 @@ public sealed partial class MinidumpService
         [Description("Percent of the image's pages the dump held.")] public int? ImageCaptured { get; init; }
         [Description("Rebuild checks of the written image: name, state (ok, partial, failed, skipped, unknown) and detail.")] public IReadOnlyList<Corvus.Native.Dump.Rebuild.RebuildCheck>? ImageChecks { get; init; }
         [Description("Modules the image delay-loads, named from the exports its resolved slots point at; null when none was resolved.")] public IReadOnlyList<string>? DelayImportModules { get; init; }
-        [Description("Sections of the module whose memory past their raw data holds bytes the file lacks; null when none.")] public IReadOnlyList<RuntimeSectionRow>? RuntimeSections { get; init; }
+        [Description("Sections whose memory past the raw data holds bytes the file lacks; empty when none, null when unknown.")] public IReadOnlyList<RuntimeSectionRow>? RuntimeSections { get; init; }
         [Description("PDB file copied next to the image under outputPath.")] public string? Pdb { get; init; }
 
         /// <summary>The checked row of <paramref name="m"/>, its checks unset.</summary>
@@ -90,11 +90,12 @@ public sealed partial class MinidumpService
             m.LocalImage, m.LocalPath, m.LocalDetail, m.Managed) { BuildId = m.BuildId };
     }
 
+    /// <summary>A section of a module whose memory past its raw data holds bytes the file lacks.</summary>
     public sealed record RuntimeSectionRow(
         string Name,
-        [property: Description("code when the section contains code or is executable and not writable, else data.")] string Kind,
-        [property: Description("Non-zero bytes past the section's raw data.")] long BytesWritten,
-        [property: Description("Bytes past the raw data in pages the dump did not capture.")] long BytesUnknown);
+        [property: Description("code when it holds code or is executable and not writable, else data.")] string Kind,
+        [property: Description("Non-zero bytes past the raw data.")] long BytesWritten,
+        [property: Description("Bytes past the raw data in uncaptured pages.")] long BytesUnknown);
 
     public sealed record ThreadSummary(
         uint Id, string? Name, bool Faulting, uint SuspendCount, uint Priority, string Teb,
@@ -376,8 +377,8 @@ public sealed partial class MinidumpService
         return (s.Id, rows, saved != null ? rows.Count : d.Modules.Count, folder);
     }
 
-    // Reads the module's own headers, so no file is needed; null when the
-    // headers are unreadable or no section was written.
+    // Reads the module's own headers, so no file is needed. Empty when no
+    // section was written; null when the headers are not captured or not a PE.
     private static IReadOnlyList<RuntimeSectionRow>? RuntimeRows(IProcessMemory d, DumpModule m, CancellationToken ct)
     {
         try
@@ -385,10 +386,9 @@ public sealed partial class MinidumpService
             var captured = CapturedImageReader.Read(d, RebuildTarget.Of(m), ct);
             if (captured == null) return null;
             var found = RuntimeSections.Find(captured.Image, captured, Corvus.Native.Pe.PeFile.FromBytes(captured.Image));
-            return found.Count == 0 ? null
-                : [.. found.Select(f => new RuntimeSectionRow(f.Name, f.IsCode ? "code" : "data", f.WrittenBytes, f.UnknownBytes))];
+            return [.. found.Select(f => new RuntimeSectionRow(f.Name, f.IsCode ? "code" : "data", f.WrittenBytes, f.UnknownBytes))];
         }
-        catch (Exception e) when (e is not OperationCanceledException) { return null; }
+        catch (ToolError) { return null; }
     }
 
     // The distinct modules of the delay-load slots named from exports; null

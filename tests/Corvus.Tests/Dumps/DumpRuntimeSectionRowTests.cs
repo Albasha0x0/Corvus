@@ -24,10 +24,25 @@ public sealed class DumpRuntimeSectionRowTests
     }
 
     [Fact]
-    public void A_module_without_one_has_no_runtime_sections()
+    public void A_module_without_one_has_an_empty_runtime_section_list()
     {
         using var dir = new TempDir();
         var image = RuntimeSectionFixtures.NoRawData(dir, true, ".rt", new byte[0x40], false, true);
+        Assert.Empty(Row(image.DumpPath).RuntimeSections!);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public void A_module_whose_header_page_is_not_captured_has_unknown_runtime_sections(bool is64, bool shortRaw)
+    {
+        using var dir = new TempDir();
+        var tail = Enumerable.Repeat((byte)0x90, 0x40).ToArray();
+        var image = shortRaw
+            ? RuntimeSectionFixtures.ShortRawData(dir, is64, ".rt", [0x55, 0xC3], tail, uncapturedPages: [0])
+            : RuntimeSectionFixtures.NoRawData(dir, is64, ".rt", tail, true, false, [0]);
         Assert.Null(Row(image.DumpPath).RuntimeSections);
     }
 }
