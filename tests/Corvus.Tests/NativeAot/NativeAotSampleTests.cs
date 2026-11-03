@@ -73,6 +73,12 @@ public class NativeAotSampleTests(ITestOutputHelper log)
         var (code, output) = Tools.Dotnet(work, args);
         Assert.True(code == 0, $"dotnet publish failed ({code}):\n{output}");
         if (SweepScope.Exhaustive) return Path.Combine(work, "out");
+        // A cut-short delete leaves the folder without app.exe; it blocks the move.
+        if (Directory.Exists(dir) && !File.Exists(Path.Combine(dir, "app.exe")))
+        {
+            try { Directory.Delete(dir, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
         try { Directory.Move(Path.Combine(work, "out"), dir); }
         catch (IOException) when (File.Exists(Path.Combine(dir, "app.exe"))) { }
         try { Directory.Delete(work, true); }
