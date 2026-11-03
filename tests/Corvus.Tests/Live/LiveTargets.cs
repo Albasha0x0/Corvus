@@ -277,20 +277,26 @@ internal static class LivePrograms
             g_sink += 1;
         }
         #ifdef _MSC_VER
-        static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r)
+        static void Mark(const char* prefix, int n)
         {
-            if (reason != DLL_PROCESS_DETACH || !g_stuck) return;
-            // hold-<pid> beside the program marks the hold entered; built by hand, as the C runtime has ended.
             char path[MAX_PATH + 32], digits[16];
             DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH), pid = GetCurrentProcessId();
             int d = 0;
             while (len > 0 && path[len - 1] != '\\') len--;
-            memcpy(path + len, "hold-", 5);
-            len += 5;
+            memcpy(path + len, prefix, n);
+            len += n;
             do { digits[d++] = (char)('0' + pid % 10); pid /= 10; } while (pid);
             while (d) path[len++] = digits[--d];
             path[len] = 0;
             CloseHandle(CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL));
+        }
+        static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r)
+        {
+            if (reason != DLL_PROCESS_DETACH) return;
+            // Markers beside the program, built by hand as the C runtime has ended: tls-<pid> the callback ran, hold-<pid> the hold entered.
+            Mark("tls-", 4);
+            if (!g_stuck) return;
+            Mark("hold-", 5);
             for (;;) Sleep(10);
         }
         #ifdef _M_IX86

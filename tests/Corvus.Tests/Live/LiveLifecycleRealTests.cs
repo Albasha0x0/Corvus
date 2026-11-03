@@ -240,7 +240,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
     {
         var exe = Build(target);
         var folder = Path.GetDirectoryName(exe)!;
-        foreach (var stale in Directory.GetFiles(folder, "hold-*")) File.Delete(stale);
+        foreach (var stale in Directory.GetFiles(folder, "hold-*").Concat(Directory.GetFiles(folder, "tls-*"))) File.Delete(stale);
         const int together = 5;
         await using var server = await Server();
         int next = 0, held = 0;
@@ -278,7 +278,8 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     Output.WriteLine($"{session}: exited {sw.Elapsed.TotalSeconds:F1} s after the start");
                     Assert.Matches(@"exit code 7(?![0-9xX])", exited);
                     var errors = await Events(server, session, kind: "error");
-                    // hold-<pid> marks a hold entered: Windows can end the exit without the TLS callback (1 in 10; cause unconfirmed).
+                    // hold-<pid> marks a hold entered. In about 4 exits in 100 the loader never calls the TLS callback
+                    // (tls-<pid> absent), spawned or attached; the exit is then not held.
                     if (File.Exists(Path.Combine(folder, $"hold-{pid}")))
                     {
                         held++;
@@ -287,7 +288,8 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     else
                     {
                         Assert.DoesNotContain("called ExitProcess", errors);
-                        Output.WriteLine($"{session}: the program finished its exit without entering its hold");
+                        var callback = File.Exists(Path.Combine(folder, $"tls-{pid}")) ? "ran" : "did not run";
+                        Output.WriteLine($"{session}: the program finished its exit without entering its hold; its TLS callback {callback}");
                     }
                     Ended(pid);
                 }
