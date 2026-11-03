@@ -65,7 +65,20 @@ internal static class DumpText
     public static string Module(MinidumpService.ModuleSummary m) =>
         $"{m.Base} {m.Name} size {m.Size}" + (m.FileVersion != null ? $" v{m.FileVersion}" : "") + (m.Built != null ? $" built {m.Built}" : $" stamp {m.TimeDateStamp}") +
         (m.PdbName != null ? $", pdb {m.PdbName}{(m.PdbGuid != null ? $" {m.PdbGuid}/{m.PdbAge}" : "")}" : "") +
-        $"; local {m.LocalImage}{(m.LocalPath == null ? $" ({m.LocalDetail})" : m.LocalPath.Equals(m.Path, StringComparison.OrdinalIgnoreCase) ? "" : $" ({m.LocalPath})")}" + (m.Managed == true ? ", .NET" : "") + (m is MinidumpService.CheckedModule c ? Checks(c) + Metadata(c) : "") + $"\n{m.Path}";
+        $"; local {m.LocalImage}{(m.LocalPath == null ? $" ({m.LocalDetail})" : m.LocalPath.Equals(m.Path, StringComparison.OrdinalIgnoreCase) ? "" : $" ({m.LocalPath})")}" + (m.Managed == true ? ", .NET" : "") + (m is MinidumpService.CheckedModule c ? Checks(c) + Metadata(c) : "") + $"\n{m.Path}" + (m is MinidumpService.CheckedModule r ? RuntimeSections(r) : "");
+
+    // Written bytes are non-zero bytes past the raw data; unknown bytes lie in pages the dump lacks.
+    private static string RuntimeSections(MinidumpService.CheckedModule m) =>
+        m.RuntimeSections is not { Count: > 0 } rows ? "" :
+        "\nsections written at run time: " + string.Join(", ", rows.Select(r =>
+            $"{r.Name} ({r.Kind}, {ByteSize(r.BytesWritten)}{(r.BytesUnknown > 0 ? $", {ByteSize(r.BytesUnknown)} unknown" : "")})"));
+
+    private static string ByteSize(long bytes) => bytes switch
+    {
+        >= 1 << 20 => (bytes / (1024.0 * 1024)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " MB",
+        >= 1 << 10 => (bytes / 1024.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " KB",
+        _ => bytes + " bytes",
+    };
 
     private static string Metadata(MinidumpService.CheckedModule m) =>
         (m.Metadata != null ? $"; metadata {m.Metadata}{(m.MetadataReason != null ? $" ({m.MetadataReason})" : "")}" : "") + (m.ImageFile != null ? $"; image {m.ImageFile}{ImageChecks(m)}" : m.ImageReason != null ? $"; not written ({m.ImageReason})" : "");
