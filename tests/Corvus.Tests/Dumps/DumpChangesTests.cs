@@ -47,6 +47,29 @@ public sealed class DumpChangesTests : IDisposable
         Assert.Equal("data", row.Kind);
     }
 
+    // Regression: code a module wrote into a .text section with no raw data
+    // in the file listed no change.
+    [Fact]
+    public void Code_written_into_a_section_without_raw_data_is_a_code_row()
+    {
+        var app = RebuildFixtures.Build(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x40])]));
+        int table = BinaryPrimitives.ReadInt32LittleEndian(app.Bytes.AsSpan(0x3C)) + 24 + BinaryPrimitives.ReadUInt16LittleEndian(app.Bytes.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(app.Bytes.AsSpan(0x3C)) + 20));
+        BinaryPrimitives.WriteUInt32LittleEndian(app.Bytes.AsSpan(table + 16), 0);
+        var mapped = RebuildFixtures.Mapped(app.Bytes);
+        mapped[0x1000] = 0xC3;
+        var b = new MinidumpBuilder();
+        b.Modules.Add(new MinidumpBuilder.Module(AppBase, (uint)mapped.Length, BinaryPrimitives.ReadUInt32LittleEndian(app.Bytes.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(app.Bytes.AsSpan(0x3C)) + 8)), "app.exe"));
+        b.Memory.Add((AppBase, mapped));
+        var path = _dir.File("unpacked.dmp");
+        File.WriteAllBytes(path, b.Build());
+
+        var (_, rows, _, _) = new MinidumpService().Changes(path, ImageFolder(app), "app.exe", 0, 100, default);
+
+        var row = Assert.Single(rows);
+        Assert.Equal(("code", ".text", 1), (row.Kind, row.Section, row.Length));
+        Assert.Equal("00", row.FileBytes);
+    }
+
     [Fact]
     public void A_patched_function_start_is_one_code_row_with_its_function_and_target()
     {

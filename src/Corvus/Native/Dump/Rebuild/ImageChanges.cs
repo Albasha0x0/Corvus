@@ -35,23 +35,25 @@ public static class ImageChanges
         if (!TryParse(file, out var disk) || !TryParse(rebuiltMapped, out var memory)) return new ImageChangeSet(ranges, 0, false, MaxRanges);
         var excluded = Excluded(file, disk);
 
-        void Add(SectionInfo m, long start, long end, string state, long fileAt)
+        void Add(SectionInfo m, long start, long end, string state, Func<long, byte> fileAt)
         {
             total++;
             if (ranges.Count >= MaxRanges) return;
             long length = end - start;
             int shown = (int)Math.Min(length, MaxBytes);
             string memoryHex = state == "unknown" ? "" : Convert.ToHexStringLower(rebuiltMapped.AsSpan((int)(m.Rva + start), shown));
+            var fileBytes = new byte[shown];
+            for (int k = 0; k < shown; k++) fileBytes[k] = fileAt(start + k);
             ranges.Add(new ImageChange(m.Name, $"0x{m.Rva + start:X}", (int)length, state, DiskCompare.IsCode(m.Characteristics),
-                Convert.ToHexStringLower(file.AsSpan((int)(fileAt + start), shown)), memoryHex));
+                Convert.ToHexStringLower(fileBytes), memoryHex));
         }
 
         foreach (var m in memory.Sections)
         {
             var d = disk.Sections.FirstOrDefault(s => s.Rva == m.Rva);
             if (d == null) continue;
-            long length = Math.Min(Math.Min(m.VirtualSize, m.RawSize), Math.Min(d.VirtualSize, d.RawSize));
-            length = Math.Max(0, Math.Min(length, Math.Min(rebuiltMapped.Length - (long)m.Rva, file.Length - (long)d.RawAt)));
+            var (length, fileLength) = Extent(m, d, rebuiltMapped.Length, file.Length);
+            byte FileAt(long i) => i < fileLength ? file[d.RawAt + i] : (byte)0;
             long diffStart = -1, lastDiff = -1, unknownStart = -1;
             for (long i = 0; i <= length; i++)
             {
@@ -60,13 +62,13 @@ public static class ImageChanges
                 {
                     long rva = m.Rva + i;
                     unknown = !captured.PageCaptured((uint)rva);
-                    differs = !unknown && !(rva < excluded.Length && excluded[(int)rva]) && rebuiltMapped[rva] != file[d.RawAt + i];
+                    differs = !unknown && !(rva < excluded.Length && excluded[(int)rva]) && rebuiltMapped[rva] != FileAt(i);
                 }
                 if (unknown)
                 {
                     if (diffStart >= 0)
                     {
-                        Add(m, diffStart, lastDiff + 1, "differs", d.RawAt);
+                        Add(m, diffStart, lastDiff + 1, "differs", FileAt);
                         diffStart = -1;
                     }
                     if (unknownStart < 0) unknownStart = i;
@@ -74,7 +76,7 @@ public static class ImageChanges
                 }
                 if (unknownStart >= 0)
                 {
-                    Add(m, unknownStart, i, "unknown", d.RawAt);
+                    Add(m, unknownStart, i, "unknown", FileAt);
                     unknownStart = -1;
                 }
                 if (differs)
@@ -84,7 +86,7 @@ public static class ImageChanges
                 }
                 else if (diffStart >= 0 && (i == length || i - lastDiff > MaxGap))
                 {
-                    Add(m, diffStart, lastDiff + 1, "differs", d.RawAt);
+                    Add(m, diffStart, lastDiff + 1, "differs", FileAt);
                     diffStart = -1;
                 }
             }

@@ -61,8 +61,7 @@ public static class DiskCompare
         {
             var d = disk.Sections.FirstOrDefault(s => s.Rva == m.Rva);
             if (d == null) continue;
-            long length = Math.Min(Math.Min(m.VirtualSize, m.RawSize), Math.Min(d.VirtualSize, d.RawSize));
-            length = Math.Max(0, Math.Min(length, Math.Min(rebuilt.Length - (long)m.RawAt, file.Length - (long)d.RawAt)));
+            var (length, fileLength) = Extent(m, d, rebuilt.Length - (long)m.RawAt + m.Rva, file.Length);
             long runStart = -1;
             for (long i = 0; i <= length; i++)
             {
@@ -71,7 +70,7 @@ public static class DiskCompare
                 {
                     long rva = m.Rva + i;
                     if (!captured.PageCaptured((uint)rva)) notCaptured++;
-                    else differs = !(rva < excluded.Length && excluded[(int)rva]) && rebuilt[m.RawAt + i] != file[d.RawAt + i];
+                    else differs = !(rva < excluded.Length && excluded[(int)rva]) && rebuilt[m.RawAt + i] != (i < fileLength ? file[d.RawAt + i] : 0);
                 }
                 if (differs)
                 {
@@ -100,6 +99,21 @@ public static class DiskCompare
     // changes are writes, not patched code.
     internal static bool IsCode(uint characteristics) =>
         (characteristics & ContainsCode) != 0 || (characteristics & (Execute | Write)) == Execute;
+
+    /// <summary>
+    /// Bytes of a section compared, and the part of them the file holds. A
+    /// code section is compared over its virtual size, the rest against the
+    /// zeros the loader maps there, so code written at run time is seen.
+    /// </summary>
+    internal static (long Length, long FileLength) Extent(SectionInfo memory, SectionInfo disk, long imageLength, long fileLength)
+    {
+        long held = Math.Max(0, Math.Min(Math.Min(disk.VirtualSize == 0 ? disk.RawSize : disk.VirtualSize, disk.RawSize), fileLength - (long)disk.RawAt));
+        long length = IsCode(disk.Characteristics)
+            ? Math.Min(memory.VirtualSize == 0 ? memory.RawSize : memory.VirtualSize, disk.VirtualSize == 0 ? disk.RawSize : disk.VirtualSize)
+            : Math.Min(Math.Min(memory.VirtualSize, memory.RawSize), held);
+        length = Math.Max(0, Math.Min(Math.Min(length, memory.RawSize), imageLength - (long)memory.Rva));
+        return (length, Math.Min(held, length));
+    }
 
     internal static BitArray Excluded(byte[] file, PeLayout pe)
     {
