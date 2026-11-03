@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump.Rebuild;
 
@@ -10,7 +11,10 @@ namespace Corvus.Native.Dump.Rebuild;
 /// <param name="Expected">Address of the export; null when unknown.</param>
 /// <param name="Actual">Value of the slot; null when its page was not captured.</param>
 /// <param name="Reason">Why the slot is unknown; null for a redirect.</param>
-public sealed record ImportRedirect(uint SlotRva, string Import, string State, ulong? Expected, ulong? Actual, string? Reason);
+/// <param name="Via">The API set map that resolved the contract name (<c>dump</c> or <c>system</c>); null for a plain module name.</param>
+/// <param name="Target">Module and export the slot points into (<c>module!name</c> or <c>module+offset</c>); null outside every module.</param>
+public sealed record ImportRedirect(
+    uint SlotRva, string Import, string State, ulong? Expected, ulong? Actual, string? Reason, string? Via = null, string? Target = null);
 
 /// <summary>Lists import address table slots that do not hold the address of the export they name.</summary>
 public static class ImportRedirects
@@ -20,18 +24,33 @@ public static class ImportRedirects
     private const int MaxForwardDepth = 8;
     private const int MaxNameBytes = 256;
 
+    /// <summary>Reads the API set map at <paramref name="address"/>; null when the memory is not a version 6 map.</summary>
+    public static ApiSetSchema? ReadApiSetMap(IProcessMemory memory, ulong address)
+    {
+        var head = new byte[8];
+        if (memory.ReadMemory(address, head) < 8) return null;
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4));
+        if (BinaryPrimitives.ReadUInt32LittleEndian(head) != 6 || size < 28 || size > 16u << 20) return null;
+        var map = new byte[size];
+        int read = memory.ReadMemory(address, map);
+        return ApiSetSchema.Parse(map.AsSpan(0, read));
+    }
+
     /// <summary>
     /// Compares each slot of the captured, not yet restored <paramref name="mapped"/> image with the export its name table entry names.
     /// Returns only redirected slots and slots that could not be checked (module not loaded, name not exported,
     /// page or name table not captured); a slot holding its export address is not listed.
     /// A forwarded export is followed through <paramref name="exports"/>; the lookup by name reads the exports of <paramref name="memory"/>.
+    /// A contract name (api-ms-*, ext-ms-*) resolves through <paramref name="dumpApiSets"/> when given, else through the system map;
+    /// a row names that map in <see cref="ImportRedirect.Via"/>, and an unmapped contract stays unknown.
     /// </summary>
-    public static IReadOnlyList<ImportRedirect> Find(byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory)
+    public static IReadOnlyList<ImportRedirect> Find(
+        byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory, ApiSetSchema? dumpApiSets = null)
     {
         List<ImportRedirect> rows = [];
         if (!PeImportRestore.TryDirectory(mapped, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0) return rows;
 
-        var index = new Index(memory, exports);
+        var index = new Index(memory, exports, dumpApiSets);
         int width = is64 ? 8 : 4;
         long count = dirSize / DescriptorSize;
         int slots = 0;
@@ -76,13 +95,21 @@ public static class ImportRedirects
                     continue;
                 }
                 ulong actual = Read(mapped, (int)slotAt, width);
-                if (!index.TryResolve(module, function, out ulong expected, out string? reason))
-                    rows.Add(new ImportRedirect((uint)slotAt, import, "unknown", null, actual, reason));
+                if (!index.TryResolve(module, function, out ulong expected, out string? reason, out string? via))
+                    rows.Add(new ImportRedirect((uint)slotAt, import, "unknown", null, actual, reason, via));
                 else if (expected != actual)
-                    rows.Add(new ImportRedirect((uint)slotAt, import, "redirected", expected, actual, null));
+                    rows.Add(new ImportRedirect((uint)slotAt, import, "redirected", expected, actual, null, via, Target(exports, memory, actual)));
             }
         }
         return rows;
+    }
+
+    private static string? Target(ExportMap exports, IProcessMemory memory, ulong address)
+    {
+        var name = exports.NameAt(address);
+        if (name is not null) return name;
+        var module = memory.ModuleAt(address);
+        return module is null ? null : $"{module.FileName}+0x{address - module.Base:X}";
     }
 
     // "?" when the name entry lies outside the captured image.
@@ -113,9 +140,14 @@ public static class ImportRedirects
         private readonly Dictionary<string, Dictionary<string, ulong>?> _exports = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _forwarders = new(StringComparer.OrdinalIgnoreCase);
 
-        public Index(IProcessMemory memory, ExportMap map)
+        private readonly ApiSetSchema? _dumpApiSets;
+        private ApiSetSchema? _systemApiSets;
+        private bool _systemLoaded;
+
+        public Index(IProcessMemory memory, ExportMap map, ApiSetSchema? dumpApiSets)
         {
             _memory = memory;
+            _dumpApiSets = dumpApiSets;
             foreach (var m in memory.Modules) _modules.TryAdd(m.FileName, m);
             foreach (var f in map.Forwarders)
             {
@@ -124,11 +156,42 @@ public static class ImportRedirects
             }
         }
 
-        public bool TryResolve(string module, string function, out ulong address, out string? reason)
+        // Host of an API set contract and the map that named it; null when
+        // unmapped.
+        private string? Host(string contract, out string via)
+        {
+            if (_dumpApiSets is not null)
+            {
+                via = "dump";
+                return _dumpApiSets.Resolve(contract);
+            }
+            via = "system";
+            if (!_systemLoaded)
+            {
+                _systemLoaded = true;
+                try { _systemApiSets = ApiSetSchema.FromSystem(PeFile.Open); }
+                catch (Exception e) when (e is Core.ToolError or IOException) { }
+            }
+            return _systemApiSets?.Resolve(contract);
+        }
+
+        public bool TryResolve(string module, string function, out ulong address, out string? reason, out string? via)
         {
             address = 0;
+            via = null;
             for (int depth = 0; depth <= MaxForwardDepth; depth++)
             {
+                if (ApiSetSchema.IsApiSetName(module))
+                {
+                    var host = Host(module, out string used);
+                    via ??= used;
+                    if (host is null)
+                    {
+                        reason = $"contract {module} is not in the {used} api set map";
+                        return false;
+                    }
+                    module = host;
+                }
                 if (!_modules.TryGetValue(module, out var loaded))
                 {
                     reason = $"{module} is not a loaded module";
