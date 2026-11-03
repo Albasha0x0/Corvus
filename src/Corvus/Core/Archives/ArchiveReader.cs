@@ -57,7 +57,7 @@ internal sealed class ArchiveReader : IContainerReader
 
         var password = ContainerPassword.Current;
 
-        void Take(string path, long size, Func<Stream> open, bool encrypted = false)
+        void Take(string path, long size, Func<Stream> open, bool encrypted = false, uint? crc = null)
         {
             ct.ThrowIfCancellationRequested();
             entries.Add(new ContainerEntry(path, size));
@@ -102,6 +102,13 @@ internal sealed class ArchiveReader : IContainerReader
                 notes.Add(ContainerPassword.NotRead(path, password != null));
                 return;
             }
+            // A wrong key decrypts without a fault, so the stored checksum decides.
+            if (encrypted && crc is { } expected && System.IO.Hashing.Crc32.HashToUInt32(bytes) != expected)
+            {
+                entries[^1] = entries[^1] with { Detail = "encrypted; not read" };
+                notes.Add(ContainerPassword.NotRead(path, password != null));
+                return;
+            }
             total += bytes.Length;
             if (total > limits.MaxTotalBytes)
             {
@@ -121,7 +128,7 @@ internal sealed class ArchiveReader : IContainerReader
             {
                 using var archive = ArchiveFactory.OpenArchive(stream, password == null ? null : new ReaderOptions { Password = password });
                 foreach (var e in archive.Entries)
-                    if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream, e.IsEncrypted);
+                    if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream, e.IsEncrypted, format == "7z" && e.Crc != 0 ? (uint)e.Crc : null);
             }
             else if (format == "tar" && stream.CanSeek && TarParts(stream, ct) is { } parts)
             {
