@@ -35,6 +35,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,
         [Description("outputPath: loaded or preferred.")] string? @base = null,
+        [Description("view=changes: dump to compare with.")] string? compareWith = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -43,6 +44,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         var v = (view ?? "summary").Trim().ToLowerInvariant();
         if (!MinidumpService.Views.Contains(v))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
+        if (!string.IsNullOrWhiteSpace(compareWith) && v != "changes")
+            throw new ToolError(ErrorCode.InvalidArgument, "compareWith goes with view=changes.", "pass view=changes");
         var filter = (regionFilter ?? "all").Trim().ToLowerInvariant();
         if (!MinidumpService.MemoryFilters.Contains(filter))
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", MinidumpService.MemoryFilters)}.");
@@ -61,7 +64,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         var final = saving ? SafeFile.Output(outputPath!) : null;
         if (staging != null) FileWork.RequireFreshFolder(final!);
         var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
-            string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving || v == "changes" ? save.Module : null, save.Layout, save.Imports, save.Base);
+            string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving || v == "changes" ? save.Module : null, save.Layout, save.Imports, save.Base,
+            string.IsNullOrWhiteSpace(compareWith) ? null : dumps.Resolve(compareWith, imageDirectories).Path);
         FileWork.DumpViewResult r;
         try
         {

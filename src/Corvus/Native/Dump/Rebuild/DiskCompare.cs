@@ -91,7 +91,7 @@ public static class DiskCompare
         return new DiskComparison(path, true, (int)Math.Min(bytes, int.MaxValue), count, ranges);
     }
 
-    private static BitArray Excluded(byte[] file, PeLayout pe)
+    internal static BitArray Excluded(byte[] file, PeLayout pe)
     {
         var excluded = new BitArray((int)Math.Min(pe.ImageSize, int.MaxValue));
         void Mark(long start, long length)
@@ -121,7 +121,7 @@ public static class DiskCompare
         return excluded;
     }
 
-    private static byte[]? ReadFile(string path)
+    internal static byte[]? ReadFile(string path)
     {
         try
         {
@@ -137,7 +137,7 @@ public static class DiskCompare
         }
     }
 
-    private static bool TryParse(byte[] bytes, out PeLayout pe)
+    internal static bool TryParse(byte[] bytes, out PeLayout pe)
     {
         pe = default!;
         if (bytes.Length < 0x40) return false;
@@ -164,9 +164,9 @@ public static class DiskCompare
         return true;
     }
 
-    private sealed record SectionInfo(string Name, uint Rva, uint VirtualSize, uint RawAt, uint RawSize, uint Characteristics);
+    internal sealed record SectionInfo(string Name, uint Rva, uint VirtualSize, uint RawAt, uint RawSize, uint Characteristics);
 
-    private sealed record PeLayout(int Opt, bool Is64, uint ImageSize, List<SectionInfo> Sections)
+    internal sealed record PeLayout(int Opt, bool Is64, uint ImageSize, List<SectionInfo> Sections)
     {
         public (long Rva, long Size) Directory(byte[] file, int index)
         {
@@ -186,7 +186,7 @@ public static class DiskCompare
     }
 
     /// <summary>The recorded path, then the module's file name in each image directory, without repeats.</summary>
-    private static List<string> Candidates(RebuildTarget target, RebuildOptions options)
+    internal static List<string> Candidates(RebuildTarget target, RebuildOptions options)
     {
         var list = new List<string>();
         if (!string.IsNullOrWhiteSpace(target.Path)) list.Add(target.Path);
@@ -201,7 +201,7 @@ public static class DiskCompare
     }
 
     /// <summary>True when the file's time stamp and image size equal the captured headers; unreadable files are not the same build.</summary>
-    private static bool SameBuild(string path, uint stamp, uint size)
+    internal static bool SameBuild(string path, uint stamp, uint size)
     {
         try
         {

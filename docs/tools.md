@@ -2719,6 +2719,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
 | `base` | string |  |  | outputPath: loaded or preferred. |
+| `compareWith` | string |  |  | view=changes: dump path or open id to compare with instead of the files. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `items`.

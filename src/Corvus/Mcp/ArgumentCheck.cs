@@ -148,7 +148,7 @@ public static class ArgumentCheck
     public static readonly IReadOnlySet<string> TargetParameters = new HashSet<string>(StringComparer.Ordinal)
     {
         "assembly", "image", "oldAssembly", "newAssembly", "oldImage", "newImage", "dump", "program", "patchSet", "rules", "search_container.capture", "analyze_js.source",
-        "expectedExecutable", "oldResult", "newResult", "against", "read_result.id", "get_android_device_info.query",
+        "expectedExecutable", "oldResult", "newResult", "against", "read_result.id", "get_android_device_info.query", "open_minidump.compareWith",
     };
 
     /// <summary>Kept-result parameters; a bundle entry names its file before '#'.</summary>

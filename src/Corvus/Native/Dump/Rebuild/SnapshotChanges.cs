@@ -37,6 +37,14 @@ public static class SnapshotChanges
         var second = CapturedImageReader.Read(after, target, ct);
         if (first is null) return Refused("the module header is not captured in the first dump");
         if (second is null) return Refused("the module header is not captured in the second dump");
+        return Compare(first, second);
+    }
+
+    /// <summary>
+    /// The ranges that differ between two captured images of one module, as for the memory overload. The images may sit at different bases.
+    /// </summary>
+    public static SnapshotChangeSet Compare(CapturedImage first, CapturedImage second)
+    {
         if (!DumpImages.TryHeader(first.Image, out uint stamp1, out uint size1, out _)
             || !DumpImages.TryHeader(second.Image, out uint stamp2, out uint size2, out _))
             return Refused("the module header is not readable");

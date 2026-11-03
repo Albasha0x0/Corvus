@@ -336,7 +336,8 @@ public static class FileWork
     /// </summary>
     public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null, string? OutputPath = null,
         string? Module = null, Native.Dump.Rebuild.OutputLayout Layout = Native.Dump.Rebuild.OutputLayout.File,
-        Native.Dump.Rebuild.ImportMode Imports = Native.Dump.Rebuild.ImportMode.Restore, Native.Dump.Rebuild.BaseMode Base = Native.Dump.Rebuild.BaseMode.Loaded);
+        Native.Dump.Rebuild.ImportMode Imports = Native.Dump.Rebuild.ImportMode.Restore, Native.Dump.Rebuild.BaseMode Base = Native.Dump.Rebuild.BaseMode.Loaded,
+        string? CompareWith = null);
 
     public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
 
@@ -483,7 +484,7 @@ public static class FileWork
                 var (uId, unloaded, uTotal) = dumps.Unloaded(id, a.Offset, a.Limit);
                 return new DumpViewResult(null, uId, uTotal) { Unloaded = unloaded };
             case "changes":
-                var (cId, changes, cTotal, cNotes) = dumps.Changes(id, directories, string.IsNullOrWhiteSpace(a.Module) ? null : a.Module, a.Offset, a.Limit, ct);
+                var (cId, changes, cTotal, cNotes) = dumps.Changes(id, directories, string.IsNullOrWhiteSpace(a.Module) ? null : a.Module, a.Offset, a.Limit, ct, a.CompareWith);
                 return new DumpViewResult(null, cId, cTotal) { Changes = changes, Notes = cNotes.Count == 0 ? null : cNotes };
             default:
                 throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{a.View}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));

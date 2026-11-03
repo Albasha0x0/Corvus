@@ -27,6 +27,14 @@ public sealed class DiskCompareTests : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(DiskCompare))]
+    public void Fuzzed_images_never_throw_when_parsed_for_a_comparison()
+    {
+        var failures = FormatFuzz.Run(RebuildFixtures.Pe(Spec()), b => _ = DiskCompare.TryParse(b, out _), 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+
+    [Fact]
     public void A_patched_instruction_in_memory_is_reported_as_a_differing_code_range()
     {
         var disk = RebuildFixtures.Pe(Spec());
