@@ -761,6 +761,46 @@ public sealed class MinidumpTests
         Assert.Equal("hang | synth32!Leaf > synth32!Mid > synth32!Top", Assert.Single((await service.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Items).Signature);
     }
 
+    // Reproduces live snapshot runs where dump_stack failed on a thread the OS writer left without a context.
+    // The stop thread has an x86 exception context and no thread context; thread 8 has none at all.
+    [Fact]
+    public async Task A_thread_without_a_register_context_is_reported_unknown_and_the_stop_thread_still_walks()
+    {
+        using var dir = new TempDir();
+        const uint stopId = 7, otherId = 8;
+        ulong teb = 0x7FF000000000UL + stopId * 0x2000UL, cpu = 0x7FF0_1000_0000, wow64cpu = 0x7FFA_0000_0000;
+        var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
+        var d = new MinidumpBuilder { FullMemory = true };
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(wow64cpu, 0x10000, 0, @"C:\Windows\System32\wow64cpu.dll"));
+        d.Memory.Add((SyntheticCrashX86.Base, image));
+        d.Memory.Add((SyntheticCrashX86.Stack, SyntheticCrashX86.StackBytes()));
+        var teb64 = new byte[0x1500];
+        BinaryPrimitives.WriteUInt64LittleEndian(teb64.AsSpan(0x1488), cpu);
+        d.Memory.Add((teb, teb64));
+        var teb32 = new byte[0x10];
+        BinaryPrimitives.WriteUInt32LittleEndian(teb32.AsSpan(4), SyntheticCrashX86.Stack + 0x300);
+        BinaryPrimitives.WriteUInt32LittleEndian(teb32.AsSpan(8), SyntheticCrashX86.Stack);
+        d.Memory.Add((teb + 0x2000, teb32));
+        var stop = MinidumpBuilder.ContextX86(SyntheticCrashX86.Base + SyntheticCrashX86.LeafRva, SyntheticCrashX86.Stack, ebp: SyntheticCrashX86.Stack + 0xC);
+        d.Memory.Add((cpu, [0, 0, 0x4C, 0x01, .. stop]));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Stack, 0x300, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(stopId, 0x7FF0_2000_0000, []));
+        d.Threads.Add(new MinidumpBuilder.Thread(otherId, 0x7FF0_3000_0000, []));
+        d.Exception = (stopId, 0x80000003, SyntheticCrashX86.Base + SyntheticCrashX86.LeafRva, [], stop);
+        var path = dir.File("contextless.dmp");
+        File.WriteAllBytes(path, d.Build());
+
+        using var service = new MinidumpService { BucketCache = dir.File("cache") };
+        var walk = await service.Stack(path, null, true, 64, 0, 64, null, default);
+        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], walk.Items.Take(3).Select(f => f.Symbol));
+        var other = await service.Stack(path, otherId.ToString(), true, 64, 0, 64, null, default);
+        Assert.Equal(("unknown", "context_unknown", 0), (other.Context, other.Stop, other.Total));
+        Assert.Contains(other.Notes, n => n.StartsWith($"thread {otherId}:", StringComparison.Ordinal) && n.Contains("unknown", StringComparison.Ordinal));
+        Assert.Equal([otherId], service.ThreadsWithoutContext(path));
+    }
+
     /// <summary>A module name two modules share (a WoW64 process's two ntdll.dll) is ambiguous alone and with an offset alike.</summary>
     [Fact]
     public async Task Module_names_shared_by_two_modules_are_ambiguous_in_every_form()

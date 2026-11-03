@@ -162,7 +162,7 @@ public sealed partial class MinidumpService
 
     public sealed record StackReport(
         string Dump, uint ThreadId, string? ThreadName,
-        [property: Description("exception (the context at the exception, like .ecxr) or thread (the context when the dump was written).")] string Context,
+        [property: Description("exception (the context at the exception, like .ecxr), thread (the context when the dump was written), or unknown (the dump holds no register context for the thread).")] string Context,
         string Architecture, string? Registers,
         IReadOnlyList<StackFrame> Items, int Offset, int Total,
         [property: Description("Why the walk ended: end_of_stack, max_frames, stack_not_captured, no_unwind_data, left_the_stack, ...")] string Stop,
@@ -380,6 +380,15 @@ public sealed partial class MinidumpService
         var d = s.Dump;
         var (rows, _) = await ThreadRows(s, d.Threads.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList(), IsWow64Process(d), ct);
         return (s.Id, rows, d.Threads.Count);
+    }
+
+    /// <summary>The ids of the threads whose register context the dump does not hold (their registers are unknown); empty when all are readable.</summary>
+    public IReadOnlyList<uint> ThreadsWithoutContext(string path)
+    {
+        using var s = Open(path, null);
+        if (s.Core != null) return [];
+        var d = s.Dump;
+        return d.Threads.Where(t => d.ReadContext(t.Context) == null && Wow64.Thread(d, t.Teb) == null).Select(t => t.Id).ToList();
     }
 
     private async Task<(List<ThreadSummary> Rows, int Sides32)> ThreadRows(Session s, IReadOnlyList<DumpThread> threads, bool wow64, CancellationToken ct)
@@ -607,19 +616,28 @@ public sealed partial class MinidumpService
             exceptionBytes = d.ContextBytes(e.Context);
             contextKind = "exception";
         }
-        ctx ??= d.ReadContext(t.Context) ?? throw new ToolError(ErrorCode.MalformedInput, $"thread {t.Id} has no readable register context in the dump.");
+        ctx ??= d.ReadContext(t.Context);
+        var wow64Side = Wow64.Thread(d, t.Teb);
+        // A writer that captured no context for a thread leaves its registers unknown; a WoW64 thread still has its saved 32-bit side.
+        if (ctx == null && wow64Side == null)
+            return new StackReport(s.Id, t.Id, t.Name, "unknown", ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), null, [], 0, 0, "context_unknown", 0, null,
+                [$"thread {t.Id}: the dump holds no register context for it, so its registers and stack are unknown, not empty.",
+                 "pass another thread id, or 'exception' for the faulting thread."]);
         maxFrames = Math.Clamp(maxFrames, 1, StackWalker.MaxFramesLimit);
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, StackWalker.MaxFramesLimit);
 
         var walker = s.Walker();
-        var walk = await Task.Run(() => walker.Walk(ctx, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
+        var walk = ctx == null
+            ? new WalkResult([], "context_unknown", [$"thread {t.Id}: the dump holds no 64-bit register context for it; only its 32-bit side is walked."])
+            : await Task.Run(() => walker.Walk(ctx!, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
         var notes = new List<string>(walk.Notes);
         // The runtime walks from the same context; a thread held by a session waits in code it cannot unwind.
-        var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct, exceptionBytes);
+        var (clrFrames, managedState) = ctx == null ? ([], null) : await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct, exceptionBytes);
         var merged = Merge(walk.Frames, clrFrames);
-        string arch = ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), registers = ctx.Format(), stop = walk.Stop;
-        if (Wow64.Thread(d, t.Teb) is { } wow)
+        string arch = ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), stop = walk.Stop;
+        string? registers = ctx?.Format();
+        if (wow64Side is { } wow)
         {
             // The 32-bit side, the program's own code, goes first; the 64-bit side follows.
             var context32 = exception32 ?? wow.Context;

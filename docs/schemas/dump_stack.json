@@ -11,7 +11,7 @@
       "type": "string"
     },
     "context": {
-      "description": "exception (the context at the exception, like .ecxr) or thread (the context when the dump was written).",
+      "description": "exception (the context at the exception, like .ecxr), thread (the context when the dump was written), or unknown (the dump holds no register context for the thread).",
       "type": "string"
     },
     "architecture": {
