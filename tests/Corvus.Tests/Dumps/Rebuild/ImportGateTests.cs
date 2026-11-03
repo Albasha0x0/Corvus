@@ -75,4 +75,16 @@ public sealed class ImportGateTests : IDisposable
         Assert.Contains(PeFile.FromBytes(m.Bytes).Sections, s => s.Name == ".idata2");
     }
 
+
+    [Fact]
+    public void A_scan_built_directory_is_reported_as_partial_and_the_file_is_still_found()
+    {
+        var m = Rebuild(true);
+
+        var check = m.Checks.First(c => c.Name == "imports");
+        Assert.Equal("partial", check.State);
+        Assert.Equal("import directory rebuilt from 2 address table slots", check.Detail);
+        Assert.NotNull(m.Disk);
+        Assert.DoesNotContain(m.Checks, c => c.Name == "disk" && c.State == "skipped");
+    }
 }

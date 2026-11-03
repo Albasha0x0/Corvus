@@ -143,10 +143,11 @@ public static class PeImportRestore
         {
             Names = named.Count == 0 ? [] : [.. named.Select(s => new ResolvedImport($"0x{s.Rva:X}", s.Name!))],
         };
-        if (added && unnamed == 0)
-            checks.Add(RebuildCheck.Ok("imports", $"directory rebuilt from {total} slots ({(found.Source == "directory" ? "iat directory" : "scan")})"));
+        string left = unnamed == 0 ? "" : $"; {unnamed} unnamed";
+        if (added)
+            checks.Add(RebuildCheck.Partial("imports", $"import directory rebuilt from {total} address table slots{left}"));
         else
-            checks.Add(RebuildCheck.Partial("imports", $"{(added ? $"directory rebuilt from {total} slots ({(found.Source == "directory" ? "iat directory" : "scan")})" : $"{total} slots found, directory not rebuilt")}; {unnamed} unnamed" + (note is null || added ? "" : $"; {note}")));
+            checks.Add(RebuildCheck.Partial("imports", $"{total} slots found, directory not rebuilt{left}" + (note is null ? "" : $"; {note}")));
         return summary;
     }
 

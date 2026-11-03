@@ -29,8 +29,8 @@ public sealed class ImportDirectoryRebuildTests : IDisposable
         Assert.True(summary!.DirectoryRebuilt);
         Assert.Equal(2, summary.Resolved);
         var check = checks.First(c => c.Name == "imports");
-        Assert.Equal("ok", check.State);
-        Assert.Contains("directory rebuilt from 2 slots (scan)", check.Detail);
+        Assert.Equal("partial", check.State);
+        Assert.Equal("import directory rebuilt from 2 address table slots", check.Detail);
         Assert.Contains(PeFile.FromBytes(file).Sections, s => s.Name == ".idata2");
     }
 
@@ -39,7 +39,7 @@ public sealed class ImportDirectoryRebuildTests : IDisposable
     {
         var (_, file, checks) = Restore(true);
 
-        Assert.Contains("(iat directory)", checks.First(c => c.Name == "imports").Detail);
+        Assert.Contains("import directory rebuilt from 2 address table slots", checks.First(c => c.Name == "imports").Detail);
         var imports = PeFile.FromBytes(file).Imports;
         Assert.Equal(["Alpha", "Beta"], imports.Select(i => i.Name));
         Assert.All(imports, i => Assert.Equal("lib.dll", i.Module));

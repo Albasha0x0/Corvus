@@ -119,6 +119,9 @@ public static class ModuleRebuild
         checks.Add(restored.Check);
         // Relocations and imports are fixed in mapped layout, where offsets are RVAs; the file layout is made last.
         PeRelocations.Apply(image, captured, options.Base, checks, PreferredBaseOf(file));
+        // The disk stage matches the captured build, not the size a new
+        // section sets.
+        var identity = captured;
         var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct, file);
         // Delay-load slots are restored after the base is set, so a copied file
         // value takes the load delta once.
@@ -128,7 +131,7 @@ public static class ModuleRebuild
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
         if (bytes == null) return Refuse(target, checks[^1].Detail);
         var verified = PeVerify.Check(bytes, target, checks);
-        var disk = options.CompareWithDisk ? DiskCompare.Compare(bytes, captured, options, checks) : null;
+        var disk = options.CompareWithDisk ? DiskCompare.Compare(bytes, identity with { Captured = captured.Captured }, options, checks) : null;
         return new RebuiltModule(target, "pe", captured.InputLayout, bytes, captured.CapturedPercent, checks, imports, disk, verified?.State, verified?.Reason,
             DelayImportNames: delayNames.Count == 0 ? null : delayNames);
     }
