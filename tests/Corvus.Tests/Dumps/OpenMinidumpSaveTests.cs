@@ -135,6 +135,19 @@ public sealed class OpenMinidumpSaveTests : IDisposable
     }
 
     [Fact]
+    public async Task A_save_that_writes_every_image_names_no_rest()
+    {
+        var dump = TwoModuleDump();
+        var folder = _dir.File("every");
+
+        using var service = new MinidumpService();
+        var text = await new MinidumpTools(service).OpenMinidump(dump, "modules", outputPath: folder);
+
+        Assert.Contains("images: 2 of 2 written to", text);
+        Assert.DoesNotContain("the rest", text);
+    }
+
+    [Fact]
     public void A_writing_call_returns_one_row_per_written_file_whatever_its_limit()
     {
         var dump = TwoModuleDump();

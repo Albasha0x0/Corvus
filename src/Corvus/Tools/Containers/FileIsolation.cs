@@ -467,7 +467,8 @@ public static class FileWork
                 return new DumpViewResult(null, mId, mTotal)
                 {
                     Modules = modules,
-                    Notes = folder == null ? null : [$"images: {written} of {modules.Count} written to {folder}; the rest have no image or are over the size limit."],
+                    Notes = folder == null ? null : [$"images: {written} of {modules.Count} written to {folder}"
+                        + (written < modules.Count ? "; the rest have no image or are over the size limit." : ".")],
                 };
             case "threads":
                 var (tId, threads, tTotal) = dumps.Threads(id, directories, a.Offset, a.Limit, ct).GetAwaiter().GetResult();
