@@ -34,24 +34,37 @@ public static class PeImportRestore
     public static ImportSummary? Restore(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, List<RebuildCheck> checks, CancellationToken ct, byte[]? file = null)
     {
         // Tables are read first: restoring the directory overwrites their slots.
-        var tables = mode == ImportMode.Restore && memory != null ? LateBound(image, captured, memory, file) : [];
+        var (tables, unread) = mode == ImportMode.Restore && memory != null ? LateBound(image, captured, memory, file) : ([], 0);
         var summary = Run(ref image, ref captured, memory!, mode, true, checks, ct, file);
-        return tables.Count == 0 ? summary : AddLateBound(ref image, ref captured, tables, summary, checks);
+        if (tables.Count > 0) summary = AddLateBound(ref image, ref captured, tables, summary, checks);
+        if (unread > 0) NoteUnread(checks, unread);
+        return summary;
     }
 
-    // Tables of two or more export addresses in data the file holds as zeros;
-    // none when the image cannot be parsed.
-    private static IReadOnlyList<LateBoundRun> LateBound(byte[] image, CapturedImage captured, IProcessMemory memory, byte[]? file)
+    // Tables of two or more export addresses in data the file holds as zeros,
+    // and the scanned pages not captured; none when the image cannot be parsed.
+    private static (IReadOnlyList<LateBoundRun> Tables, int Unread) LateBound(byte[] image, CapturedImage captured, IProcessMemory memory, byte[]? file)
     {
         try
         {
             var pe = PeFile.FromBytes(file ?? image);
-            return [.. LateBoundPointers.Find(image, captured, pe, memory, ExportMap.For(memory), file is not null).Where(r => r.IsTable)];
+            bool held = file is not null;
+            return ([.. LateBoundPointers.Find(image, captured, pe, memory, ExportMap.For(memory), held).Where(r => r.IsTable)],
+                LateBoundPointers.PagesNotCaptured(image, captured, pe, held));
         }
         catch (Exception e) when (e is InvalidDataException or ArgumentException or IOException or IndexOutOfRangeException)
         {
-            return [];
+            return ([], 0);
         }
+    }
+
+    private static void NoteUnread(List<RebuildCheck> checks, int pages)
+    {
+        string tail = $"late-bound slots unknown on {pages} data pages not captured";
+        int index = checks.FindLastIndex(c => c.Name == "imports");
+        if (index < 0) { checks.Add(RebuildCheck.Partial("imports", tail)); return; }
+        var check = checks[index];
+        checks[index] = new RebuildCheck("imports", check.State is "ok" or "skipped" ? "partial" : check.State, $"{check.Detail}; {tail}");
     }
 
     // Adds a descriptor for each table the directory does not cover, after the

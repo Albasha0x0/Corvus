@@ -152,7 +152,7 @@ public sealed class LateBoundImportTests : IDisposable
         Assert.Equal(result.Before, result.Image.Length);
     }
 
-    [Theory(Skip = "Defect: LateBoundPointers.Name (LateBoundPointers.cs:72) drops a slot on a page that is not captured and PeImportRestore.LateBound (PeImportRestore.cs:43) reports nothing, so the imports check does not name the uncaptured page.")]
+    [Theory]
     [MemberData(nameof(Cases))]
     public void The_imports_check_names_the_slots_left_out_for_a_page_not_captured(bool is64, SlotPlacement placement)
     {

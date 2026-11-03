@@ -32,10 +32,7 @@ public static class LateBoundPointers
         {
             if (DiskCompare.IsCode(section.Characteristics)) continue;
             long rawSize = section.RawOffset == 0 ? 0 : section.RawSize;
-            long start = section.Rva + rawSize;
-            if (fileHasRawData && rawSize > 0) start = section.Rva;
-            long end = Math.Min(section.Rva + (long)section.MappedSize, mapped.Length);
-            start = (start + width - 1) / width * width;
+            var (start, end) = Scanned(section, rawSize, mapped.Length, width, fileHasRawData);
 
             var rvas = new List<uint>();
             var names = new List<string>();
@@ -53,6 +50,32 @@ public static class LateBoundPointers
             Flush(runs, captured, rvas, names);
         }
         return runs;
+    }
+
+    /// <summary>
+    /// Pages of the ranges <see cref="Find"/> scans that the dump did not capture; slots there are unknown, not absent.
+    /// </summary>
+    public static int PagesNotCaptured(byte[] mapped, CapturedImage captured, PeFile file, bool fileHasRawData = true)
+    {
+        int width = file.Is64Bit ? 8 : 4;
+        var pages = new HashSet<long>();
+        foreach (var section in file.Sections)
+        {
+            if (DiskCompare.IsCode(section.Characteristics)) continue;
+            var (start, end) = Scanned(section, section.RawOffset == 0 ? 0 : section.RawSize, mapped.Length, width, fileHasRawData);
+            for (long page = start & ~0xFFFL; page < end; page += 0x1000)
+                if (!captured.PageCaptured((uint)page)) pages.Add(page);
+        }
+        return pages.Count;
+    }
+
+    // Bytes past the raw data, or the whole section when the file's bytes are
+    // read too; aligned to the slot width.
+    private static (long Start, long End) Scanned(NativeSection section, long rawSize, long imageLength, int width, bool fileHasRawData)
+    {
+        long start = fileHasRawData && rawSize > 0 ? section.Rva : section.Rva + rawSize;
+        long end = Math.Min(section.Rva + (long)section.MappedSize, imageLength);
+        return ((start + width - 1) / width * width, end);
     }
 
     // Past the raw data is zero by definition; inside it the file bytes decide,
