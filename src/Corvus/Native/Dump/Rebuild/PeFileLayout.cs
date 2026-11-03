@@ -64,11 +64,41 @@ public static class PeFileLayout
 
         string note = defaulted ? $"; file alignment invalid, 0x{DefaultFileAlignment:X} used" : "";
         string overlay = "; overlay data past the last section is not in memory";
+        overlay += SealHeaders(file, opt);
         checks.Add(gaps.Count == 0
             ? RebuildCheck.Ok("layout", "file layout" + note + overlay)
             : RebuildCheck.Partial("layout", $"file layout, pages not captured written as zeros: {string.Join(", ", gaps)}" + note + overlay));
         return file;
     }
+    /// <summary>The PE checksum of <paramref name="file"/> as ImageHlp computes it, with the checksum field read as zero.</summary>
+    public static uint Checksum(byte[] file, int checksumField)
+    {
+        ulong sum = 0;
+        for (int i = 0; i < file.Length; i += 2)
+        {
+            if (i == checksumField || i == checksumField + 2) continue;
+            sum += i + 1 < file.Length ? BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(i)) : file[i];
+        }
+        while (sum > 0xFFFF) sum = (sum & 0xFFFF) + (sum >> 16);
+        return (uint)sum + (uint)file.Length;
+    }
+
+    // The certificate table lives only in the file, so its directory entry is cleared; then the checksum is recomputed.
+    private static string SealHeaders(byte[] file, int opt)
+    {
+        bool is64 = BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(opt)) == 0x20B;
+        int count = (int)BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(opt + (is64 ? 108 : 92)));
+        int security = opt + (is64 ? 112 : 96) + 4 * 8;
+        string cleared = "";
+        if (count > 4 && security + 8 <= file.Length && BinaryPrimitives.ReadUInt64LittleEndian(file.AsSpan(security)) != 0)
+        {
+            file.AsSpan(security, 8).Clear();
+            cleared = "; certificate table not in memory, security directory cleared";
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(opt + 64), Checksum(file, opt + 64));
+        return cleared + "; checksum recomputed";
+    }
+
     /// <summary>The image as mapped: each section's file offset is its RVA.</summary>
     public static byte[] AsMapped(byte[] image, CapturedImage captured, List<RebuildCheck> checks)
     {

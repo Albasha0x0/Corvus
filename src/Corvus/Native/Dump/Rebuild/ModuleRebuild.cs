@@ -119,6 +119,8 @@ public static class ModuleRebuild
         // Relocations and imports are fixed in mapped layout, where offsets are RVAs; the file layout is made last.
         PeRelocations.Apply(image, captured, options.Base, checks, PreferredBaseOf(file));
         var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct);
+        // Loader-patched sites are restored after the base is set and the imports are fixed, so nothing later rewrites them.
+        PeLoaderPatches.Restore(image, captured, file, options.Base, checks);
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
         if (bytes == null) return Refuse(target, checks[^1].Detail);
         var verified = PeVerify.Check(bytes, target, checks);

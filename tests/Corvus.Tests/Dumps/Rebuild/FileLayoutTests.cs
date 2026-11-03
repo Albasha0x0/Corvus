@@ -30,7 +30,11 @@ public sealed class FileLayoutTests : IDisposable
         var rebuilt = Rebuild(new Placed("lay.dll", RebuildFixtures.Build(Spec()), 0x180000000));
 
         Assert.Null(rebuilt.Refused);
-        Assert.Equal(original, rebuilt.Bytes);
+        // The fixture file has no checksum; the rebuilt file carries a recomputed one.
+        var unsealed = (byte[])rebuilt.Bytes!.Clone();
+        int checksumField = BinaryPrimitives.ReadInt32LittleEndian(unsealed.AsSpan(0x3C)) + 24 + 64;
+        unsealed.AsSpan(checksumField, 4).Clear();
+        Assert.Equal(original, unsealed);
         Assert.Contains(rebuilt.Checks, c => c.Name == "layout" && c.State == "ok" && c.Detail.Contains("overlay"));
         Assert.Contains(rebuilt.Checks, c => c.Name == "parse" && c.State == "ok");
     }

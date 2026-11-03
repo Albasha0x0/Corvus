@@ -30,7 +30,10 @@ public sealed class FlatImageTests : IDisposable
 
         Assert.Null(rebuilt.Refused);
         Assert.Equal("flat", rebuilt.InputLayout);
-        Assert.Equal(original, rebuilt.Bytes);
+        // The fixture file has no checksum; the rebuilt file carries a recomputed one.
+        var unsealed = (byte[])rebuilt.Bytes!.Clone();
+        unsealed.AsSpan(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(unsealed.AsSpan(0x3C)) + 24 + 64, 4).Clear();
+        Assert.Equal(original, unsealed);
         Assert.Contains(rebuilt.Checks, c => c.Name == "layout" && c.State == "ok");
         Assert.Contains(rebuilt.Checks, c => c.Name == "parse" && c.State == "ok");
     }

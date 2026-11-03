@@ -32,7 +32,7 @@ public sealed class ModuleRebuildTests : IDisposable
     {
         var m = Rebuild(true);
 
-        Assert.Equal(["capture", "headers", "relocations", "imports", "layout", "parse", "disk"], m.Checks.Select(c => c.Name));
+        Assert.Equal(["capture", "headers", "relocations", "imports", "loader patches", "layout", "parse", "disk"], m.Checks.Select(c => c.Name));
         Assert.Equal("ok", m.Checks.Single(c => c.Name == "capture").State);
         Assert.Equal("ok", m.Checks.Single(c => c.Name == "headers").State);
     }
