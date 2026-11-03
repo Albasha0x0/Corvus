@@ -14,7 +14,7 @@ runs:
     - name: Frida
       shell: bash
       run: |
-        "$PYTHON" -m pip install --disable-pip-version-check frida==17.24.3
+        "$PYTHON" -m pip install --disable-pip-version-check frida==17.25.2
         "$PYTHON" -c "import frida, platform, struct; print('frida', frida.__version__, platform.machine(), struct.calcsize('P') * 8, 'bit')"
         echo "CORVUS_FRIDA_PYTHON=$PYTHON" >> "$GITHUB_ENV"
       env:

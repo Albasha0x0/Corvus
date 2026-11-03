@@ -54,6 +54,31 @@ public sealed class FridaEnvironmentTests : IDisposable
     }
 
     [Fact]
+    public void Frida_17_25_0_is_not_tested() =>
+        Assert.False(FridaVersions.Tested(FridaVersions.Parse("17.25.0")!));
+
+    [Fact]
+    public void Frida_17_25_1_is_tested() =>
+        Assert.True(FridaVersions.Tested(FridaVersions.Parse("17.25.1")!));
+
+    [Fact]
+    public void Frida_17_24_3_is_tested() =>
+        Assert.True(FridaVersions.Tested(FridaVersions.Parse("17.24.3")!));
+
+    [Fact]
+    public void Frida_17_26_0_is_not_tested() =>
+        Assert.False(FridaVersions.Tested(FridaVersions.Parse("17.26.0")!));
+
+    [Fact]
+    public void The_warning_names_the_tested_range()
+    {
+        Assert.Equal("17.24.3 to 17.24.x and 17.25.1 to 17.25.x", FridaVersions.TestedRange);
+        Assert.Contains(FridaVersions.TestedRange, FridaVersions.Warning("17.25.0"));
+        Assert.Null(FridaVersions.Warning("17.25.2"));
+        Assert.Equal(">=17.24.3,!=17.25.0,<17.26.0", FridaVersions.TestedSpecifier);
+    }
+
+    [Fact]
     public void Each_platform_pins_its_own_wheel_hashes()
     {
         foreach (var (platform, hashes) in FridaVersions.WheelHashes)

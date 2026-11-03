@@ -9,11 +9,18 @@ public static class FridaVersions
     public static readonly Version Required = new(17, 0, 0);
     /// <summary>The oldest release the live tests passed on.</summary>
     public static readonly Version TestedFrom = new(17, 24, 3);
-    /// <summary>The first release outside the range: on 17.25.0 an attached program that loads the compatibility
-    /// shim engine ends with an access violation at exit (frida/frida-gum#1200, Windows x64).</summary>
-    public static readonly Version TestedBefore = new(17, 25, 0);
+    /// <summary>The first release outside the range.</summary>
+    public static readonly Version TestedBefore = new(17, 26, 0);
+    /// <summary>The release inside the range that is not tested: an attached program that loads the compatibility
+    /// shim engine ends with an access violation at exit (frida/frida-gum#1200, Windows x64, fixed in 17.25.1).</summary>
+    public static readonly Version Excluded = new(17, 25, 0);
 
-    public static string TestedRange => $"{TestedFrom} to {TestedBefore.Major}.{TestedBefore.Minor - 1}.x";
+    /// <summary>The tested releases as text, naming the excluded release as a gap.</summary>
+    public static string TestedRange =>
+        $"{TestedFrom} to {Excluded.Major}.{Excluded.Minor - 1}.x and {Excluded.Major}.{Excluded.Minor}.{Excluded.Build + 1} to {TestedBefore.Major}.{TestedBefore.Minor - 1}.x";
+
+    /// <summary>The pip version specifier of the tested releases.</summary>
+    public static string TestedSpecifier => $">={TestedFrom},!={Excluded},<{TestedBefore}";
 
     /// <summary>The leading major.minor.patch of a version string (17.24.3, 17.5.0-dev.3); null when it has none.</summary>
     public static Version? Parse(string? version)
@@ -29,7 +36,7 @@ public static class FridaVersions
         return new Version(numbers[0], numbers[1], numbers[2]);
     }
 
-    public static bool Tested(Version v) => v >= TestedFrom && v < TestedBefore;
+    public static bool Tested(Version v) => v >= TestedFrom && v < TestedBefore && v != Excluded;
 
     /// <summary>Why sessions cannot run on this Frida (provider_unavailable), or null.</summary>
     public static string? Refusal(string? version) => Parse(version) is { } v && v < Required
@@ -41,17 +48,17 @@ public static class FridaVersions
         : $"Frida {version ?? "(unknown version)"} is outside the tested range {TestedRange}; stops, module events or coverage may differ.";
 
     /// <summary>The release the private environment installs (--live-install-frida).</summary>
-    public const string Pinned = "17.24.3";
+    public const string Pinned = "17.25.2";
 
     /// <summary>SHA-256 of the PyPI wheels of <see cref="Pinned"/> per platform (os-arch); pip may pick any listed wheel.</summary>
     public static readonly IReadOnlyDictionary<string, string[]> WheelHashes = new Dictionary<string, string[]>
     {
-        ["windows-x64"] = ["61f5a53b146e0e7755d6c2bfa5405e14fe2373818ae5d98105c4eeca3face7d1"],
-        ["windows-arm64"] = ["049e4056c79e6bffb8365358e416bfc62fd2490d70de99dadf7e673905149ff4"],
-        ["linux-x64"] = ["2ba706b7385d56111af5c6cced55361168d3d93babdb300d2ea2b7f76d58a289", "d0cf64f883a44c9353e5ede765c2ba28030053a8a077a7d4f20a2bf99a810ad2"],
-        ["linux-arm64"] = ["c49b6644b5b18f630957b6e0296d4bd4b79705cda89965068d84b63c174c188f", "73aeac96e5cfb4a739129e7ea631acb9926c4084d2790836a0b61b7ac4267f33"],
-        ["macos-x64"] = ["837f0c74ebac09c6cb99f5631f58ac852afbd3a25bfc1d66971cc3e3b7aad953"],
-        ["macos-arm64"] = ["767ebb154a896683b75e011e1134a08e8ec31ff6e8968dea8d15a18b37a25cac"],
+        ["windows-x64"] = ["0b4417264041e227364df268c77b8d4d8a9920beffd5ac55cec2a06d74e0839e"],
+        ["windows-arm64"] = ["ab246bc60f44868dfdc84d5702a33a640a93f59d40f90c2c98bd12db39016c89"],
+        ["linux-x64"] = ["226998c9b3cb79d99871138533d2c58525ede3b1ea45647c6483d28ced8abb73", "55cb5f7f6f75922a37e451449ec71e695400e3d6a009c275c285abf88a49dd53"],
+        ["linux-arm64"] = ["bef0bc2be97d5c560d7d499cafe8ddfdd3907264d4fdc4d9f4402b920c5517e2", "ba69324c16b3ea018241519621d69f75896adbdce07f1afb1f60d7a322d17175"],
+        ["macos-x64"] = ["0b8722c52b5725360af7db805e5fe82c0e6dd96e9098712e2e8dd934810452d8"],
+        ["macos-arm64"] = ["090b0107b225c18a18e2edf7f0a53da17338e95d7c9909983cc4a1d56af0101e"],
     };
 
     /// <summary>frida's one dependency, below Python 3.11 only.</summary>
