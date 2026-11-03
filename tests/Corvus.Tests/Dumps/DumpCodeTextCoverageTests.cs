@@ -67,7 +67,7 @@ public sealed class DumpCodeTextCoverageTests : IDisposable
     // An ARM64 image: the machine field of an x64 image set to ARM64, with instruction words as code.
     private (string Dump, string Folder) Arm64(int rawSize, int offset, uint before, uint after)
     {
-        var words = new byte[0x400];
+        var words = new byte[Math.Max(0x400, offset + 0x100)];
         for (int i = 0; i < words.Length; i += 4) BinaryPrimitives.WriteUInt32LittleEndian(words.AsSpan(i), Nop);
         BinaryPrimitives.WriteUInt32LittleEndian(words.AsSpan(offset), before);
         var spec = new PeSpec(true, [new SectionSpec(".text", 0x60000020, words)]);
@@ -116,10 +116,23 @@ public sealed class DumpCodeTextCoverageTests : IDisposable
         Assert.StartsWith("code changed: ret", row.Description);
     }
 
-    [Fact(Skip = "Defect: ModuleRows hands DescribeCode only the changed bytes (MinidumpService.Changes.cs:288 and :300), so an ARM64 change shorter than one word cannot decode and reads bytes changed.")]
+    [Fact]
     public void An_arm64_change_shorter_than_one_instruction_is_shown_as_text_through_a_dump()
     {
         var (dump, folder) = Arm64(0x400, 0x20, AddX0X0Imm1, AddX0X0Imm2);
+
+        var rows = Rows(dump, folder, "app.dll");
+
+        var row = Assert.Single(rows, r => r.Kind == "code");
+        Assert.StartsWith("code changed: add", row.Description);
+        Assert.Contains("#2", row.Description);
+    }
+
+    [Fact]
+    public void An_arm64_change_past_the_lead_in_limit_is_decoded_from_its_word()
+    {
+        // The section start lies farther back than MaxLeadInBytes.
+        var (dump, folder) = Arm64(0x1000, 0x900, AddX0X0Imm1, AddX0X0Imm2);
 
         var rows = Rows(dump, folder, "app.dll");
 

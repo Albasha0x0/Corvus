@@ -36,7 +36,9 @@ public sealed partial class MinidumpService
     private static CodeWindow Window(Func<uint, int, byte[]> readMemory, Func<uint, int, byte[]> readFile, ulong address,
         uint rva, int length, int leadIn, int imageLength)
     {
-        uint back = (uint)Math.Max(leadIn, 0);
+        // Without a known start the window still begins on a 4-byte boundary,
+        // so a fixed-width instruction holding the range start is whole.
+        uint back = leadIn >= 0 ? (uint)leadIn : Math.Min(rva & 3, rva);
         int count = (int)back + length + (int)Math.Clamp((long)imageLength - rva - length, 0, TrailBytes);
         return new CodeWindow(readMemory(rva - back, count), readFile(rva - back, count), address - back, leadIn < 0 ? -1 : 0, (int)back, (int)back + length);
     }
