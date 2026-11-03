@@ -2706,7 +2706,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | The .dmp path or open dump id. |
-| `view` | string |  | `summary` | summary, modules, threads, memory or unloaded. |
+| `view` | string |  | `summary` | summary, modules, threads, memory, unloaded or changes (ranges changed in memory). |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `50` | Max rows. |
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own. |
@@ -2715,7 +2715,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
 | `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
 | `outputPath` | string |  |  | view=modules: new or empty image folder. |
-| `modules` | string |  |  | outputPath: file name, 0x address, all or unlisted. |
+| `modules` | string |  |  | outputPath or view=changes: file name, 0x address, all or unlisted. |
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
 | `base` | string |  |  | outputPath: loaded or preferred. |

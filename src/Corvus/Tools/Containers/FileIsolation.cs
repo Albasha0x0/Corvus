@@ -351,6 +351,8 @@ public static class FileWork
         public IReadOnlyList<MinidumpService.ThreadSummary>? Threads { get; init; }
         public IReadOnlyList<MinidumpService.MemoryRow>? Memory { get; init; }
         public IReadOnlyList<MinidumpService.UnloadedModuleSummary>? Unloaded { get; init; }
+        /// <summary>view=changes: the ranges changed in memory.</summary>
+        public IReadOnlyList<MinidumpService.ModuleChange>? Changes { get; init; }
         /// <summary>regionFilter=unbacked: the executable regions with no image.</summary>
         public IReadOnlyList<MinidumpService.UnbackedRegion>? Unbacked { get; init; }
         /// <summary>regionFilter=unbacked: the count of regions found and what was not checked.</summary>
@@ -480,6 +482,9 @@ public static class FileWork
             case "unloaded":
                 var (uId, unloaded, uTotal) = dumps.Unloaded(id, a.Offset, a.Limit);
                 return new DumpViewResult(null, uId, uTotal) { Unloaded = unloaded };
+            case "changes":
+                var (cId, changes, cTotal, cNotes) = dumps.Changes(id, directories, string.IsNullOrWhiteSpace(a.Module) ? null : a.Module, a.Offset, a.Limit, ct);
+                return new DumpViewResult(null, cId, cTotal) { Changes = changes, Notes = cNotes.Count == 0 ? null : cNotes };
             default:
                 throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{a.View}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
         }

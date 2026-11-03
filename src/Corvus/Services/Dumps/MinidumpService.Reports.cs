@@ -17,7 +17,7 @@ public sealed partial class MinidumpService
     public const int MaxReadLength = 64 * 1024;
 
     /// <summary>open_minidump views: the summary report, then the paged lists.</summary>
-    public static readonly string[] Views = ["summary", "modules", "threads", "memory", "unloaded"];
+    public static readonly string[] Views = ["summary", "modules", "threads", "memory", "unloaded", "changes"];
 
     public sealed record SystemSummary(
         [property: Description("x64, x86, ARM64...")] string Architecture,

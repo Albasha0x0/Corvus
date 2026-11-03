@@ -22,7 +22,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
                  "process, exception, .NET state; other views page rows.")]
     public Task<string> OpenMinidump(
         [Description("The .dmp path or open dump id.")] string path,
-        [Description("summary, modules, threads, memory or unloaded.")] string view = "summary",
+        [Description("summary, modules, threads, memory, unloaded or changes.")] string view = "summary",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
@@ -31,7 +31,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
         [Description("view=modules: new or empty image folder.")] string? outputPath = null,
-        [Description("outputPath: file name, 0x address, all or unlisted.")] string? modules = null,
+        [Description("outputPath or view=changes: file name, 0x address, all or unlisted.")] string? modules = null,
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,
         [Description("outputPath: loaded or preferred.")] string? @base = null,
@@ -50,8 +50,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (!string.IsNullOrWhiteSpace(yara) && filter != "unbacked") throw new ToolError(ErrorCode.InvalidArgument, "yara goes with regionFilter=unbacked.");
         if (!string.IsNullOrWhiteSpace(outputPath) && v != "modules") throw new ToolError(ErrorCode.InvalidArgument, "outputPath goes with view=modules.", "pass view=modules");
         var saving = !string.IsNullOrWhiteSpace(outputPath);
-        if (!saving && new[] { modules, layout, imports, @base }.Any(o => !string.IsNullOrWhiteSpace(o)))
-            throw new ToolError(ErrorCode.InvalidArgument, "modules, layout, imports and base go with outputPath.", "pass outputPath");
+        if (!saving && (new[] { layout, imports, @base }.Any(o => !string.IsNullOrWhiteSpace(o)) || v != "changes" && !string.IsNullOrWhiteSpace(modules)))
+            throw new ToolError(ErrorCode.InvalidArgument, "modules, layout, imports and base go with outputPath; modules also with view=changes.", "pass outputPath");
         if (saving && offset > 0)
             throw new ToolError(ErrorCode.InvalidArgument, "A call with outputPath writes once and takes no offset.",
                 "read_result with the resultId of the first call to page its rows");
@@ -61,7 +61,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         var final = saving ? SafeFile.Output(outputPath!) : null;
         if (staging != null) FileWork.RequireFreshFolder(final!);
         var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
-            string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving ? save.Module : null, save.Layout, save.Imports, save.Base);
+            string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving || v == "changes" ? save.Module : null, save.Layout, save.Imports, save.Base);
         FileWork.DumpViewResult r;
         try
         {
@@ -70,6 +70,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         }
         finally { if (staging != null) FileWork.DeleteStaging(staging); }
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
+        if (r.Changes is { } changed) return Rows(r.Id!, v, changed, offset, limit, r.Total, ChangeLine, "changed range", r.Notes);
         if (r.Modules is { } written && saving) return Written(r.Id!, v, written, DumpText.Module, r.Notes);
         if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
@@ -77,6 +78,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (r.Memory is { } memory) return Rows(r.Id!, v, memory, offset, limit, r.Total, DumpText.Memory, "region");
         return Rows(r.Id!, v, r.Unloaded ?? [], offset, limit, r.Total, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
     }, cancellationToken);
+
+    private static string ChangeLine(MinidumpService.ModuleChange c) =>
+        $"{c.Module} {(c.Section.Length == 0 ? "-" : c.Section)} {c.Start} {c.Length} {c.Kind} {c.Name ?? "-"}: {c.Description}";
 
     /// <summary>Options for <see cref="FileIsolation"/>; null while images are loaded, since frame names come from this process's indexes.</summary>
     private ServerOptions? Isolation => workspace != null && workspace.Read(() => workspace.Natives.Count > 0 || workspace.Assemblies.Count > 0) ? null : options;
