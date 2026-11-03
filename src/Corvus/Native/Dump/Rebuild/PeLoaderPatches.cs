@@ -7,6 +7,7 @@ public static class PeLoaderPatches
 {
     private const int LoadConfigDirectory = 10;
     private const int PatchWindow = 6;
+    private const int Arm64Instruction = 4;
 
     // A site: its RVA, byte length, and whether it holds an absolute address of the image.
     private readonly record struct Site(uint Rva, int Length, bool Pointer);
@@ -130,22 +131,26 @@ public static class PeLoaderPatches
                 break;
             }
             if (!Readable(image, captured, (uint)from, body)) return "the dynamic value relocation table is not captured";
-            ReadRecord(image, symbol, (int)from, (int)to, sites, unread);
+            ReadRecord(image, h.IsArm64, symbol, (int)from, (int)to, sites, unread);
             at = to;
         }
         return null;
     }
 
-    private static void ReadRecord(byte[] image, ulong symbol, int from, int to, Dictionary<uint, Site> sites, SortedSet<string> unread)
+    private static void ReadRecord(byte[] image, bool arm64, ulong symbol, int from, int to, Dictionary<uint, Site> sites,
+        SortedSet<string> unread)
     {
+        // An ARM64 control transfer site is one 4-byte instruction.
+        int window = arm64 ? Arm64Instruction : PatchWindow;
         switch (symbol)
         {
-            case 3: Blocks(image, from, to, 4, sites, unread, "import control transfer"); break;
-            case 4: Blocks(image, from, to, 2, sites, unread, "indirect control transfer"); break;
-            case 5: Blocks(image, from, to, 2, sites, unread, "switchable branch"); break;
+            case 3: Blocks(image, from, to, 4, sites, unread, "import control transfer", window); break;
+            case 4: Blocks(image, from, to, 2, sites, unread, "indirect control transfer", window); break;
+            case 5: Blocks(image, from, to, 2, sites, unread, "switchable branch", window); break;
             case 7: FunctionOverride(image, from, to, sites, unread); break;
             case 1: unread.Add("guard RF prologue"); break;
             case 2: unread.Add("guard RF epilogue"); break;
+            case 6 when arm64: Arm64X(image, from, to, sites, unread); break;
             case 6: unread.Add("ARM64X"); break;
             case 8: unread.Add("ARM64 kernel import call transfer"); break;
             case 9: unread.Add("ARM64 secure import call transfer"); break;
@@ -168,9 +173,47 @@ public static class PeLoaderPatches
         }
     }
 
+    // ARM64X blocks: page RVA, block size, then 16-bit fixups (offset:12,
+    // type:2, size:2) with their operand words.
+    private static void Arm64X(byte[] image, int from, int to, Dictionary<uint, Site> sites, SortedSet<string> unread)
+    {
+        const int zeroFill = 0, value = 1, delta = 2;
+        long at = from;
+        while (at + 8 <= to)
+        {
+            uint page = U32(image, (int)at), block = U32(image, (int)at + 4);
+            if (block < 8 || at + block > to)
+            {
+                unread.Add("ARM64X block that does not fit its record");
+                return;
+            }
+            long end = at + block, e = at + 8;
+            while (e + 2 <= end)
+            {
+                ushort fixup = U16(image, (int)e);
+                e += 2;
+                int type = (fixup >> 12) & 3, sizeCode = fixup >> 14;
+                // A zero size code is the padding that aligns the block to 4
+                // bytes.
+                if (sizeCode == 0) continue;
+                int length = 1 << sizeCode;
+                if (type == value) e += length;
+                else if (type == delta) e += 2;
+                else if (type != zeroFill)
+                {
+                    unread.Add($"ARM64X fixup type {type}");
+                    break;
+                }
+                uint rva = page + (uint)(fixup & 0xFFF);
+                sites[rva] = new Site(rva, length, false);
+            }
+            at = end;
+        }
+    }
+
     // Base relocation blocks: page RVA, block size, then entries of the given width with the page offset in the low 12 bits.
     private static void Blocks(byte[] image, int from, int to, int entryWidth, Dictionary<uint, Site> sites, SortedSet<string> unread,
-        string kind, bool overrideEntries = false)
+        string kind, int window = PatchWindow, bool overrideEntries = false)
     {
         long at = from;
         while (at + 8 <= to)
@@ -200,7 +243,7 @@ public static class PeLoaderPatches
                 else
                 {
                     // The patched instruction is 5 or 6 bytes; the same-build file holds the original code around it.
-                    sites[rva] = new Site(rva, PatchWindow, false);
+                    sites[rva] = new Site(rva, window, false);
                 }
             }
             at += block;
@@ -235,7 +278,7 @@ public static class PeLoaderPatches
     private static ushort U16(byte[] b, int at) => BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(at));
     private static ulong U64(byte[] b, int at) => BinaryPrimitives.ReadUInt64LittleEndian(b.AsSpan(at));
 
-    private readonly record struct Header(bool Is64, ulong Base, uint SizeOfImage, int Directories, uint DirectoryCount, int SectionTable, int Sections);
+    private readonly record struct Header(bool Is64, bool IsArm64, ulong Base, uint SizeOfImage, int Directories, uint DirectoryCount, int SectionTable, int Sections);
 
     private static bool TryHeader(byte[] image, out Header h)
     {
@@ -251,7 +294,7 @@ public static class PeLoaderPatches
         uint count = U32(image, opt + (is64 ? 108 : 92));
         if (dirs + 8L * Math.Min(count, 16u) > image.Length || opt + optSize + 40L * sections > image.Length) return false;
         ulong imageBase = is64 ? U64(image, opt + 24) : U32(image, opt + 28);
-        h = new Header(is64, imageBase, U32(image, opt + 56), dirs, Math.Min(count, 16u), opt + optSize, sections);
+        h = new Header(is64, U16(image, nt + 4) is 0xAA64 or 0xA641, imageBase, U32(image, opt + 56), dirs, Math.Min(count, 16u), opt + optSize, sections);
         return true;
     }
 
