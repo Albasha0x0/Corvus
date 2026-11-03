@@ -141,6 +141,7 @@ internal static class SetupCli
                                 --report <file>: also write a Markdown report, one section per record.
                                 --sarif <file>: also write SARIF 2.1.0 for code scanning upload.
                                 --evtx-jsonl <file>: with an event log as --file, write its events as JSON lines.
+                                --times-jsonl <file>: with --file, put the times stored in a file on a timeline as JSON lines.
                                 --jsonl instead of --json: one record per line; --out <file> for a file.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.

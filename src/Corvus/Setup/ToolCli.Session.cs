@@ -131,6 +131,8 @@ internal static partial class ToolCli
     /// </summary>
     private static async Task<int> BatchAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
+        if (a.BatchFile != null && a.TimesJsonl != null) return TimesJsonl(a, io, cancellationToken);
+        if (a.TimesJsonl != null) throw new UsageException("--times-jsonl goes with batch --file.");
         if (a.BatchFile != null && a.EvtxJsonl != null) return EvtxJsonl(a, io, cancellationToken);
         if (a.EvtxJsonl != null) throw new UsageException("--evtx-jsonl goes with batch --file.");
         if (a.BatchFile != null)
