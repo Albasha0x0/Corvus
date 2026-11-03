@@ -40,6 +40,7 @@ public static partial class PackageReview
         HashSet<string>? topLevel = null;
         string? name = null, version = null, summary = null, author = null, record = null;
         int deps = 0;
+        string? core = null, pyprojectText = null;
         var manifests = new List<(string Path, string? Text)>();
         var distInfo = files.Paths.Where(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal)).OrderBy(p => p.Length).FirstOrDefault();
         string ecosystem;
@@ -47,7 +48,8 @@ public static partial class PackageReview
         {
             ecosystem = "pypi wheel";
             var info = distInfo[..^"METADATA".Length];
-            (name, version, summary, author, deps) = Metadata(files.Text(distInfo));
+            core = files.Text(distInfo);
+            (name, version, summary, author, deps) = Metadata(core);
             manifests.Add((distInfo, RequiresDist(files.Text(distInfo))));
             if (files.Text(info + "entry_points.txt") is { } ep) entries.AddRange(EntryPoints(ep));
             record = Record(files, info + "RECORD", findings);
@@ -74,7 +76,7 @@ public static partial class PackageReview
             ecosystem = "pypi sdist";
             var root = files.Paths.Where(IsSdistFile).Select(Folder).OrderBy(p => p.Length).First();
             moduleRoot = root;
-            if (files.Text(root + "PKG-INFO") is { } pkgInfo) (name, version, summary, author, deps) = Metadata(pkgInfo);
+            if (files.Text(root + "PKG-INFO") is { } pkgInfo) { core = pkgInfo; (name, version, summary, author, deps) = Metadata(pkgInfo); }
             manifests.Add((root + "PKG-INFO", RequiresDist(files.Text(root + "PKG-INFO"))));
             foreach (var file in new[] { "setup.py", "setup.cfg", "pyproject.toml", "requirements.txt" }) manifests.Add((root + file, files.Text(root + file)));
             foreach (var eggInfo in files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && Regex.IsMatch(p[root.Length..], @"^[^/]+\.egg-info/requires\.txt$", RegexOptions.NonBacktracking)).Take(4))
@@ -104,6 +106,7 @@ public static partial class PackageReview
             }
             if (files.Text(root + "pyproject.toml") is { } pyproject)
             {
+                pyprojectText = pyproject;
                 var backend = Regex.Match(pyproject, @"build-backend\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value;
                 if (Regex.IsMatch(pyproject, @"\bbackend-path\s*=", RegexOptions.NonBacktracking))
                 {
@@ -189,7 +192,7 @@ public static partial class PackageReview
         findings.AddRange(CommandNames(name, entries, scripts.Any(s => s.AtInstall), distInfo != null ? distInfo[..^"METADATA".Length] + "entry_points.txt" : null));
         return new PackageReport(ecosystem, name, version)
         {
-            Publisher = author, Description = Clip(summary), Scripts = scripts, EntryPoints = entries, Dependencies = deps,
+            Publisher = author, Description = Clip(summary), Repository = SourceRepository(core, pyprojectText), Scripts = scripts, EntryPoints = entries, Dependencies = deps,
             Binaries = binaries.Count > 0 ? binaries : null, Record = record, Findings = findings, Notes = notes,
         };
     }
@@ -408,6 +411,36 @@ public static partial class PackageReview
         files.Paths.Any(p => ((string[])[root, root + "src/"]).Any(d => p.StartsWith(d, StringComparison.Ordinal) && p[d.Length..] is var rest
             && (rest.StartsWith(top + "/", StringComparison.Ordinal) || rest == top + ".py"
                 || (rest.StartsWith(top + ".", StringComparison.Ordinal) && !rest.Contains('/') && (rest.EndsWith(".so", StringComparison.Ordinal) || rest.EndsWith(".pyd", StringComparison.Ordinal))))));
+
+    private static readonly string[] SourceLabels = ["source", "source code", "repository", "homepage"];
+
+    /// <summary>The declared source repository: Project-URL labels Source, Source Code, Repository, Homepage, else Home-page, else the first [project.urls] entry; null when none is declared.</summary>
+    internal static string? SourceRepository(string? core, string? pyproject)
+    {
+        var urls = new List<(string Label, string Url)>();
+        string? home = null;
+        if (core != null)
+        {
+            // Core metadata headers end at the first blank line.
+            foreach (var line in core.Split('\n'))
+            {
+                var l = line.TrimEnd('\r');
+                if (l.Length == 0) break;
+                if (l.StartsWith("Project-URL:", StringComparison.OrdinalIgnoreCase) && l[12..].Split(',', 2) is [var label, var url] && url.Trim() is { Length: > 0 } u)
+                    urls.Add((label.Trim().ToLowerInvariant(), u));
+                else if (home == null && l.StartsWith("Home-page:", StringComparison.OrdinalIgnoreCase) && l[10..].Trim() is { Length: > 0 } h && h != "UNKNOWN")
+                    home = h;
+            }
+        }
+        foreach (var label in SourceLabels)
+            if (urls.FirstOrDefault(u => u.Label == label).Url is { } hit) return hit;
+        if (home != null) return home;
+        if (pyproject == null) return null;
+        var table = TomlTree.Parse(pyproject, out _)["project"]?["urls"];
+        foreach (var label in SourceLabels)
+            if (table?.Props?.FirstOrDefault(p => p.Name.Equals(label, StringComparison.OrdinalIgnoreCase)).Value?.Text is { Length: > 0 } hit) return hit;
+        return table?.Props?.Select(p => p.Value.Text).FirstOrDefault(x => !string.IsNullOrEmpty(x));
+    }
 
     /// <summary>Core metadata (METADATA / PKG-INFO): name, version, summary, author and the count of Requires-Dist.</summary>
     private static (string?, string?, string?, string?, int) Metadata(string? text)

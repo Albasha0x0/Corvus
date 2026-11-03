@@ -37,6 +37,8 @@ public static partial class PackageReview
         if (buildDeps > 0) notes.Add($"{buildDeps} build dependenc{(buildDeps == 1 ? "y" : "ies")}: their code also runs in the build script's compile step");
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
+        if (package?["name"]?.Text is { } crate && CloseTo(crate, PopularNames.Crates) is { } popular)
+            findings.Add(new PackageFinding("package/close-name", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{crate}' is close to the popular package '{popular}'"));
         var authors = package?["authors"]?.Items?.FirstOrDefault()?.Text;
         return new PackageReport("cargo", package?["name"]?.Text, package?["version"]?.Text)
         {

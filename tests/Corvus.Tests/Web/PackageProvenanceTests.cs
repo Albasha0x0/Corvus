@@ -260,4 +260,34 @@ public sealed class PackageProvenanceTests : IDisposable
         Bundle(package);
         Assert.DoesNotContain(PackageReview.Review(package, default)!.Findings, f => f.Category == "provenance");
     }
+
+    private string Wheel(string metadata)
+    {
+        var path = _dir.File("tool-1.0-py3-none-any.whl");
+        using var fs = File.Create(path);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+        foreach (var (name, body) in new[] { ("tool/__init__.py", ""), ("tool-1.0.dist-info/METADATA", metadata) })
+        {
+            using var w = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false));
+            w.Write(body);
+        }
+        return path;
+    }
+
+    [Fact]
+    public void A_pypi_attestation_for_another_repository_than_the_project_url_is_a_review_finding()
+    {
+        var package = Wheel("Metadata-Version: 2.1\nName: tool\nVersion: 1.0\nProject-URL: Source, https://example.invalid/other/tool\n");
+        Bundle(package);
+        Assert.Contains(PackageReview.Review(package, default)!.Findings, f => f is { Rule: "package/provenance-repository", Level: "review", Category: "provenance" }
+            && f.Detail.Contains("https://example.invalid/helper differs from the declared repository https://example.invalid/other/tool", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_pypi_package_without_a_project_url_raises_no_provenance_finding()
+    {
+        var package = Wheel("Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n");
+        Bundle(package);
+        Assert.DoesNotContain(PackageReview.Review(package, default)!.Findings, f => f.Category == "provenance");
+    }
 }

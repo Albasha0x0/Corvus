@@ -66,6 +66,29 @@ internal static class PopularNames
         "colorize", "rainbow", "tty-prompt", "dotenv", "figaro", "oj", "multi_json", "ffi", "yard", "simplecov", "timecop", "webpacker",
     };
 
+    // Read from the registry all-time download ranking on 2026-11-03.
+    public static readonly HashSet<string> Crates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "hashbrown", "syn", "getrandom", "bitflags", "rand_core", "rand", "libc", "quote", "proc-macro2", "base64",
+        "windows-sys", "indexmap", "itertools", "thiserror-impl", "thiserror", "cfg-if", "memchr", "regex-syntax", "serde",
+        "unicode-ident", "rand_chacha", "itoa", "serde_derive", "serde_json", "heck", "autocfg", "once_cell", "log", "cc",
+        "regex-automata", "socket2", "smallvec", "rustix", "regex", "aho-corasick", "digest", "clap", "ryu", "block-buffer",
+        "linux-raw-sys", "parking_lot_core", "windows_x86_64_msvc", "parking_lot", "strsim", "bytes", "mio",
+        "windows_x86_64_gnu", "cpufeatures", "pin-project-lite", "windows_aarch64_msvc", "windows_i686_msvc",
+        "windows-targets", "http", "windows_i686_gnu", "version_check", "num-traits", "either", "sha2", "semver",
+        "windows_aarch64_gnullvm", "windows_x86_64_gnullvm", "lock_api", "tokio", "lazy_static", "anyhow", "winnow", "idna",
+        "crypto-common", "futures-core", "scopeguard", "zerocopy", "slab", "toml", "futures-util", "futures-task", "hyper",
+        "rustls", "fastrand", "typenum", "crossbeam-utils", "miniz_oxide", "percent-encoding", "generic-array", "time",
+        "http-body", "ppv-lite86", "futures-sink", "shlex", "futures-channel", "url", "clap_lex", "tracing-core", "errno",
+        "equivalent", "tracing", "toml_datetime", "futures-io", "toml_edit", "rustc-hash", "tempfile", "uuid",
+        "form_urlencoded", "chrono", "h2", "nix", "tokio-macros", "rustls-webpki", "unicode-width", "fnv", "futures-macro",
+        "byteorder", "rustversion", "untrusted", "tokio-util", "futures", "tokio-rustls", "pkg-config", "clap_builder",
+        "clap_derive", "webpki-roots", "ahash", "tracing-attributes", "darling_core", "anstyle", "darling_macro", "darling",
+        "futures-executor", "rustc_version", "reqwest", "wasi", "ring", "signal-hook-registry", "tinyvec", "synstructure",
+        "nom", "httparse", "zeroize", "redox_syscall", "subtle", "memoffset", "crc32fast", "flate2", "time-macros", "anstream",
+        "num-integer", "thread_local", "stable_deref_trait", "tower", "serde_core", "anstyle-parse",
+    };
+
     /// <summary>GitHub source repositories (owner/repo, lower case) of popular editor extensions, with the publisher
     /// ids that ship each; a manifest naming one under another publisher is a copy.</summary>
     public static readonly Dictionary<string, string[]> EditorExtensionRepositories = new(StringComparer.OrdinalIgnoreCase)
