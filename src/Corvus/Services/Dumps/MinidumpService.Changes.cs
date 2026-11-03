@@ -375,7 +375,9 @@ public sealed partial class MinidumpService
         var change = CodeChangeKinds.Describe(memoryBytes, fileBytes, address, is64);
         if (change.Target is not { } target)
             return CodeText(memoryBytes, fileBytes, address, machine, knownStart, memory, exports) ?? "bytes changed";
-        string where = Where(memory, exports, target) + ChainText(memory, exports, target, machine);
+        // An indirect transfer's chain starts at the address the pointer holds.
+        ulong? reached = !change.Indirect ? target : memory.TryReadPointer(target, out var held) ? held : null;
+        string where = Where(memory, exports, target) + ChainSuffix(memory, exports, reached, machine);
         return change.Indirect ? $"{change.Kind} through the pointer at 0x{target:X}{where}" : $"{change.Kind} to 0x{target:X}{where}";
     }
 
