@@ -128,8 +128,12 @@ public static class ModuleRebuild
         var delayNames = PeDelayImports.Restore(image, captured, file, options.Base, memory, checks);
         // Loader-patched sites are restored after the base is set and the imports are fixed, so nothing later rewrites them.
         PeLoaderPatches.Restore(image, captured, file, options.Base, checks);
+        // Section flags are set on the mapped headers, before the layout copies them.
+        int executable = PeExecutableSections.Mark(image, captured, memory);
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
         if (bytes == null) return Refuse(target, checks[^1].Detail);
+        if (executable > 0 && checks[^1].Name == "layout")
+            checks[^1] = checks[^1] with { Detail = checks[^1].Detail + $"; {executable} sections marked executable from memory protection" };
         var verified = PeVerify.Check(bytes, target, checks);
         var disk = options.CompareWithDisk ? DiskCompare.Compare(bytes, identity with { Captured = captured.Captured }, options, checks) : null;
         return new RebuiltModule(target, "pe", captured.InputLayout, bytes, captured.CapturedPercent, checks, imports, disk, verified?.State, verified?.Reason,
