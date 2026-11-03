@@ -35,7 +35,7 @@ public static partial class ParameterDomains
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> LiveTools() => new(StringComparer.Ordinal)
     {
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped", "unbacked"]) },
-        ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "snapshot", "ipc", "close", "children", "attach_child", "release_child"]) },
+        ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "snapshot", "save_modules", "ipc", "close", "children", "attach_child", "release_child"]) },
         ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
         ["live_watch"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
         ["live_script"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "load", "unload"]) },
