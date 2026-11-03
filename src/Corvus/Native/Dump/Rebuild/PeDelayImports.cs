@@ -126,6 +126,97 @@ public static class PeDelayImports
         return new DelayImportList(modules, false);
     }
 
+    /// <summary>
+    /// Restores the resolved delay-load slots of <paramref name="image"/> (mapped layout) from <paramref name="file"/>, the file of the
+    /// same build, and adds the "delay imports" check. Without a file the slots keep their captured values and each is named from
+    /// the exports of <paramref name="memory"/> in the result; slots on pages not captured or outside the file's raw data stay as captured.
+    /// </summary>
+    public static IReadOnlyList<ResolvedImport> Restore(byte[] image, CapturedImage captured, byte[]? file, BaseMode mode, IProcessMemory memory, List<RebuildCheck> checks)
+    {
+        const string name = "delay imports";
+        var list = Read(image, captured);
+        if (list.Modules.Count == 0 || !TryHeader(image, out bool is64, out _, out _, out _))
+        {
+            checks.Add(RebuildCheck.Skipped(name, "no delay-load imports"));
+            return [];
+        }
+
+        int width = is64 ? 8 : 4;
+        var resolved = list.Modules.SelectMany(m => m.Slots).Where(s => s.State == "resolved").ToList();
+        int unreadable = list.Modules.SelectMany(m => m.Slots).Count(s => s.State == "unknown");
+        string limit = (list.Truncated ? $"; listing stopped at {list.Limit} slots" : "") + (unreadable == 0 ? "" : $"; {unreadable} slots not readable");
+
+        if (file == null || !TryFileMap(file, out var map))
+        {
+            if (resolved.Count == 0 && limit.Length == 0)
+            {
+                checks.Add(RebuildCheck.Ok(name, "0 slots restored"));
+                return [];
+            }
+            var exports = resolved.Count == 0 ? null : new ExportMap(memory);
+            var names = resolved.Select(s => (s, Name: exports!.NameAt(s.Value))).Where(x => x.Name != null)
+                .Select(x => new ResolvedImport($"0x{x.s.Rva:X}", x.Name!)).ToList();
+            checks.Add(RebuildCheck.Unknown(name, $"{resolved.Count} resolved slots kept: no file of the same build{limit}"));
+            return names;
+        }
+
+        // File slots hold stub addresses at the preferred base. The load delta
+        // is added only when the image keeps its loaded base.
+        long delta = mode == BaseMode.Loaded ? unchecked((long)(captured.Target.Base - map.Base)) : 0;
+        // A preferred-base rebuild already subtracted the delta from every
+        // slot, so an unresolved slot now reads as an address at the preferred
+        // base.
+        if (mode == BaseMode.Preferred) resolved.RemoveAll(s => s.Value >= map.Base && s.Value - map.Base < (ulong)image.Length);
+        int restored = 0, outside = 0;
+        foreach (var slot in resolved)
+        {
+            if (!map.TryRead(slot.Rva, width, out var bytes) || slot.Rva + (uint)width > image.Length)
+            {
+                outside++;
+                continue;
+            }
+            ulong value = ReadPointer(bytes.ToArray(), 0, width);
+            value = unchecked(value + (ulong)delta);
+            if (is64) BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan((int)slot.Rva), value);
+            else BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan((int)slot.Rva), (uint)value);
+            restored++;
+        }
+
+        if (outside == 0 && limit.Length == 0) checks.Add(RebuildCheck.Ok(name, $"{restored} slots restored"));
+        else checks.Add(RebuildCheck.Partial(name, $"{restored} slots restored" + (outside == 0 ? "" : $"; {outside} outside the raw data of the file") + limit));
+        return [];
+    }
+
+    private sealed class FileMap(byte[] file, ulong imageBase, List<(uint Rva, uint Size, uint Raw, uint RawSize)> sections)
+    {
+        public ulong Base => imageBase;
+
+        public bool TryRead(uint rva, int length, out ReadOnlySpan<byte> bytes) =>
+            PeLoaderPatches.TryReadSection(file, sections, rva, length, out bytes);
+    }
+
+    // The file's section map, to read bytes by RVA; false when its headers are
+    // not readable.
+    private static bool TryFileMap(byte[] file, out FileMap map)
+    {
+        map = default!;
+        if (!TryHeader(file, out _, out ulong imageBase, out _, out _)) return false;
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(0x3C));
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(nt + 6));
+        int table = nt + 24 + BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(nt + 20));
+        if (table + 40L * count > file.Length) return false;
+        var sections = new List<(uint Rva, uint Size, uint Raw, uint RawSize)>();
+        for (int i = 0; i < count; i++)
+        {
+            var s = file.AsSpan(table + 40 * i, 40);
+            uint rawSize = BinaryPrimitives.ReadUInt32LittleEndian(s[16..]);
+            uint virtualSize = BinaryPrimitives.ReadUInt32LittleEndian(s[8..]);
+            sections.Add((BinaryPrimitives.ReadUInt32LittleEndian(s[12..]), virtualSize == 0 ? rawSize : virtualSize, BinaryPrimitives.ReadUInt32LittleEndian(s[20..]), rawSize));
+        }
+        map = new FileMap(file, imageBase, sections);
+        return true;
+    }
+
     private static uint Field(ReadOnlySpan<byte> d, bool rvaForm, ulong imageBase)
     {
         uint value = BinaryPrimitives.ReadUInt32LittleEndian(d);

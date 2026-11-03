@@ -318,19 +318,23 @@ public static class PeLoaderPatches
 
     private sealed class FileMap(byte[] file, List<(uint Rva, uint Size, uint Raw, uint RawSize)> sections)
     {
-        // The bytes at an RVA when one section holds all of them in its raw data.
-        public bool TryRead(uint rva, int length, out ReadOnlySpan<byte> bytes)
+        public bool TryRead(uint rva, int length, out ReadOnlySpan<byte> bytes) =>
+            TryReadSection(file, sections, rva, length, out bytes);
+    }
+
+    // The bytes at an RVA when one section holds all of them in its raw data.
+    internal static bool TryReadSection(byte[] file, List<(uint Rva, uint Size, uint Raw, uint RawSize)> sections, uint rva, int length,
+        out ReadOnlySpan<byte> bytes)
+    {
+        foreach (var s in sections)
         {
-            foreach (var s in sections)
-            {
-                if (rva < s.Rva || (long)rva + length > (long)s.Rva + Math.Min(s.Size, s.RawSize)) continue;
-                long at = (long)s.Raw + (rva - s.Rva);
-                if (at + length > file.Length) break;
-                bytes = file.AsSpan((int)at, length);
-                return true;
-            }
-            bytes = default;
-            return false;
+            if (rva < s.Rva || (long)rva + length > (long)s.Rva + Math.Min(s.Size, s.RawSize)) continue;
+            long at = (long)s.Raw + (rva - s.Rva);
+            if (at + length > file.Length) break;
+            bytes = file.AsSpan((int)at, length);
+            return true;
         }
+        bytes = default;
+        return false;
     }
 }

@@ -75,6 +75,7 @@ public sealed partial class MinidumpService
         [Description("SHA-256 of the file written under outputPath.")] public string? ImageSha256 { get; init; }
         [Description("Percent of the image's pages the dump held.")] public int? ImageCaptured { get; init; }
         [Description("Rebuild checks of the written image: name, state (ok, partial, failed, skipped, unknown) and detail.")] public IReadOnlyList<Corvus.Native.Dump.Rebuild.RebuildCheck>? ImageChecks { get; init; }
+        [Description("Modules the image delay-loads, named from the exports its resolved slots point at; null when none was resolved.")] public IReadOnlyList<string>? DelayImportModules { get; init; }
 
         /// <summary>The checked row of <paramref name="m"/>, its checks unset.</summary>
         public static CheckedModule Of(ModuleSummary m) => new(m.Name, m.Path, m.Base, m.Size, m.TimeDateStamp, m.Built, m.FileVersion, m.PdbName, m.PdbGuid, m.PdbAge,
@@ -139,7 +140,7 @@ public sealed partial class MinidumpService
         [Description("Handles per type, most first (up to 10).")] public IReadOnlyList<string>? HandleTypes { get; init; }
         [Description("What the parser could not read (truncation, bad counts, overlapping streams).")] public IReadOnlyList<string>? Issues { get; init; }
         public IReadOnlyList<string>? Notes { get; init; }
-        [Description("List views: module, thread, memory or unloaded module rows.")] public IReadOnlyList<object>? Items { get; init; }
+        [Description("List views: module, thread, memory, unloaded module or change rows.")] public IReadOnlyList<object>? Items { get; init; }
         public int? Offset { get; init; }
         public int? Total { get; init; }
     }
@@ -329,7 +330,7 @@ public sealed partial class MinidumpService
                 return row with
                 {
                     Metadata = r.Metadata, MetadataReason = r.MetadataReason, ImageFile = w.File,
-                    ImageSha256 = r.Sha256, ImageCaptured = r.CapturedPercent, ImageChecks = r.Checks,
+                    ImageSha256 = r.Sha256, ImageCaptured = r.CapturedPercent, ImageChecks = r.Checks, DelayImportModules = DelayModules(r),
                 };
             }
             var state = DumpManagedMetadata.Inspect(d, m);
@@ -340,6 +341,13 @@ public sealed partial class MinidumpService
                 .Select(x => SavedRow(s, x.Module, x.Written)));
         return (s.Id, rows, saved != null ? rows.Count : d.Modules.Count, folder);
     }
+
+    // The distinct modules of the delay-load slots named from exports; null
+    // when none.
+    private static IReadOnlyList<string>? DelayModules(RebuiltModule r) =>
+        r.DelayImportNames is { Count: > 0 } names
+            ? [.. names.Select(n => n.Name.Contains('!') ? n.Name[..n.Name.IndexOf('!')] : n.Name).Distinct(StringComparer.OrdinalIgnoreCase)]
+            : null;
 
     /// <summary>The row of a written module that is not on the listed page: its file, SHA-256, captured percent, checks and reason.</summary>
     private static CheckedModule SavedRow(Session s, RebuiltModule r, WrittenModule w)
@@ -353,6 +361,7 @@ public sealed partial class MinidumpService
         {
             Metadata = r.Metadata, MetadataReason = r.MetadataReason, ImageFile = w.File, ImageReason = w.Reason,
             ImageSha256 = r.Sha256, ImageCaptured = w.File != null ? r.CapturedPercent : null, ImageChecks = w.File != null ? r.Checks : null,
+            DelayImportModules = w.File != null ? DelayModules(r) : null,
         };
     }
 

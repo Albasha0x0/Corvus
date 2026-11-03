@@ -69,9 +69,10 @@ public sealed record DiskComparison(string File, bool SameBuild, int DifferingBy
 
 /// <summary>A module rebuilt from process memory: its bytes and every check made on them.</summary>
 /// <param name="Bytes">The rebuilt file; null when the module was refused (<see cref="Refused"/> says why).</param>
+/// <param name="DelayImportNames">The resolved delay-load slots named from exports when no file of the same build was found; null when none.</param>
 public sealed record RebuiltModule(RebuildTarget Target, string Format, string InputLayout, byte[]? Bytes, int CapturedPercent,
     IReadOnlyList<RebuildCheck> Checks, ImportSummary? Imports = null, DiskComparison? Disk = null, string? Metadata = null, string? MetadataReason = null,
-    string? Refused = null)
+    string? Refused = null, IReadOnlyList<ResolvedImport>? DelayImportNames = null)
 {
     public string? Sha256 => Bytes == null ? null : Convert.ToHexStringLower(SHA256.HashData(Bytes));
 }
@@ -119,13 +120,17 @@ public static class ModuleRebuild
         // Relocations and imports are fixed in mapped layout, where offsets are RVAs; the file layout is made last.
         PeRelocations.Apply(image, captured, options.Base, checks, PreferredBaseOf(file));
         var imports = PeImportRestore.Restore(ref image, ref captured, memory, options.Imports, checks, ct);
+        // Delay-load slots are restored after the base is set, so a copied file
+        // value takes the load delta once.
+        var delayNames = PeDelayImports.Restore(image, captured, file, options.Base, memory, checks);
         // Loader-patched sites are restored after the base is set and the imports are fixed, so nothing later rewrites them.
         PeLoaderPatches.Restore(image, captured, file, options.Base, checks);
         var bytes = options.Layout == OutputLayout.File ? PeFileLayout.ToFileLayout(image, captured, checks) : PeFileLayout.AsMapped(image, captured, checks);
         if (bytes == null) return Refuse(target, checks[^1].Detail);
         var verified = PeVerify.Check(bytes, target, checks);
         var disk = options.CompareWithDisk ? DiskCompare.Compare(bytes, captured, options, checks) : null;
-        return new RebuiltModule(target, "pe", captured.InputLayout, bytes, captured.CapturedPercent, checks, imports, disk, verified?.State, verified?.Reason);
+        return new RebuiltModule(target, "pe", captured.InputLayout, bytes, captured.CapturedPercent, checks, imports, disk, verified?.State, verified?.Reason,
+            DelayImportNames: delayNames.Count == 0 ? null : delayNames);
     }
 
     // The bytes of the first candidate file with the captured build's time stamp and image size; null when none.
