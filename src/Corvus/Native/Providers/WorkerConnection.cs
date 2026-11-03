@@ -280,7 +280,14 @@ public sealed class WorkerConnection : IDisposable
             }
             catch (IOException) { throw await DiedAsync(op).ConfigureAwait(false); }
 
-            if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
+            if (tcs.Task.IsCompleted)
+            {
+                var answer = Result(tcs.Task.Result);
+                // A cancelled caller gets the cancellation, not an answer cut short by the worker's own limit.
+                if (cancellationToken.IsCancellationRequested && answer.ValueKind == JsonValueKind.Object && answer.TryGetProperty("partial", out _))
+                    throw new OperationCanceledException(cancellationToken);
+                return answer;
+            }
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
             var stalled = stallLimit != null && await wentQuiet.ConfigureAwait(false);

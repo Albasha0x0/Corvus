@@ -75,6 +75,29 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_cancelled_caller_gets_the_cancellation_when_the_worker_answers_cut_short_at_once()
+    {
+        // Regression: a partial deadline answer that landed with the token cancelled was returned as a result.
+        CancellationTokenSource? cts = null;
+        using var worker = new FakeWorkerProcess
+        {
+            Ops = (op, _) =>
+            {
+                if (op != "cut") return null;
+                cts!.Cancel();
+                return new JsonObject { ["partial"] = "deadline", ["next"] = 1 };
+            }
+        };
+        using var c = worker.Connect(Concurrent);
+        for (int i = 0; i < 25; i++)
+        {
+            cts = new CancellationTokenSource();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("cut", null, NoLimit, cts.Token));
+        }
+        Assert.True(c.IsAlive);
+    }
+
+    [Fact]
     public async Task Timed_out_request_is_cancelled_and_reported_as_timeout()
     {
         using var worker = new FakeWorkerProcess();
