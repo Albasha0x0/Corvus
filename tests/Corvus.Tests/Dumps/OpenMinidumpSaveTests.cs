@@ -144,7 +144,27 @@ public sealed class OpenMinidumpSaveTests : IDisposable
         var text = await new MinidumpTools(service).OpenMinidump(dump, "modules", outputPath: folder);
 
         Assert.Contains("images: 2 of 2 written to", text);
-        Assert.DoesNotContain("the rest", text);
+        Assert.DoesNotContain("not written", text);
+    }
+
+    [Fact]
+    public async Task A_save_that_skips_a_module_counts_it_and_names_its_reason()
+    {
+        var b = new MinidumpBuilder { ProcessorArchitecture = 9 };
+        var mapped = RebuildFixtures.Mapped(RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, new byte[0x300])], ImageBase: Base)));
+        b.Modules.Add(new MinidumpBuilder.Module(Base, (uint)mapped.Length, 0, @"Z:\app\one.dll"));
+        b.Memory.Add((Base, mapped));
+        // The second module has no memory in the dump.
+        b.Modules.Add(new MinidumpBuilder.Module(Base + 0x100000, (uint)mapped.Length, 0, @"Z:\app\gone.dll"));
+        var dump = _dir.File("skip.dmp");
+        File.WriteAllBytes(dump, b.Build());
+
+        using var service = new MinidumpService();
+        var text = await new MinidumpTools(service).OpenMinidump(dump, "modules", outputPath: _dir.File("skip"));
+
+        Assert.Contains("images: 1 of 2 written to", text);
+        Assert.Contains("; 1 not written, each row names why.", text);
+        Assert.Contains("not written (", text);
     }
 
     [Fact]

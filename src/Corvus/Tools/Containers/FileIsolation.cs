@@ -470,7 +470,7 @@ public static class FileWork
                 {
                     Modules = modules,
                     Notes = folder == null ? null : [$"images: {written} of {modules.Count} written to {folder}"
-                        + (written < modules.Count ? "; the rest have no image or are over the size limit." : ".")],
+                        + (written < modules.Count ? $"; {modules.Count - written} not written, each row names why." : ".")],
                 };
             case "threads":
                 var (tId, threads, tTotal) = dumps.Threads(id, directories, a.Offset, a.Limit, ct).GetAwaiter().GetResult();
