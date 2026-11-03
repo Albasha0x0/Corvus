@@ -37,7 +37,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("outputPath: loaded or preferred.")] string? @base = null,
         [Description("outputPath: none, local or download PDBs.")] string? symbols = null,
         [Description("view=changes: dump to compare with.")] string? compareWith = null,
-        [Description("view=changes: none (default) or shape, one row per module, section, kind and shape.")] string? group = null,
+        [Description("view=changes: shape groups rows by module, section, kind and shape; default none.")] string? group = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {

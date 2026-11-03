@@ -2721,7 +2721,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `base` | string |  |  | outputPath: loaded or preferred. |
 | `symbols` | string |  |  | outputPath: none, local or download PDBs. |
 | `compareWith` | string |  |  | view=changes: dump to compare with. |
-| `group` | string |  |  | view=changes: none (default) or shape, one row per module, section, kind and shape. |
+| `group` | string |  |  | view=changes: shape groups rows by module, section, kind and shape; default none. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `items`.
