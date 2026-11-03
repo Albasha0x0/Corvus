@@ -30,7 +30,7 @@ public static class ModuleWriter
                 if (m.Bytes == null) { results.Add(new WrittenModule(null, m.Refused ?? "not rebuilt")); continue; }
                 if (total + m.Bytes.Length > totalLimit)
                 {
-                    results.Add(new WrittenModule(null, $"past the {totalLimit >> 20} MB total limit"));
+                    results.Add(new WrittenModule(null, $"past the {totalLimit >> 20} MB total limit; modules={m.Target.Name} saves it alone"));
                     continue;
                 }
                 var name = ModuleFileName.NameFor(m.Target.Name, m.Target.Base, used);

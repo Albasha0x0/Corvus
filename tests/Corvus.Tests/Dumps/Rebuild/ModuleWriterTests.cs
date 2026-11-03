@@ -26,13 +26,13 @@ public sealed class ModuleWriterTests : IDisposable
     }
 
     [Fact]
-    public void A_module_past_the_total_limit_is_not_written_and_names_the_limit()
+    public void A_module_past_the_total_limit_is_not_written_and_names_the_limit_and_the_call_that_saves_it()
     {
         var folder = _dir.File("out");
         var result = ModuleWriter.WriteAll([Module("a.dll", 1 << 20), Module("b.dll", 1 << 20)], folder, 1L << 20, null);
         Assert.Equal("a.dll", result[0].File);
         Assert.Null(result[1].File);
-        Assert.Equal("past the 1 MB total limit", result[1].Reason);
+        Assert.Equal("past the 1 MB total limit; modules=b.dll saves it alone", result[1].Reason);
         Assert.Equal(["a.dll"], Directory.GetFiles(folder).Select(Path.GetFileName));
     }
 
