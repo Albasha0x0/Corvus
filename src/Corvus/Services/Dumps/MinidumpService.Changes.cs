@@ -30,15 +30,54 @@ public sealed partial class MinidumpService
     public (string Id, IReadOnlyList<ModuleChange> Rows, int Total, IReadOnlyList<string> Notes) Changes(string path, string? imageDirectories,
         string? module, int offset, int limit, CancellationToken ct, string? compareWith = null)
     {
-        var set = ComputeChanges(path, imageDirectories, string.IsNullOrWhiteSpace(module) ? "all" : module.Trim(), compareWith, ct);
+        var (id, full, directories) = Resolve(path, imageDirectories);
+        string selector = string.IsNullOrWhiteSpace(module) ? "all" : module.Trim();
+        string? otherFull = string.IsNullOrWhiteSpace(compareWith) ? null : Resolve(compareWith, imageDirectories).Path;
+        string key = $"{id}|{Stamp(full)}|{otherFull}|{(otherFull == null ? "" : Stamp(otherFull))}|{selector}|{directories}";
+
+        ChangeSet? set;
+        lock (_changeSets) _changeSets.TryGetValue(key, out set);
+        if (set == null)
+        {
+            set = ComputeChanges(path, imageDirectories, selector, compareWith, ct);
+            lock (_changeSets)
+            {
+                if (_changeSets.Count >= MaxCachedChangeSets) _changeSets.Remove(_changeSets.Keys.First());
+                _changeSets[key] = set;
+            }
+        }
         var page = set.Rows.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
-        return (set.Id, page, set.Rows.Count, set.Notes);
+        return (id, page, set.Rows.Count, set.Notes);
     }
 
-    private sealed record ChangeSet(string Id, IReadOnlyList<ModuleChange> Rows, IReadOnlyList<string> Notes);
+    private sealed record ChangeSet(IReadOnlyList<ModuleChange> Rows, IReadOnlyList<string> Notes);
+
+    /// <summary>Most change sets kept for paging a view.</summary>
+    private const int MaxCachedChangeSets = 4;
+
+    private readonly Dictionary<string, ChangeSet> _changeSets = [];
+
+    /// <summary>Times the changes of a dump were computed; a repeated page reads the kept rows instead.</summary>
+    internal int ChangeComputations;
+
+    // Size and write time tell a rewritten file from the one the rows were
+    // computed from.
+    private static string Stamp(string file)
+    {
+        try
+        {
+            var info = new FileInfo(file);
+            return $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return "?";
+        }
+    }
 
     private ChangeSet ComputeChanges(string path, string? imageDirectories, string selector, string? compareWith, CancellationToken ct)
     {
+        Interlocked.Increment(ref ChangeComputations);
         using var s = Open(path, imageDirectories);
         using var other = compareWith == null ? null : Open(compareWith, imageDirectories);
         var targets = ModuleRebuild.Select(s.Memory, selector, ct);
@@ -67,7 +106,7 @@ public sealed partial class MinidumpService
                 all.Add((target.Name, target.Base, ParseAddress(row.Start), row));
         }
         var sorted = all.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Base).ThenBy(r => r.Address).Select(r => r.Row).ToList();
-        return new ChangeSet(s.Id, sorted, notes);
+        return new ChangeSet(sorted, notes);
     }
 
     // Pairs each module with the same-named module of the other dump in address

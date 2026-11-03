@@ -102,7 +102,13 @@ public sealed class DumpRebuildX86RealTests(ITestOutputHelper output) : IDisposa
 
         using var dump = MinidumpFile.Open(DumpProgram());
         Assert.NotEmpty(dump.Modules);
-        var options = RebuildOptions.Default with { Base = BaseMode.Preferred };
+        // The dump records System32 paths; a 64-bit reader resolves them to
+        // 64-bit files.
+        var options = RebuildOptions.Default with
+        {
+            Base = BaseMode.Preferred,
+            ImageDirectories = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64"),
+        };
         var failures = new List<string>();
         int compared = 0;
         foreach (var module in dump.Modules)
