@@ -29,18 +29,21 @@ public static class ImportScan
     /// Reads the slots of data directory 12 when it is set, else scans non-code sections for runs of pointers
     /// that <paramref name="exports"/> names. Null when the header is unreadable, the directory holds no slot, or no run of
     /// at least 2 named pointers ends in a zero entry; pages that were not captured end a run.
+    /// A pointer into the image itself is never named and ends a scanned run.
+    /// A nonzero <paramref name="importRva"/>, the import directory of the file, limits the scan to the section that holds it.
     /// </summary>
-    public static ImportScanResult? Find(byte[] mapped, CapturedImage captured, ExportMap exports)
+    public static ImportScanResult? Find(byte[] mapped, CapturedImage captured, ExportMap exports, uint importRva = 0)
     {
         if (!TryHeader(mapped, out bool is64, out int dirs, out int sections, out int count)) return null;
         int width = is64 ? 8 : 4;
+        var own = OwnRange(mapped, captured, is64, dirs - (is64 ? 112 : 96));
         int dir = dirs + DirectoryIndex * 8;
         uint rva = dir + 8 <= mapped.Length ? BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(dir)) : 0;
         uint size = dir + 8 <= mapped.Length ? BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(dir + 4)) : 0;
         if (rva != 0 && size != 0)
         {
             long end = Math.Min((long)rva + size, mapped.Length);
-            var (slots, _, _) = ReadRun(mapped, captured, exports, width, rva, end);
+            var (slots, _, _) = ReadRun(mapped, captured, exports, width, rva, end, own, false);
             return slots.Count == 0 ? null : new ImportScanResult("directory", Split(slots));
         }
 
@@ -54,12 +57,13 @@ public static class ImportScan
             uint va = BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(h + 12));
             uint length = BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(h + 8));
             if (length == 0) length = BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(h + 16));
+            if (importRva != 0 && (importRva < va || importRva - va >= length)) continue;
             long end = Math.Min((long)va + length, mapped.Length);
             long at = (va + (long)width - 1) / width * width;
             while (at + width <= end)
             {
                 if (Entry(mapped, captured, (int)at, width) == 0) { at += width; continue; }
-                var (slots, next, terminated) = ReadRun(mapped, captured, exports, width, (uint)at, end);
+                var (slots, next, terminated) = ReadRun(mapped, captured, exports, width, (uint)at, end, own, true);
                 if (terminated) runs.AddRange(Split(slots).Where(r => r.Slots.Count - r.Unnamed >= MinNamed));
                 at = next;
             }
@@ -68,8 +72,8 @@ public static class ImportScan
     }
 
     // Reads nonzero entries up to a zero entry, the range end or an uncaptured
-    // page.
-    private static (List<ImportSlot> Slots, long Next, bool Terminated) ReadRun(byte[] mapped, CapturedImage captured, ExportMap exports, int width, uint start, long end)
+    // page. A pointer into the image is an unnamed slot, or ends the run.
+    private static (List<ImportSlot> Slots, long Next, bool Terminated) ReadRun(byte[] mapped, CapturedImage captured, ExportMap exports, int width, uint start, long end, Func<ulong, bool> own, bool stopAtOwn)
     {
         List<ImportSlot> slots = [];
         long at = start;
@@ -77,6 +81,13 @@ public static class ImportScan
         {
             ulong value = Entry(mapped, captured, (int)at, width);
             if (value == 0) return (slots, at + width, true);
+            if (own(value))
+            {
+                if (stopAtOwn) return (slots, at + width, true);
+                slots.Add(new ImportSlot((uint)at, null));
+                at += width;
+                continue;
+            }
             slots.Add(new ImportSlot((uint)at, exports.NameAt(value)));
             at += width;
         }
@@ -104,6 +115,18 @@ public static class ImportScan
         }
         Flush();
         return runs;
+    }
+
+    // The image as loaded and as the header records it; the base can differ
+    // after a relocation.
+    private static Func<ulong, bool> OwnRange(byte[] mapped, CapturedImage captured, bool is64, int opt)
+    {
+        if (opt + 64 > mapped.Length) return _ => false;
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(opt + 56));
+        ulong header = is64 ? BinaryPrimitives.ReadUInt64LittleEndian(mapped.AsSpan(opt + 24)) : BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan(opt + 28));
+        ulong loaded = captured.Target.Base;
+        ulong length = Math.Max(size, captured.Target.Size);
+        return value => (value >= loaded && value - loaded < length) || (value >= header && value - header < length);
     }
 
     // An uncaptured page reads as zero, which ends the run.
