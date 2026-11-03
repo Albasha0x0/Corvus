@@ -337,7 +337,7 @@ public static class FileWork
     public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null, string? OutputPath = null,
         string? Module = null, Native.Dump.Rebuild.OutputLayout Layout = Native.Dump.Rebuild.OutputLayout.File,
         Native.Dump.Rebuild.ImportMode Imports = Native.Dump.Rebuild.ImportMode.Restore, Native.Dump.Rebuild.BaseMode Base = Native.Dump.Rebuild.BaseMode.Loaded,
-        string? CompareWith = null);
+        string? CompareWith = null, string? Symbols = null);
 
     public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
 
@@ -461,7 +461,8 @@ public static class FileWork
                 return new DumpViewResult(report, null, 0);
             case "modules":
                 var (mId, modules, mTotal, folder) = dumps.Modules(id, directories, a.Offset, a.Limit, a.OutputPath, ct,
-                    new MinidumpService.ModuleOptions(string.IsNullOrWhiteSpace(a.Module) ? "all" : a.Module, a.Layout, a.Imports, a.Base));
+                    new MinidumpService.ModuleOptions(string.IsNullOrWhiteSpace(a.Module) ? "all" : a.Module, a.Layout, a.Imports, a.Base,
+                        string.IsNullOrWhiteSpace(a.Symbols) ? "none" : a.Symbols));
                 var written = modules.Count(m => m.ImageFile != null);
                 return new DumpViewResult(null, mId, mTotal)
                 {

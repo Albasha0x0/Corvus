@@ -35,6 +35,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,
         [Description("outputPath: loaded or preferred.")] string? @base = null,
+        [Description("outputPath: none, local or download PDBs.")] string? symbols = null,
         [Description("view=changes: dump to compare with.")] string? compareWith = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
@@ -58,14 +59,16 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (saving && offset > 0)
             throw new ToolError(ErrorCode.InvalidArgument, "A call with outputPath writes once and takes no offset.",
                 "read_result with the resultId of the first call to page its rows");
-        var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base);
+        if (!saving && !string.IsNullOrWhiteSpace(symbols))
+            throw new ToolError(ErrorCode.InvalidArgument, "symbols goes with outputPath.", "pass outputPath");
+        var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base, symbols);
         // A sandboxed worker writes only under labelled folders: it rebuilds into staging and the server fills the named folder.
         var staging = saving && FileIsolation.PoolFor(Isolation, workers) is { Sandboxed: true } ? FileWork.NewModuleStaging() : null;
         var final = saving ? SafeFile.Output(outputPath!) : null;
         if (staging != null) FileWork.RequireFreshFolder(final!);
         var args = new FileWork.DumpViewArgs(target, v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
             string.IsNullOrWhiteSpace(yara) ? null : yara, staging ?? final, saving || v == "changes" ? save.Module : null, save.Layout, save.Imports, save.Base,
-            string.IsNullOrWhiteSpace(compareWith) ? null : dumps.Resolve(compareWith, imageDirectories).Path);
+            string.IsNullOrWhiteSpace(compareWith) ? null : dumps.Resolve(compareWith, imageDirectories).Path, save.Symbols);
         FileWork.DumpViewResult r;
         try
         {

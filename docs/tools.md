@@ -2719,6 +2719,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
 | `base` | string |  |  | outputPath: loaded or preferred. |
+| `symbols` | string |  |  | outputPath: none, local or download; copies the matching PDB next to each module. |
 | `compareWith` | string |  |  | view=changes: dump path or open id to compare with instead of the files. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
@@ -2889,6 +2890,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | `layout` | string |  |  | save_modules: file or mapped. |
 | `imports` | string |  |  | save_modules: restore or keep. |
 | `base` | string |  |  | save_modules: loaded or preferred. |
+| `symbols` | string |  |  | save_modules: none, local or download; copies the matching PDB next to each module. |
 
 Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `saved`, `ipc`.
 

@@ -36,7 +36,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     /// <summary>A module rebuilt from the session's process: the file written, or null with the reason none was.</summary>
     public sealed record LiveSavedModule(string Name, string? File, [property: Description("Why no file was written.")] string? Reason,
-        [property: Description("Pages read, percent.")] int Captured);
+        [property: Description("Pages read, percent.")] int Captured,
+        [property: Description("PDB file copied next to the module.")] string? Pdb = null);
 
     /// <summary>The image folder save_modules wrote and its modules.</summary>
     public sealed record LiveSavedModules(string Folder, IReadOnlyList<LiveSavedModule> Modules);
@@ -140,6 +141,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("save_modules: file or mapped.")] string? layout = null,
         [Description("save_modules: restore or keep.")] string? imports = null,
         [Description("save_modules: loaded or preferred.")] string? @base = null,
+        [Description("save_modules: none, local or download PDBs.")] string? symbols = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -206,7 +208,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "snapshot":
                     return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
                 case "save_modules":
-                    return SaveModules(live.Get(RequireSession(session)), outputPath, modules, layout, imports, @base, cancellationToken);
+                    return SaveModules(live.Get(RequireSession(session)), outputPath, modules, layout, imports, @base, symbols, cancellationToken);
                 case "ipc":
                     var recorded = live.Get(RequireSession(session));
                     return Ipc(recorded, await live.IpcAsync(recorded, cancellationToken).ConfigureAwait(false));
@@ -289,12 +291,12 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
     }
 
-    private static string SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, CancellationToken ct)
+    private static string SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, string? symbols, CancellationToken ct)
     {
         LiveSessionService.Live(s);
         if (s.ScriptRuntime is { } runtime) throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a {runtime.Kind} session: save_modules rebuilds native modules.", $"live_session action=attach program={s.ProcessId} opens a process session");
         // Parse rejects a bad option before the process is opened.
-        var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base);
+        var save = MinidumpService.ModuleOptions.Parse(modules, layout, imports, @base, symbols);
         var root = SafeFile.Output(string.IsNullOrWhiteSpace(outputPath)
             ? Native.Providers.PrivateFolder.Temp("modules", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}")
             : outputPath);
@@ -307,7 +309,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var options = Native.Dump.Rebuild.RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
         var rebuilt = targets.Select(t => Native.Dump.Rebuild.ModuleRebuild.Rebuild(process, t, options, ct)).ToList();
         var written = Native.Dump.Rebuild.ModuleWriter.WriteAll(rebuilt, root);
-        var rows = rebuilt.Zip(written, (r, w) => new LiveSavedModule(r.Target.Name, w.File, w.Reason, r.CapturedPercent)).ToList();
+        var withSymbols = MinidumpService.SaveSymbols(rebuilt, written, root, save.Symbols, null, ct);
+        rebuilt = [.. withSymbols.Select(x => x.Module)];
+        var rows = rebuilt.Select((r, i) => new LiveSavedModule(r.Target.Name, written[i].File, written[i].Reason, r.CapturedPercent, withSymbols[i].Pdb)).ToList();
         var text = new StringBuilder($"{s.Id}: {rows.Count(r => r.File != null)} of {rows.Count} module(s) of process {s.ProcessId} written to {root}; the program keeps running\n");
         foreach (var (r, m) in rows.Zip(rebuilt))
         {

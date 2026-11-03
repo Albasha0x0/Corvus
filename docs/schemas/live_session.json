@@ -141,6 +141,10 @@
               "captured": {
                 "description": "Pages read, percent.",
                 "type": "integer"
+              },
+              "pdb": {
+                "description": "PDB file copied next to the module.",
+                "type": "string"
               }
             },
             "required": [

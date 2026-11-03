@@ -81,6 +81,7 @@ public sealed partial class MinidumpService
         [Description("Percent of the image's pages the dump held.")] public int? ImageCaptured { get; init; }
         [Description("Rebuild checks of the written image: name, state (ok, partial, failed, skipped, unknown) and detail.")] public IReadOnlyList<Corvus.Native.Dump.Rebuild.RebuildCheck>? ImageChecks { get; init; }
         [Description("Modules the image delay-loads, named from the exports its resolved slots point at; null when none was resolved.")] public IReadOnlyList<string>? DelayImportModules { get; init; }
+        [Description("PDB file copied next to the image under outputPath.")] public string? Pdb { get; init; }
 
         /// <summary>The checked row of <paramref name="m"/>, its checks unset.</summary>
         public static CheckedModule Of(ModuleSummary m) => new(m.Name, m.Path, m.Base, m.Size, m.TimeDateStamp, m.Built, m.FileVersion, m.PdbName, m.PdbGuid, m.PdbAge,
@@ -262,19 +263,22 @@ public sealed partial class MinidumpService
         d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Which modules view=modules or save_modules rebuild and how; <see cref="Parse"/> checks the option text.</summary>
-    public sealed record ModuleOptions(string Module, OutputLayout Layout, ImportMode Imports, BaseMode Base)
+    public sealed record ModuleOptions(string Module, OutputLayout Layout, ImportMode Imports, BaseMode Base, string Symbols = "none")
     {
         /// <summary>The defaults: every listed module, file layout, imports restored, loaded base.</summary>
         public static ModuleOptions Default { get; } = new("all", OutputLayout.File, ImportMode.Restore, BaseMode.Loaded);
 
         /// <summary>The options of the given texts, null or blank meaning the default; rejects a value outside the documented set (InvalidArgument).</summary>
-        public static ModuleOptions Parse(string? module, string? layout, string? imports, string? @base)
+        public static ModuleOptions Parse(string? module, string? layout, string? imports, string? @base, string? symbols = null)
         {
+            var sym = string.IsNullOrWhiteSpace(symbols) ? "none" : symbols.Trim().ToLowerInvariant();
+            if (sym is not ("none" or "local" or "download"))
+                throw new ToolError(ErrorCode.InvalidArgument, $"symbols '{symbols}' is not none, local or download.", "pass symbols as none, local or download");
             var m = string.IsNullOrWhiteSpace(module) ? "all" : module.Trim();
             return new ModuleOptions(m,
                 Choice("layout", layout, OutputLayout.File, OutputLayout.Mapped),
                 Choice("imports", imports, ImportMode.Restore, ImportMode.Keep),
-                Choice("base", @base, BaseMode.Loaded, BaseMode.Preferred));
+                Choice("base", @base, BaseMode.Loaded, BaseMode.Preferred), sym);
         }
 
         private static T Choice<T>(string name, string? value, T first, T second) where T : struct, Enum
@@ -313,6 +317,7 @@ public sealed partial class MinidumpService
         var page = outputPath != null ? d.Modules.ToList() : d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
         List<(RebuiltModule Module, WrittenModule Written)>? saved = null;
         string? folder = null;
+        var pdbs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (outputPath != null)
         {
             var save = rebuild ?? ModuleOptions.Default;
@@ -325,6 +330,10 @@ public sealed partial class MinidumpService
             var options = RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
             var rebuilt = targets.Select(t => ModuleRebuild.Rebuild(d, t, options, ct)).ToList();
             var written = ModuleWriter.WriteAll(rebuilt, root);
+            var withSymbols = SaveSymbols(rebuilt, written, root, save.Symbols,
+                s.Directories.Count == 0 ? null : string.Join(System.IO.Path.PathSeparator, s.Directories), ct);
+            rebuilt = [.. withSymbols.Select(x => x.Module)];
+            pdbs = withSymbols.Where(x => x.Pdb != null).ToDictionary(x => x.File!, x => x.Pdb!, StringComparer.OrdinalIgnoreCase);
             saved = [.. rebuilt.Zip(written)];
             folder = root;
         }
@@ -352,6 +361,9 @@ public sealed partial class MinidumpService
         if (saved != null)
             rows.AddRange(saved.Where(x => x.Module.Target.Origin != ModuleOrigin.Listed || !page.Any(m => m.Base == x.Module.Target.Base))
                 .Select(x => SavedRow(s, x.Module, x.Written)));
+        if (pdbs.Count > 0)
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].ImageFile is { } f && pdbs.TryGetValue(f, out var pdb)) rows[i] = rows[i] with { Pdb = pdb };
         return (s.Id, rows, saved != null ? rows.Count : d.Modules.Count, folder);
     }
 
@@ -361,6 +373,59 @@ public sealed partial class MinidumpService
         r.DelayImportNames is { Count: > 0 } names
             ? [.. names.Select(n => n.Name.Contains('!') ? n.Name[..n.Name.IndexOf('!')] : n.Name).Distinct(StringComparer.OrdinalIgnoreCase)]
             : null;
+
+    /// <summary>
+    /// Adds a symbols check to each written module and, for local or download, copies the PDB its CodeView record names
+    /// next to the module in <paramref name="root"/>. Returns the modules in order with the file and PDB written (null for none);
+    /// a PDB that is not found, is of another build or does not fit is reported as unknown with the reason.
+    /// </summary>
+    public static IReadOnlyList<(RebuiltModule Module, string? File, string? Pdb)> SaveSymbols(IReadOnlyList<RebuiltModule> rebuilt,
+        IReadOnlyList<WrittenModule> written, string root, string symbols, string? imageDirectories, CancellationToken ct)
+    {
+        var result = new List<(RebuiltModule, string?, string?)>();
+        for (int i = 0; i < rebuilt.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var m = rebuilt[i];
+            var file = written[i].File;
+            if (file == null || m.Bytes == null) { result.Add((m, file, null)); continue; }
+            string? pdb = null;
+            RebuildCheck check;
+            if (symbols == "none")
+                check = RebuildCheck.Skipped("symbols", "symbols=none");
+            else
+            {
+                var found = ModuleSymbols.Find(m.Bytes, imageDirectories, symbols == "download", ct);
+                if (found.PdbPath == null)
+                    check = RebuildCheck.Unknown("symbols", $"{found.Status}: {found.Reason}");
+                else
+                    check = CopyPdb(found.PdbPath, root, out pdb);
+            }
+            result.Add((m with { Checks = [.. m.Checks, check] }, file, pdb));
+        }
+        return result;
+    }
+
+    private static RebuildCheck CopyPdb(string source, string root, out string? name)
+    {
+        name = null;
+        try
+        {
+            var length = new FileInfo(source).Length;
+            if (length > ModuleRebuild.MaxImageBytes)
+                return RebuildCheck.Unknown("symbols", $"the PDB is over the {ModuleRebuild.MaxImageBytes >> 20} MB limit");
+            var target = System.IO.Path.GetFileName(source);
+            if (File.Exists(System.IO.Path.Combine(root, target)))
+                return RebuildCheck.Unknown("symbols", $"{target} is already in the folder");
+            SafeFile.WriteUnderRoot(root, target, File.ReadAllBytes(source), overwrite: false);
+            name = target;
+            return RebuildCheck.Ok("symbols", target);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ToolError)
+        {
+            return RebuildCheck.Unknown("symbols", "the PDB could not be copied: " + e.Message);
+        }
+    }
 
     /// <summary>Writes each code region as code-&lt;base&gt;.bin with code-&lt;base&gt;.txt listing the function table entries inside it; one row per region.</summary>
     /// <remarks>A source without a function table stream lists the entries as unknown; limits and sources without a region list come back as a row naming them.</remarks>
