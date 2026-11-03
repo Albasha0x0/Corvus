@@ -25,8 +25,11 @@ public static class ChangePatterns
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            string shape = Shape(row);
-            string key = $"{row.Module}|{row.Section}|{row.Kind}|{shape}" + (row.TargetKind is { } t ? $"|{t}" : "");
+            string? target = row.Kind == "data" && row.TargetKind is not null ? TargetGroup(row.TargetKind) : null;
+            string shape = target is null ? Shape(row) : TargetShape(target);
+            string key = target is not null
+                ? $"{row.Module}|{row.Section}|data|{target}"
+                : $"{row.Module}|{row.Section}|{row.Kind}|{shape}" + (row.TargetKind is { } t ? $"|{t}" : "");
             if (!groups.TryGetValue(key, out var acc)) groups[key] = acc = new Acc(key, shape, row.Address, i);
             acc.Add(row.Address, row.Length, i);
         }
@@ -35,6 +38,24 @@ public static class ChangePatterns
             .Select(a => new ChangeGroup(a.Key, a.Shape, a.Count, a.First, a.Last, a.Total, a.FirstIndex))
             .ToList();
     }
+
+    // Reduces a known target to its module; unbacked, committed memory and not a pointer stay whole.
+    private static string TargetGroup(string targetKind)
+    {
+        if (targetKind is "unbacked" or "committed memory" or "not a pointer") return targetKind;
+        int bang = targetKind.IndexOf('!');
+        if (bang > 0) return targetKind[..bang];
+        int plus = targetKind.LastIndexOf("+0x", StringComparison.Ordinal);
+        return plus > 0 ? targetKind[..plus] : targetKind;
+    }
+
+    private static string TargetShape(string target) => target switch
+    {
+        "not a pointer" => "values that are not pointers",
+        "unbacked" => "pointers into unbacked memory",
+        "committed memory" => "pointers into committed memory",
+        _ => $"pointers into {target}",
+    };
 
     private sealed class Acc(string key, string shape, ulong first, int index)
     {
