@@ -133,4 +133,36 @@ public sealed class LateBoundImportTests : IDisposable
         Assert.Equal("partial", check.State);
         Assert.EndsWith("6 late-bound slots in 1 tables not added: no room for an import section", check.Detail);
     }
+
+    private static PointerTable Uncaptured(TempDir dir, bool is64, SlotPlacement placement)
+    {
+        var probe = PointerTableFixtures.Table(dir, is64, placement, 6);
+        return PointerTableFixtures.Table(dir, is64, placement, 6, [probe.DataRva]);
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void Slots_on_a_page_that_is_not_captured_are_not_added(bool is64, SlotPlacement placement)
+    {
+        var table = Uncaptured(_dir, is64, placement);
+
+        var result = Run(table, ImportMode.Restore);
+
+        Assert.Empty(result.Saved.Imports);
+        Assert.Equal(result.Before, result.Image.Length);
+    }
+
+    [Theory(Skip = "Defect: LateBoundPointers.Name (LateBoundPointers.cs:72) drops a slot on a page that is not captured and PeImportRestore.LateBound (PeImportRestore.cs:43) reports nothing, so the imports check does not name the uncaptured page.")]
+    [MemberData(nameof(Cases))]
+    public void The_imports_check_names_the_slots_left_out_for_a_page_not_captured(bool is64, SlotPlacement placement)
+    {
+        var table = Uncaptured(_dir, is64, placement);
+
+        var result = Run(table, ImportMode.Restore);
+
+        // Unknown is not absent: a page that was not captured is named, not dropped.
+        var check = Assert.Single(result.Checks, c => c.Name == "imports");
+        Assert.NotEqual("ok", check.State);
+        Assert.Contains("not captured", check.Detail);
+    }
 }
