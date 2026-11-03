@@ -62,6 +62,7 @@ public static class PeFileLayout
             BinaryPrimitives.WriteUInt32LittleEndian(h[20..], raw == 0 ? 0 : (uint)starts[i]);
         }
 
+        RepointDebugData(file, opt, table, count);
         string note = defaulted ? $"; file alignment invalid, 0x{DefaultFileAlignment:X} used" : "";
         string overlay = "; overlay data past the last section is not in memory";
         overlay += SealHeaders(file, opt);
@@ -115,10 +116,43 @@ public static class PeFileLayout
             BinaryPrimitives.WriteUInt32LittleEndian(h[16..], mapped);
             BinaryPrimitives.WriteUInt32LittleEndian(h[20..], mapped == 0 ? 0 : va);
         }
+        if (TryReadHeaders(bytes, out int opt, out int headers, out int count)) RepointDebugData(bytes, opt, headers, count);
         checks.Add(RebuildCheck.Ok("layout", "mapped: section offsets are RVAs"));
         return bytes;
     }
 
+    // A debug entry names its data by RVA and by file offset; the offset is
+    // set again for the new layout, or 0 when no raw data holds the RVA.
+    private static void RepointDebugData(byte[] file, int opt, int table, int count)
+    {
+        bool is64 = BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(opt)) == 0x20B;
+        int dirs = opt + (is64 ? 112 : 96);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(opt + (is64 ? 108 : 92))) <= Debug || dirs + 8 * Debug + 8 > file.Length) return;
+        uint rva = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(dirs + 8 * Debug));
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(dirs + 8 * Debug + 4));
+        long at = Offset(file, table, count, rva);
+        if (rva == 0 || at < 0) return;
+        for (long entry = at; entry + DebugEntrySize <= Math.Min(at + size, file.Length); entry += DebugEntrySize)
+        {
+            uint data = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan((int)entry + 20));
+            if (data == 0) continue;
+            long offset = Offset(file, table, count, data);
+            BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan((int)entry + 24), offset < 0 ? 0 : (uint)offset);
+        }
+    }
+
+    private static long Offset(byte[] file, int table, int count, uint rva)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            var h = file.AsSpan(table + 40 * i, 40);
+            uint va = BinaryPrimitives.ReadUInt32LittleEndian(h[12..]), raw = BinaryPrimitives.ReadUInt32LittleEndian(h[16..]);
+            if (rva >= va && rva - va < raw) return BinaryPrimitives.ReadUInt32LittleEndian(h[20..]) + (long)(rva - va);
+        }
+        return -1;
+    }
+
+    private const int Debug = 6, DebugEntrySize = 28;
     private const uint DefaultFileAlignment = 0x200;
 
     private static long Align(uint value, uint alignment) => ((long)value + alignment - 1) / alignment * alignment;
