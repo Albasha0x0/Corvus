@@ -215,7 +215,8 @@ public static class PeImportRestore
         return named;
     }
 
-    private static bool TryDirectory(byte[] image, out bool is64, out uint rva, out uint size)
+    // The import directory of a PE image; false when its headers are not readable.
+    internal static bool TryDirectory(byte[] image, out bool is64, out uint rva, out uint size)
     {
         is64 = false;
         rva = size = 0;

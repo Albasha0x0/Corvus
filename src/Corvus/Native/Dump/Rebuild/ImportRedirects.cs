@@ -1,0 +1,233 @@
+using System.Buffers.Binary;
+using System.Text;
+
+namespace Corvus.Native.Dump.Rebuild;
+
+/// <summary>An import address table slot checked against the export it names.</summary>
+/// <param name="SlotRva">RVA of the slot in the image.</param>
+/// <param name="Import"><c>module!name</c> or <c>module!#ordinal</c> as the import directory names it.</param>
+/// <param name="State"><c>redirected</c> when the slot differs from the export address, <c>unknown</c> when it could not be checked.</param>
+/// <param name="Expected">Address of the export; null when unknown.</param>
+/// <param name="Actual">Value of the slot; null when its page was not captured.</param>
+/// <param name="Reason">Why the slot is unknown; null for a redirect.</param>
+public sealed record ImportRedirect(uint SlotRva, string Import, string State, ulong? Expected, ulong? Actual, string? Reason);
+
+/// <summary>Lists import address table slots that do not hold the address of the export they name.</summary>
+public static class ImportRedirects
+{
+    private const int DescriptorSize = 20;
+    private const int MaxSlots = 64 * 1024;
+    private const int MaxForwardDepth = 8;
+    private const int MaxNameBytes = 256;
+
+    /// <summary>
+    /// Compares each slot of the captured, not yet restored <paramref name="mapped"/> image with the export its name table entry names.
+    /// Returns only redirected slots and slots that could not be checked (module not loaded, name not exported,
+    /// page or name table not captured); a slot holding its export address is not listed.
+    /// A forwarded export is followed through <paramref name="exports"/>; the lookup by name reads the exports of <paramref name="memory"/>.
+    /// </summary>
+    public static IReadOnlyList<ImportRedirect> Find(byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory)
+    {
+        List<ImportRedirect> rows = [];
+        if (!PeImportRestore.TryDirectory(mapped, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0) return rows;
+
+        var index = new Index(memory, exports);
+        int width = is64 ? 8 : 4;
+        long count = dirSize / DescriptorSize;
+        int slots = 0;
+        for (long i = 0; i < count; i++)
+        {
+            long at = dirRva + i * DescriptorSize;
+            if (at + DescriptorSize > mapped.Length) break;
+            var d = mapped.AsSpan((int)at, DescriptorSize);
+            uint lookup = BinaryPrimitives.ReadUInt32LittleEndian(d), nameRva = BinaryPrimitives.ReadUInt32LittleEndian(d[12..]);
+            uint first = BinaryPrimitives.ReadUInt32LittleEndian(d[16..]);
+            if (lookup == 0 && first == 0 && nameRva == 0) break;
+            if (first == 0 || first >= mapped.Length) continue;
+
+            string module = ReadString(mapped, nameRva) ?? "?";
+            if (lookup == 0 || lookup >= mapped.Length)
+            {
+                rows.Add(new ImportRedirect(first, module + "!?", "unknown", null, null, "import lookup table is absent"));
+                continue;
+            }
+            for (long slot = 0; slots < MaxSlots; slot++, slots++)
+            {
+                long lookupAt = lookup + slot * width, slotAt = first + slot * width;
+                if (lookupAt + width > mapped.Length || slotAt + width > mapped.Length) break;
+                if (!captured.PageCaptured((uint)lookupAt))
+                {
+                    rows.Add(new ImportRedirect((uint)slotAt, module + "!?", "unknown", null, null, "import lookup table was not captured"));
+                    break;
+                }
+                ulong entry = Read(mapped, (int)lookupAt, width);
+                if (entry == 0) break;
+
+                string function = Function(mapped, entry, is64);
+                string import = module + "!" + function;
+                if (function == "?")
+                {
+                    rows.Add(new ImportRedirect((uint)slotAt, import, "unknown", null, null, "import name was not captured"));
+                    continue;
+                }
+                if (!captured.PageCaptured((uint)slotAt) || !captured.PageCaptured((uint)(slotAt + width - 1)))
+                {
+                    rows.Add(new ImportRedirect((uint)slotAt, import, "unknown", null, null, "address table page was not captured"));
+                    continue;
+                }
+                ulong actual = Read(mapped, (int)slotAt, width);
+                if (!index.TryResolve(module, function, out ulong expected, out string? reason))
+                    rows.Add(new ImportRedirect((uint)slotAt, import, "unknown", null, actual, reason));
+                else if (expected != actual)
+                    rows.Add(new ImportRedirect((uint)slotAt, import, "redirected", expected, actual, null));
+            }
+        }
+        return rows;
+    }
+
+    // "?" when the name entry lies outside the captured image.
+    private static string Function(byte[] mapped, ulong entry, bool is64)
+    {
+        ulong flag = is64 ? 1UL << 63 : 1UL << 31;
+        if ((entry & flag) != 0) return "#" + (entry & 0xFFFF);
+        return entry + 2 < (ulong)mapped.Length ? ReadString(mapped, (long)entry + 2) ?? "?" : "?";
+    }
+
+    private static string? ReadString(byte[] image, long at)
+    {
+        if (at <= 0 || at >= image.Length) return null;
+        int length = (int)Math.Min(MaxNameBytes, image.Length - at);
+        int end = image.AsSpan((int)at, length).IndexOf((byte)0);
+        return end < 0 ? null : Encoding.ASCII.GetString(image, (int)at, end);
+    }
+
+    private static ulong Read(byte[] image, int at, int width) =>
+        width == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(at)) : BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(at));
+
+    // Name to address lookup over the loaded modules; ExportMap only answers
+    // address to name.
+    private sealed class Index
+    {
+        private readonly IProcessMemory _memory;
+        private readonly Dictionary<string, DumpModule> _modules = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Dictionary<string, ulong>?> _exports = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _forwarders = new(StringComparer.OrdinalIgnoreCase);
+
+        public Index(IProcessMemory memory, ExportMap map)
+        {
+            _memory = memory;
+            foreach (var m in memory.Modules) _modules.TryAdd(m.FileName, m);
+            foreach (var f in map.Forwarders)
+            {
+                int space = f.IndexOf(' ');
+                if (space > 0) _forwarders.TryAdd(f[..space], f[(space + 1)..]);
+            }
+        }
+
+        public bool TryResolve(string module, string function, out ulong address, out string? reason)
+        {
+            address = 0;
+            for (int depth = 0; depth <= MaxForwardDepth; depth++)
+            {
+                if (!_modules.TryGetValue(module, out var loaded))
+                {
+                    reason = $"{module} is not a loaded module";
+                    return false;
+                }
+                if (_forwarders.TryGetValue(loaded.FileName + "!" + function, out var target))
+                {
+                    int dot = target.LastIndexOf('.');
+                    if (dot <= 0)
+                    {
+                        reason = $"forwarder '{target}' is malformed";
+                        return false;
+                    }
+                    module = target[..dot];
+                    if (!_modules.ContainsKey(module)) module += ".dll";
+                    function = target[(dot + 1)..];
+                    continue;
+                }
+                var table = Exports(loaded);
+                if (table is null)
+                {
+                    reason = $"export directory of {loaded.FileName} was not captured";
+                    return false;
+                }
+                if (!table.TryGetValue(function, out address))
+                {
+                    reason = $"{loaded.FileName} does not export {function}";
+                    return false;
+                }
+                reason = null;
+                return true;
+            }
+            reason = "forwarder chain is too long";
+            return false;
+        }
+
+        private Dictionary<string, ulong>? Exports(DumpModule module)
+        {
+            if (!_exports.TryGetValue(module.FileName, out var table))
+                _exports[module.FileName] = table = Read(module);
+            return table;
+        }
+
+        // Forwarded exports are left out; they resolve through the forwarder
+        // text.
+        private Dictionary<string, ulong>? Read(DumpModule module)
+        {
+            var head = new byte[0x1000];
+            if (_memory.ReadMemory(module.Base, head) < 0x200 || !DumpImages.TryHeader(head, out _, out _, out _)) return null;
+            int nt = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(0x3C));
+            int opt = nt + 24;
+            int dirs = opt + (BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(opt)) == 0x20B ? 112 : 96);
+            if (dirs + 8 > head.Length) return null;
+            uint dirRva = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(dirs));
+            uint dirSize = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(dirs + 4));
+            if (dirRva == 0) return [];
+            var dir = Block(module, dirRva, 40);
+            if (dir is null) return null;
+            uint ordinalBase = BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(16));
+            uint functionCount = BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(20));
+            uint nameCount = BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(24));
+            if (functionCount > ExportMap.MaxExportsPerModule || nameCount > ExportMap.MaxExportsPerModule) return null;
+            var functions = Block(module, BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(28)), functionCount * 4UL);
+            var names = Block(module, BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(32)), nameCount * 4UL);
+            var ordinals = Block(module, BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(36)), nameCount * 2UL);
+            if (functions is null || names is null || ordinals is null) return null;
+
+            Dictionary<string, ulong> table = [];
+            for (uint i = 0; i < functionCount; i++)
+            {
+                uint rva = BinaryPrimitives.ReadUInt32LittleEndian(functions.AsSpan(4 * (int)i));
+                if (rva == 0 || rva >= module.Size || (rva >= dirRva && rva - dirRva < dirSize)) continue;
+                table.TryAdd("#" + (ordinalBase + i), module.Base + rva);
+            }
+            for (int i = 0; i < nameCount; i++)
+            {
+                int index = BinaryPrimitives.ReadUInt16LittleEndian(ordinals.AsSpan(2 * i));
+                if (index >= functionCount || !table.TryGetValue("#" + (ordinalBase + (uint)index), out var address)) continue;
+                var name = Name(module, BinaryPrimitives.ReadUInt32LittleEndian(names.AsSpan(4 * i)));
+                if (name is not null) table.TryAdd(name, address);
+            }
+            return table;
+        }
+
+        private byte[]? Block(DumpModule module, uint rva, ulong length)
+        {
+            if (length == 0) return [];
+            if (rva >= module.Size || length > module.Size - rva) return null;
+            var block = new byte[length];
+            return _memory.ReadMemory(module.Base + rva, block) == block.Length ? block : null;
+        }
+
+        private string? Name(DumpModule module, uint rva)
+        {
+            if (rva >= module.Size) return null;
+            var buffer = new byte[(int)Math.Min(MaxNameBytes, module.Size - rva)];
+            int read = _memory.ReadMemory(module.Base + rva, buffer);
+            int end = buffer.AsSpan(0, read).IndexOf((byte)0);
+            return end < 0 ? null : Encoding.ASCII.GetString(buffer, 0, end);
+        }
+    }
+}
