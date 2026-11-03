@@ -137,22 +137,12 @@ public static class ModuleRebuild
     private static byte[]? FindFile(CapturedImage captured, RebuildOptions options)
     {
         if (!DumpImages.TryHeader(captured.Image, out uint stamp, out uint size, out _)) return null;
-        var paths = new List<string>();
-        if (!string.IsNullOrWhiteSpace(captured.Target.Path)) paths.Add(captured.Target.Path);
-        string name = Path.GetFileName(captured.Target.Path ?? captured.Target.Name);
-        if (name.Length == 0) name = captured.Target.Name;
-        foreach (var dir in (options.ImageDirectories ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            try { paths.Add(Path.Combine(dir, name)); }
-            catch (ArgumentException) { }
-        }
-        foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var path in DiskCompare.Candidates(captured.Target, options))
         {
             try
             {
-                if (!File.Exists(path) || new FileInfo(path).Length > MaxImageBytes) continue;
-                var bytes = File.ReadAllBytes(path);
-                if (DumpImages.TryHeader(bytes, out uint fileStamp, out uint fileSize, out _) && fileStamp == stamp && fileSize == size) return bytes;
+                if (!DiskCompare.SameBuild(path, stamp, size) || new FileInfo(path).Length > MaxImageBytes) continue;
+                return File.ReadAllBytes(path);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {

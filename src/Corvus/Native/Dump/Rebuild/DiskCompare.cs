@@ -185,6 +185,9 @@ public static class DiskCompare
         }
     }
 
+    // Lets a test name the 64-bit and WOW64 system folders for the flow.
+    internal static readonly AsyncLocal<(string System, string Wow)?> SystemFolders = new();
+
     /// <summary>The recorded path, its WOW64 system folder twin, then the module's file name in each image directory, without repeats.</summary>
     internal static List<string> Candidates(RebuildTarget target, RebuildOptions options)
     {
@@ -208,9 +211,8 @@ public static class DiskCompare
     // build check picks the right one.
     private static string? WowTwin(string path)
     {
-        if (!OperatingSystem.IsWindows()) return null;
-        var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
-        var wow = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+        var (system, wow) = SystemFolders.Value ?? (Environment.GetFolderPath(Environment.SpecialFolder.System), Environment.GetFolderPath(Environment.SpecialFolder.SystemX86));
+        if (SystemFolders.Value == null && !OperatingSystem.IsWindows()) return null;
         if (system.Length == 0 || wow.Length == 0 || system.Equals(wow, StringComparison.OrdinalIgnoreCase)) return null;
         var prefix = system.TrimEnd('\\') + "\\";
         return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? Path.Combine(wow, path[prefix.Length..]) : null;
