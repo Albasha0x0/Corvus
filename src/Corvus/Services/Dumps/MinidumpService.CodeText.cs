@@ -7,11 +7,21 @@ namespace Corvus.Services;
 public sealed partial class MinidumpService
 {
     /// <summary>
-    /// Instruction text for a changed code range, or null when none is produced. <paramref name="knownStart"/> is the offset
-    /// from the range start of an instruction boundary, zero or negative.
+    /// Returns <c>code changed: </c> and the first instructions of a changed code range, or null when none
+    /// decode. <paramref name="knownStart"/> is the offset from the range start of an instruction boundary,
+    /// zero or negative.
     /// </summary>
     internal static string? CodeText(byte[] memoryBytes, byte[] fileBytes, ulong address, NativeArch machine, int knownStart,
-        IProcessMemory memory, ExportMap exports) => null;
+        IProcessMemory memory, ExportMap exports)
+    {
+        string? Name(ulong target)
+        {
+            if (exports.NameAt(target) is { } named) return named;
+            return memory.ModuleAt(target) is { } m ? $"{m.FileName}+0x{target - m.Base:X}" : null;
+        }
+        var text = CodeChangeText.Describe(memoryBytes, fileBytes, address, machine, knownStart, Name);
+        return text == null ? null : "code changed: " + text;
+    }
 
     // The function holding the range when the file has a function table, else
     // the section start.
