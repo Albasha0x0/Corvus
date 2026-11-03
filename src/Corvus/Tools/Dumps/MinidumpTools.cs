@@ -98,8 +98,10 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         return new FileWork.DumpTarget(id, path, directories);
     }
 
-    // A writing call cannot be repeated for a later page: its record has no row offset, so the
-    // server keeps the whole result and names it for read_result.
+    // A writing call cannot be repeated for a later page, so a result over
+    // its budget is kept whole under one id. The report carries no total: a
+    // total makes the fitter keep the rows under a first id and the cut text
+    // under a second.
     private static string Written(string id, string view, IReadOnlyList<MinidumpService.CheckedModule> rows, IReadOnlyList<string>? notes)
     {
         // A code row without a file only names why no region was written.
@@ -125,7 +127,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             sb.Append($"{skipped.Count} not written:\n");
             foreach (var r in skipped) sb.Append(DumpText.Module(r)).Append('\n');
         }
-        return ToolOutput.Report(sb.ToString(), new MinidumpService.DumpReport(id, view) { Items = modules.Cast<object>().ToList(), Total = modules.Count, Notes = notes });
+        return ToolOutput.Report(sb.ToString(), new MinidumpService.DumpReport(id, view) { Items = modules.Cast<object>().ToList(), Notes = notes });
     }
 
     private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun,

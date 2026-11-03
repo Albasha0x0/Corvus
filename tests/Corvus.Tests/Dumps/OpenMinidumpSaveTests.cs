@@ -97,6 +97,32 @@ public sealed class OpenMinidumpSaveTests : IDisposable
     }
 
     [Fact]
+    public async Task A_writing_call_keeps_its_rows_behind_one_result_id()
+    {
+        var names = Enumerable.Range(0, 60).Select(i => $"module{i:D2}.dll").ToList();
+        var dump = ModuleDump(names);
+        await using var server = await InProcessServer.StartAsync();
+
+        var first = await server.Client.CallToolAsync("open_minidump",
+            new Dictionary<string, object?> { ["path"] = dump, ["view"] = "modules", ["outputPath"] = _dir.File("one-id") });
+        var id = first.StructuredContent!.Value.GetProperty("resultId").GetString()!;
+        var firstText = string.Concat(first.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(t => t.Text));
+        var text = new System.Text.StringBuilder();
+        int offset = 0;
+        for (int page = 0; page < 200; page++)
+        {
+            var read = await server.Client.CallToolAsync("read_result", new Dictionary<string, object?> { ["id"] = id, ["offset"] = offset, ["maxTokens"] = 2_000 });
+            text.Append(string.Concat(read.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(t => t.Text)));
+            if (!read.StructuredContent!.Value.TryGetProperty("nextOffset", out var next)) break;
+            offset = next.GetInt32();
+        }
+
+        Assert.All(names, n => Assert.Contains(n, text.ToString()));
+        Assert.DoesNotContain("read_result id=", text.ToString().Replace($"id={id}", ""));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(firstText, "r-[0-9a-f]{12}").Select(m => m.Value).Distinct());
+    }
+
+    [Fact]
     public async Task The_module_option_saves_only_the_named_module()
     {
         var dump = TwoModuleDump();
