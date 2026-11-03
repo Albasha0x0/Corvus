@@ -31,8 +31,90 @@ public static class PeImportRestore
     /// unless <paramref name="file"/>, the file of the same build, has no import directory either: the check is then skipped.
     /// A null <paramref name="file"/> means the file is unknown.
     /// </summary>
-    public static ImportSummary? Restore(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, List<RebuildCheck> checks, CancellationToken ct, byte[]? file = null) =>
-        Run(ref image, ref captured, memory, mode, true, checks, ct, file);
+    public static ImportSummary? Restore(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, List<RebuildCheck> checks, CancellationToken ct, byte[]? file = null)
+    {
+        // Tables are read first: restoring the directory overwrites their slots.
+        var tables = mode == ImportMode.Restore && memory != null ? LateBound(image, captured, memory, file) : [];
+        var summary = Run(ref image, ref captured, memory!, mode, true, checks, ct, file);
+        return tables.Count == 0 ? summary : AddLateBound(ref image, ref captured, tables, summary, checks);
+    }
+
+    // Tables of two or more export addresses in data the file holds as zeros; none when the image cannot be parsed.
+    private static IReadOnlyList<LateBoundRun> LateBound(byte[] image, CapturedImage captured, IProcessMemory memory, byte[]? file)
+    {
+        try
+        {
+            var pe = PeFile.FromBytes(file ?? image);
+            return [.. LateBoundPointers.Find(image, captured, pe, memory, new ExportMap(memory)).Where(r => r.IsTable)];
+        }
+        catch (Exception e) when (e is InvalidDataException or ArgumentException or IOException or IndexOutOfRangeException)
+        {
+            return [];
+        }
+    }
+
+    // Adds a descriptor for each table the directory does not cover, after the descriptors it keeps.
+    private static ImportSummary? AddLateBound(ref byte[] image, ref CapturedImage captured, IReadOnlyList<LateBoundRun> tables, ImportSummary? summary, List<RebuildCheck> checks)
+    {
+        if (!TryDirectory(image, out bool is64, out uint dirRva, out uint dirSize)) return summary;
+        int width = is64 ? 8 : 4;
+        List<byte> kept = [];
+        HashSet<uint> covered = [];
+        if (dirRva != 0 && dirSize != 0)
+        {
+            for (long at = dirRva; at + DescriptorSize <= image.Length && at + DescriptorSize <= (long)dirRva + dirSize; at += DescriptorSize)
+            {
+                var d = image.AsSpan((int)at, DescriptorSize);
+                if (!d.ContainsAnyExcept((byte)0)) break;
+                kept.AddRange(d.ToArray());
+                uint first = BinaryPrimitives.ReadUInt32LittleEndian(d[16..]);
+                for (long slot = first; first != 0 && slot + width <= image.Length && covered.Count < MaxSlots && Read(image, (int)slot, width) != 0; slot += width)
+                    covered.Add((uint)slot);
+            }
+        }
+
+        List<(string Module, List<ImportSlot> Slots)> chunks = [];
+        int slots = 0, count = 0;
+        foreach (var run in tables.Where(t => !t.SlotRvas.Any(covered.Contains)))
+        {
+            count++;
+            slots += run.SlotRvas.Count;
+            string? module = null;
+            for (int i = 0; i < run.SlotRvas.Count; i++)
+            {
+                string name = run.Names[i];
+                string owner = name.Contains('!') ? name[..name.LastIndexOf('!')] : name;
+                if (owner != module) chunks.Add((module = owner, []));
+                chunks[^1].Slots.Add(new ImportSlot(run.SlotRvas[i], name));
+            }
+        }
+        if (count == 0) return summary;
+
+        var (added, note) = WriteDirectory(ref image, ref captured, chunks, is64, kept.ToArray());
+        string tail = added
+            ? $"{slots} late-bound slots in {count} tables added from memory"
+            : $"{slots} late-bound slots in {count} tables not added" + (note is null ? "" : $": {note}");
+        int index = checks.FindLastIndex(c => c.Name == "imports");
+        if (index >= 0)
+        {
+            var check = checks[index];
+            string state = check.State == "skipped" ? "partial" : check.State;
+            checks[index] = new RebuildCheck("imports", state, $"{check.Detail}; {tail}");
+        }
+        else checks.Add(RebuildCheck.Partial("imports", tail));
+        if (!added) return summary;
+
+        var names = chunks.SelectMany(c => c.Slots).Select(s => new ResolvedImport($"0x{s.Rva:X}", s.Name!)).ToList();
+        if (summary is null)
+            return new ImportSummary(chunks.Select(c => c.Module).Distinct().Count(), 0, names.Count, 0, true) { Names = names };
+        return summary with
+        {
+            Modules = summary.Modules + chunks.Select(c => c.Module).Distinct().Count(),
+            Resolved = summary.Resolved + names.Count,
+            DirectoryRebuilt = true,
+            Names = [.. summary.Names, .. names],
+        };
+    }
 
     private static ImportSummary? Run(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, bool grow, List<RebuildCheck> checks, CancellationToken ct, byte[]? file = null)
     {
@@ -199,7 +281,6 @@ public static class PeImportRestore
     // with the address table left in place.
     private static (bool Added, string? Note) AddDirectory(ref byte[] image, ref CapturedImage captured, ImportScanResult found, bool is64)
     {
-        int width = is64 ? 8 : 4;
         List<(string Module, List<ImportSlot> Slots)> chunks = [];
         foreach (var run in found.Runs)
         {
@@ -212,6 +293,14 @@ public static class PeImportRestore
             }
             if (current.Count > 0) chunks.Add((run.Module, current));
         }
+        return WriteDirectory(ref image, ref captured, chunks, is64, []);
+    }
+
+    // Appends a descriptor per chunk after the kept descriptors, in a new
+    // section that holds the whole directory.
+    private static (bool Added, string? Note) WriteDirectory(ref byte[] image, ref CapturedImage captured, List<(string Module, List<ImportSlot> Slots)> chunks, bool is64, byte[] kept)
+    {
+        int width = is64 ? 8 : 4;
         if (chunks.Count == 0) return (false, "no slot is named");
 
         long slots = chunks.Sum(c => (long)c.Slots.Count + 1);
@@ -221,12 +310,14 @@ public static class PeImportRestore
         long nameBytes = chunks.Sum(c => c.Slots.Sum(s => EntryBytes(s.Name!)));
         if (nameBytes + moduleBytes > MaxNameBytes) return (false, $"import names past the bound of {MaxNameBytes >> 20} MB");
 
-        long descriptorBytes = (chunks.Count + 1L) * DescriptorSize;
+        int keptCount = kept.Length / DescriptorSize;
+        long descriptorBytes = (keptCount + chunks.Count + 1L) * DescriptorSize;
         long lookupStart = (descriptorBytes + 7) & ~7L;
         long moduleStart = lookupStart + slots * width;
         long size = moduleStart + moduleBytes + nameBytes;
         if (TryGrow(image, size, out var grown, out long start) is { } refusal) return (false, refusal);
 
+        kept.CopyTo(grown, (int)start);
         Dictionary<string, long> moduleAt = [];
         long nameAt = start + moduleStart;
         foreach (var m in modules)
@@ -239,7 +330,7 @@ public static class PeImportRestore
         for (int i = 0; i < chunks.Count; i++)
         {
             var (module, chunk) = chunks[i];
-            var d = grown.AsSpan((int)(start + i * (long)DescriptorSize), DescriptorSize);
+            var d = grown.AsSpan((int)(start + (keptCount + i) * (long)DescriptorSize), DescriptorSize);
             BinaryPrimitives.WriteUInt32LittleEndian(d, (uint)lookupAt);
             BinaryPrimitives.WriteUInt32LittleEndian(d[12..], (uint)moduleAt[module]);
             BinaryPrimitives.WriteUInt32LittleEndian(d[16..], chunk[0].Rva);
