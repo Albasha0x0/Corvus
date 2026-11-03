@@ -214,8 +214,10 @@ public static class DiskCompare
         var (system, wow) = SystemFolders.Value ?? (Environment.GetFolderPath(Environment.SpecialFolder.System), Environment.GetFolderPath(Environment.SpecialFolder.SystemX86));
         if (SystemFolders.Value == null && !OperatingSystem.IsWindows()) return null;
         if (system.Length == 0 || wow.Length == 0 || system.Equals(wow, StringComparison.OrdinalIgnoreCase)) return null;
-        var prefix = system.TrimEnd('\\') + "\\";
-        return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? Path.Combine(wow, path[prefix.Length..]) : null;
+        // Recorded paths use either separator, whatever the host's own is.
+        var root = system.TrimEnd('\\', '/');
+        if (path.Length <= root.Length + 1 || !path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return null;
+        return path[root.Length] is '\\' or '/' ? Path.Combine(wow, path[(root.Length + 1)..]) : null;
     }
 
     /// <summary>True when the file's time stamp and image size equal the captured headers; unreadable files are not the same build.</summary>
