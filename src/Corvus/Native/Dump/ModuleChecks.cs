@@ -122,7 +122,8 @@ public static class ModuleChecks
         // The loader writes into other code sections (hot-patch thunks, import stubs); .text is the code the program shipped.
         var sections = code.Where(s => s.Name == ".text").ToList() is { Count: > 0 } text ? text : code.Take(1).ToList();
         if (sections.Count == 0) return new CodeComparison("unknown", "the file has no read-only code section");
-        long delta = unchecked((long)module.Base - (long)image.ImageBase);
+        // The loader maps an IL-only image without applying its relocations.
+        long delta = IsIlOnly(image) ? 0 : unchecked((long)module.Base - (long)image.ImageBase);
         var pointer = image.Is64Bit ? PeRelocationType.Dir64 : PeRelocationType.HighLow;
         var relocations = image.BaseRelocations.Where(r => r.Type == pointer).OrderBy(r => r.Rva).ToList();
         long budget = limit, pages = 0, missing = 0, differing = 0, bytesDiffering = 0;
@@ -172,6 +173,14 @@ public static class ModuleChecks
         if (missing > 0 || capped || pages - missing == 0)
             return new CodeComparison("partial", scope + (missing > 0 ? "; the other pages are not in the dump" : ""));
         return new CodeComparison("same", scope);
+    }
+
+    /// <summary>True when the file's CLR header has the IL-only flag; false when it has no CLR header or it cannot be read.</summary>
+    private static bool IsIlOnly(PeFile image)
+    {
+        var clr = image.Directory(PeDirectory.ClrRuntimeHeader);
+        Span<byte> flags = stackalloc byte[4];
+        return clr.Rva != 0 && image.Read(clr.Rva + 16, flags) == 4 && (BinaryPrimitives.ReadUInt32LittleEndian(flags) & 1) != 0;
     }
 
     /// <summary>Adds the load delta to each pointer-sized field the base relocation table places in [rva, rva + length), as the loader did.</summary>
