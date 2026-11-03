@@ -69,5 +69,29 @@ public sealed class ImportRedirectsMachineTests : IDisposable
         Assert.Equal("other.dll+0x1004", row.Target);
     }
 
-}
+    [Fact]
+    public void A_changed_address_table_slot_no_import_names_is_a_redirect_naming_its_module()
+    {
+        var other = RebuildFixtures.Build(Spec(false));
+        byte[] pointer = BitConverter.GetBytes((uint)(Other32 + 0x1004));
+        var spec = new PeSpec(false, [new SectionSpec(".text", 0x60000020, [.. pointer, 0xC3, 0xCC, 0xCC, 0xCC])]);
+        var built = RebuildFixtures.Build(spec);
+        // Data directory 12 (address table) covers the first four bytes of
+        // .text.
+        byte[] file = built.Bytes.ToArray();
+        int optional = BitConverter.ToInt32(file, 0x3C) + 24;
+        BitConverter.GetBytes(0x1000u).CopyTo(file, optional + 96 + 12 * 8);
+        BitConverter.GetBytes(4u).CopyTo(file, optional + 96 + 12 * 8 + 4);
+        // The file holds a zero where the dump holds the pointer.
+        byte[] onDisk = file.ToArray();
+        int at = file.AsSpan().IndexOf(pointer);
+        onDisk.AsSpan(at, 4).Clear();
+        var app = built with { Bytes = file };
+
+        var row = Assert.Single(Run(app, onDisk, new Placed("app.exe", app, 0x10000000UL), new Placed("other.dll", other, Other32)));
+
+        Assert.Equal("redirected", row.State);
+        Assert.Null(row.Expected);
+        Assert.Equal("other.dll+0x1004", row.Target);
+    }
 }

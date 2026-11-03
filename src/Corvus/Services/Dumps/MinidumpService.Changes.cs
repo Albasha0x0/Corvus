@@ -265,7 +265,7 @@ public sealed partial class MinidumpService
             string section = disk.Sections.FirstOrDefault(x => x.Contains(slot.SlotRva))?.Name ?? "";
             bool known = slot.State == "redirected";
             string description = known
-                ? $"holds 0x{slot.Actual:X}{Where(memory, exports, slot.Actual)}, the export is at 0x{slot.Expected:X}"
+                ? $"holds 0x{slot.Actual:X}{Where(memory, exports, slot.Actual)}" + (slot.Expected is { } expected ? $", the export is at 0x{expected:X}" : ", no import names the slot")
                 : slot.Reason ?? "not checked";
             if (slot.Via != null) description += $"; resolved through the {slot.Via} API set map";
             int width = disk.Is64Bit ? 8 : 4;

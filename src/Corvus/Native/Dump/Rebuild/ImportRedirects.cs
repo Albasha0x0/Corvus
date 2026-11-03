@@ -44,17 +44,20 @@ public static class ImportRedirects
     /// A contract name (api-ms-*, ext-ms-*) resolves through <paramref name="dumpApiSets"/> when given, else through the system map;
     /// a row names that map in <see cref="ImportRedirect.Via"/>, and an unmapped contract stays unknown.
     /// A module name binds to the loaded module of the importer's machine, else of its bitness, else the first of that name.
-    /// A slot equal to the same slot of <paramref name="disk"/> (an unbound import) is not listed.
+    /// A slot equal to the same slot of <paramref name="disk"/> (an unbound import) is not listed;
+    /// with <paramref name="disk"/>, a changed slot of the address table that no import names is listed with a null <see cref="ImportRedirect.Expected"/>.
     /// </summary>
     public static IReadOnlyList<ImportRedirect> Find(
         byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory, ApiSetSchema? dumpApiSets = null, PeFile? disk = null)
     {
         List<ImportRedirect> rows = [];
-        if (!PeImportRestore.TryDirectory(mapped, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0) return rows;
+        if (!PeImportRestore.TryDirectory(mapped, out bool is64, out uint dirRva, out uint dirSize)) return rows;
+        if (dirRva == 0 || dirSize == 0) return disk is null ? rows : UnnamedSlots(mapped, captured, exports, memory, disk, is64, []);
 
         var index = new Index(memory, exports, dumpApiSets);
         ushort machine = BinaryPrimitives.ReadUInt16LittleEndian(mapped.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(mapped.AsSpan(0x3C)) + 4));
         var onDisk = new byte[8];
+        HashSet<long> covered = [];
         int width = is64 ? 8 : 4;
         long count = dirSize / DescriptorSize;
         int slots = 0;
@@ -77,6 +80,7 @@ public static class ImportRedirects
             for (long slot = 0; slots < MaxSlots; slot++, slots++)
             {
                 long lookupAt = lookup + slot * width, slotAt = first + slot * width;
+                covered.Add(slotAt);
                 if (lookupAt + width > mapped.Length || slotAt + width > mapped.Length) break;
                 if (!captured.PageCaptured((uint)lookupAt))
                 {
@@ -110,6 +114,49 @@ public static class ImportRedirects
                 else if (expected != actual)
                     rows.Add(new ImportRedirect((uint)slotAt, import, "redirected", expected, actual, null, via, Target(exports, memory, actual)));
             }
+        }
+        if (disk is not null) rows.AddRange(UnnamedSlots(mapped, captured, exports, memory, disk, is64, covered));
+        return rows;
+    }
+
+    // Pointers in the section of the import address table that no import
+    // descriptor names and that differ from the file, such as one the loader
+    // set for the process. A pointer holding its file value moved by the load
+    // address is not a change.
+    private static List<ImportRedirect> UnnamedSlots(
+        byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory, PeFile disk, bool is64, HashSet<long> covered)
+    {
+        List<ImportRedirect> rows = [];
+        int width = is64 ? 8 : 4;
+        long directory = BinaryPrimitives.ReadInt32LittleEndian(mapped.AsSpan(0x3C)) + 24L + (is64 ? 112 : 96) + 12 * 8;
+        if (directory + 8 > mapped.Length) return rows;
+        uint rva = BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan((int)directory));
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(mapped.AsSpan((int)directory + 4));
+        if (rva == 0 || size == 0) return rows;
+
+        // Slots of the table itself, then every fixup site of its section.
+        SortedSet<long> sites = [];
+        for (long at = rva; at + width <= (long)rva + size; at += width) sites.Add(at);
+        var section = disk.Sections.FirstOrDefault(x => x.Contains(rva));
+        if (section is not null)
+            foreach (uint site in disk.RelocationRvas)
+                if (section.Contains(site)) sites.Add(site);
+
+        ulong delta = captured.Target.Base - disk.ImageBase;
+        ulong mask = is64 ? ulong.MaxValue : uint.MaxValue;
+        var onDisk = new byte[8];
+        foreach (long at in sites)
+        {
+            if (rows.Count >= MaxSlots) break;
+            if (covered.Contains(at) || at + width > mapped.Length) continue;
+            if (!captured.PageCaptured((uint)at) || !captured.PageCaptured((uint)(at + width - 1))) continue;
+            if (disk.Read((uint)at, onDisk.AsSpan(0, width)) != width) continue;
+            ulong actual = Read(mapped, (int)at, width);
+            ulong file = Read(onDisk, 0, width);
+            if (actual == 0 || actual == file || actual == ((file + delta) & mask)) continue;
+            string? target = Target(exports, memory, actual);
+            if (target is null) continue;
+            rows.Add(new ImportRedirect((uint)at, "(not imported)", "redirected", null, actual, null, null, target));
         }
         return rows;
     }
