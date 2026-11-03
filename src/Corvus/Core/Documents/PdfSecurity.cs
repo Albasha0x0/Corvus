@@ -30,6 +30,7 @@ internal sealed class PdfSecurity
         var trailer = pdf.Trailer;
         if (trailer == null || trailer["Encrypt"] == null) return null;
         if (pdf.Resolve(trailer["Encrypt"]) is not PdfDict e) { pdf.Notes.Add("the /Encrypt dictionary is missing"); return null; }
+        if (e.Name("Filter") != "Standard") { pdf.Notes.Add($"security handler /{e.Name("Filter")} is not read"); return null; }
         try
         {
             // Only the caller's password and the empty one are tried.
@@ -39,7 +40,7 @@ internal sealed class PdfSecurity
             bool usedGiven = s != null;
             s ??= Standard(pdf, e, trailer, "");
             pdf.Notes.Add(s == null
-                ? given != null ? "encrypted with a user password: the password did not decrypt it; strings and streams are not decrypted" : "encrypted with a user password: strings and streams are not decrypted; pass password to read them"
+                ? given != null ? "encrypted with a user password: the password did not decrypt it and the owner password is not tried; strings and streams are not decrypted" : "encrypted with a user password: strings and streams are not decrypted; pass password to read them"
                 : $"encrypted ({s.Description}) with {(usedGiven ? "the given" : "the empty")} user password: decrypted");
             return s;
         }
@@ -52,7 +53,6 @@ internal sealed class PdfSecurity
 
     private static PdfSecurity? Standard(PdfFile pdf, PdfDict e, PdfDict trailer, string given)
     {
-        if (e.Name("Filter") != "Standard") { pdf.Notes.Add($"security handler /{e.Name("Filter")} is not read"); return null; }
         int v = Int(pdf.Resolve(e["V"]), 0), r = Int(pdf.Resolve(e["R"]), 2);
         byte[] o = Bytes(pdf.Resolve(e["O"])), u = Bytes(pdf.Resolve(e["U"]));
         string streams = "RC4", strings = "RC4";
