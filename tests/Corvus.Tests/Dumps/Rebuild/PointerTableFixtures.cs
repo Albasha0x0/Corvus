@@ -50,7 +50,8 @@ internal static class PointerTableFixtures
     private const uint DataSize = 0x1000;
     private const uint Page = 0x1000;
 
-    // Provider exports in ordinal order: five by name, one by ordinal only, one forwarded.
+    // Provider exports in ordinal order: five by name, one by ordinal only, one
+    // forwarded.
     private static readonly string[] Cycle =
     [
         "Alpha", "Beta", "Delta", "Gamma", "#6", "Fwd",
@@ -252,7 +253,8 @@ internal static class PointerTableFixtures
         if (rawSize == 0) BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(row.Header + 20), 0);
     }
 
-    // Makes "Fwd" a forwarder and "~ord" an export by ordinal only; returns the forwarder string's RVA.
+    // Makes "Fwd" a forwarder and "~ord" an export by ordinal only; returns the
+    // forwarder string's RVA.
     private static uint PatchExports(byte[] file, string forwarder)
     {
         var row = Sections(file).First(s => s.Name == ".edata");

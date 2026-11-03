@@ -39,7 +39,8 @@ public static class ChangePatterns
             .ToList();
     }
 
-    // Reduces a known target to its module; unbacked, committed memory and not a pointer stay whole.
+    // Reduces a known target to its module; unbacked, committed memory and not
+    // a pointer stay whole.
     private static string TargetGroup(string targetKind)
     {
         if (targetKind is "unbacked" or "committed memory" or "not a pointer") return targetKind;

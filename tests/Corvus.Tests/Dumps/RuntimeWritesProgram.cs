@@ -59,7 +59,8 @@ internal static class RuntimeWritesProgram
 
         static void* table[8];
 
-        // Writes a jump to target: mov rax, imm64; jmp rax on x64, push imm32; ret on x86.
+        // Writes a jump to target: mov rax, imm64; jmp rax on x64, push imm32;
+        // ret on x86.
         static int emit_jump(unsigned char* p, void* target)
         {
         #ifdef _WIN64

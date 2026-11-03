@@ -23,7 +23,8 @@ public sealed class DumpSlotChainTests : FileIsolationTestBase
                 ImageBase: at, Exports: exports, Imports: imports);
         var lib = RebuildFixtures.Build(Spec(libBase, [new ExportSpec("target", ExportRva), new ExportSpec("spare", SpareRva)]));
         var app = RebuildFixtures.Build(Spec(appBase, null, [new ImportSpec("lib.dll", ["target"])]));
-        // The fixture leaves the import address table directory empty; the file declares the slot as one.
+        // The fixture leaves the import address table directory empty; the file
+        // declares the slot as one.
         int appFileNt = BinaryPrimitives.ReadInt32LittleEndian(app.Bytes.AsSpan(0x3C));
         int iatEntry = appFileNt + 24 + (is64 ? 112 : 96) + 12 * 8;
         uint slotRva = app.IatSlots["lib.dll!target"];

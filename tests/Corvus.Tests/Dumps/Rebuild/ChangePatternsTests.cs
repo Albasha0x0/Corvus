@@ -6,11 +6,11 @@ namespace Corvus.Tests;
 /// <summary>Changed code with one instruction shape forms one group.</summary>
 public sealed class ChangePatternsTests
 {
-    // mov rax, gs:[0x30]; jmp qword ptr [rax+disp32]
+    // Encodes mov rax, gs:[0x30]; jmp qword ptr [rax+disp32].
     private static byte[] Stub64(int disp)
         => [0x65, 0x48, 0x8B, 0x04, 0x25, 0x30, 0x00, 0x00, 0x00, 0xFF, 0xA0, .. BitConverter.GetBytes(disp)];
 
-    // mov eax, imm32; jmp rel32
+    // Encodes mov eax, imm32; jmp rel32.
     private static byte[] Stub32(int imm, int rel)
         => [0xB8, .. BitConverter.GetBytes(imm), 0xE9, .. BitConverter.GetBytes(rel)];
 

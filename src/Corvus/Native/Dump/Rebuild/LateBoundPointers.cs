@@ -55,7 +55,8 @@ public static class LateBoundPointers
         return runs;
     }
 
-    // Past the raw data is zero by definition; inside it the file bytes decide, and a straddling slot is skipped.
+    // Past the raw data is zero by definition; inside it the file bytes decide,
+    // and a straddling slot is skipped.
     private static bool ZeroInFile(PeFile file, NativeSection section, long rawSize, long at, int width, bool fileHasRawData)
     {
         long offset = at - section.Rva;

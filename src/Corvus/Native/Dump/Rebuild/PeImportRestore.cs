@@ -39,7 +39,8 @@ public static class PeImportRestore
         return tables.Count == 0 ? summary : AddLateBound(ref image, ref captured, tables, summary, checks);
     }
 
-    // Tables of two or more export addresses in data the file holds as zeros; none when the image cannot be parsed.
+    // Tables of two or more export addresses in data the file holds as zeros;
+    // none when the image cannot be parsed.
     private static IReadOnlyList<LateBoundRun> LateBound(byte[] image, CapturedImage captured, IProcessMemory memory, byte[]? file)
     {
         try
@@ -53,7 +54,8 @@ public static class PeImportRestore
         }
     }
 
-    // Adds a descriptor for each table the directory does not cover, after the descriptors it keeps.
+    // Adds a descriptor for each table the directory does not cover, after the
+    // descriptors it keeps.
     private static ImportSummary? AddLateBound(ref byte[] image, ref CapturedImage captured, IReadOnlyList<LateBoundRun> tables, ImportSummary? summary, List<RebuildCheck> checks)
     {
         if (!TryDirectory(image, out bool is64, out uint dirRva, out uint dirSize)) return summary;
