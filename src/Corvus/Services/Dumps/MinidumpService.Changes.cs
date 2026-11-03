@@ -19,8 +19,10 @@ public sealed partial class MinidumpService
     /// <param name="MemoryBytes">Hex of the memory bytes, cut to <see cref="ImageChanges.MaxBytes"/>.</param>
     /// <param name="BeforeBytes">Hex of the bytes in the other dump, set only when two dumps are compared.</param>
     /// <param name="AfterBytes">Hex of the bytes in the dump opened, set only when two dumps are compared.</param>
+    /// <param name="Via">The API set map that resolved an import contract name, <c>dump</c> or <c>system</c>; null otherwise.</param>
     public sealed record ModuleChange(string Module, string Section, string Start, string Rva, int Length, string Kind, string? Name,
-        string? Description, string? File, string? FileBytes, string? MemoryBytes, string? BeforeBytes = null, string? AfterBytes = null);
+        string? Description, string? File, string? FileBytes, string? MemoryBytes, string? BeforeBytes = null, string? AfterBytes = null,
+        string? Via = null);
 
     /// <summary>
     /// The ranges changed in memory for each module <paramref name="module"/> names (default all), compared with its file of the same build,
@@ -265,9 +267,11 @@ public sealed partial class MinidumpService
             string description = known
                 ? $"holds 0x{slot.Actual:X}{Where(memory, exports, slot.Actual)}, the export is at 0x{slot.Expected:X}"
                 : slot.Reason ?? "not checked";
+            if (slot.Via != null) description += $"; resolved through the {slot.Via} API set map";
             int width = disk.Is64Bit ? 8 : 4;
             rows.Add(new ModuleChange(target.Name, section, $"0x{address:X}", $"0x{slot.SlotRva:X}", width, known ? "import" : "unknown", slot.Import,
-                description, filePath, null, known && slot.Actual is { } actual ? Convert.ToHexStringLower(BitConverter.GetBytes(actual)[..width]) : null));
+                description, filePath, null, known && slot.Actual is { } actual ? Convert.ToHexStringLower(BitConverter.GetBytes(actual)[..width]) : null,
+                Via: slot.Via));
         }
         return rows;
     }
