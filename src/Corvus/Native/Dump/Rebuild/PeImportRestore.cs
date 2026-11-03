@@ -27,6 +27,7 @@ public static class PeImportRestore
     /// As the overload without ref, and the slots named from exports are written into a new <c>.idata2</c> section;
     /// <paramref name="image"/> and <paramref name="captured"/> are then replaced by larger copies.
     /// Without room in the section table, or past 64 K slots or 16 MB of names, the names stay in the result and the check is partial.
+    /// An image with no readable import directory gets one in <c>.idata2</c> from the slots <see cref="ImportScan"/> finds.
     /// </summary>
     public static ImportSummary? Restore(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, ImportMode mode, List<RebuildCheck> checks, CancellationToken ct) =>
         Run(ref image, ref captured, memory, mode, true, checks, ct);
@@ -38,8 +39,9 @@ public static class PeImportRestore
             checks.Add(RebuildCheck.Skipped("imports", "kept as loaded"));
             return null;
         }
-        if (!TryDirectory(image, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0)
+        if (!TryDirectory(image, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0 || dirRva >= image.Length)
         {
+            if (grow && memory != null && TryDirectory(image, out is64, out _, out _)) return Rebuild(ref image, ref captured, memory, is64, checks);
             checks.Add(RebuildCheck.Skipped("imports", "no import directory"));
             return null;
         }
@@ -113,6 +115,29 @@ public static class PeImportRestore
         return summary;
     }
 
+    private static ImportSummary? Rebuild(ref byte[] image, ref CapturedImage captured, IProcessMemory memory, bool is64, List<RebuildCheck> checks)
+    {
+        var found = ImportScan.Find(image, captured, new ExportMap(memory));
+        if (found == null)
+        {
+            checks.Add(RebuildCheck.Skipped("imports", "no import directory and no import address table found"));
+            return null;
+        }
+
+        int total = found.Slots.Count(), unnamed = found.Unnamed;
+        var (added, note) = AddDirectory(ref image, ref captured, found, is64);
+        var named = found.Slots.Where(s => s.Name is not null).ToList();
+        var summary = new ImportSummary(found.Runs.Select(r => r.Module).Distinct().Count(), 0, named.Count, unnamed, added)
+        {
+            Names = named.Count == 0 ? [] : [.. named.Select(s => new ResolvedImport($"0x{s.Rva:X}", s.Name!))],
+        };
+        if (added && unnamed == 0)
+            checks.Add(RebuildCheck.Ok("imports", $"directory rebuilt from {total} slots ({(found.Source == "directory" ? "iat directory" : "scan")})"));
+        else
+            checks.Add(RebuildCheck.Partial("imports", $"{(added ? $"directory rebuilt from {total} slots ({(found.Source == "directory" ? "iat directory" : "scan")})" : $"{total} slots found, directory not rebuilt")}; {unnamed} unnamed" + (note is null || added ? "" : $"; {note}")));
+        return summary;
+    }
+
     // A descriptor is rewritten only when each of its slots is named or restored.
     private static (bool Added, string? Note) AddSection(ref byte[] image, ref CapturedImage captured, List<Descriptor> descriptors, List<(uint Rva, string Name)> names, bool is64)
     {
@@ -126,27 +151,8 @@ public static class PeImportRestore
         long nameBytes = chosen.Sum(d => d.Slots.Where(s => nameBy.ContainsKey(s.Rva)).Sum(s => EntryBytes(nameBy[s.Rva])));
         if (nameBytes > MaxNameBytes) return (false, $"import names past the bound of {MaxNameBytes >> 20} MB");
 
-        int nt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
-        int coff = nt + 4, opt = coff + 20;
-        int sections = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(coff + 2));
-        int table = opt + BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(coff + 16));
-        long headerEnd = Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 60)), image.Length);
-        for (int i = 0; i < sections && table + 40L * i + 40 <= image.Length; i++)
-        {
-            uint va = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(table + 40 * i + 12));
-            if (va != 0) headerEnd = Math.Min(headerEnd, va);
-        }
-        if (sections >= PeLimits.MaxSections || table + 40L * (sections + 1) > headerEnd) return (false, "no room for an import section");
-
-        uint alignment = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 32));
-        if (alignment == 0 || (alignment & (alignment - 1)) != 0 || alignment > 0x10000) alignment = 0x1000;
-        uint imageSize = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 56));
-        long start = Align(Math.Max(imageSize, (uint)image.Length), alignment);
         long size = slots * width + nameBytes;
-        if (start + size > ModuleRebuild.MaxImageBytes) return (false, $"import section would exceed {ModuleRebuild.MaxImageBytes >> 20} MB");
-
-        var grown = new byte[Align((uint)(start + size), 0x1000)];
-        image.CopyTo(grown, 0);
+        if (TryGrow(image, size, out var grown, out long start) is { } refusal) return (false, refusal);
         long lookupAt = start, nameAt = start + slots * width;
         foreach (var d in chosen)
         {
@@ -171,6 +177,128 @@ public static class PeImportRestore
             lookupAt += width;
         }
 
+        Seal(grown, ref captured, start, size);
+        image = grown;
+        return (true, "names written to .idata2");
+    }
+
+    // No import directory: a descriptor is built for each run of named slots,
+    // with the address table left in place.
+    private static (bool Added, string? Note) AddDirectory(ref byte[] image, ref CapturedImage captured, ImportScanResult found, bool is64)
+    {
+        int width = is64 ? 8 : 4;
+        List<(string Module, List<ImportSlot> Slots)> chunks = [];
+        foreach (var run in found.Runs)
+        {
+            List<ImportSlot> current = [];
+            foreach (var slot in run.Slots)
+            {
+                if (slot.Name is not null) { current.Add(slot); continue; }
+                if (current.Count > 0) chunks.Add((run.Module, current));
+                current = [];
+            }
+            if (current.Count > 0) chunks.Add((run.Module, current));
+        }
+        if (chunks.Count == 0) return (false, "no slot is named");
+
+        long slots = chunks.Sum(c => (long)c.Slots.Count + 1);
+        if (slots > MaxSlots) return (false, $"import names past the bound of {MaxSlots} slots");
+        var modules = chunks.Select(c => c.Module).Distinct().ToList();
+        long moduleBytes = modules.Sum(m => (Encoding.UTF8.GetByteCount(m) + 2) & ~1L);
+        long nameBytes = chunks.Sum(c => c.Slots.Sum(s => EntryBytes(s.Name!)));
+        if (nameBytes + moduleBytes > MaxNameBytes) return (false, $"import names past the bound of {MaxNameBytes >> 20} MB");
+
+        long descriptorBytes = (chunks.Count + 1L) * DescriptorSize;
+        long lookupStart = (descriptorBytes + 7) & ~7L;
+        long moduleStart = lookupStart + slots * width;
+        long size = moduleStart + moduleBytes + nameBytes;
+        if (TryGrow(image, size, out var grown, out long start) is { } refusal) return (false, refusal);
+
+        Dictionary<string, long> moduleAt = [];
+        long nameAt = start + moduleStart;
+        foreach (var m in modules)
+        {
+            moduleAt[m] = nameAt;
+            Encoding.UTF8.GetBytes(m).CopyTo(grown, (int)nameAt);
+            nameAt += (Encoding.UTF8.GetByteCount(m) + 2) & ~1L;
+        }
+        long lookupAt = start + lookupStart;
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var (module, chunk) = chunks[i];
+            var d = grown.AsSpan((int)(start + i * (long)DescriptorSize), DescriptorSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(d, (uint)lookupAt);
+            BinaryPrimitives.WriteUInt32LittleEndian(d[12..], (uint)moduleAt[module]);
+            BinaryPrimitives.WriteUInt32LittleEndian(d[16..], chunk[0].Rva);
+            foreach (var s in chunk)
+            {
+                ulong entry;
+                if (TryOrdinal(s.Name!, out ushort ordinal)) entry = ordinal | (is64 ? 1UL << 63 : 1UL << 31);
+                else
+                {
+                    entry = (ulong)nameAt;
+                    Encoding.UTF8.GetBytes(Function(s.Name!)).CopyTo(grown, (int)nameAt + 2);
+                    nameAt += EntryBytes(s.Name!);
+                }
+                Write(grown, (int)lookupAt, width, entry);
+                Write(grown, (int)s.Rva, width, entry);
+                lookupAt += width;
+            }
+            lookupAt += width;
+        }
+
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(grown.AsSpan(0x3C));
+        int dir = nt + 24 + (is64 ? 112 : 96) + 8;
+        BinaryPrimitives.WriteUInt32LittleEndian(grown.AsSpan(dir), (uint)start);
+        BinaryPrimitives.WriteUInt32LittleEndian(grown.AsSpan(dir + 4), (uint)descriptorBytes);
+        Seal(grown, ref captured, start, size);
+        image = grown;
+        return (true, "directory written to .idata2");
+    }
+
+    // Checks the section table and size limit; null on success, else the
+    // reason. The new section starts at start.
+    private static string? TryGrow(byte[] image, long size, out byte[] grown, out long start)
+    {
+        grown = image;
+        start = 0;
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int coff = nt + 4, opt = coff + 20;
+        int sections = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(coff + 2));
+        int table = opt + BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(coff + 16));
+        long headerEnd = Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 60)), image.Length);
+        for (int i = 0; i < sections && table + 40L * i + 40 <= image.Length; i++)
+        {
+            uint va = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(table + 40 * i + 12));
+            if (va != 0) headerEnd = Math.Min(headerEnd, va);
+        }
+        if (sections >= PeLimits.MaxSections || table + 40L * (sections + 1) > headerEnd) return "no room for an import section";
+
+        uint alignment = SectionAlignment(image);
+        uint imageSize = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 56));
+        start = Align(Math.Max(imageSize, (uint)image.Length), alignment);
+        if (start + size > ModuleRebuild.MaxImageBytes) return $"import section would exceed {ModuleRebuild.MaxImageBytes >> 20} MB";
+
+        grown = new byte[Align((uint)(start + size), 0x1000)];
+        image.CopyTo(grown, 0);
+        return null;
+    }
+
+    private static uint SectionAlignment(byte[] image)
+    {
+        int opt = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C)) + 24;
+        uint alignment = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(opt + 32));
+        return alignment == 0 || (alignment & (alignment - 1)) != 0 || alignment > 0x10000 ? 0x1000 : alignment;
+    }
+
+    // Writes the .idata2 header, grows the image size and marks the new pages
+    // captured.
+    private static void Seal(byte[] grown, ref CapturedImage captured, long start, long size)
+    {
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(grown.AsSpan(0x3C));
+        int coff = nt + 4, opt = coff + 20;
+        int sections = BinaryPrimitives.ReadUInt16LittleEndian(grown.AsSpan(coff + 2));
+        int table = opt + BinaryPrimitives.ReadUInt16LittleEndian(grown.AsSpan(coff + 16));
         var h = grown.AsSpan(table + 40 * sections, 40);
         Encoding.ASCII.GetBytes(".idata2").CopyTo(h);
         BinaryPrimitives.WriteUInt32LittleEndian(h[8..], (uint)size);
@@ -179,14 +307,12 @@ public static class PeImportRestore
         BinaryPrimitives.WriteUInt32LittleEndian(h[20..], (uint)start);
         BinaryPrimitives.WriteUInt32LittleEndian(h[36..], 0x40000040);
         BinaryPrimitives.WriteUInt16LittleEndian(grown.AsSpan(coff + 2), (ushort)(sections + 1));
-        BinaryPrimitives.WriteUInt32LittleEndian(grown.AsSpan(opt + 56), (uint)Align((uint)(start + size), alignment));
+        BinaryPrimitives.WriteUInt32LittleEndian(grown.AsSpan(opt + 56), (uint)Align((uint)(start + size), SectionAlignment(grown)));
 
         var pages = new bool[grown.Length / 0x1000];
         captured.Captured.AsSpan(0, Math.Min(captured.Captured.Length, pages.Length)).CopyTo(pages);
         for (long page = start / 0x1000; page < pages.Length; page++) pages[page] = true;
         captured = captured with { Image = grown, Captured = pages };
-        image = grown;
-        return (true, "names written to .idata2");
     }
 
     private static string Function(string name) => name[(name.LastIndexOf('!') + 1)..];
