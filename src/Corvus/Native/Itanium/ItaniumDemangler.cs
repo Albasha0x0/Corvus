@@ -15,6 +15,7 @@ public static class ItaniumDemangler
     public static string? Demangle(string? name, bool stripUnderscore = false)
     {
         if (string.IsNullOrEmpty(name) || name.Length > MaxLength) return null;
+        if (RustV0Demangler.IsMangled(name)) return RustV0Demangler.Demangle(name);
         if (stripUnderscore && (name.StartsWith("__Z", StringComparison.Ordinal) || name.StartsWith("____Z", StringComparison.Ordinal))) name = name[1..];
         try
         {
@@ -25,9 +26,9 @@ public static class ItaniumDemangler
         catch (InsufficientExecutionStackException) { return null; }
     }
 
-    /// <summary>Whether <paramref name="name"/> looks mangled (starts with _Z, or ___Z for blocks).</summary>
+    /// <summary>Whether <paramref name="name"/> looks mangled (starts with _Z, ___Z for blocks, or a Rust v0 _R path).</summary>
     public static bool IsMangled(string? name, bool stripUnderscore = false) =>
-        name != null && (name.StartsWith("_Z", StringComparison.Ordinal) || name.StartsWith("___Z", StringComparison.Ordinal)
+        name != null && (RustV0Demangler.IsMangled(name) || name.StartsWith("_Z", StringComparison.Ordinal) || name.StartsWith("___Z", StringComparison.Ordinal)
                          || stripUnderscore && name.StartsWith("__Z", StringComparison.Ordinal));
 
     private sealed class NameState

@@ -119,7 +119,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 | | `list_notes`: notes by status, kind, anchor, tag and text |
 | Native overview | `get_pe_info`: headers, sections, mitigations, signature, anomalies of PE, ELF and Mach-O |
 | | `list_imports`: imports per library, bound to their exports |
-| | `list_exports`: exports with ordinals, forwarders and demangled names |
+| | `list_exports`: exports with ordinals, forwarders and demangled C++ and Rust v0 names |
 | | `resolve_address`: what an address is: section, symbol, function, data, method |
 | | `get_engine_status`: IDA and Ghidra sessions of an image; never starts an engine |
 | Native code | `list_functions`: functions with names, sizes and flags |
