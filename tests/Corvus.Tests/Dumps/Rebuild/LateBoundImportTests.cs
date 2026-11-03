@@ -152,6 +152,7 @@ public sealed class LateBoundImportTests : IDisposable
         Assert.Equal(result.Before, result.Image.Length);
     }
 
+    // Regression for e51134ad5: slots on pages not captured were dropped unnamed.
     [Theory]
     [MemberData(nameof(Cases))]
     public void The_imports_check_names_the_slots_left_out_for_a_page_not_captured(bool is64, SlotPlacement placement)

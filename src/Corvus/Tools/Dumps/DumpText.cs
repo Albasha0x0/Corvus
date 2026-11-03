@@ -67,7 +67,8 @@ internal static class DumpText
         (m.PdbName != null ? $", pdb {m.PdbName}{(m.PdbGuid != null ? $" {m.PdbGuid}/{m.PdbAge}" : "")}" : "") +
         $"; local {m.LocalImage}{(m.LocalPath == null ? $" ({m.LocalDetail})" : m.LocalPath.Equals(m.Path, StringComparison.OrdinalIgnoreCase) ? "" : $" ({m.LocalPath})")}" + (m.Managed == true ? ", .NET" : "") + (m is MinidumpService.CheckedModule c ? Checks(c) + Metadata(c) : "") + $"\n{m.Path}" + (m is MinidumpService.CheckedModule r ? RuntimeSections(r) : "");
 
-    // Written bytes are non-zero bytes past the raw data; unknown bytes lie in pages the dump lacks.
+    // Written bytes are non-zero bytes past the raw data; unknown bytes lie in
+    // pages the dump lacks.
     private static string RuntimeSections(MinidumpService.CheckedModule m) =>
         m.RuntimeSections is null ? "\nsections written at run time: unknown" :
         m.RuntimeSections is not { Count: > 0 } rows ? "" :

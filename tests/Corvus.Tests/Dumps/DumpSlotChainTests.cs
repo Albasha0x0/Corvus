@@ -90,6 +90,7 @@ public sealed class DumpSlotChainTests : FileIsolationTestBase
 
         var text = await new MinidumpTools(service).OpenMinidump(dump, "changes", modules: "lib.dll", imageDirectories: images);
         Assert.Contains("spare: RVA 0x1010 to 0x", text);
+        // Regression for 59c76690f: the chain kept its ", " after an empty location.
         Assert.Matches(@"\((past the image; )?(unbacked, )?then lib\.dll!target \(2 hops\)\)", text);
     }
 }

@@ -78,7 +78,8 @@ public sealed class DumpRuntimeSectionTests
     [InlineData(false)]
     public void Two_sections_with_one_name_get_the_summary_row_before_their_own_rows(bool is64)
     {
-        // Regression for 59c76690f: a name match placed the row before the first section of that name.
+        // Regression for 59c76690f: a name match placed the row before the
+        // first section of that name.
         var spec = new PeSpec(is64,
         [
             new SectionSpec(".same", 0x60000020, Tail(0x40)),

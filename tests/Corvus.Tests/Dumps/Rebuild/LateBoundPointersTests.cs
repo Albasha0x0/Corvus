@@ -96,7 +96,8 @@ public sealed class LateBoundPointersTests : IDisposable
         Assert.Empty(Scan(table));
     }
 
-    // Grows the file's raw data of the table section to rawSize; the fixture left the section's file bytes zero past 0x200.
+    // Grows the file's raw data of the table section to rawSize; the fixture
+    // left the section's file bytes zero past 0x200.
     private static PeFile ScanFile(PointerTable table, uint rawSize, bool fillSlots = false)
     {
         string path = Path.Combine(table.ImageFolder, table.MainName);

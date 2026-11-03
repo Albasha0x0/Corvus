@@ -34,7 +34,8 @@ public sealed class DumpChangeTextTests : IDisposable
     [InlineData(false)]
     public void A_change_inside_an_instruction_is_shown_from_its_start(bool is64)
     {
-        // Regression for 5f8b7e2b5: the file holds mov eax, 0 across its raw data end; memory changes byte 3.
+        // Regression for 5f8b7e2b5: the file holds mov eax, 0 across its raw
+        // data end; memory changes byte 3.
         var image = RuntimeSectionFixtures.ShortRawData(_dir, is64, ".rt", [0xB8, 0, 0], [0x44, 0, 0xC3]);
         Assert.Equal("code changed: mov eax, 440000h; ret", Row(image));
     }
@@ -44,7 +45,8 @@ public sealed class DumpChangeTextTests : IDisposable
     [InlineData(false)]
     public void A_range_after_the_section_start_is_decoded_from_the_section_start(bool is64)
     {
-        // Regression for 5f8b7e2b5: byte 2 of mov eax, 0 changes, 2 bytes after the section start.
+        // Regression for 5f8b7e2b5: byte 2 of mov eax, 0 changes, 2 bytes after
+        // the section start.
         var dump = Text(is64, Section(0x40), m => m[0x1002] = 0x44);
         Assert.Equal("code changed: mov eax, 4400h", Row(dump));
     }

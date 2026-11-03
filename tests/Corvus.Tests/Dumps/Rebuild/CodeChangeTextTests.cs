@@ -60,7 +60,8 @@ public sealed class CodeChangeTextTests
     [InlineData(NativeArch.X64)]
     public void File_bytes_that_do_not_decode_keep_the_range_start_suffix(NativeArch machine)
     {
-        // Regression for 5f8b7e2b5: the suffix was dropped though decoding began at the range start.
+        // Regression for 5f8b7e2b5: the suffix was dropped though decoding
+        // began at the range start.
         byte[] file = [0x0F, 0x04, 0x90, 0x90];
         byte[] memory = [0x0F, 0x04, 0x90, 0xC3];
         var text = CodeChangeText.Describe(memory, file, 0x401000, machine, 0, Names);
@@ -93,7 +94,8 @@ public sealed class CodeChangeTextTests
     [InlineData(NativeArch.X64)]
     public void Memory_changed_before_the_range_decodes_from_the_range_start(NativeArch machine)
     {
-        // The lead-in holds an earlier change inside the instruction that holds the range start.
+        // The lead-in holds an earlier change inside the instruction that holds
+        // the range start.
         byte[] file = [0xB8, 0, 0, 0, 0, 0xC3, 0x90];
         byte[] memory = [0xB9, 0, 0, 0xC3, 0x90, 0xC3, 0x90];
         var text = CodeChangeText.Describe(memory, file, 0x401000, machine, 0, Names, rangeStart: 3);

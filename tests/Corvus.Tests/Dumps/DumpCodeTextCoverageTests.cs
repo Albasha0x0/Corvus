@@ -64,7 +64,8 @@ public sealed class DumpCodeTextCoverageTests : IDisposable
         Assert.DoesNotContain("code changed", row.Description);
     }
 
-    // An ARM64 image: the machine field of an x64 image set to ARM64, with instruction words as code.
+    // An ARM64 image: the machine field of an x64 image set to ARM64, with
+    // instruction words as code.
     private (string Dump, string Folder) Arm64(int rawSize, int offset, uint before, uint after)
     {
         var words = new byte[Math.Max(0x400, offset + 0x100)];
@@ -128,6 +129,7 @@ public sealed class DumpCodeTextCoverageTests : IDisposable
         Assert.Contains("#2", row.Description);
     }
 
+    // Regression for 30bc33af2: a window without a lead-in began mid-word.
     [Fact]
     public void An_arm64_change_past_the_lead_in_limit_is_decoded_from_its_word()
     {
