@@ -19,11 +19,19 @@ public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
     /// does; the repeat joins the running work, and the server's stall rule bounds it.</summary>
     internal static async Task<(string Text, JsonElement Record)> Call(McpClient client, string tool, Dictionary<string, object?> args)
     {
-        var r = await client.CallToolAsync(tool, args);
-        while (r.IsError == true && Text(r).Contains("\"stillRunning\":true", StringComparison.Ordinal))
-            r = await client.CallToolAsync(tool, args);
+        var r = await CallJoined(client, tool, args);
         Assert.True(r.IsError != true, $"{tool}: {Text(r)}");
         return (Text(r), r.StructuredContent ?? default);
+    }
+
+    /// <summary>The result of a call that ends: a "still running" answer is repeated until the work ends, for at most 15 minutes.</summary>
+    internal static async Task<CallToolResult> CallJoined(McpClient client, string tool, Dictionary<string, object?> args)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        var r = await client.CallToolAsync(tool, args);
+        while (r.IsError == true && Text(r).Contains("\"stillRunning\":true", StringComparison.Ordinal) && waited.Elapsed < TimeSpan.FromMinutes(15))
+            r = await client.CallToolAsync(tool, args);
+        return r;
     }
 
     private static string Sqlite(string rid, string file) => RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", rid, "native", file);

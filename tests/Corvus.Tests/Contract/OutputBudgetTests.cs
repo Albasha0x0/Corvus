@@ -73,7 +73,7 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
             {
                 if (variant.ContainsKey("maxTokens") && !HasParameter(tool, "maxTokens") && !IsList(tool)) continue;
                 var watch = System.Diagnostics.Stopwatch.StartNew();
-                var r = await _client.CallToolAsync(tool, variant.Where(a => a.Key != "maxTokens" || HasParameter(tool, "maxTokens")).ToDictionary());
+                var r = await ToolRealDataTests.CallJoined(_client, tool, variant.Where(a => a.Key != "maxTokens" || HasParameter(tool, "maxTokens")).ToDictionary());
                 _output.WriteLine($"{tool} {(variant.ContainsKey("maxTokens") ? "maxTokens " : "")}: text {TokenEstimate.Of(Text(r))}, structured " +
                                  $"{(r.StructuredContent is { } s ? TokenEstimate.Of(s.GetRawText()) : 0)} tokens, {watch.ElapsedMilliseconds} ms");
                 problems.AddRange(Problems(tool, variant.ContainsKey("maxTokens") && !HasParameter(tool, "maxTokens") ? args : variant, r));
@@ -158,14 +158,14 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
             var other = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes", "osx-arm64", "lib", "net10.0", "System.Private.CoreLib.dll");
             var json = RealPackages.File("Newtonsoft.Json", "13.0.4", "lib", "net6.0", "Newtonsoft.Json.dll");
             foreach (var path in new[] { other, json })
-                Assert.NotEqual(true, (await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = path })).IsError);
+                Assert.NotEqual(true, (await ToolRealDataTests.CallJoined(_client, "load_assembly", new Dictionary<string, object?> { ["path"] = path })).IsError);
             var problems = await Run(
             [
                 ("compare_assemblies", new() { ["oldAssembly"] = "System.Private.CoreLib", ["newAssembly"] = "System.Private.CoreLib#2" }),
                 ("simplify_methods", new() { ["assembly"] = "Newtonsoft.Json" }),
             ]);
             Assert.True(problems.Count == 0, string.Join("\n", problems));
-            var cut = Text(await _client.CallToolAsync("simplify_methods", new Dictionary<string, object?> { ["assembly"] = "Newtonsoft.Json" }));
+            var cut = Text(await ToolRealDataTests.CallJoined(_client, "simplify_methods", new Dictionary<string, object?> { ["assembly"] = "Newtonsoft.Json" }));
             var id = Regex.Match(cut, @"read_result id=(r-[0-9a-f]+)").Groups[1].Value;
             var whole = await _client.CallToolAsync("read_result", new Dictionary<string, object?> { ["id"] = id, ["outputPath"] = _dir.File("simplify.txt") });
             Assert.NotEqual(true, whole.IsError);

@@ -85,7 +85,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
         var fresh = new Dictionary<string, string?> { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache2") };
         await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], fresh))
         {
-            var missing = await c.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = Path.Combine(user, "corvus.gpr"), ["program"] = "/other.dll" });
+            var missing = await CallJoined(c, "load_assembly", new() { ["path"] = Path.Combine(user, "corvus.gpr"), ["program"] = "/other.dll" });
             Assert.True(missing.IsError);
             Assert.Contains("/jitinterface_x64.dll", Text(missing));
             var (loaded, _) = await Call(c, "load_assembly", new() { ["path"] = Path.Combine(user, "corvus.gpr") });
