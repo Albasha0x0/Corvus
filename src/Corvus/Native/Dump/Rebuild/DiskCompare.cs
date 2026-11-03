@@ -33,6 +33,11 @@ public static class DiskCompare
             if (!SameBuild(path, stamp, size)) continue;
             return CompareWith(path, rebuilt, captured, checks);
         }
+        if (string.IsNullOrWhiteSpace(captured.Target.Path))
+        {
+            checks.Add(RebuildCheck.Skipped("disk", "the module has no file on disk (loaded from memory)"));
+            return null;
+        }
         string searched = candidates.Count == 0 ? "no path recorded and no image directories" : string.Join("; ", candidates);
         checks.Add(RebuildCheck.Skipped("disk", $"no file of the same build found; searched {searched}"));
         return null;
