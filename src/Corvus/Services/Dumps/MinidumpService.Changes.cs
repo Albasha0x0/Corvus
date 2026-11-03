@@ -12,7 +12,7 @@ public sealed partial class MinidumpService
     private const int MaxDescribedBytes = 4096;
 
     /// <summary>One range of a module that differs from its file, or a module that could not be compared.</summary>
-    /// <param name="Kind"><c>code</c>, <c>data</c>, <c>export</c> (an export address table entry), <c>import</c> or <c>unknown</c>.</param>
+    /// <param name="Kind"><c>code</c>, <c>data</c>, <c>export</c> (an export address table entry), <c>import</c>, <c>section</c> (a section present only in memory), <c>pointer</c> (data holding pointers) or <c>unknown</c>.</param>
     /// <param name="Start">Address of the range, or of the module base when the module is unknown.</param>
     /// <param name="Name">The function, export or section offset; the import for an import slot; null when none.</param>
     /// <param name="FileBytes">Hex of the file bytes, cut to <see cref="ImageChanges.MaxBytes"/>.</param>
@@ -145,6 +145,7 @@ public sealed partial class MinidumpService
 
         if (set.Truncated) notes.Add($"{target.Name}: {set.Total} changed ranges, the first {set.Limit} are listed.");
         var mapped = captured.Image;
+        var machine = MachineOf(mapped);
         var names = ImageAddressNames.For(mapped, target.Base);
         var rows = new List<ModuleChange>();
         foreach (var range in set.Ranges)
@@ -162,12 +163,27 @@ public sealed partial class MinidumpService
             var afterBytes = mapped.AsSpan((int)rva, described).ToArray();
             var beforeBytes = oldCaptured.Image.AsSpan((int)rva, described).ToArray();
             string? description = range.Code
-                ? DescribeCode(afterBytes, beforeBytes, address, layout.Is64, memory, exports)
+                ? DescribeCode(afterBytes, beforeBytes, address, machine, layout.Is64, KnownStartIn(layout, rva), memory, exports)
                 : DescribeData(afterBytes, beforeBytes, address, layout.Is64, memory, exports);
             rows.Add(new ModuleChange(target.Name, range.Section, start, range.Rva, range.Length, range.Code ? "code" : "data", names.NameAt(rva),
                 description, otherId, null, null, range.Before, range.After));
         }
         return rows;
+    }
+
+    private static NativeArch MachineOf(byte[] image)
+    {
+        if (image.Length < 0x40) return NativeArch.Unknown;
+        int nt = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        if (nt < 0 || nt + 6 > image.Length) return NativeArch.Unknown;
+        return PeNames.Arch(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 4)));
+    }
+
+    // Without a function table the section start is the known boundary.
+    private static int KnownStartIn(DiskCompare.PeLayout layout, uint rva)
+    {
+        var section = layout.Sections.FirstOrDefault(x => rva >= x.Rva && rva - x.Rva < Math.Max(x.VirtualSize, x.RawSize));
+        return section == null ? 0 : (int)((long)section.Rva - rva);
     }
 
     private static uint ParseRva(string hex) =>
@@ -236,6 +252,7 @@ public sealed partial class MinidumpService
         if (set.Truncated) notes.Add($"{target.Name}: {set.Total} changed ranges, the first {set.Limit} are listed.");
         var names = ImageAddressNames.For(mapped, target.Base);
         var rows = new List<ModuleChange>();
+        var pointers = PointerRows(target, mapped, captured, disk, memory, exports);
         foreach (var range in set.Ranges)
         {
             uint rva = ParseRva(range.Rva);
@@ -257,8 +274,10 @@ public sealed partial class MinidumpService
                 rows.Add(ExportTableRow(target, memory, exports, range, entries, mapped, disk, filePath));
                 continue;
             }
+            if (!range.Code && pointers.Covered.Any(c => rva >= c.Start && rva + (uint)range.Length <= c.End)) continue;
+            uint sectionRva = disk.Sections.FirstOrDefault(x => x.Contains(rva))?.Rva ?? rva;
             string? description = range.Code
-                ? DescribeCode(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports)
+                ? DescribeCode(memoryBytes, fileBytes, address, disk.Arch, disk.Is64Bit, KnownStart(disk.RuntimeFunctions, sectionRva, rva), memory, exports)
                 : DescribeData(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports);
             rows.Add(new ModuleChange(target.Name, range.Section, start, range.Rva, range.Length, kind, names.NameAt(rva), description, filePath,
                 range.FileBytes, range.MemoryBytes));
@@ -270,7 +289,7 @@ public sealed partial class MinidumpService
             string section = disk.Sections.FirstOrDefault(x => x.Contains(slot.SlotRva))?.Name ?? "";
             bool known = slot.State == "redirected";
             string description = known
-                ? $"holds 0x{slot.Actual:X}{Where(memory, exports, slot.Actual)}" + (slot.Expected is { } expected ? $", the export is at 0x{expected:X}" : ", no import names the slot")
+                ? $"holds 0x{slot.Actual:X}{Where(memory, exports, slot.Actual)}{ChainSuffix(memory, exports, slot.Actual, disk.Arch)}" + (slot.Expected is { } expected ? $", the export is at 0x{expected:X}" : ", no import names the slot")
                 : slot.Reason ?? "not checked";
             if (slot.Via != null) description += $"; resolved through the {slot.Via} API set map";
             int width = disk.Is64Bit ? 8 : 4;
@@ -278,8 +297,17 @@ public sealed partial class MinidumpService
                 description, filePath, null, known && slot.Actual is { } actual ? Convert.ToHexStringLower(BitConverter.GetBytes(actual)[..width]) : null,
                 Via: slot.Via));
         }
+        rows.AddRange(pointers.Rows);
+        foreach (var section in RuntimeSectionRows(target, mapped, captured, disk))
+        {
+            int at = rows.FindIndex(x => x.Section == section.Section);
+            rows.Insert(at < 0 ? rows.Count : at, section);
+        }
         return rows;
     }
+
+    private static string ChainSuffix(IProcessMemory memory, ExportMap exports, ulong? address, NativeArch machine) =>
+        address is { } a ? ChainText(memory, exports, a, machine) : "";
 
     // Whole entries, so a change to 3 of the 4 bytes reports the entry.
     private static ModuleChange ExportTableRow(RebuildTarget target, IProcessMemory memory, ExportMap exports, ImageChange range,
@@ -293,15 +321,17 @@ public sealed partial class MinidumpService
         disk.Read(start, fileBytes);
         // The name column carries the export of a single entry.
         var texts = entries.Take(3).Select(e => (entries.Count > 1 ? $"{e.Export}: " : "") + "RVA " + (e.FileRva is { } f ? $"0x{f:X}" : "unknown") +
-            $" to 0x{e.MemoryRva:X}{ExportTarget(target, memory, exports, e.MemoryRva)}");
+            $" to 0x{e.MemoryRva:X}{ExportTarget(target, memory, exports, e.MemoryRva, disk.Arch)}");
         string description = string.Join("; ", texts) + (entries.Count > 3 ? $"; {entries.Count - 3} more entries" : "");
         return new ModuleChange(target.Name, range.Section, $"0x{target.Base + start:X}", $"0x{start:X}", length, "export", entries[0].Export,
             description, filePath, Convert.ToHexStringLower(fileBytes), Convert.ToHexStringLower(memoryBytes));
     }
 
-    private static string ExportTarget(RebuildTarget target, IProcessMemory memory, ExportMap exports, uint rva)
+    private static string ExportTarget(RebuildTarget target, IProcessMemory memory, ExportMap exports, uint rva, NativeArch machine)
     {
         string where = Where(memory, exports, target.Base + rva).Trim().Trim('(', ')');
+        string chain = ChainText(memory, exports, target.Base + rva, machine);
+        if (chain.Length != 0) where += chain;
         if (rva < target.Size) return where.Length == 0 ? "" : $" ({where})";
         return where.Length == 0 ? " (past the image)" : $" (past the image; {where})";
     }
@@ -313,11 +343,13 @@ public sealed partial class MinidumpService
         return memory.ModuleAt(a) is { } m ? $" ({m.FileName}+0x{a - m.Base:X})" : memory.RegionAt(a) != null ? " (unbacked)" : "";
     }
 
-    private static string DescribeCode(byte[] memoryBytes, byte[] fileBytes, ulong address, bool is64, IProcessMemory memory, ExportMap exports)
+    private static string DescribeCode(byte[] memoryBytes, byte[] fileBytes, ulong address, NativeArch machine, bool is64, int knownStart,
+        IProcessMemory memory, ExportMap exports)
     {
         var change = CodeChangeKinds.Describe(memoryBytes, fileBytes, address, is64);
-        if (change.Target is not { } target) return "bytes changed";
-        string where = Where(memory, exports, target);
+        if (change.Target is not { } target)
+            return CodeText(memoryBytes, fileBytes, address, machine, knownStart, memory, exports) ?? "bytes changed";
+        string where = Where(memory, exports, target) + ChainText(memory, exports, target, machine);
         return change.Indirect ? $"{change.Kind} through the pointer at 0x{target:X}{where}" : $"{change.Kind} to 0x{target:X}{where}";
     }
 
