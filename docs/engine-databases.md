@@ -53,7 +53,6 @@ A saved database is reused only when every part matches; otherwise a new one is 
 ## The user's own databases
 
 - **IDA `.i64` beside the input** (`app.i64` or `app.dll.i64`): copied into a new entry as its start; IDA accepts it only when its input record matches. The original is not changed.
-- **32-bit IDA `.idb` beside the input** (`app.idb` or `app.dll.idb`): used only when no `.i64` exists; IDA converts the copy on open.
 - **Ghidra archive** (`load_assembly path=app.gzf`): loads the file it was made from (kept in the archive, else beside it, checked by SHA-256) and opens the archive without analysis.
 - **Ghidra project** (`load_assembly path=Project.gpr program=/app.exe`; `program` optional for a one-program project): copied into the cache with lock files left out; the program is packed and opened as above.
 - The user's project is only read and may stay open in Ghidra. The copy is keyed by path, program and each file's size and write time: an unchanged project reuses its archive and database; a changed one is copied again.
