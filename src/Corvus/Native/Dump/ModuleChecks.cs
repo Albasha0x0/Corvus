@@ -115,8 +115,8 @@ public static class ModuleChecks
         catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or InvalidOperationException) { return subject; }
     }
 
-    /// <summary>Compares the .text section (else the first read-only code section) of <paramref name="module"/> in <paramref name="memory"/> with <paramref name="image"/>, the matching file mapped by section; the file's base relocations are applied first.</summary>
-    public static CodeComparison CompareCode(IProcessMemory memory, DumpModule module, PeFile image)
+    /// <summary>Compares the .text section (else the first read-only code section) of <paramref name="module"/> in <paramref name="memory"/> with <paramref name="image"/>, the matching file mapped by section; the file's base relocations are applied first. At most <paramref name="limit"/> bytes are compared; pages past it are named as left out, not as compared.</summary>
+    public static CodeComparison CompareCode(IProcessMemory memory, DumpModule module, PeFile image, long limit = MaxCompareBytes)
     {
         var code = image.Sections.Where(s => (s.Access & (SectionAccess.Execute | SectionAccess.Code)) != 0 && (s.Access & SectionAccess.Write) == 0 && s.MappedSize > 0).ToList();
         // The loader writes into other code sections (hot-patch thunks, import stubs); .text is the code the program shipped.
@@ -125,10 +125,11 @@ public static class ModuleChecks
         long delta = unchecked((long)module.Base - (long)image.ImageBase);
         var pointer = image.Is64Bit ? PeRelocationType.Dir64 : PeRelocationType.HighLow;
         var relocations = image.BaseRelocations.Where(r => r.Type == pointer).OrderBy(r => r.Rva).ToList();
-        long budget = MaxCompareBytes, pages = 0, missing = 0, differing = 0, bytesDiffering = 0;
+        long budget = limit, pages = 0, missing = 0, differing = 0, bytesDiffering = 0;
         uint? first = null;
         string? firstSection = null;
         bool capped = false;
+        long total = sections.Sum(s => ((long)s.MappedSize + Page - 1) / Page);
         // Eight bytes either side of a chunk hold the parts of relocated fields that straddle its edges.
         var local = new byte[Lead + Chunk + 8];
         var live = new byte[Chunk];
@@ -162,8 +163,10 @@ public static class ModuleChecks
                 }
             }
         }
-        string scope = $"{pages - missing} of {pages} page(s) of {string.Join(", ", sections.Select(s => s.Name))} compared";
-        if (capped) scope += $" (limit {MaxCompareBytes >> 20} MB)";
+        // Pages are counted against the whole section, so a left-out page
+        // shows as a shortfall.
+        string scope = $"{pages - missing} of {total} page(s) of {string.Join(", ", sections.Select(s => s.Name))} compared";
+        if (capped) scope += $"; the rest is past the {limit >> 20} MB limit";
         if (bytesDiffering > 0)
             return new CodeComparison("differs", $"{bytesDiffering:N0} differing byte(s) in {differing:N0} page(s), first at RVA 0x{first:X} in {firstSection}; {scope}");
         if (missing > 0 || capped || pages - missing == 0)
