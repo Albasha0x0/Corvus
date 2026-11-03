@@ -14,6 +14,7 @@ public sealed class ExportMap
     private readonly Dictionary<ulong, string> _byAddress = [];
     private readonly List<string> _forwarders = [];
     private readonly List<string> _ordinalForwarders = [];
+    private readonly Dictionary<(ulong Base, string Name), string> _forwarderText = [];
 
     /// <summary>Reads the export directory of each module of <paramref name="memory"/>; a module that cannot be read is counted in <see cref="SkippedModules"/>.</summary>
     public ExportMap(IProcessMemory memory)
@@ -30,6 +31,9 @@ public sealed class ExportMap
 
     /// <summary>Forwarded exports that have a name, as <c>module!#ordinal</c> and their forwarder text.</summary>
     public IReadOnlyList<string> OrdinalForwarders => _ordinalForwarders;
+
+    /// <summary>The forwarder text of export <paramref name="name"/> (a name or <c>#ordinal</c>) of the module at <paramref name="moduleBase"/>; null when it is not forwarded.</summary>
+    public string? ForwarderOf(ulong moduleBase, string name) => _forwarderText.GetValueOrDefault((moduleBase, name));
 
     /// <summary>The export starting at <paramref name="address"/> as <c>module!name</c> or <c>module!#ordinal</c>; null when none starts there.</summary>
     public string? NameAt(ulong address) => _byAddress.GetValueOrDefault(address);
@@ -80,6 +84,11 @@ public sealed class ExportMap
             {
                 var text = ReadName(memory, module, rva);
                 _forwarders.Add(text is null ? label : $"{label} {text}");
+                if (text is not null)
+                {
+                    _forwarderText.TryAdd((module.Base, named[i] ?? $"#{ordinalBase + (uint)i}"), text);
+                    if (named[i] is not null) _forwarderText.TryAdd((module.Base, $"#{ordinalBase + (uint)i}"), text);
+                }
                 if (text is not null && named[i] is not null) _ordinalForwarders.Add($"{prefix}#{ordinalBase + (uint)i} {text}");
                 continue;
             }

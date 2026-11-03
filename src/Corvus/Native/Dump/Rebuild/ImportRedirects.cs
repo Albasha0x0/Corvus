@@ -43,6 +43,7 @@ public static class ImportRedirects
     /// A forwarded export is followed through <paramref name="exports"/>; the lookup by name reads the exports of <paramref name="memory"/>.
     /// A contract name (api-ms-*, ext-ms-*) resolves through <paramref name="dumpApiSets"/> when given, else through the system map;
     /// a row names that map in <see cref="ImportRedirect.Via"/>, and an unmapped contract stays unknown.
+    /// A module name binds to the loaded module of the importer's machine, else of its bitness, else the first of that name.
     /// </summary>
     public static IReadOnlyList<ImportRedirect> Find(
         byte[] mapped, CapturedImage captured, ExportMap exports, IProcessMemory memory, ApiSetSchema? dumpApiSets = null)
@@ -51,6 +52,7 @@ public static class ImportRedirects
         if (!PeImportRestore.TryDirectory(mapped, out bool is64, out uint dirRva, out uint dirSize) || dirRva == 0 || dirSize == 0) return rows;
 
         var index = new Index(memory, exports, dumpApiSets);
+        ushort machine = BinaryPrimitives.ReadUInt16LittleEndian(mapped.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(mapped.AsSpan(0x3C)) + 4));
         int width = is64 ? 8 : 4;
         long count = dirSize / DescriptorSize;
         int slots = 0;
@@ -95,7 +97,7 @@ public static class ImportRedirects
                     continue;
                 }
                 ulong actual = Read(mapped, (int)slotAt, width);
-                if (!index.TryResolve(module, function, out ulong expected, out string? reason, out string? via))
+                if (!index.TryResolve(module, function, machine, is64, out ulong expected, out string? reason, out string? via))
                     rows.Add(new ImportRedirect((uint)slotAt, import, "unknown", null, actual, reason, via));
                 else if (expected != actual)
                     rows.Add(new ImportRedirect((uint)slotAt, import, "redirected", expected, actual, null, via, Target(exports, memory, actual)));
@@ -136,9 +138,9 @@ public static class ImportRedirects
     private sealed class Index
     {
         private readonly IProcessMemory _memory;
-        private readonly Dictionary<string, DumpModule> _modules = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, Dictionary<string, ulong>?> _exports = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, string> _forwarders = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<(DumpModule Module, ushort Machine, bool Is64)>> _modules = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ExportMap _map;
+        private readonly Dictionary<ulong, Dictionary<string, ulong>?> _exports = [];
 
         private readonly ApiSetSchema? _dumpApiSets;
         private ApiSetSchema? _systemApiSets;
@@ -148,12 +150,33 @@ public static class ImportRedirects
         {
             _memory = memory;
             _dumpApiSets = dumpApiSets;
-            foreach (var m in memory.Modules) _modules.TryAdd(m.FileName, m);
-            foreach (var f in map.Forwarders.Concat(map.OrdinalForwarders))
+            _map = map;
+            foreach (var m in memory.Modules)
             {
-                int space = f.IndexOf(' ');
-                if (space > 0) _forwarders.TryAdd(f[..space], f[(space + 1)..]);
+                var head = new byte[0x200];
+                ushort machine = 0;
+                bool is64 = memory.Is64Bit;
+                if (memory.ReadMemory(m.Base, head) == head.Length && DumpImages.TryHeader(head, out _, out _, out _))
+                {
+                    int nt = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(0x3C));
+                    if (nt > 0 && nt + 26 <= head.Length)
+                    {
+                        machine = BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(nt + 4));
+                        is64 = BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(nt + 24)) == 0x20B;
+                    }
+                }
+                if (!_modules.TryGetValue(m.FileName, out var list)) _modules[m.FileName] = list = [];
+                list.Add((m, machine, is64));
             }
+        }
+
+        // Same machine first, then same bitness, then the first of that name.
+        private DumpModule? Pick(string name, ushort machine, bool is64)
+        {
+            if (!_modules.TryGetValue(name, out var list)) return null;
+            foreach (var c in list) if (c.Machine == machine) return c.Module;
+            foreach (var c in list) if (c.Is64 == is64) return c.Module;
+            return list[0].Module;
         }
 
         // Hosts of an API set contract for an importer and the map that named
@@ -175,7 +198,7 @@ public static class ImportRedirects
             return _systemApiSets?.Hosts(contract, importer) ?? [];
         }
 
-        public bool TryResolve(string module, string function, out ulong address, out string? reason, out string? via)
+        public bool TryResolve(string module, string function, ushort machine, bool is64, out ulong address, out string? reason, out string? via)
         {
             address = 0;
             via = null;
@@ -201,12 +224,13 @@ public static class ImportRedirects
                     }
                     module = host;
                 }
-                if (!_modules.TryGetValue(module, out var loaded))
+                var loaded = Pick(module, machine, is64);
+                if (loaded is null)
                 {
                     reason = $"{module} is not a loaded module";
                     return false;
                 }
-                if (_forwarders.TryGetValue(loaded.FileName + "!" + function, out var target))
+                if (_map.ForwarderOf(loaded.Base, function) is { } target)
                 {
                     int dot = target.LastIndexOf('.');
                     if (dot <= 0)
@@ -240,8 +264,8 @@ public static class ImportRedirects
 
         private Dictionary<string, ulong>? Exports(DumpModule module)
         {
-            if (!_exports.TryGetValue(module.FileName, out var table))
-                _exports[module.FileName] = table = Read(module);
+            if (!_exports.TryGetValue(module.Base, out var table))
+                _exports[module.Base] = table = Read(module);
             return table;
         }
 
