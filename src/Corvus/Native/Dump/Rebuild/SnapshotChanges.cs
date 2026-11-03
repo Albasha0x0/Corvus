@@ -23,7 +23,6 @@ public static class SnapshotChanges
     /// <summary>Largest run of equal bytes that does not split a range.</summary>
     public const int MaxGap = 8;
 
-    private const uint CodeSection = 0x20000020;
 
     /// <summary>
     /// The ranges of <paramref name="target"/> that differ between <paramref name="before"/> and <paramref name="after"/>,
@@ -61,7 +60,7 @@ public static class SnapshotChanges
             if (ranges.Count >= MaxRanges) return;
             int shown = (int)Math.Min(end - start, MaxBytes);
             int at = (int)(s.Rva + start);
-            ranges.Add(new SnapshotChange(s.Name, $"0x{at:X}", (int)(end - start), state, (s.Characteristics & CodeSection) != 0,
+            ranges.Add(new SnapshotChange(s.Name, $"0x{at:X}", (int)(end - start), state, DiskCompare.IsCode(s.Characteristics),
                 state == "unknown" ? "" : Convert.ToHexStringLower(a.AsSpan(at, shown)),
                 state == "unknown" ? "" : Convert.ToHexStringLower(b.AsSpan(at, shown))));
         }

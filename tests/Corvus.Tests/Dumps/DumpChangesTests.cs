@@ -26,6 +26,27 @@ public sealed class DumpChangesTests : IDisposable
         return folder;
     }
 
+    // Regression: writes to a read-write-execute .data section were listed as
+    // code changes.
+    [Fact]
+    public void A_write_to_a_writable_executable_section_is_a_data_row()
+    {
+        var app = RebuildFixtures.Build(new PeSpec(true, [new SectionSpec(".data", 0xE0000040, new byte[0x40])]));
+        var mapped = RebuildFixtures.Mapped(app.Bytes);
+        mapped[0x1010] = 1;
+        var b = new MinidumpBuilder();
+        b.Modules.Add(new MinidumpBuilder.Module(AppBase, (uint)mapped.Length, BinaryPrimitives.ReadUInt32LittleEndian(app.Bytes.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(app.Bytes.AsSpan(0x3C)) + 8)), "app.exe"));
+        b.Memory.Add((AppBase, mapped));
+        var path = _dir.File("rwx.dmp");
+        File.WriteAllBytes(path, b.Build());
+
+        var (_, rows, _, _) = new MinidumpService().Changes(path, ImageFolder(app), "app.exe", 0, 100, default);
+
+        var row = Assert.Single(rows);
+        Assert.Equal(".data", row.Section);
+        Assert.Equal("data", row.Kind);
+    }
+
     [Fact]
     public void A_patched_function_start_is_one_code_row_with_its_function_and_target()
     {

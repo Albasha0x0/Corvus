@@ -22,7 +22,6 @@ public static class ImageChanges
     /// <summary>Largest run of equal bytes that does not split a range.</summary>
     public const int MaxGap = 8;
 
-    private const uint CodeSection = 0x20000020;
 
     /// <summary>
     /// The differing ranges of <paramref name="rebuiltMapped"/> (offset = RVA) against <paramref name="file"/> (file layout), merged across
@@ -43,7 +42,7 @@ public static class ImageChanges
             long length = end - start;
             int shown = (int)Math.Min(length, MaxBytes);
             string memoryHex = state == "unknown" ? "" : Convert.ToHexStringLower(rebuiltMapped.AsSpan((int)(m.Rva + start), shown));
-            ranges.Add(new ImageChange(m.Name, $"0x{m.Rva + start:X}", (int)length, state, (m.Characteristics & CodeSection) != 0,
+            ranges.Add(new ImageChange(m.Name, $"0x{m.Rva + start:X}", (int)length, state, DiskCompare.IsCode(m.Characteristics),
                 Convert.ToHexStringLower(file.AsSpan((int)(fileAt + start), shown)), memoryHex));
         }
 

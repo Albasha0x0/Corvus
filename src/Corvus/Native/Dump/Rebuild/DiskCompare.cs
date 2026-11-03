@@ -10,7 +10,7 @@ public static class DiskCompare
     /// <summary>Most differing ranges listed.</summary>
     public const int MaxRanges = 64;
 
-    private const uint CodeSection = 0x20000020;
+    private const uint ContainsCode = 0x20, Execute = 0x20000000, Write = 0x80000000;
     private const ushort HighLow = 3, Dir64 = 10;
     private const int ImportAddressTable = 12, RelocationTable = 5;
 
@@ -82,7 +82,7 @@ public static class DiskCompare
                 if (runStart < 0) continue;
                 count++;
                 if (ranges.Count < MaxRanges)
-                    ranges.Add(new DiskDifference(m.Name, $"0x{m.Rva + runStart:X}", (int)(i - runStart), (m.Characteristics & CodeSection) != 0));
+                    ranges.Add(new DiskDifference(m.Name, $"0x{m.Rva + runStart:X}", (int)(i - runStart), IsCode(m.Characteristics)));
                 runStart = -1;
             }
         }
@@ -95,6 +95,11 @@ public static class DiskCompare
                 : RebuildCheck.Ok("disk", "same as the file"));
         return new DiskComparison(path, true, (int)Math.Min(bytes, int.MaxValue), count, ranges);
     }
+
+    // A writable section that is also executable holds program data; its
+    // changes are writes, not patched code.
+    internal static bool IsCode(uint characteristics) =>
+        (characteristics & ContainsCode) != 0 || (characteristics & (Execute | Write)) == Execute;
 
     internal static BitArray Excluded(byte[] file, PeLayout pe)
     {
