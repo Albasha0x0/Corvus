@@ -8,23 +8,35 @@ $out = Join-Path $PSScriptRoot 'publish'
 $project = Join-Path $PSScriptRoot 'src/Corvus/Corvus.csproj'
 $marker = Join-Path $out '.build-complete'
 
-# A development relay (corvus relay) starts a new server only once the marker is back; it is written last.
-if (Test-Path $marker) { Remove-Item $marker -Force }
+# Relays copy the output folder at any time and hold its files while they do, so the build goes to a private folder.
+$stage = Join-Path $PSScriptRoot 'obj/publish-stage'
+if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 
-# Windows refuses to overwrite a running server's files but allows a rename: move them aside, delete old ones once free.
-if (Test-Path $out) {
-    Get-ChildItem $out -Recurse -File -Filter '*.aside-*' | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
-    foreach ($file in Get-ChildItem $out -Recurse -File | Where-Object { $_.Name -notlike '*.aside-*' }) {
-        try { [IO.File]::Open($file.FullName, 'Open', 'ReadWrite', 'None').Dispose() }
-        catch [System.IO.IOException] { Rename-Item $file.FullName ($file.Name + '.aside-' + [DateTime]::UtcNow.Ticks) }
-    }
-}
-
-$publishArgs = @('publish', $project, '-c', 'Release', '-o', $out, '-r', 'win-x64', '--nologo')
+$publishArgs = @('publish', $project, '-c', 'Release', '-o', $stage, '-r', 'win-x64', '--nologo')
 if ($SelfContained) { $publishArgs += @('--self-contained', 'true') } else { $publishArgs += @('--self-contained', 'false') }
 
 dotnet @publishArgs
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
+# A development relay (corvus relay) starts a new server only once the marker is back; it is written last.
+if (Test-Path $marker) { Remove-Item $marker -Force }
+
+# A file held open with delete sharing can be renamed aside; any other is retried for 60 s while a relay finishes copying it.
+New-Item -ItemType Directory -Force $out | Out-Null
+Get-ChildItem $out -Recurse -File -Filter '*.aside-*' | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+foreach ($file in Get-ChildItem $stage -Recurse -File) {
+    $target = Join-Path $out $file.FullName.Substring($stage.Length + 1)
+    New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+    for ($attempt = 1; ; $attempt++) {
+        try { Copy-Item $file.FullName $target -Force; break }
+        catch [System.IO.IOException] {
+            if ($attempt -ge 120) { throw }
+            if (Test-Path $target) { Rename-Item $target ((Split-Path $target -Leaf) + '.aside-' + [DateTime]::UtcNow.Ticks) -ErrorAction SilentlyContinue }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 
 $commit = $null; $dirty = $null
 try {
