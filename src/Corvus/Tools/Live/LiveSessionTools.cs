@@ -136,7 +136,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("Hold children by image name (* any) at start.")] string[]? childNames = null,
         [Description("Download a missing DAC.")] bool downloadDac = false,
         [Description("adb serial; device runs frida-server.")] string? device = null,
-        [Description("save_modules: file name, 0x address, all or unlisted.")] string? modules = null,
+        [Description("save_modules: file name, 0x address, all, unlisted or code.")] string? modules = null,
         [Description("save_modules: file or mapped.")] string? layout = null,
         [Description("save_modules: restore or keep.")] string? imports = null,
         [Description("save_modules: loaded or preferred.")] string? @base = null,

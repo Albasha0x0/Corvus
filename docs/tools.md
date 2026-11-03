@@ -2715,7 +2715,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
 | `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
 | `outputPath` | string |  |  | view=modules: new or empty image folder. |
-| `modules` | string |  |  | outputPath or view=changes: file name, 0x address, all or unlisted. |
+| `modules` | string |  |  | outputPath or view=changes: file name, 0x address, all, unlisted or code. |
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
 | `base` | string |  |  | outputPath: loaded or preferred. |
@@ -2884,7 +2884,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | `childNames` | string[] |  |  | Hold children by image name (* any) at start. |
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
 | `device` | string |  |  | adb serial; device runs frida-server. |
-| `modules` | string |  |  | save_modules: file name, 0x address, all or unlisted. |
+| `modules` | string |  |  | save_modules: file name, 0x address, all, unlisted or code. |
 | `layout` | string |  |  | save_modules: file or mapped. |
 | `imports` | string |  |  | save_modules: restore or keep. |
 | `base` | string |  |  | save_modules: loaded or preferred. |

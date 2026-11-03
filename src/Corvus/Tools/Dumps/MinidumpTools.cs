@@ -31,7 +31,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
         [Description("view=modules: new or empty image folder.")] string? outputPath = null,
-        [Description("outputPath or view=changes: file name, 0x address, all or unlisted.")] string? modules = null,
+        [Description("outputPath or view=changes: file name, 0x address, all, unlisted or code.")] string? modules = null,
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,
         [Description("outputPath: loaded or preferred.")] string? @base = null,
@@ -71,7 +71,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         finally { if (staging != null) FileWork.DeleteStaging(staging); }
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
         if (r.Changes is { } changed) return Rows(r.Id!, v, changed, offset, limit, r.Total, ChangeLine, "changed range", r.Notes);
-        if (r.Modules is { } written && saving) return Written(r.Id!, v, written, DumpText.Module, r.Notes);
+        if (r.Modules is { } written && saving) return Written(r.Id!, v, written, r.Notes);
         if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
         if (r.Unbacked is { } unbacked) return Rows(r.Id!, v, unbacked, offset, limit, r.Total, DumpText.Memory, "region", r.Notes);
@@ -93,12 +93,32 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
 
     // A writing call cannot be repeated for a later page: its record has no row offset, so the
     // server keeps the whole result and names it for read_result.
-    private static string Written<T>(string id, string view, IReadOnlyList<T> rows, Func<T, string> render, IReadOnlyList<string>? notes)
-        where T : notnull
+    private static string Written(string id, string view, IReadOnlyList<MinidumpService.CheckedModule> rows, IReadOnlyList<string>? notes)
     {
-        var head = notes is { Count: > 0 } ? string.Concat(notes.Select(n => $"Note: {n}\n")) : "";
-        var text = head + $"{rows.Count} written module{(rows.Count == 1 ? "" : "s")}:\n" + string.Concat(rows.Select(r => render(r) + "\n"));
-        return ToolOutput.Report(text, new MinidumpService.DumpReport(id, view) { Items = rows.Cast<object>().ToList(), Total = rows.Count, Notes = notes });
+        // A code row without a file only names why no region was written.
+        bool IsReason(MinidumpService.CheckedModule r) => r.Format == "code" && r.ImageFile == null;
+        var reasons = rows.Where(IsReason).Select(r => r.ImageReason ?? "no reason given").ToList();
+        var modules = rows.Where(r => !IsReason(r)).ToList();
+        var written = modules.Where(r => r.ImageFile != null).ToList();
+        var skipped = modules.Where(r => r.ImageFile == null).ToList();
+        var sb = new System.Text.StringBuilder();
+        if (notes is { Count: > 0 })
+            foreach (var n in notes) sb.Append($"Note: {n}\n");
+        if (written.Count > 0)
+        {
+            var of = skipped.Count > 0 ? $" of {modules.Count}" : "";
+            sb.Append($"{written.Count} written module{(written.Count == 1 ? "" : "s")}{of}:\n");
+            foreach (var r in written) sb.Append(DumpText.Module(r)).Append('\n');
+        }
+        else if (reasons.Count == 0)
+            sb.Append("0 written modules.\n");
+        foreach (var reason in reasons) sb.Append($"Nothing written: unknown, {reason}\n");
+        if (written.Count > 0 && skipped.Count > 0)
+        {
+            sb.Append($"{skipped.Count} not written:\n");
+            foreach (var r in skipped) sb.Append(DumpText.Module(r)).Append('\n');
+        }
+        return ToolOutput.Report(sb.ToString(), new MinidumpService.DumpReport(id, view) { Items = modules.Cast<object>().ToList(), Total = modules.Count, Notes = notes });
     }
 
     private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun,

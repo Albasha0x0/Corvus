@@ -70,6 +70,11 @@ public sealed partial class MinidumpService
         public string? CodeDetail { get; init; }
         [Description("Rebuilt .NET image: readable, partial, unreadable or unknown.")] public string? Metadata { get; init; }
         [Description("Why the metadata is not readable.")] public string? MetadataReason { get; init; }
+        [Description("code for a saved code region; null for a module.")] public string? Format { get; init; }
+        [Description("Protection of a saved code region.")] public string? Protection { get; init; }
+        [Description("Function table entries inside a saved code region; null when unknown.")] public int? EntryCount { get; init; }
+        [Description("Entries of a saved code region: N entries or unknown.")] public string? Entries { get; init; }
+        [Description("File under outputPath listing the function starts and ends of a saved code region.")] public string? EntriesFile { get; init; }
         [Description("File written under outputPath.")] public string? ImageFile { get; init; }
         [Description("Why no file was written under outputPath.")] public string? ImageReason { get; init; }
         [Description("SHA-256 of the file written under outputPath.")] public string? ImageSha256 { get; init; }
@@ -296,6 +301,14 @@ public sealed partial class MinidumpService
                 .Select(m => CheckedModule.Of(CoreModuleRow(s, m)) with { LoadPath = ModuleChecks.PathClass(m.Module.Path) }).ToList(), core.CoreModules.Count, null);
         }
         var d = s.Memory;
+        if (outputPath != null && (rebuild ?? ModuleOptions.Default).Module.Equals("code", StringComparison.OrdinalIgnoreCase))
+        {
+            var codeRoot = SafeFile.Output(outputPath);
+            if (File.Exists(codeRoot) || Directory.Exists(codeRoot) && Directory.EnumerateFileSystemEntries(codeRoot).Any())
+                throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {codeRoot}.", "pass outputPath as a new folder, e.g. <dump>-modules");
+            var codeRows = SaveCodeRegions(d, codeRoot, ct);
+            return (s.Id, codeRows, codeRows.Count, codeRoot);
+        }
         // A writing call reports every module in one order, so no page is cut here.
         var page = outputPath != null ? d.Modules.ToList() : d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
         List<(RebuiltModule Module, WrittenModule Written)>? saved = null;
@@ -348,6 +361,58 @@ public sealed partial class MinidumpService
         r.DelayImportNames is { Count: > 0 } names
             ? [.. names.Select(n => n.Name.Contains('!') ? n.Name[..n.Name.IndexOf('!')] : n.Name).Distinct(StringComparer.OrdinalIgnoreCase)]
             : null;
+
+    /// <summary>Writes each code region as code-&lt;base&gt;.bin with code-&lt;base&gt;.txt listing the function table entries inside it; one row per region.</summary>
+    /// <remarks>A source without a function table stream lists the entries as unknown; limits and sources without a region list come back as a row naming them.</remarks>
+    private static List<CheckedModule> SaveCodeRegions(IProcessMemory memory, string root, CancellationToken ct)
+    {
+        var set = CodeRegions.Read(memory, ct);
+        if (set.Regions.Count == 0 && set.Notes.Count == 0)
+            throw new ToolError(ErrorCode.NotFound, "No executable region without an image is held.", "pass modules as a listed file name, a 0x address, all or unlisted");
+        // No stream and an unreadable stream both leave the entries unknown.
+        string unknown = "the source has no function table stream";
+        List<RegisteredFunction>? entries = null;
+        if (memory is MinidumpFile dump)
+        {
+            var stream = MinidumpFunctionTables.Read(dump, out var reason);
+            if (stream != null)
+                entries = stream.Tables.SelectMany(t => t.Functions).OrderBy(f => f.Begin).ToList();
+            else if (reason != null)
+                unknown = reason;
+        }
+        Directory.CreateDirectory(root);
+        var rows = new List<CheckedModule>();
+        foreach (var r in set.Regions)
+        {
+            ct.ThrowIfCancellationRequested();
+            var inside = entries?.Where(f => f.Begin >= r.Base && f.Begin - r.Base < r.Size).ToList();
+            var name = $"code-{r.Base:X}";
+            SafeFile.WriteUnderRoot(root, name + ".bin", r.Bytes, overwrite: false);
+            var text = new StringBuilder();
+            if (inside == null)
+                text.Append($"unknown: {unknown}\n");
+            else
+            {
+                text.Append($"{inside.Count} entries\n");
+                foreach (var f in inside)
+                    text.Append($"0x{f.Begin:X} 0x{f.End:X}\n");
+            }
+            SafeFile.WriteUnderRoot(root, name + ".txt", Encoding.UTF8.GetBytes(text.ToString()), overwrite: false);
+            var count = inside == null ? "unknown" : $"{inside.Count} entries";
+            var protection = ProtectName(r.Protect);
+            rows.Add(new CheckedModule(name + ".bin", "", $"0x{r.Base:X}", $"0x{r.Size:X}", "", null, null, null, null, null, "missing", null,
+                $"code region, {protection}, {r.CapturedPercent}% captured, {count}", null)
+            {
+                Format = "code", Protection = protection, ImageFile = name + ".bin", ImageCaptured = r.CapturedPercent,
+                EntryCount = inside?.Count, Entries = count, EntriesFile = name + ".txt",
+            });
+        }
+        // Each row already carries its captured percent.
+        var notes = set.Notes.Where(n => !n.Contains("captured-page map", StringComparison.Ordinal)).ToList();
+        if (notes.Count > 0)
+            rows.Add(new CheckedModule("code", "", "", "", "", null, null, null, null, null, "missing", null, "code regions", null) { Format = "code", ImageReason = string.Join(" ", notes) });
+        return rows;
+    }
 
     /// <summary>The row of a written module that is not on the listed page: its file, SHA-256, captured percent, checks and reason.</summary>
     private static CheckedModule SavedRow(Session s, RebuiltModule r, WrittenModule w)
