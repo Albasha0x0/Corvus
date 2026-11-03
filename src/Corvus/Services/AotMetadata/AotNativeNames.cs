@@ -28,20 +28,18 @@ public sealed class AotNativeNames
         this.aot = aot;
         this.navigator = navigator;
         this.code = code;
-        lock (Instances) Instances.Add(new WeakReference<AotNativeNames>(this));
+        lock (Instances) Instances.TryAdd(aot, this);
     }
 
-    // One process may host several servers; a restore uses the one holding the image.
-    private static readonly List<WeakReference<AotNativeNames>> Instances = [];
+    // One process may host several servers; a restore uses the one holding
+    // the image. The service keeps its instance alive until a restore.
+    private static readonly ConditionalWeakTable<AotMetadataService, AotNativeNames> Instances = new();
 
     private static AotNativeNames? Owner(LoadedNative native)
     {
         lock (Instances)
-        {
-            Instances.RemoveAll(w => !w.TryGetTarget(out _));
-            foreach (var w in Instances)
-                if (w.TryGetTarget(out var names) && names.aot.Holds(native)) return names;
-        }
+            foreach (var (service, names) in Instances)
+                if (service.Holds(native)) return names;
         return null;
     }
 

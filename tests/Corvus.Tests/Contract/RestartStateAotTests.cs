@@ -64,11 +64,16 @@ public sealed partial class RestartStateAotTests : IDisposable
         }
 
         using var b = new Process(dll, binary, annotations);
+        // Regression for the failure at 18020f0c8: a collection dropped the
+        // restoring instance nothing else referenced.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
         var second = await b.Reads();
         var differing = first
             .Where(p => Timing().Replace(p.Value, "~") != Timing().Replace(second[p.Key], "~"))
             .Select(p => p.Key).ToList();
-        Assert.True(differing.Count == 0, "answers differ after a restart: " + string.Join("; ", differing));
+        Assert.True(differing.Count == 0, "answers differ after a restart: " + string.Join("; ", differing) +
+            string.Concat(differing.Select(k => $"\n--- {k} after apply\n{first[k]}\n--- {k} after restart\n{second[k]}")));
         Assert.All(first, p => Assert.False(string.IsNullOrWhiteSpace(p.Value), p.Key));
         Assert.Contains("metadata \"hello aot\"", second["search_native_strings"]);
         Assert.Contains("Fixture_Native_NativeThing__First", second["disassemble"]);
