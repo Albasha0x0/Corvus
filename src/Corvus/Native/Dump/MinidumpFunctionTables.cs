@@ -31,34 +31,12 @@ public static class MinidumpFunctionTables
         reason = null;
         var stream = dump.Streams.FirstOrDefault(s => s.Type == FunctionTableStreamType);
         if (stream == null) return null;
-        if (dump.Path.Length == 0)
-        {
-            reason = "the dump was not opened from a file; its function table stream cannot be read";
-            return null;
-        }
         if (stream.Size > MinidumpLimits.MaxStreamBytes)
         {
             reason = $"the function table stream is 0x{stream.Size:X} bytes; the limit is {MinidumpLimits.MaxStreamBytes}";
             return null;
         }
-        byte[] data;
-        try
-        {
-            using var file = new FileStream(dump.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            if (stream.Rva + (long)stream.Size > file.Length)
-            {
-                reason = $"the function table stream (0x{stream.Size:X} bytes at 0x{stream.Rva:X}) runs past the end of the file";
-                return null;
-            }
-            data = new byte[stream.Size];
-            file.Seek(stream.Rva, SeekOrigin.Begin);
-            file.ReadExactly(data);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            reason = $"the function table stream cannot be read: {ex.Message}";
-            return null;
-        }
+        var data = dump.ReadStream(FunctionTableStreamType) ?? [];
         return Parse(data, out reason);
     }
 

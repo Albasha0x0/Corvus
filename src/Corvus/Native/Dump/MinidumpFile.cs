@@ -127,6 +127,13 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
         return done;
     }
 
+    /// <summary>The bytes of the first stream of <paramref name="type"/>, capped at the stream limit; null when the stream is absent.</summary>
+    public byte[]? ReadStream(uint type)
+    {
+        var stream = Streams.FirstOrDefault(s => s.Type == type);
+        return stream == null ? null : Block(stream.Rva, (int)Math.Min(stream.Size, (uint)MinidumpLimits.MaxStreamBytes));
+    }
+
     /// <summary>The captured range containing <paramref name="address"/>, or null.</summary>
     public DumpMemoryRange? RangeAt(ulong address)
     {

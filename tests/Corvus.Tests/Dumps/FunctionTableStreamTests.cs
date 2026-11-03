@@ -51,4 +51,19 @@ public sealed class FunctionTableStreamTests : IDisposable
         Assert.Null(MinidumpFunctionTables.Read(dump, out var reason));
         Assert.Null(reason);
     }
+
+    [Fact]
+    public void A_dump_built_from_bytes_reads_its_function_table_stream()
+    {
+        var stream = FunctionTableFixtures.Stream([new(0x7000_0000, 0x7000_2000, 0x7000_0000, [(0x100, 0x180, 0x1000)])]);
+        var b = new MinidumpBuilder();
+        b.ExtraStreams.Add((FunctionTableFixtures.StreamType, stream));
+        using var dump = MinidumpFile.FromBytes(b.Build());
+
+        var result = MinidumpFunctionTables.Read(dump, out var reason);
+
+        Assert.Null(reason);
+        Assert.NotNull(result);
+        Assert.Equal(new RegisteredFunction(0x7000_0100, 0x7000_0180, 0x7000_1000), Assert.Single(Assert.Single(result.Tables).Functions));
+    }
 }
