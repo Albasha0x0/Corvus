@@ -22,8 +22,13 @@ public static class RpaArchive
         && b[5] == '.' && b[6] == '0' && b[7] == ' ';
 
     /// <summary>Lists the index entries and extracts the files within <paramref name="limits"/>; a bad index is named as malformed and lists nothing.</summary>
-    public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
+        Open(new MemoryStream(data, writable: false), name, allFiles, limits, ct);
+
+    /// <summary>Reads the archive from a seekable stream; only the index and the extracted files are held in memory.</summary>
+    public static ContainerContents Open(Stream s, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
+        long fileSize = s.Length;
         var notes = new List<string>();
         var items = new List<ExtractedItem>();
         ContainerContents Malformed(string why)
@@ -32,9 +37,10 @@ public static class RpaArchive
             return new ContainerContents(Kind, items, notes) { Entries = [] };
         }
 
-        int eol = Array.IndexOf(data, (byte)'\n', 0, Math.Min(data.Length, MaxLine));
+        var head = Range(s, 0, (int)Math.Min(fileSize, MaxLine));
+        int eol = Array.IndexOf(head, (byte)'\n');
         if (eol < 0) return Malformed("no header line");
-        var line = Encoding.ASCII.GetString(data, 0, eol).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var line = Encoding.ASCII.GetString(head, 0, eol).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         bool v3 = line[0] == "RPA-3.0";
         long key = 0;
         long indexAt;
@@ -48,12 +54,13 @@ public static class RpaArchive
         {
             return Malformed("header numbers are not hexadecimal");
         }
-        if (indexAt < 0 || indexAt >= data.Length) return Malformed($"index offset 0x{indexAt:X} lies outside the file");
+        if (indexAt < 0 || indexAt >= fileSize) return Malformed($"index offset 0x{indexAt:X} lies outside the file");
 
         object? root;
         try
         {
-            var pickle = Inflate(data.AsSpan((int)indexAt), Math.Min(limits.MaxItemBytes, int.MaxValue / 2));
+            s.Position = indexAt;
+            var pickle = Inflate(s, Math.Min(limits.MaxItemBytes, int.MaxValue / 2));
             root = new PickleReader(pickle, ct).Read();
         }
         catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or NotSupportedException)
@@ -70,7 +77,7 @@ public static class RpaArchive
         foreach (var (k, v) in map)
         {
             ct.ThrowIfCancellationRequested();
-            string path = k is string s ? s : k is byte[] kb ? Encoding.UTF8.GetString(kb) : "";
+            string path = k is string text ? text : k is byte[] kb ? Encoding.UTF8.GetString(kb) : "";
             var tuple = v is List<object> { Count: > 0 } list ? list[0] : v;
             if (path.Length == 0 || tuple is not object[] t || t.Length < 2 || t[0] is not BigInteger o || t[1] is not BigInteger l)
             {
@@ -80,7 +87,7 @@ public static class RpaArchive
             byte[] prefix = t.Length > 2 ? t[2] switch { byte[] b => b, string ps => Encoding.Latin1.GetBytes(ps), _ => [] } : [];
             BigInteger offset = o ^ key, length = l ^ key;
             names.Add(path);
-            if (offset < 0 || length < 0 || offset + length > data.Length)
+            if (offset < 0 || length < 0 || offset + length > fileSize)
             {
                 outside++;
                 entries.Add(new ContainerEntry(path, 0, "outside the file"));
@@ -93,7 +100,8 @@ public static class RpaArchive
             if (size > limits.MaxItemBytes) { notes.Add($"{path}: over the per-item limit of {limits.MaxItemBytes:N0} bytes; not extracted."); continue; }
             var content = new byte[size];
             prefix.CopyTo(content, 0);
-            Buffer.BlockCopy(data, (int)offset, content, prefix.Length, (int)length);
+            s.Position = (long)offset;
+            s.ReadExactly(content.AsSpan(prefix.Length));
             if (!allFiles && Blob.Identify(content) == "data") continue;
             total += size;
             items.Add(new ExtractedItem(Blob.SafeRelativePath(path, "file"), content, "RPA entry") { Member = true });
@@ -107,10 +115,9 @@ public static class RpaArchive
     }
 
     // Bound the inflated index, which is the one stream the archive does not size.
-    private static byte[] Inflate(ReadOnlySpan<byte> packed, long limit)
+    private static byte[] Inflate(Stream packed, long limit)
     {
-        using var input = new MemoryStream(packed.ToArray(), writable: false);
-        using var z = new ZLibStream(input, CompressionMode.Decompress);
+        using var z = new ZLibStream(packed, CompressionMode.Decompress, leaveOpen: true);
         using var output = new MemoryStream();
         var buffer = new byte[81920];
         try
@@ -125,6 +132,14 @@ public static class RpaArchive
         catch (IndexTooLarge ex) { throw new InvalidDataException($"index inflates past {ex.Limit:N0} bytes"); }
         catch (InvalidDataException) { throw new InvalidDataException("index is not a zlib stream"); }
         return output.ToArray();
+    }
+
+    private static byte[] Range(Stream s, long at, int n)
+    {
+        var b = new byte[n];
+        s.Position = at;
+        s.ReadExactly(b);
+        return b;
     }
 
     private sealed class IndexTooLarge(long limit) : Exception

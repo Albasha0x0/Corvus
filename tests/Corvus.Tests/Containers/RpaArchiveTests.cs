@@ -81,6 +81,16 @@ public sealed class RpaArchiveTests
     }
 
     [Fact]
+    public void A_streamed_archive_lists_and_extracts_its_files()
+    {
+        var data = Build(3, 0x5A5A5A5A, [], ("scripts/a.txt", "alpha text", ""), ("b.txt", "tail", "head-"));
+        var contents = Containers.OpenStream(() => new MemoryStream(data, writable: false), data.AsSpan(0, 16), "a.rpa", AnalysisLimits.Default, default);
+        Assert.Equal(RpaArchive.Kind, contents!.Kind);
+        Assert.Equal(["scripts/a.txt", "b.txt"], contents.Entries!.Select(e => e.Path));
+        Assert.Equal("head-tail", Encoding.ASCII.GetString(contents.Items.Single(i => i.Name == "b.txt").Bytes));
+    }
+
+    [Fact]
     public void A_prefix_is_joined_to_the_data()
     {
         var data = Build(3, 0x1234, [], ("a.txt", "tail", "head-"));

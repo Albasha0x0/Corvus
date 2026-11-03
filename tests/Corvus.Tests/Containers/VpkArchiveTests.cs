@@ -62,6 +62,25 @@ public sealed class VpkArchiveTests
     }
 
     [Fact]
+    public void A_streamed_archive_lists_and_extracts_its_files()
+    {
+        var data = Build(2, ("txt", "docs/en", "readme", "PRE-", "body text", 0x7FFF), ("txt", "d", "a", "", "in sibling", 3));
+        var contents = Containers.OpenStream(() => new MemoryStream(data, writable: false), data.AsSpan(0, 28), "pak01_dir.vpk", AnalysisLimits.Default, default);
+        Assert.Equal(VpkArchive.Kind, contents!.Kind);
+        Assert.Equal(["docs/en/readme.txt", "d/a.txt"], contents.Entries!.Select(e => e.Path));
+        Assert.Equal("PRE-body text", Encoding.ASCII.GetString(contents.Items.Single().Bytes));
+    }
+
+    [Fact]
+    public void A_directory_over_the_per_item_limit_is_read_from_its_start_and_named()
+    {
+        var data = Build(1, ("txt", " ", "top", "", "first file", 0x7FFF), ("txt", " ", "next", "", "second file", 0x7FFF));
+        var limits = AnalysisLimits.Default with { MaxItemBytes = 24 };
+        var contents = Containers.Open(data, "pak01_dir.vpk", limits, default, allFiles: true);
+        Assert.Contains(contents.Notes, n => n.Contains("over the per-item limit of 24 bytes"));
+    }
+
+    [Fact]
     public void A_v1_archive_extracts_data_after_the_tree()
     {
         var data = Build(1, ("txt", " ", "top", "", "first file", 0x7FFF), ("txt", " ", "next", "", "second file", 0x7FFF));

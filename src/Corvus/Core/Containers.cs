@@ -395,6 +395,16 @@ public static class Containers
             using var nx = open();
             return NxpkArchive.Open(nx, name, allFiles: false, limits, ct);
         }
+        if (kind == "rpa archive")
+        {
+            using var rpa = open();
+            return Archives.RpaArchive.Open(rpa, name, allFiles: false, limits, ct);
+        }
+        if (kind == "vpk archive")
+        {
+            using var vpk = open();
+            return Archives.VpkArchive.Open(vpk, name, allFiles: false, limits, ct);
+        }
         if (ReaderFor(head, name) is { } reader)
         {
             using var s = open();

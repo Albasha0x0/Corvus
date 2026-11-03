@@ -23,23 +23,33 @@ public static class VpkArchive
         && BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) is 1 or 2;
 
     /// <summary>Lists the directory paths with sizes and extracts files held in this file within <paramref name="limits"/>; files in sibling archives are listed and named as not opened; a cut directory is named as malformed and keeps the entries read.</summary>
-    public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
+        Open(new MemoryStream(data, writable: false), name, allFiles, limits, ct);
+
+    /// <summary>Reads the package from a seekable stream; only the directory tree and the extracted files are held in memory.</summary>
+    public static ContainerContents Open(Stream s, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
+        long fileSize = s.Length;
         var notes = new List<string>();
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
-        uint version = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4));
+        var head = Range(s, 0, (int)Math.Min(fileSize, 28));
+        uint version = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4));
         int header = version == 2 ? 28 : 12;
-        if (data.Length < header)
+        if (fileSize < header)
         {
-            notes.Add($"VPK archive cut short: {data.Length:N0} of {header} header bytes; entries unknown.");
+            notes.Add($"VPK archive cut short: {fileSize:N0} of {header} header bytes; entries unknown.");
             return new ContainerContents(Kind, items, notes) { Entries = entries };
         }
-        uint treeSize = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(8));
+        uint treeSize = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(8));
         long treeEnd = (long)header + treeSize;
         long dataBase = treeEnd;
-        bool cut = treeEnd > data.Length;
-        int end = (int)Math.Min(treeEnd, data.Length);
+        // The tree is read whole, so a header naming a larger tree is read up to the per-item limit.
+        long treeLimit = Math.Min(limits.MaxItemBytes, int.MaxValue / 2);
+        bool overLimit = Math.Min(treeEnd, fileSize) > treeLimit;
+        int end = (int)Math.Min(Math.Min(treeEnd, fileSize), treeLimit);
+        bool cut = treeEnd > end;
+        var data = Range(s, 0, end);
         var siblings = new SortedDictionary<int, int>();
         var names = new List<string>();
         long total = 0;
@@ -87,7 +97,7 @@ public static class VpkArchive
                         entries.Add(new ContainerEntry(path, size, $"{where}, not opened"));
                         continue;
                     }
-                    if (dataBase + offset + length > data.Length)
+                    if (dataBase + offset + length > fileSize)
                     {
                         entries.Add(new ContainerEntry(path, size, $"{where}, outside the file"));
                         notes.Add($"{path}: data lies outside the file; not extracted.");
@@ -99,7 +109,8 @@ public static class VpkArchive
                     if (size > limits.MaxItemBytes) { notes.Add($"{path}: over the per-item limit of {limits.MaxItemBytes:N0} bytes; not extracted."); continue; }
                     var content = new byte[size];
                     Buffer.BlockCopy(data, preloadAt, content, 0, preload);
-                    Buffer.BlockCopy(data, (int)(dataBase + offset), content, preload, (int)length);
+                    s.Position = dataBase + offset;
+                    s.ReadExactly(content.AsSpan(preload));
                     if (!allFiles && Blob.Identify(content) == "data") continue;
                     total += size;
                     items.Add(new ExtractedItem(Blob.SafeRelativePath(path, "file"), content, "VPK entry") { Member = true });
@@ -110,12 +121,14 @@ public static class VpkArchive
         }
 
         notes.Insert(0, $"VPK archive version {version}, {entries.Count:N0} entr(ies), directory of {treeSize:N0} bytes.");
-        if (version == 2 && data.Length >= 28)
+        if (version == 2 && head.Length >= 28)
         {
-            var h = data.AsSpan();
+            var h = head.AsSpan();
             notes.Add($"Version 2 sections, sizes only and not verified: file data {BinaryPrimitives.ReadUInt32LittleEndian(h[12..]):N0}, archive checksums {BinaryPrimitives.ReadUInt32LittleEndian(h[16..]):N0}, other checksums {BinaryPrimitives.ReadUInt32LittleEndian(h[20..]):N0}, signature {BinaryPrimitives.ReadUInt32LittleEndian(h[24..]):N0} bytes.");
         }
-        if (cut)
+        if (overLimit)
+            notes.Add($"VPK directory of {treeSize:N0} bytes is over the per-item limit of {treeLimit:N0} bytes; {entries.Count:N0} entr(ies) read from its start.");
+        else if (cut)
             notes.Add(badRecord > 0
                 ? $"VPK directory malformed: an entry record lacks its terminator; {entries.Count:N0} entr(ies) read."
                 : $"VPK directory malformed: it ends early; {entries.Count:N0} entr(ies) read.");
@@ -124,6 +137,14 @@ public static class VpkArchive
         notes.AddRange(MemberNames.Notes(names));
         if (stopped) notes.Add("Stopped: the extraction limit was reached.");
         return new ContainerContents(Kind, items, notes) { Entries = entries };
+    }
+
+    private static byte[] Range(Stream s, long at, int n)
+    {
+        var b = new byte[n];
+        s.Position = at;
+        s.ReadExactly(b);
+        return b;
     }
 
     // A directory file "x_dir.vpk" has data in "x_NNN.vpk".
