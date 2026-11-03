@@ -37,7 +37,13 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     /// <summary>A module rebuilt from the session's process: the file written, or null with the reason none was.</summary>
     public sealed record LiveSavedModule(string Name, string? File, [property: Description("Why no file was written.")] string? Reason,
         [property: Description("Pages read, percent.")] int Captured,
-        [property: Description("PDB file copied next to the module.")] string? Pdb = null);
+        [property: Description("PDB file copied next to the module.")] string? Pdb = null)
+    {
+        [Description("Code against the local file: same, differs, partial or unknown.")] public string? CodeState { get; init; }
+        [Description("Differing bytes and pages, or why unknown.")] public string? CodeDetail { get; init; }
+        [Description("Differing code: section, RVA, length.")] public IReadOnlyList<string>? CodeRanges { get; init; }
+        [Description("Session stop points and watches in the module: address, id.")] public IReadOnlyList<string>? SessionPatches { get; init; }
+    }
 
     /// <summary>The image folder save_modules wrote and its modules.</summary>
     public sealed record LiveSavedModules(string Folder, IReadOnlyList<LiveSavedModule> Modules);
@@ -291,7 +297,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
     }
 
-    private static string SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, string? symbols, CancellationToken ct)
+    private string SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, string? symbols, CancellationToken ct)
     {
         LiveSessionService.Live(s);
         if (s.ScriptRuntime is { } runtime) throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a {runtime.Kind} session: save_modules rebuilds native modules.", $"live_session action=attach program={s.ProcessId} opens a process session");
@@ -303,21 +309,53 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <program>-modules");
         using var process = Native.Live.LiveProcess.Attach(s.ProcessId, ct);
+        if (save.Module.Equals("code", StringComparison.OrdinalIgnoreCase))
+        {
+            var regions = MinidumpService.SaveCodeRegions(process, root, ct);
+            var codeRows = regions.Select(r => new LiveSavedModule(r.Name, r.ImageFile, r.ImageReason, r.ImageCaptured ?? 0)).ToList();
+            var codeText = new StringBuilder($"{s.Id}: {codeRows.Count(r => r.File != null)} code region(s) of process {s.ProcessId} written to {root}; the program keeps running\n");
+            foreach (var r in regions)
+                codeText.AppendLine($"  {r.Name}: {r.ImageFile ?? $"not written, {r.ImageReason}"}{(r.ImageFile != null ? $" ({r.LocalDetail})" : "")}");
+            return ToolOutput.With(codeText.ToString(), new LiveSessionReport("save_modules", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Saved = new LiveSavedModules(root, codeRows) });
+        }
         var targets = Native.Dump.Rebuild.ModuleRebuild.Select(process, save.Module, ct);
         if (targets.Count == 0)
-            throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.", "pass modules as a listed file name, a 0x address, all or unlisted");
+            throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.", "pass modules as a listed file name, a 0x address, all, unlisted or code");
         var options = Native.Dump.Rebuild.RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
         var rebuilt = targets.Select(t => Native.Dump.Rebuild.ModuleRebuild.Rebuild(process, t, options, ct)).ToList();
         var written = Native.Dump.Rebuild.ModuleWriter.WriteAll(rebuilt, root);
-        var withSymbols = MinidumpService.SaveSymbols(rebuilt, written, root, save.Symbols, null, ct);
+        // Same image folders as inspect_process: the program's own folder.
+        var directories = MinidumpService.Directories(null, process.ImagePath ?? "");
+        var withSymbols = MinidumpService.SaveSymbols(rebuilt, written, root, save.Symbols,
+            directories.Count == 0 ? null : string.Join(Path.PathSeparator, directories), ct);
         rebuilt = [.. withSymbols.Select(x => x.Module)];
-        var rows = rebuilt.Select((r, i) => new LiveSavedModule(r.Target.Name, written[i].File, written[i].Reason, r.CapturedPercent, withSymbols[i].Pdb)).ToList();
-        var text = new StringBuilder($"{s.Id}: {rows.Count(r => r.File != null)} of {rows.Count} module(s) of process {s.ProcessId} written to {root}; the program keeps running\n");
-        foreach (var (r, m) in rows.Zip(rebuilt))
+        var checkedModules = dumps?.SessionFor(s.Id, process, directories);
+        var patches = s.StopPoints.Values.Select(p => (p.Address, p.Id)).Concat(s.Watches.Values.Select(w => (w.Address, w.Id))).Where(p => p.Address != 0).ToList();
+        var rows = new List<LiveSavedModule>();
+        var text = new StringBuilder();
+        for (int i = 0; i < rebuilt.Count; i++)
         {
-            var worst = m.Checks.FirstOrDefault(c => c.State == "failed") ?? m.Checks.FirstOrDefault(c => c.State == "partial");
-            text.AppendLine($"  {r.Name}: {r.File ?? $"not written, {r.Reason}"} ({r.Captured}% read{(worst != null ? $"; {worst.Name} {worst.State}: {worst.Detail}" : "")})");
+            var r = rebuilt[i];
+            var row = new LiveSavedModule(r.Target.Name, written[i].File, written[i].Reason, r.CapturedPercent, withSymbols[i].Pdb);
+            var listed = process.Modules.FirstOrDefault(m => m.Base == r.Target.Base);
+            MinidumpService.CheckedModule? code = listed != null && checkedModules != null ? MinidumpService.Checked(checkedModules, listed) : null;
+            var ranges = r.Disk?.Differences.Where(d => d.Code).Select(d => $"{d.Section} {d.Start} +{d.Length}").ToList();
+            var sites = patches.Where(p => p.Address >= r.Target.Base && p.Address - r.Target.Base < r.Target.Size).Select(p => $"0x{p.Address:X} {p.Id}").ToList();
+            row = row with
+            {
+                CodeState = code?.CodeState ?? "unknown",
+                CodeDetail = code?.CodeDetail ?? (listed == null ? "the module is not in the module list" : "this server has no dump reader"),
+                CodeRanges = ranges is { Count: > 0 } ? ranges : null,
+                SessionPatches = sites.Count > 0 ? sites : null,
+            };
+            rows.Add(row);
+            var worst = r.Checks.FirstOrDefault(c => c.State == "failed") ?? r.Checks.FirstOrDefault(c => c.State == "partial");
+            var codeNote = row.CodeState is "differs" or "partial" or "unknown" ? $"{row.CodeState}: {row.CodeDetail}" : row.CodeState;
+            text.AppendLine($"  {row.Name}: {row.File ?? $"not written, {row.Reason}"} ({row.Captured}% read{(worst != null ? $"; {worst.Name} {worst.State}: {worst.Detail}" : "")}; code {codeNote})");
+            if (sites.Count > 0) text.AppendLine($"    session patch sites: {string.Join(", ", sites)}");
+            if (ranges is { Count: > 0 }) text.AppendLine($"    code ranges differing from the file: {string.Join(", ", ranges)}");
         }
+        text.Insert(0, $"{s.Id}: {rows.Count(r => r.File != null)} of {rows.Count} module(s) of process {s.ProcessId} written to {root}; the program keeps running\n");
         return ToolOutput.With(text.ToString(), new LiveSessionReport("save_modules", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Saved = new LiveSavedModules(root, rows) });
     }
 

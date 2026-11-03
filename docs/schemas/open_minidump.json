@@ -508,7 +508,7 @@
       }
     },
     "items": {
-      "description": "List views: module, thread, memory or unloaded module rows.",
+      "description": "List views: module, thread, memory, unloaded module or change rows.",
       "type": "array",
       "items": {
         "type": "object"

@@ -2706,7 +2706,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | The .dmp path or open dump id. |
-| `view` | string |  | `summary` | summary, modules, threads, memory, unloaded or changes (ranges changed in memory). |
+| `view` | string |  | `summary` | summary, modules, threads, memory, unloaded or changes. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `50` | Max rows. |
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own. |
@@ -2719,8 +2719,8 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
 | `base` | string |  |  | outputPath: loaded or preferred. |
-| `symbols` | string |  |  | outputPath: none, local or download; copies the matching PDB next to each module. |
-| `compareWith` | string |  |  | view=changes: dump path or open id to compare with instead of the files. |
+| `symbols` | string |  |  | outputPath: none, local or download PDBs. |
+| `compareWith` | string |  |  | view=changes: dump to compare with. |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `items`.
@@ -2876,7 +2876,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | Action. Values: list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child, release_child. |
+| `action` | string |  | `list` | Action. Values: list, processes, attach, spawn, status, snapshot, save_modules, ipc, close, children, attach_child, release_child. |
 | `program` | string |  |  | attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
@@ -2890,7 +2890,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | `layout` | string |  |  | save_modules: file or mapped. |
 | `imports` | string |  |  | save_modules: restore or keep. |
 | `base` | string |  |  | save_modules: loaded or preferred. |
-| `symbols` | string |  |  | save_modules: none, local or download; copies the matching PDB next to each module. |
+| `symbols` | string |  |  | save_modules: none, local or download PDBs. |
 
 Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `saved`, `ipc`.
 

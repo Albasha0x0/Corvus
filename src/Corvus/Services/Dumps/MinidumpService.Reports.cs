@@ -429,7 +429,7 @@ public sealed partial class MinidumpService
 
     /// <summary>Writes each code region as code-&lt;base&gt;.bin with code-&lt;base&gt;.txt listing the function table entries inside it; one row per region.</summary>
     /// <remarks>A source without a function table stream lists the entries as unknown; limits and sources without a region list come back as a row naming them.</remarks>
-    private static List<CheckedModule> SaveCodeRegions(IProcessMemory memory, string root, CancellationToken ct)
+    internal static List<CheckedModule> SaveCodeRegions(IProcessMemory memory, string root, CancellationToken ct)
     {
         var set = CodeRegions.Read(memory, ct);
         if (set.Regions.Count == 0 && set.Notes.Count == 0)

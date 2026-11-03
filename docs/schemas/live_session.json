@@ -145,6 +145,28 @@
               "pdb": {
                 "description": "PDB file copied next to the module.",
                 "type": "string"
+              },
+              "codeState": {
+                "description": "Code against the local file: same, differs, partial or unknown.",
+                "type": "string"
+              },
+              "codeDetail": {
+                "description": "Differing bytes and pages, or why unknown.",
+                "type": "string"
+              },
+              "codeRanges": {
+                "description": "Differing code: section, RVA, length.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sessionPatches": {
+                "description": "Session stop points and watches in the module: address, id.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
