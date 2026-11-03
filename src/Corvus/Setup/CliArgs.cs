@@ -35,6 +35,7 @@ internal sealed partial class CliArgs
     public string? DumpLayout { get; private set; }
     public string? DumpImports { get; private set; }
     public string? DumpBase { get; private set; }
+    public string? DumpSymbols { get; private set; }
     public string? PasswordFile { get; private set; }
     public string? Baseline { get; private set; }
     public string? Report { get; private set; }
@@ -76,6 +77,7 @@ internal sealed partial class CliArgs
                 case "--layout": a.DumpLayout = Next(); continue;
                 case "--imports": a.DumpImports = Next(); continue;
                 case "--base": a.DumpBase = Next(); continue;
+                case "--symbols": a.DumpSymbols = Next(); continue;
                 case "--password-file": a.PasswordFile = Next(); continue;
                 case "--baseline": a.Baseline = Next(); continue;
                 case "--report": a.Report = Next(); continue;

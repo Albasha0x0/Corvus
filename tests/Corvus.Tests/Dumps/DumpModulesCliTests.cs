@@ -62,4 +62,25 @@ public sealed class DumpModulesCliTests : IDisposable
         Assert.Equal(2, code);
         Assert.Empty(output);
     }
+
+    [Fact]
+    public async Task The_symbols_option_reports_the_state_of_each_written_image()
+    {
+        var folder = _dir.File("images");
+        var (code, output, _) = await ToolCliTests.Run("batch", "--file", Dump(), "--dump-modules", folder, "--symbols", "local", "--json", "--no-index");
+        Assert.True(code is 0, output);
+        var written = Assert.Single(JsonNode.Parse(output)!["dumpModules"]!["written"]!.AsArray());
+        Assert.StartsWith("unknown", (string?)written!["symbols"]);
+    }
+
+    [Fact]
+    public async Task An_unknown_symbols_value_is_refused()
+    {
+        var folder = _dir.File("images");
+        var (code, output, error) = await ToolCliTests.Run("batch", "--file", Dump(), "--dump-modules", folder, "--symbols", "remote", "--json", "--no-index");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+        Assert.Contains("symbols", error);
+        Assert.False(Directory.Exists(folder));
+    }
 }

@@ -102,8 +102,8 @@ internal static partial class ToolCli
         if (dumpModules != null && a.Recurse) throw new UsageException("--dump-modules reads one dump: it does not go with --recurse.");
         if (dumpModules != null && (File.Exists(dumpModules) || Directory.Exists(dumpModules) && Directory.EnumerateFileSystemEntries(dumpModules).Any()))
             throw new UsageException($"--dump-modules needs a new or empty folder: {a.DumpModules}.");
-        if (dumpModules == null && (a.DumpModule ?? a.DumpLayout ?? a.DumpImports ?? a.DumpBase) != null)
-            throw new UsageException("--module, --layout, --imports and --base go with --dump-modules.");
+        if (dumpModules == null && (a.DumpModule ?? a.DumpLayout ?? a.DumpImports ?? a.DumpBase ?? a.DumpSymbols) != null)
+            throw new UsageException("--module, --layout, --imports, --base and --symbols go with --dump-modules.");
         var report = OutputPath("--report", a.Report);
         if (report != null && Directory.Exists(report)) throw new UsageException($"--report names a file, not a folder: {a.Report}.");
         var sarif = OutputPath("--sarif", a.Sarif);
@@ -169,6 +169,7 @@ internal static partial class ToolCli
             var layout = DumpChoice("--layout", a.DumpLayout, "file", "mapped");
             var imports = DumpChoice("--imports", a.DumpImports, "restore", "keep");
             var @base = DumpChoice("--base", a.DumpBase, "loaded", "preferred");
+            var symbols = DumpChoice("--symbols", a.DumpSymbols, "none", "local", "download");
             var save = (Module: module, Layout: layout == "mapped" ? Native.Dump.Rebuild.OutputLayout.Mapped : Native.Dump.Rebuild.OutputLayout.File,
                 Imports: imports == "keep" ? Native.Dump.Rebuild.ImportMode.Keep : Native.Dump.Rebuild.ImportMode.Restore,
                 Base: @base == "preferred" ? Native.Dump.Rebuild.BaseMode.Preferred : Native.Dump.Rebuild.BaseMode.Loaded);
@@ -187,15 +188,30 @@ internal static partial class ToolCli
                 if (r.File == null) skipped.Add(new Native.Dump.SkippedModule(m.Target.Name, at, r.Reason ?? "not rebuilt"));
                 else written.Add(new Native.Dump.ExportedModule(r.File, at, m.Target.Size, m.Sha256!, m.CapturedPercent, m.Metadata, m.MetadataReason));
             }
-            return System.Text.Json.JsonSerializer.SerializeToNode(new Native.Dump.ModuleExport(root, written, skipped), ExportJson)!;
+            var node = System.Text.Json.JsonSerializer.SerializeToNode(new Native.Dump.ModuleExport(root, written, skipped), ExportJson)!;
+            if (symbols != "none")
+                foreach (var (m, r) in rebuilt.Zip(results).Where(x => x.Second.File != null && x.First.Bytes != null))
+                {
+                    var entry = node["written"]!.AsArray().First(w => (string?)w!["file"] == r.File)!;
+                    var found = Native.Dump.Rebuild.ModuleSymbols.Find(m.Bytes!, null, symbols == "download", cancellationToken);
+                    if (found.PdbPath == null) { entry["symbols"] = $"unknown: {found.Status}: {found.Reason}"; continue; }
+                    // A PDB is copied next to its module and never replaces a
+                    // file already there.
+                    var pdb = Path.GetFileName(found.PdbPath);
+                    if (File.Exists(Path.Combine(root, pdb))) { entry["symbols"] = $"unknown: {pdb} is already in the folder"; continue; }
+                    File.Copy(found.PdbPath, Path.Combine(root, pdb));
+                    entry["symbols"] = $"ok: {pdb}";
+                    entry["pdb"] = pdb;
+                }
+            return node;
         }
         catch (ToolError ex) { throw new UsageException($"--dump-modules: {ex.Message}"); }
     }
-    /// <summary>The lower-case choice of a --dump-modules option, <paramref name="first"/> when absent; rejects any other value.</summary>
-    private static string DumpChoice(string option, string? value, string first, string second)
+    /// <summary>The lower-case choice of a --dump-modules option, the first of <paramref name="choices"/> when absent; rejects any other value.</summary>
+    private static string DumpChoice(string option, string? value, params string[] choices)
     {
-        var v = string.IsNullOrWhiteSpace(value) ? first : value.Trim().ToLowerInvariant();
-        if (v != first && v != second) throw new UsageException($"{option} is {first} or {second}, not '{value}'.");
+        var v = string.IsNullOrWhiteSpace(value) ? choices[0] : value.Trim().ToLowerInvariant();
+        if (!choices.Contains(v)) throw new UsageException($"{option} is {string.Join(", ", choices[..^1])} or {choices[^1]}, not '{value}'.");
         return v;
     }
 

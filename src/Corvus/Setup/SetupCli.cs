@@ -133,7 +133,8 @@ internal static class SetupCli
                                 --extract <folder>: write decoded payloads with their chain.
                                 --dump-modules <folder>: write the module images of a minidump.
                                 --module <name|0x address|all|unlisted>, --layout file|mapped,
-                                --imports restore|keep, --base loaded|preferred: as open_minidump.
+                                --imports restore|keep, --base loaded|preferred, --symbols none|local|download:
+                                as open_minidump.
                                 --password-file <file>: password for encrypted members of --recurse.
                                 --baseline <file>: drop known findings by key until each entry expires;
                                 an earlier result's findings are entries that do not expire.
