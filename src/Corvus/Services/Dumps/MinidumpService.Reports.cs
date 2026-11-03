@@ -68,6 +68,7 @@ public sealed partial class MinidumpService
         [Description("signed, catalog, unsigned, digest_mismatch, invalid, unreadable or unknown.")] public string? SignatureState { get; init; }
         [Description(".text in memory against the matching local file: same, differs, partial or unknown.")] public string? CodeState { get; init; }
         public string? CodeDetail { get; init; }
+        [Description("Why the signature state is unknown: no local file, a file over the size limit or an unreadable file.")] public string? SignatureDetail { get; init; }
         [Description("Rebuilt .NET image: readable, partial, unreadable or unknown.")] public string? Metadata { get; init; }
         [Description("Why the metadata is not readable.")] public string? MetadataReason { get; init; }
         [Description("code for a saved code region; null for a module.")] public string? Format { get; init; }
@@ -507,7 +508,25 @@ public sealed partial class MinidumpService
             "mismatch" => new CodeComparison("unknown", "the local file is another build"),
             _ => new CodeComparison("unknown", "no local file"),
         };
-        return row with { LoadPath = ModuleChecks.PathClass(m.Path), Signer = signature.Signer, SignatureState = signature.State, CodeState = code.State, CodeDetail = code.Detail };
+        return row with
+        {
+            LoadPath = ModuleChecks.PathClass(m.Path), Signer = signature.Signer, SignatureState = signature.State,
+            SignatureDetail = signature.State == "unknown" ? UnknownSignatureReason(row) : null, CodeState = code.State, CodeDetail = code.Detail,
+        };
+    }
+
+    /// <summary>Why the local file's signature could not be read, from the row's local file and its size.</summary>
+    private static string UnknownSignatureReason(CheckedModule row)
+    {
+        if (row.LocalImage == "missing" || row.LocalPath == null) return "no local file";
+        try
+        {
+            var info = new FileInfo(row.LocalPath);
+            if (!info.Exists) return "the local file could not be read";
+            if (info.Length > ModuleChecks.MaxSignedFile) return $"the local file is over the {ModuleChecks.MaxSignedFile >> 20} MB limit";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
+        return "the local file could not be read as a PE image";
     }
 
     /// <summary>Threads from <paramref name="offset"/>, each instruction pointer named; for WoW64 the 32-bit side where the dump holds it.</summary>
