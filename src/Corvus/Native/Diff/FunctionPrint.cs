@@ -82,14 +82,24 @@ public sealed class ImagePrints
     private int[]? _calleeFanIn;
 
     /// <summary>Per function index, how many functions of this image call it.</summary>
-    // Benign race: concurrent callers compute the same array, after the prints are built.
-    internal int[] CalleeFanIn => _calleeFanIn ??= ComputeFanIn();
+    internal int[] CalleeFanIn
+    {
+        get
+        {
+            if (_calleeFanIn is { } cached) return cached;
+            // One thread computes; concurrent first queries wait instead of repeating the pass.
+            lock (_tables) return _calleeFanIn ??= ComputeFanIn();
+        }
+    }
+
+    private readonly object _tables = new();
 
     private int[] ComputeFanIn()
     {
         var counts = new int[Functions.Length];
+        // Build stores each callee of a function once.
         foreach (var f in Functions)
-            foreach (var c in f.Callees.Distinct())
+            foreach (var c in f.Callees)
                 if ((uint)c < (uint)counts.Length) counts[c]++;
         return counts;
     }
@@ -164,20 +174,24 @@ public sealed class ImagePrints
         get
         {
             if (_ignored is { } cached) return cached;
-            var fanIn = CalleeFanIn;
-            // Below 400 functions the floor is the fan-in discount threshold, not 2%.
-            int floor = Math.Max(SimilarFunctions.CommonCalleeFanIn, (int)(Functions.Length * CommonCalleeShare));
-            var ignored = new bool[Functions.Length];
-            int helpers = 0, common = 0;
-            for (int i = 0; i < ignored.Length; i++)
+            lock (_tables)
             {
-                bool helper = fanIn[i] > 0 && NamedHelpers.Contains(i);
-                ignored[i] = helper || fanIn[i] > floor;
-                if (helper) helpers++;
-                else if (ignored[i]) common++;
+                if (_ignored is { } again) return again;
+                var fanIn = CalleeFanIn;
+                // Below 400 functions the floor is the fan-in discount threshold, not 2%.
+                int floor = Math.Max(SimilarFunctions.CommonCalleeFanIn, (int)(Functions.Length * CommonCalleeShare));
+                var ignored = new bool[Functions.Length];
+                int helpers = 0, common = 0;
+                for (int i = 0; i < ignored.Length; i++)
+                {
+                    bool helper = fanIn[i] > 0 && NamedHelpers.Contains(i);
+                    ignored[i] = helper || fanIn[i] > floor;
+                    if (helper) helpers++;
+                    else if (ignored[i]) common++;
+                }
+                (_ignoredHelpers, _ignoredCommon) = (helpers, common);
+                return _ignored = ignored;
             }
-            (_ignoredHelpers, _ignoredCommon) = (helpers, common);
-            return _ignored = ignored;
         }
     }
 

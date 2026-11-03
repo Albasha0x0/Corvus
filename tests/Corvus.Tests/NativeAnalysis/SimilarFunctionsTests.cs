@@ -119,6 +119,16 @@ public class SimilarFunctionsTests
     }
 
     [Fact]
+    public void The_first_query_does_not_build_the_callee_tables_again()
+    {
+        var prints = X64().Prints;
+        var tables = Enumerable.Range(0, 8).AsParallel().WithDegreeOfParallelism(8)
+            .Select(_ => (prints.CalleeFanIn, prints.IgnoredCallees)).ToArray();
+        Assert.All(tables, t => Assert.Same(tables[0].CalleeFanIn, t.CalleeFanIn));
+        Assert.All(tables, t => Assert.Same(tables[0].IgnoredCallees, t.IgnoredCallees));
+    }
+
+    [Fact]
     public void A_callee_called_from_many_functions_is_ignored_in_the_shared_callee_score()
     {
         var a = new Assembler(64);
