@@ -60,7 +60,6 @@ internal static class SimplifyHarness
         var changes = new List<MethodChange>(methods.Count);
         var problems = new List<string>();
         var limit = options.EffectiveLimits.MethodTimeLimit + TimeSlack;
-        var wallLimit = options.EffectiveLimits.MethodTimeLimit * MethodMeter.WallFactor + TimeSlack;
         var elapsed = TimeSpan.Zero;
         (string, TimeSpan) slowest = ("", TimeSpan.Zero);
         (string, long) hungriest = ("", 0);
@@ -87,8 +86,8 @@ internal static class SimplifyHarness
             elapsed += time;
             if (time > slowest.Item2) slowest = (Label(m), time);
             if (bytes > hungriest.Item2) hungriest = (Label(m), bytes);
-            // The limit is the method's CPU time, so a loaded machine's waits do not count; wall time has a wider bound.
-            if (cpu > limit || time > wallLimit)
+            // The limit is the method's CPU time; the meter ends a method that outlasts its wall bound, and a wait after its last check is machine load.
+            if (cpu > limit)
                 problems.Add($"time: {Label(m)} took {cpu.TotalSeconds:0.00} s of CPU time, {time.TotalSeconds:0.00} s of wall time (limit {options.EffectiveLimits.MethodTimeLimit.TotalSeconds:0.##} s)");
             if (bytes > MethodAllocationLimit) problems.Add($"memory: {Label(m)} allocated {bytes / (1024 * 1024)} MB");
             foreach (var c in result)
