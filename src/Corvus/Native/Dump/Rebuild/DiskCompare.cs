@@ -103,12 +103,14 @@ public static class DiskCompare
     /// <summary>
     /// Bytes of a section compared, and the part of them the file holds. A
     /// code section is compared over its virtual size, the rest against the
-    /// zeros the loader maps there, so code written at run time is seen.
+    /// zeros the loader maps there, so code written at run time is seen. A
+    /// section is code when either header says so: the rebuilt one carries
+    /// the execute flag its memory protection gave it.
     /// </summary>
     internal static (long Length, long FileLength) Extent(SectionInfo memory, SectionInfo disk, long imageLength, long fileLength)
     {
         long held = Math.Max(0, Math.Min(Math.Min(disk.VirtualSize == 0 ? disk.RawSize : disk.VirtualSize, disk.RawSize), fileLength - (long)disk.RawAt));
-        long length = IsCode(disk.Characteristics)
+        long length = IsCode(disk.Characteristics) || IsCode(memory.Characteristics)
             ? Math.Min(memory.VirtualSize == 0 ? memory.RawSize : memory.VirtualSize, disk.VirtualSize == 0 ? disk.RawSize : disk.VirtualSize)
             : Math.Min(Math.Min(memory.VirtualSize, memory.RawSize), held);
         length = Math.Max(0, Math.Min(Math.Min(length, memory.RawSize), imageLength - (long)memory.Rva));
