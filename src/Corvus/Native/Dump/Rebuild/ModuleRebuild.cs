@@ -106,7 +106,7 @@ public static class ModuleRebuild
     {
         if (target.Size > MaxImageBytes) return Refuse(target, $"larger than {MaxImageBytes >> 20} MB");
         if (memory is CoreFile core) return ElfRebuild.FromCore(core, target, options, ct);
-        if (target.Origin == ModuleOrigin.Managed && target.Base == 0) return Refuse(target, "an emitted assembly has no image to rebuild");
+        if (target.Origin == ModuleOrigin.Managed && target.Base == 0) return DynamicModuleImage.Rebuild(memory, target, ct);
         var checks = new List<RebuildCheck>();
         var read = CapturedImageReader.Read(memory, target, ct, checks);
         if (read == null) return Refuse(target, "the memory does not hold the image headers");
