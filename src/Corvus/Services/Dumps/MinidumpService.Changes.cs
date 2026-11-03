@@ -357,7 +357,7 @@ public sealed partial class MinidumpService
         var target = image.Target;
         string where = Where(image.Memory, image.Exports, target.Base + rva).Trim().Trim('(', ')');
         string chain = ChainText(image.Memory, image.Exports, target.Base + rva, machine);
-        if (chain.Length != 0) where += chain;
+        if (chain.Length != 0) where = where.Length == 0 ? chain.TrimStart(',', ' ') : where + chain;
         if (rva < target.Size) return where.Length == 0 ? "" : $" ({where})";
         return where.Length == 0 ? " (past the image)" : $" (past the image; {where})";
     }

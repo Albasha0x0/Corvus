@@ -89,6 +89,6 @@ public sealed class DumpSlotChainTests : FileIsolationTestBase
 
         var text = await new MinidumpTools(service).OpenMinidump(dump, "changes", modules: "lib.dll", imageDirectories: images);
         Assert.Contains("spare: RVA 0x1010 to 0x", text);
-        Assert.Contains("then lib.dll!target (2 hops)", text);
+        Assert.Matches(@"\((past the image; )?(unbacked, )?then lib\.dll!target \(2 hops\)\)", text);
     }
 }
