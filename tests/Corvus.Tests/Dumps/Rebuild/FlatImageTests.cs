@@ -23,7 +23,7 @@ public sealed class FlatImageTests : IDisposable
         var built = RebuildFixtures.Build(Spec());
         built = built with { Bytes = [.. built.Bytes, .. new byte[(0x1000 - built.Bytes.Length % 0x1000) % 0x1000]] };
         using var dump = RebuildFixtures.Dump(_dir, new Placed("flat.dll", built, 0x180000000, ImageLayout.Flat));
-        var target = Assert.Single(ModuleRebuild.Select(dump, "flat.dll", default));
+        var target = Assert.Single(ModuleRebuild.Select(dump, "flat.dll", default)) with { Origin = ModuleOrigin.Unlisted };
 
         var rebuilt = ModuleRebuild.Rebuild(dump, target,
             RebuildOptions.Default with { Layout = OutputLayout.File, Base = BaseMode.Preferred, CompareWithDisk = false }, default);

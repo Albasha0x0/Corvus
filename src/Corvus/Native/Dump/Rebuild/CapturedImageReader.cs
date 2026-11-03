@@ -9,7 +9,7 @@ public static class CapturedImageReader
 
     /// <summary>
     /// The captured image of <paramref name="target"/>, missing pages zero; null when its headers are not captured.
-    /// A flat image is returned mapped, with sections moved to their RVAs. Its <c>InputLayout</c> is mapped, flat or unknown, and one <c>capture</c> check is added to <paramref name="checks"/> when given.
+    /// A module list entry is mapped by construction and is not inspected; other origins are detected. A flat image is returned mapped, with sections moved to their RVAs. Its <c>InputLayout</c> is mapped, flat or unknown, and one <c>capture</c> check is added to <paramref name="checks"/> when given.
     /// </summary>
     public static CapturedImage? Read(IProcessMemory memory, RebuildTarget target, CancellationToken ct, List<RebuildCheck>? checks = null)
     {
@@ -24,12 +24,15 @@ public static class CapturedImageReader
             ct.ThrowIfCancellationRequested();
             captured[page / 0x1000] = memory.ReadMemory(target.Base + page, image.AsSpan((int)page, 0x1000)) == 0x1000;
         }
-        var (layout, reason) = DetectLayout(image, captured);
+        // A module list entry was mapped by the loader; only other inputs need
+        // detection.
+        bool loaded = target.Origin == ModuleOrigin.Listed;
+        var (layout, reason) = loaded ? ("mapped", "") : DetectLayout(image, captured);
         if (layout == "flat") (image, captured) = MapFlat(memory, target.Base, image, sizeOfImage, ct);
         var result = new CapturedImage(target, image, captured, layout);
         checks?.Add(layout == "unknown"
             ? RebuildCheck.Unknown("capture", reason)
-            : RebuildCheck.Ok("capture", $"{layout}, {result.CapturedPercent}% captured"));
+            : RebuildCheck.Ok("capture", $"{layout}{(loaded ? " (loaded module)" : "")}, {result.CapturedPercent}% captured"));
         return result;
     }
 

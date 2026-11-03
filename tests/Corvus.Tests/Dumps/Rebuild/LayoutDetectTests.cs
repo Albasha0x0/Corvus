@@ -21,7 +21,7 @@ public sealed class LayoutDetectTests
         if (layout == ImageLayout.Flat) image = image with { Bytes = [.. image.Bytes, .. new byte[(0x1000 - image.Bytes.Length % 0x1000) % 0x1000]] };
         using var dir = new TempDir();
         using var dump = RebuildFixtures.Dump(dir, new Placed("probe.dll", image, Base, layout));
-        var target = new RebuildTarget("probe.dll", Base, 0, ModuleOrigin.Listed);
+        var target = new RebuildTarget("probe.dll", Base, 0, ModuleOrigin.Unlisted);
         var checks = new List<RebuildCheck>();
         return (CapturedImageReader.Read(dump, target, CancellationToken.None, checks), checks);
     }
