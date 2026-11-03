@@ -103,11 +103,11 @@ Requires `CORVUS_TTD` set to a folder with `TTDReplay.dll` and `TTDReplayCPU.dll
 
 ### Frida
 
-Start: `--live-install-frida` (`CORVUS_LIVE_INSTALL_FRIDA=1`), `install.ps1 -WithLive`, `install.sh --with-live` or `corvus install --with-live` create the copy at once. Otherwise the first session creates a private environment from 64-bit Python 3.9+ at `<data>/frida/python-17.24.3`.
+Start: `--live-install-frida` (`CORVUS_LIVE_INSTALL_FRIDA=1`), `install.ps1 -WithLive`, `install.sh --with-live` or `corvus install --with-live` create the copy at once. Otherwise the first session creates a private environment from 64-bit Python 3.9+ at `<data>/frida/python-17.25.2`.
 
-Requires Frida 17.24.3 to 17.24.x, from `pip install frida` or the pinned private copy. Outside the range, a session opens with an `error` event naming the version and range; older than 17.0 is refused with `provider_unavailable`.
+Requires Frida 17.24.3 to 17.24.x and 17.25.1 to 17.25.x, from `pip install frida` or the pinned private copy. Outside the range, a session opens with an `error` event naming the version and range; older than 17.0 is refused with `provider_unavailable`.
 
-- pip installs 17.24.3 from wheels only, SHA-256 pinned per platform (`--require-hashes`; about 60 MB). `CORVUS_OFFLINE=1` refuses the download.
+- pip installs 17.25.2 from wheels only, SHA-256 pinned per platform (`--require-hashes`; about 60 MB). `CORVUS_OFFLINE=1` refuses the download.
 - Interpreter search order: `CORVUS_FRIDA_PYTHON`; the private environment; the first Python (`py` launcher, then `PATH`) with a supported Frida; a new private environment (with `--live-install-frida`); the first Python with any Frida.
 - `server_status` shows the interpreter, its source and its Frida version.
 

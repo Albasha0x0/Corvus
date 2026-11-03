@@ -26,7 +26,7 @@ Server options, environment variables and security switches. Setup: [installatio
 | `--live-allow <path>` | `CORVUS_LIVE_ALLOW` | the programs or folders a session may start or attach to (repeatable; a path list); `*`: any program |
 | `--allow-window-capture` | `CORVUS_ALLOW_WINDOW_CAPTURE` | `inspect_process view=windows`: window titles, control text and a picture of a window |
 | `--live-scripting` | `CORVUS_LIVE_SCRIPTING` | `live_script`: your script runs with the program's rights |
-| `--live-install-frida` | `CORVUS_LIVE_INSTALL_FRIDA` | without a usable Frida, the first session installs 17.24.3 from hash-checked wheels ([Frida](live-inspection.md#frida)); refused offline |
+| `--live-install-frida` | `CORVUS_LIVE_INSTALL_FRIDA` | without a usable Frida, the first session installs 17.25.2 from hash-checked wheels ([Frida](live-inspection.md#frida)); refused offline |
 | `--ida-scripting` | `CORVUS_IDA_SCRIPTING` | `ida_python`: any Python in the IDA worker, with the server's rights |
 | `--ghidra-scripting` | `CORVUS_GHIDRA_SCRIPTING` | `ghidra_script`: any Java or Python in the Ghidra worker, with the server's rights |
 | `--allow-replace-original` | `CORVUS_ALLOW_REPLACE_ORIGINAL` | `save_assembly` and `save_native` with `replaceOriginal=true`; without it they write new files only |
@@ -214,7 +214,7 @@ file or its folder.
 
 | Variable | Program | Used for |
 |---|---|---|
-| `CORVUS_FRIDA_PYTHON` | Python with Frida's bindings (17.24.3 to 17.24.x) | the session tools' worker |
+| `CORVUS_FRIDA_PYTHON` | Python with Frida's bindings (17.24.3 to 17.24.x and 17.25.1 to 17.25.x) | the session tools' worker |
 | `CORVUS_TTD` | folder with `TTDReplay.dll` and `TTDReplayCPU.dll` from WinDbg's `amd64\ttd` (TTD 1.11.617) | sessions on TTD recordings (`program=ttd:PATH`) |
 | `CORVUS_JAVA` | JDK 17+ (`JAVA_HOME`, `PATH`) | the Java decompilers |
 | `CORVUS_JAVA_DECOMPILER`, `CORVUS_JAVA_DECOMPILER2` | [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) jar; [Vineflower](https://github.com/Vineflower/vineflower) jar | `decompile_java`; `decompile_java engine=vineflower` |
