@@ -194,4 +194,14 @@ internal static class PeEdit
         BinaryPrimitives.WriteUInt64LittleEndian(pe.AsSpan(Offset(pe, lookup)), 1UL << 63 | ordinal);
         return built with { Bytes = pe };
     }
+
+    /// <summary>Sets the ordinal base of the export directory.</summary>
+    public static PeBuilt OrdinalBase(PeBuilt built, uint ordinalBase)
+    {
+        var pe = (byte[])built.Bytes.Clone();
+        int nt = BinaryPrimitives.ReadInt32LittleEndian(pe.AsSpan(0x3C));
+        uint dir = BinaryPrimitives.ReadUInt32LittleEndian(pe.AsSpan(nt + 24 + 112));
+        BinaryPrimitives.WriteUInt32LittleEndian(pe.AsSpan(Offset(pe, dir + 16)), ordinalBase);
+        return built with { Bytes = pe };
+    }
 }

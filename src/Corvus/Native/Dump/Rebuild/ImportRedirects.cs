@@ -149,21 +149,21 @@ public static class ImportRedirects
             _memory = memory;
             _dumpApiSets = dumpApiSets;
             foreach (var m in memory.Modules) _modules.TryAdd(m.FileName, m);
-            foreach (var f in map.Forwarders)
+            foreach (var f in map.Forwarders.Concat(map.OrdinalForwarders))
             {
                 int space = f.IndexOf(' ');
                 if (space > 0) _forwarders.TryAdd(f[..space], f[(space + 1)..]);
             }
         }
 
-        // Host of an API set contract and the map that named it; null when
-        // unmapped.
-        private string? Host(string contract, out string via)
+        // Hosts of an API set contract for an importer and the map that named
+        // them; empty when unmapped.
+        private IReadOnlyList<string> Hosts(string contract, string? importer, out string via)
         {
             if (_dumpApiSets is not null)
             {
                 via = "dump";
-                return _dumpApiSets.Resolve(contract);
+                return _dumpApiSets.Hosts(contract, importer);
             }
             via = "system";
             if (!_systemLoaded)
@@ -172,22 +172,31 @@ public static class ImportRedirects
                 try { _systemApiSets = ApiSetSchema.FromSystem(PeFile.Open); }
                 catch (Exception e) when (e is Core.ToolError or IOException) { }
             }
-            return _systemApiSets?.Resolve(contract);
+            return _systemApiSets?.Hosts(contract, importer) ?? [];
         }
 
         public bool TryResolve(string module, string function, out ulong address, out string? reason, out string? via)
         {
             address = 0;
             via = null;
+            string? importer = null;
             for (int depth = 0; depth <= MaxForwardDepth; depth++)
             {
                 if (ApiSetSchema.IsApiSetName(module))
                 {
-                    var host = Host(module, out string used);
+                    var hosts = Hosts(module, importer, out string used);
                     via ??= used;
-                    if (host is null)
+                    if (hosts.Count == 0)
                     {
                         reason = $"contract {module} is not in the {used} api set map";
+                        return false;
+                    }
+                    // A host equal to the forwarding module would loop back to
+                    // the contract.
+                    var host = hosts.FirstOrDefault(h => importer is null || !string.Equals(h, importer, StringComparison.OrdinalIgnoreCase));
+                    if (host is null)
+                    {
+                        reason = $"the contract resolves back to {importer}";
                         return false;
                     }
                     module = host;
@@ -205,6 +214,7 @@ public static class ImportRedirects
                         reason = $"forwarder '{target}' is malformed";
                         return false;
                     }
+                    importer = loaded.FileName;
                     module = target[..dot];
                     if (!_modules.ContainsKey(module)) module += ".dll";
                     function = target[(dot + 1)..];

@@ -7,9 +7,9 @@ namespace Corvus.Native;
 public sealed class ApiSetSchema
 {
     private const int MaxEntries = 20_000;
-    private readonly Dictionary<string, (string Default, Dictionary<string, string> ByImporter)> _entries;
+    private readonly Dictionary<string, (string Default, Dictionary<string, string> ByImporter, List<string> All)> _entries;
 
-    private ApiSetSchema(Dictionary<string, (string, Dictionary<string, string>)> entries) => _entries = entries;
+    private ApiSetSchema(Dictionary<string, (string, Dictionary<string, string>, List<string>)> entries) => _entries = entries;
 
     public int Count => _entries.Count;
 
@@ -29,6 +29,25 @@ public sealed class ApiSetSchema
         if (importer != null && entry.ByImporter.TryGetValue(Path.GetFileName(importer), out var specific))
             return specific.Length > 0 ? specific : null;
         return entry.Default.Length > 0 ? entry.Default : null;
+    }
+
+    /// <summary>
+    /// The hosts of <paramref name="module"/> for <paramref name="importer"/> in value order: the entry for that
+    /// importer, the default, then the remaining values. Empty when unmapped or hostless for that importer.
+    /// </summary>
+    public IReadOnlyList<string> Hosts(string module, string? importer = null)
+    {
+        if (!_entries.TryGetValue(Key(module), out var entry)) return [];
+        List<string> hosts = [];
+        if (importer != null && entry.ByImporter.TryGetValue(Path.GetFileName(importer), out var specific))
+        {
+            if (specific.Length > 0) hosts.Add(specific);
+            else return hosts;
+        }
+        if (entry.Default.Length > 0) hosts.Add(entry.Default);
+        foreach (var host in entry.All)
+            if (!hosts.Contains(host, StringComparer.OrdinalIgnoreCase)) hosts.Add(host);
+        return hosts;
     }
 
     private static string Key(string module)
@@ -64,7 +83,7 @@ public sealed class ApiSetSchema
         if (map.Length < 28 || U32(map, 0) != 6) return null;
         uint count = U32(map, 12), entryOffset = U32(map, 16);
         if (count > MaxEntries || entryOffset > map.Length || (ulong)count * 24 > (ulong)(map.Length - entryOffset)) return null;
-        var entries = new Dictionary<string, (string, Dictionary<string, string>)>();
+        var entries = new Dictionary<string, (string, Dictionary<string, string>, List<string>)>();
         for (uint i = 0; i < count; i++)
         {
             int e = (int)(entryOffset + i * 24);
@@ -73,17 +92,19 @@ public sealed class ApiSetSchema
             if (name == null || hashed > (ulong)name.Length * 2 || valueCount > 64) continue;
             string def = "";
             var byImporter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            List<string> all = [];
             for (uint v = 0; v < valueCount; v++)
             {
                 long at = valueOffset + (long)v * 20;
                 if (at + 20 > map.Length) break;
                 var importer = Utf16(map, U32(map, (int)at + 4), U32(map, (int)at + 8)) ?? "";
                 var host = Utf16(map, U32(map, (int)at + 12), U32(map, (int)at + 16)) ?? "";
+                if (host.Length > 0) all.Add(host);
                 if (importer.Length == 0) def = host;
                 else byImporter[importer] = host;
             }
             // Key on the hashed prefix: the name up to (excluding) its last hyphen.
-            entries[name[..(int)(hashed / 2)].ToLowerInvariant()] = (def, byImporter);
+            entries[name[..(int)(hashed / 2)].ToLowerInvariant()] = (def, byImporter, all);
         }
         return new ApiSetSchema(entries);
     }

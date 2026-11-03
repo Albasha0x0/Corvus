@@ -13,6 +13,7 @@ public sealed class ExportMap
 
     private readonly Dictionary<ulong, string> _byAddress = [];
     private readonly List<string> _forwarders = [];
+    private readonly List<string> _ordinalForwarders = [];
 
     /// <summary>Reads the export directory of each module of <paramref name="memory"/>; a module that cannot be read is counted in <see cref="SkippedModules"/>.</summary>
     public ExportMap(IProcessMemory memory)
@@ -26,6 +27,9 @@ public sealed class ExportMap
 
     /// <summary>Forwarded exports as <c>module!name</c> and their forwarder text; they never match an address.</summary>
     public IReadOnlyList<string> Forwarders => _forwarders;
+
+    /// <summary>Forwarded exports that have a name, as <c>module!#ordinal</c> and their forwarder text.</summary>
+    public IReadOnlyList<string> OrdinalForwarders => _ordinalForwarders;
 
     /// <summary>The export starting at <paramref name="address"/> as <c>module!name</c> or <c>module!#ordinal</c>; null when none starts there.</summary>
     public string? NameAt(ulong address) => _byAddress.GetValueOrDefault(address);
@@ -76,6 +80,7 @@ public sealed class ExportMap
             {
                 var text = ReadName(memory, module, rva);
                 _forwarders.Add(text is null ? label : $"{label} {text}");
+                if (text is not null && named[i] is not null) _ordinalForwarders.Add($"{prefix}#{ordinalBase + (uint)i} {text}");
                 continue;
             }
             _byAddress.TryAdd(module.Base + rva, label);
