@@ -1,3 +1,4 @@
+using Corvus.Native.Pe;
 using Corvus.Services;
 
 namespace Corvus.Tests;
@@ -69,5 +70,43 @@ public sealed class DumpRuntimeSectionTests
         var rows = Rows(image).Where(r => r.Section == ".rt").ToList();
 
         Assert.Equal("section", rows[0].Kind);
+    }
+
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Two_sections_with_one_name_get_the_summary_row_before_their_own_rows(bool is64)
+    {
+        // Regression for 59c76690f: a name match placed the row before the first section of that name.
+        var spec = new PeSpec(is64,
+        [
+            new SectionSpec(".same", 0x60000020, Tail(0x40)),
+            new SectionSpec(".same", 0x60000020, Tail(0x40)),
+        ]);
+        var file = PeFile.FromBytes(RebuildFixtures.Pe(spec));
+        MinidumpService.ModuleChange Row(string rva, string kind) =>
+            new("app.exe", ".same", "0x0", rva, 1, kind, null, null, null, null, null);
+        var rows = new List<MinidumpService.ModuleChange> { Row("0x1000", "code"), Row("0x2010", "code") };
+
+        MinidumpService.PlaceSectionRow(rows, Row("0x2000", "section"), file);
+
+        Assert.Equal(["0x1000", "0x2000", "0x2010"], rows.Select(r => r.Rva));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_summary_row_after_no_row_of_its_section_goes_last(bool is64)
+    {
+        var spec = new PeSpec(is64, [new SectionSpec(".a", 0x60000020, Tail(0x40)), new SectionSpec(".b", 0x60000020, Tail(0x40))]);
+        var file = PeFile.FromBytes(RebuildFixtures.Pe(spec));
+        MinidumpService.ModuleChange Row(string rva, string kind) =>
+            new("app.exe", ".a", "0x0", rva, 1, kind, null, null, null, null, null);
+        var rows = new List<MinidumpService.ModuleChange> { Row("0x1000", "code") };
+
+        MinidumpService.PlaceSectionRow(rows, Row("0x2000", "section"), file);
+
+        Assert.Equal(["0x1000", "0x2000"], rows.Select(r => r.Rva));
     }
 }

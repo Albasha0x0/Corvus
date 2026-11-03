@@ -22,6 +22,7 @@ public sealed class DumpRowFeatureTests : IDisposable
         mapped[0x1000] = 0xE9;
         BinaryPrimitives.WriteInt32LittleEndian(mapped.AsSpan(0x1001), 0x100);
         mapped[0x1010] = 0x0F;
+        mapped[0x1011] = 0x04;
         var b = new MinidumpBuilder();
         int nt = BinaryPrimitives.ReadInt32LittleEndian(app.Bytes.AsSpan(0x3C));
         b.Modules.Add(new MinidumpBuilder.Module(AppBase, (uint)mapped.Length, BinaryPrimitives.ReadUInt32LittleEndian(app.Bytes.AsSpan(nt + 8)), "app.exe"));
@@ -36,7 +37,7 @@ public sealed class DumpRowFeatureTests : IDisposable
 
         Assert.Equal(["code", "code"], rows.Select(r => r.Kind));
         Assert.StartsWith("jump to 0x", rows[0].Description);
-        Assert.Equal("bytes changed", rows[1].Description);
+        Assert.Equal("bytes changed: the bytes do not decode", rows[1].Description);
         Assert.DoesNotContain(rows, r => r.Kind is "section" or "pointer");
         using var memory = MinidumpFile.Open(dump);
         Assert.Equal("", MinidumpService.ChainText(memory, new ExportMap(memory), AppBase, NativeArch.X64));

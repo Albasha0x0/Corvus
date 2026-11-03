@@ -27,32 +27,39 @@ public static class CodeChangeText
 
     /// <summary>
     /// Returns up to 3 instructions of <paramref name="memory"/> as MASM text joined with
-    /// <c>; </c>, or null when the machine is not x86, x64 or ARM64, the buffers do not differ, or
-    /// nothing decodes. <paramref name="address"/> is the address of buffer offset 0 and the
-    /// range starts at the first byte where the buffers differ. A non-negative
-    /// <paramref name="knownStart"/> is an instruction start at or before the range; the file
-    /// is decoded from it to find the instruction holding the range start. A negative one
-    /// decodes from the range start and the text ends with <see cref="FromRangeStart"/>.
-    /// ARM64 instructions are 4 bytes: decoding starts at the range start rounded down to 4
-    /// and <paramref name="knownStart"/> is ignored. Invalid bytes end the text; targets are
-    /// named through <paramref name="name"/>.
+    /// <c>; </c>, or null when the machine is not x86, x64 or ARM64, the buffers do not differ
+    /// from <paramref name="rangeStart"/> on, or nothing decodes. <paramref name="address"/> is the
+    /// address of buffer offset 0; the range starts at the first byte at or after
+    /// <paramref name="rangeStart"/> where the buffers differ. Instructions are shown while they
+    /// start before <paramref name="rangeEnd"/>, the buffer end when negative; later bytes only
+    /// complete the last instruction.
     /// </summary>
+    /// <remarks>
+    /// A non-negative <paramref name="knownStart"/> is the offset in the buffers of an instruction
+    /// start at or before the range; the file is decoded from it to find the instruction holding
+    /// the range start. A negative one, a start at or past the end of the file, file bytes that do
+    /// not decode, or memory that differs between that instruction and the range decode from the
+    /// range start, and the text ends with <see cref="FromRangeStart"/>. ARM64 instructions are
+    /// 4 bytes: decoding starts at the range start rounded down to 4 and
+    /// <paramref name="knownStart"/> is ignored. Invalid bytes end the text; targets are named
+    /// through <paramref name="name"/>.
+    /// </remarks>
     public static string? Describe(ReadOnlySpan<byte> memory, ReadOnlySpan<byte> file, ulong address,
-        NativeArch machine, int knownStart, Func<ulong, string?> name)
+        NativeArch machine, int knownStart, Func<ulong, string?> name, int rangeStart = 0, int rangeEnd = -1)
     {
         if (machine is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64) || memory.IsEmpty)
             return null;
-        int diff = 0;
+        int diff = Math.Max(rangeStart, 0);
         int common = Math.Min(memory.Length, file.Length);
         while (diff < common && memory[diff] == file[diff]) diff++;
         if (diff == memory.Length && diff == file.Length) return null;
         if (diff >= memory.Length) return null;
-        if (machine == NativeArch.Arm64) return DescribeArm64(memory, address, diff, name);
+        if (machine == NativeArch.Arm64) return DescribeArm64(memory, address, diff, rangeEnd < 0 ? memory.Length : rangeEnd, name);
 
         int bits = machine == NativeArch.X64 ? 64 : 32;
-        bool exact = knownStart >= 0 && knownStart <= diff && knownStart < file.Length;
+        bool exact = false;
         int start = diff;
-        if (exact)
+        if (knownStart >= 0 && knownStart <= diff && knownStart < file.Length)
         {
             var fileBytes = file.ToArray();
             int at = knownStart;
@@ -62,7 +69,12 @@ public static class CodeChangeText
                     new ByteArrayCodeReader(fileBytes, at, fileBytes.Length - at), address + (ulong)at);
                 scan.Decode(out var step);
                 if (step.IsInvalid) break;
-                if (at + step.Length > diff) { start = at; break; }
+                if (at + step.Length > diff)
+                {
+                    exact = memory[at..diff].SequenceEqual(file[at..diff]);
+                    if (exact) start = at;
+                    break;
+                }
                 at += step.Length;
             }
         }
@@ -79,7 +91,7 @@ public static class CodeChangeText
         formatter.Options.LeadingZeros = false;
         var output = new StringOutput();
         var parts = new List<string>();
-        while (parts.Count < MaxInstructions && decoder.IP < address + (ulong)memBytes.Length)
+        while (parts.Count < MaxInstructions && decoder.IP < address + (ulong)(rangeEnd < 0 ? memBytes.Length : rangeEnd))
         {
             decoder.Decode(out var insn);
             if (insn.IsInvalid) break;
@@ -92,7 +104,7 @@ public static class CodeChangeText
         return exact ? text : text + " " + FromRangeStart;
     }
 
-    private static string? DescribeArm64(ReadOnlySpan<byte> memory, ulong address, int diff,
+    private static string? DescribeArm64(ReadOnlySpan<byte> memory, ulong address, int diff, int end,
         Func<ulong, string?> name)
     {
         // Aligned by address, so a buffer that starts mid-word still lands on a boundary.
@@ -100,7 +112,7 @@ public static class CodeChangeText
         var options = new Arm64InstructionFormattingOptions { UseUppercaseHex = true };
         var text = new char[128];
         var parts = new List<string>();
-        for (int at = start; parts.Count < MaxInstructions && at + 4 <= memory.Length; at += 4)
+        for (int at = start; parts.Count < MaxInstructions && at < end && at + 4 <= memory.Length; at += 4)
         {
             ulong pc = address + (ulong)at;
             var insn = Arm64Instruction.Decode(BinaryPrimitives.ReadUInt32LittleEndian(memory[at..]));
