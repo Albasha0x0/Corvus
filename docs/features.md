@@ -314,6 +314,8 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Unrecognized data | .NET images, XALZ chunks and gzip streams carved by offset |
 | Godot `.pck` | every file, Godot 3 and 4 |
 | NXPK archive (`.npk`) | entries listed with offset, sizes and compression, named by signature; zstd, LZ4 frame, zlib and stored entries extracted; dictionary-compressed zstd entries listed only |
+| RPA archive (`.rpa`) | entries listed with offset and size, version 2.0 and 3.0; files extracted with their prefix bytes; an index with an unsupported pickle opcode refused |
+| VPK package (`.vpk`) | version 1 and 2 directory listed with preload bytes; files in the package extracted; files in `_NNN.vpk` siblings listed as not opened |
 | Qt resources (`.rcc` or compiled in) | every file, Qt 5 and 6 |
 | Offset and size index plus blobs | every entry with size and entropy; a damaged last record named |
 | `.luae`, `.jsone`, `.pbe` transformed block container | the payload with block count and entropy; a short file keeps its present bytes |

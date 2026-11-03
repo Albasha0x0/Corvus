@@ -106,6 +106,8 @@ public static class Blob
         if (Registry.RegistryHive.Looks(b)) return "registry hive";
         if (Pri.PriFile.Looks(b)) return "package resource index";
         if (NxpkArchive.Looks(b)) return "nxpk archive";
+        if (Archives.RpaArchive.Looks(b)) return "rpa archive";
+        if (Archives.VpkArchive.Looks(b)) return "vpk archive";
         // A pak is known by its footer, so only a whole file matches.
         if (UnrealPak.Looks(b)) return "unreal pak";
         if (UnrealIoStore.Looks(b)) return "unreal utoc";
