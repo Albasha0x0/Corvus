@@ -352,7 +352,9 @@ public static class ImportRedirects
             for (uint i = 0; i < functionCount; i++)
             {
                 uint rva = BinaryPrimitives.ReadUInt32LittleEndian(functions.AsSpan(4 * (int)i));
-                if (rva == 0 || rva >= module.Size || (rva >= dirRva && rva - dirRva < dirSize)) continue;
+                // An address past the image is a real export, such as one
+                // rewritten to a stub.
+                if (rva == 0 || (rva >= dirRva && rva - dirRva < dirSize)) continue;
                 table.TryAdd("#" + (ordinalBase + i), module.Base + rva);
             }
             for (int i = 0; i < nameCount; i++)

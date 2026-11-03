@@ -12,7 +12,7 @@ public sealed partial class MinidumpService
     private const int MaxDescribedBytes = 4096;
 
     /// <summary>One range of a module that differs from its file, or a module that could not be compared.</summary>
-    /// <param name="Kind"><c>code</c>, <c>data</c>, <c>import</c> or <c>unknown</c>.</param>
+    /// <param name="Kind"><c>code</c>, <c>data</c>, <c>export</c> (an export address table entry), <c>import</c> or <c>unknown</c>.</param>
     /// <param name="Start">Address of the range, or of the module base when the module is unknown.</param>
     /// <param name="Name">The function, export or section offset; the import for an import slot; null when none.</param>
     /// <param name="FileBytes">Hex of the file bytes, cut to <see cref="ImageChanges.MaxBytes"/>.</param>
@@ -252,6 +252,11 @@ public sealed partial class MinidumpService
             var fileBytes = new byte[described];
             disk.Read(rva, fileBytes);
             string kind = range.Code ? "code" : "data";
+            if (!range.Code && ExportTableEntries.Covering(mapped, disk, rva, range.Length) is { Count: > 0 } entries)
+            {
+                rows.Add(ExportTableRow(target, memory, exports, range, entries, mapped, disk, filePath));
+                continue;
+            }
             string? description = range.Code
                 ? DescribeCode(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports)
                 : DescribeData(memoryBytes, fileBytes, address, disk.Is64Bit, memory, exports);
@@ -274,6 +279,31 @@ public sealed partial class MinidumpService
                 Via: slot.Via));
         }
         return rows;
+    }
+
+    // Whole entries, so a change to 3 of the 4 bytes reports the entry.
+    private static ModuleChange ExportTableRow(RebuildTarget target, IProcessMemory memory, ExportMap exports, ImageChange range,
+        IReadOnlyList<ExportTableEntry> entries, byte[] mapped, PeFile disk, string? filePath)
+    {
+        uint start = entries[0].EntryRva;
+        int length = 4 * entries.Count;
+        int shown = Math.Min(length, ImageChanges.MaxBytes);
+        var memoryBytes = mapped.AsSpan((int)start, shown).ToArray();
+        var fileBytes = new byte[shown];
+        disk.Read(start, fileBytes);
+        // The name column carries the export of a single entry.
+        var texts = entries.Take(3).Select(e => (entries.Count > 1 ? $"{e.Export}: " : "") + "RVA " + (e.FileRva is { } f ? $"0x{f:X}" : "unknown") +
+            $" to 0x{e.MemoryRva:X}{ExportTarget(target, memory, exports, e.MemoryRva)}");
+        string description = string.Join("; ", texts) + (entries.Count > 3 ? $"; {entries.Count - 3} more entries" : "");
+        return new ModuleChange(target.Name, range.Section, $"0x{target.Base + start:X}", $"0x{start:X}", length, "export", entries[0].Export,
+            description, filePath, Convert.ToHexStringLower(fileBytes), Convert.ToHexStringLower(memoryBytes));
+    }
+
+    private static string ExportTarget(RebuildTarget target, IProcessMemory memory, ExportMap exports, uint rva)
+    {
+        string where = Where(memory, exports, target.Base + rva).Trim().Trim('(', ')');
+        if (rva < target.Size) return where.Length == 0 ? "" : $" ({where})";
+        return where.Length == 0 ? " (past the image)" : $" (past the image; {where})";
     }
 
     private static string Where(IProcessMemory memory, ExportMap exports, ulong? address)
