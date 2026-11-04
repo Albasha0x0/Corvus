@@ -235,6 +235,9 @@ jobs:
       # 40 s on a Windows sweep shard (run 40686942699).
       - name: Test
         shell: pwsh
+        env:
+          # Wait budgets of the live real tests, stretched for hosted runners.
+          CORVUS_TEST_WAIT_SCALE: "3"
         run: |
           if ($IsWindows) { $env:TEMP = $env:TMP = $env:RUNNER_TEMP }
           ./test.ps1 -RemoteRun -Group ${{ matrix.group }} -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
@@ -443,6 +446,8 @@ jobs:
         shell: bash
         env:
           CORVUS_ALL_TESTS: "1"
+          # Wait budgets of the live real tests, stretched for hosted runners.
+          CORVUS_TEST_WAIT_SCALE: "3"
         run: |
           filter=$(grep -ohE '^public (sealed |abstract |partial )*class [A-Za-z0-9_]+' tests/Corvus.Tests/Live/*.cs | awk '{print "FullyQualifiedName~." $NF}' | sort -u | paste -sd '|' -)
           dotnet test tests/Corvus.Tests --no-build -c Release --filter "$filter" --blame-hang-timeout 15m --logger "trx;LogFileName=live.trx" --logger "console;verbosity=normal"

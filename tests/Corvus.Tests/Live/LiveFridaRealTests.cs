@@ -114,7 +114,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.False(e2, byLine);
         Assert.Matches(@"s2 set at 0x[0-9A-F]+ orders\.exe!AddLine\+0x[0-9A-F]+  .*orders\.c:9", byLine);
 
-        var (first, e3) = await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 30 });
+        var (first, e3) = await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = LiveWaits.Seconds(30) });
         Assert.False(e3, first);
         Assert.Contains("program started", first);
         Assert.Matches(@"thread \d+ stopped at s1 \(orders\.exe!AddLine\)", first);
@@ -169,13 +169,13 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
 
     private async Task UntilExited(InProcessServer server, string session)
     {
-        for (int i = 0; i < 600; i++)
+        for (int i = 0; i < LiveWaits.Polls(600); i++)
         {
             var (status, _) = await Call(server, "live_session", new() { ["action"] = "status", ["session"] = session });
             if (status.Contains(", exited")) return;
             await Task.Delay(100);
         }
-        Assert.Fail($"{session} did not exit within 60 s; {_phases.Summary()}");
+        Assert.Fail($"{session} did not exit within {LiveWaits.Polls(600) / 10} s; {_phases.Summary()}");
     }
 
     [FridaFact]
@@ -255,7 +255,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.False(failed, loaded);
         Assert.Contains("u1 loaded (inline)", loaded);
         string events = "";
-        for (int i = 0; i < 50 && !events.Contains("orders.exe"); i++)
+        for (int i = 0; i < LiveWaits.Polls(50) && !events.Contains("orders.exe"); i++)
         {
             (events, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "script" });
             await Task.Delay(100);
@@ -292,7 +292,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         });
         Assert.False(failed, loaded);
         string events = "";
-        for (int i = 0; i < 50 && !events.Contains("search", StringComparison.Ordinal); i++)
+        for (int i = 0; i < LiveWaits.Polls(50) && !events.Contains("search", StringComparison.Ordinal); i++)
         {
             (events, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "script" });
             await Task.Delay(100);
