@@ -21,6 +21,7 @@
           "type": "string"
         },
         "points": {
+          "description": "Functions counted; same as placed.",
           "type": "integer"
         },
         "ran": {
@@ -29,9 +30,32 @@
         "hitLimit": {
           "type": "integer"
         },
-        "unplaced": {
-          "description": "Functions refused; reasons in the text.",
+        "placed": {
+          "description": "Functions counted: ran plus not run.",
           "type": "integer"
+        },
+        "unplaced": {
+          "description": "Functions left out of every count; list them with report show=unplaced.",
+          "type": "integer"
+        },
+        "reasons": {
+          "description": "Why functions were left out, with counts.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "functions": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "reason",
+              "functions"
+            ]
+          }
         },
         "unread": {
           "description": "Runtime never read: unseen methods are unknown.",
@@ -106,6 +130,7 @@
             "type": "string"
           },
           "points": {
+            "description": "Functions counted; same as placed.",
             "type": "integer"
           },
           "ran": {
@@ -114,9 +139,17 @@
           "hitLimit": {
             "type": "integer"
           },
-          "unplaced": {
-            "description": "Functions refused; reasons in the text.",
+          "placed": {
+            "description": "Functions counted: ran plus not run.",
             "type": "integer"
+          },
+          "unplaced": {
+            "description": "Functions left out of every count; list them with report show=unplaced.",
+            "type": "integer"
+          },
+          "reasons": {
+            "description": "Why functions were left out, with counts.",
+            "$ref": "#/properties/run/properties/reasons"
           },
           "unread": {
             "description": "Runtime never read: unseen methods are unknown.",
@@ -161,6 +194,31 @@
         ]
       }
     },
+    "leftOut": {
+      "description": "show=unplaced: a page of the functions left out, with reasons.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "Function VA.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why no stop point counts it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "name",
+          "reason"
+        ]
+      }
+    },
     "code": {
       "description": "format=dot: a page of the call graph (Graphviz DOT).",
       "type": "string"
@@ -195,6 +253,7 @@
               "type": "string"
             },
             "points": {
+              "description": "Functions counted; same as placed.",
               "type": "integer"
             },
             "ran": {
@@ -203,9 +262,17 @@
             "hitLimit": {
               "type": "integer"
             },
-            "unplaced": {
-              "description": "Functions refused; reasons in the text.",
+            "placed": {
+              "description": "Functions counted: ran plus not run.",
               "type": "integer"
+            },
+            "unplaced": {
+              "description": "Functions left out of every count; list them with report show=unplaced.",
+              "type": "integer"
+            },
+            "reasons": {
+              "description": "Why functions were left out, with counts.",
+              "$ref": "#/properties/run/properties/reasons"
             },
             "unread": {
               "description": "Runtime never read: unseen methods are unknown.",

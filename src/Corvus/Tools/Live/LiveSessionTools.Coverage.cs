@@ -18,12 +18,22 @@ public sealed partial class LiveSessionTools
         [property: Description("Stops counted; at the hit limit, a lower bound.")] long Hits,
         bool Ran);
 
+    public sealed record LiveCoverageLeftOut(
+        [property: Description("Function VA.")] string Address, string Name,
+        [property: Description("Why no stop point counts it.")] string Reason);
+
+    public sealed record LiveCoverageReason(string Reason, int Functions);
+
     public sealed record LiveCoverageSummary(string Run, string Session, string Image, string Sha256,
         [property: Description("recording, complete, ended or saved (kept by an earlier server).")] string State,
-        int Points, int Ran, int HitLimit)
+        [Description("Functions counted; same as placed.")] int Points, int Ran, int HitLimit)
     {
-        [Description("Functions refused; reasons in the text.")]
+        [Description("Functions counted: ran plus not run.")]
+        public int Placed { get; init; }
+        [Description("Functions left out of every count; list them with report show=unplaced.")]
         public int Unplaced { get; init; }
+        [Description("Why functions were left out, with counts.")]
+        public IReadOnlyList<LiveCoverageReason>? Reasons { get; init; }
         [Description("Runtime never read: unseen methods are unknown.")]
         public bool Unread { get; init; }
     }
@@ -32,6 +42,8 @@ public sealed partial class LiveSessionTools
         [property: Description("Absent with format=dot.")] int? Total, IReadOnlyList<LiveCoverageSummary> Runs)
     {
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
+        [Description("show=unplaced: a page of the functions left out, with reasons.")]
+        public IReadOnlyList<LiveCoverageLeftOut>? LeftOut { get; init; }
         [Description("format=dot: a page of the call graph (Graphviz DOT).")]
         public string? Code { get; init; }
         public int? NextOffset { get; init; }
@@ -54,10 +66,11 @@ public sealed partial class LiveSessionTools
         [Description("diff: second run.")] string? other = null,
         [Description("Names containing this; start: module!part for another module.")] string? match = null,
         [Description("start: stops per function before it is cleared.")] int hitLimit = 100,
-        [Description("report: ran, missed or all.")] string show = "ran",
+        [Description("report: ran, missed, all or unplaced (left out, with reasons).")] string show = "ran",
         [Description("report: text, or dot (call graph; offset counts characters).")] string format = "text",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
+        [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description("Save as JSON to a new file; an existing path is refused.")] string? outputPath = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
@@ -134,7 +147,15 @@ public sealed partial class LiveSessionTools
     }
 
     private static LiveCoverageSummary Summary(Services.LiveCoverageRun r) =>
-        new(r.Id, r.Session, r.ImageId, r.Sha256, r.State, r.Placed.Count, r.Ran, r.HitLimit) { Unplaced = r.Unplaced.Count, Unread = r.Unread };
+        new(r.Id, r.Session, r.ImageId, r.Sha256, r.State, r.Placed.Count, r.Ran, r.HitLimit)
+        {
+            Placed = r.Placed.Count,
+            Unplaced = r.Unplaced.Count,
+            Unread = r.Unread,
+            Reasons = r.Unplaced.Count == 0 ? null
+                : [.. r.Unplaced.Values.GroupBy(x => x.Split('\n')[0]).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+                    .Select(g => new LiveCoverageReason(g.Key, g.Count()))],
+        };
 
     /// <summary>How many of the run's functions ran; for a run whose runtime was never read, the rest are unknown.</summary>
     private static string Ran(Services.LiveCoverageRun r) => r.Unread
@@ -165,7 +186,7 @@ public sealed partial class LiveSessionTools
     private async Task<string> CoverageReport(Services.LiveCoverageRun r, string? match, string show, string format, int offset, int limit, CancellationToken ct)
     {
         var mode = show.Trim().ToLowerInvariant();
-        if (mode is not ("ran" or "missed" or "all")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown show '{show}'.", "show=ran, missed or all");
+        if (mode is not ("ran" or "missed" or "all" or "unplaced")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown show '{show}'.", "show=ran, missed, all or unplaced");
         var dot = format.Trim().ToLowerInvariant() switch
         {
             "text" => false,
@@ -174,6 +195,15 @@ public sealed partial class LiveSessionTools
         };
         var filter = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
         var placed = r.Placed;
+        if (mode == "unplaced")
+        {
+            if (dot) throw new ToolError(ErrorCode.InvalidArgument, "format=dot draws counted functions.", "show=ran, missed or all with format=dot");
+            var left = r.Points.Where(p => r.Unplaced.ContainsKey(p.Rva) && (filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)))
+                .Select(p => new LiveCoverageLeftOut(Va(r, p.Rva), p.Name, r.Unplaced[p.Rva])).ToList();
+            return ToolOutput.List(left, offset, limit, x => $"{x.Address}  {x.Name}  {x.Reason.Split('\n')[0]}",
+                page => new LiveCoverageReport(Summary(r), [], offset, left.Count, []) { LeftOut = page },
+                "function", $"{r.Id} {r.ImageId}: {left.Count:N0} of {r.Points.Count:N0} functions left out of every count\n");
+        }
         var points = placed.Where(p => filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
             .Where(p => mode == "all" || (mode == "ran") == (r.HitsAt(p.Rva) > 0)).ToList();
         // The busiest first.

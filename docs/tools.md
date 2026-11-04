@@ -2999,13 +2999,14 @@ Collect code coverage in a session: which functions ran and how often; diff comp
 | `other` | string |  |  | diff: second run. |
 | `match` | string |  |  | Names containing this; start: module!part for another module. |
 | `hitLimit` | integer |  | `100` | start: stops per function before it is cleared. |
-| `show` | string |  | `ran` | report: ran, missed or all. Values: ran, missed, all. |
+| `show` | string |  | `ran` | report: ran, missed, all or unplaced (left out, with reasons). Values: ran, missed, all. |
 | `format` | string |  | `text` | report: text, or dot (call graph; offset counts characters). Values: text, dot. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |
+| `maxTokens` | integer |  |  | Page size in tokens. |
 | `outputPath` | string |  |  | Save as JSON to a new file; an existing path is refused. |
 
-Structured output: `run`, `items`, `runs`, `namedAddresses`, `code`, `totalChars`, `diff`.
+Structured output: `run`, `items`, `runs`, `namedAddresses`, `leftOut`, `code`, `totalChars`, `diff`.
 
 ### live_timeline
 

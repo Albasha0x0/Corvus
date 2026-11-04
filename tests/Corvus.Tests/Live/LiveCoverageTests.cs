@@ -77,6 +77,59 @@ public sealed class LiveCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_report_lists_the_functions_left_out_with_a_reason_each()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        var text = await _tools.LiveCoverage(action: "report", run: "cov-1", show: "unplaced");
+        Assert.Matches(@"sqlite3_open_v2  a single jump", text);
+        var report = Assert.IsType<LiveSessionTools.LiveCoverageReport>(call.Record);
+        var row = Assert.Single(report.LeftOut!, x => x.Name == "sqlite3_open_v2");
+        Assert.Contains("a single jump", row.Reason);
+        Assert.Equal(report.Run!.Unplaced, report.Total);
+    }
+
+    [Fact]
+    public async Task The_counts_of_a_run_add_up_to_its_functions()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        var run = _service.GetCoverage("cov-1");
+        var call = Corvus.Mcp.ToolOutput.Collect();
+        await _tools.LiveCoverage(action: "report", run: "cov-1");
+        var summary = Assert.IsType<LiveSessionTools.LiveCoverageReport>(call.Record).Run!;
+        Assert.Equal(run.Points.Count, summary.Placed + summary.Unplaced);
+        Assert.Equal(summary.Placed, summary.Points);
+        Assert.Equal(summary.Unplaced, summary.Reasons!.Sum(x => x.Functions));
+    }
+
+    [Fact]
+    public async Task A_saved_report_of_the_functions_left_out_names_their_reasons()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        var path = Path.Combine(Path.GetTempPath(), $"cov-{Guid.NewGuid():N}.json");
+        try
+        {
+            _ = Corvus.Mcp.ToolOutput.Collect();
+            await _tools.LiveCoverage(action: "report", run: "cov-1", show: "unplaced", outputPath: path);
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            var left = json.RootElement.GetProperty("leftOut");
+            Assert.Contains(left.EnumerateArray(), x => x.GetProperty("reason").GetString()!.Contains("a single jump"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task A_report_accepts_maxTokens_to_size_its_page()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        Assert.Contains("cov-1", await _tools.LiveCoverage(action: "report", run: "cov-1", maxTokens: 500));
+    }
+
+    [Fact]
     public async Task A_coverage_diff_is_saved_as_json_to_a_new_path()
     {
         await _tools.LiveSession("attach", program: "99994242");
