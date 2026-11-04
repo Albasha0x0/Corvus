@@ -60,6 +60,8 @@ public partial class ToolObligationsTests
     [Fact]
     public void Every_tool_declares_its_annotations_and_each_fits_what_the_tool_runs()
     {
+        // Each read of ExternalProgramTools probes the installed programs, so read it once.
+        var externalPrograms = ToolAvailability.ExternalProgramTools.ToHashSet(StringComparer.Ordinal);
         var violations = new List<string>();
         foreach (var name in Names)
         {
@@ -68,7 +70,7 @@ public partial class ToolObligationsTests
                 violations.Add($"{name}: no row in ToolEffects");
                 continue;
             }
-            bool runsProgram = ToolAvailability.ExternalProgramTools.Contains(name) || ToolAvailability.EngineOnly.ContainsKey(name)
+            bool runsProgram = externalPrograms.Contains(name) || ToolAvailability.EngineOnly.ContainsKey(name)
                 || ToolAvailability.WindowsOnly.Contains(name) || ToolAvailability.SessionTools.Contains(name)
                 || ParameterDomains.Table.TryGetValue(name, out var p) && p.ContainsKey("engine");
             if (runsProgram && !e.OpenWorld) violations.Add($"{name}: runs a program or reads another process, so openWorld");
