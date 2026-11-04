@@ -327,8 +327,10 @@ function moduleAdded(m) {
   }
 }
 
-// The program's thread ids, without Frida's. Workaround for frida/frida-gum#1196 (tested 17.24.3, no fix yet): Linux
-// enumeration ptrace-attaches each thread and can hang, so /proc lists the ids.
+// The program's thread ids, without Frida's. Workaround for
+// frida/frida-gum#1196 (tested 17.24.3; one run on 17.25.2 did not reproduce
+// it, unknown): Linux enumeration ptrace-attaches each thread and can hang, so
+// /proc lists the ids.
 const readTaskDir = (() => {
   if (Process.platform !== 'linux') return null;
   const [open, read, close] = ['opendir', 'readdir64', 'closedir'].map(globalExport);
@@ -464,7 +466,8 @@ function beforeExit(code) {
   send({ type: 'exit_status', tid, code, ack: true });
   waitFor('exit-' + tid);
   // A Frida thread cut off by the exit can hold the heap lock and hang the shutdown: give them time to finish.
-  // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on 17.23.3 and earlier; no fix release yet.
+  // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on 17.23.3 and earlier; not reproduced on
+  // 17.25.2, fix commit unknown.
   if (Process.platform === 'windows') Thread.sleep(EXIT_DRAIN);
 }
 const EXIT_DRAIN = 0.3; // seconds
@@ -629,7 +632,7 @@ rpc.exports = {
   closeBegin() {
     closing = true;
     // Observers go first: a callback during the unload faults the script runtime.
-    // Workaround for frida/frida-gum#1194: fails on 17.23.3 to 17.24.3; no fix release yet.
+    // Workaround for frida/frida-gum#1194: fails on 17.23.3 to 17.24.3; not seen on 17.25.2, too rare to call fixed.
     stopThreadEvents();
     if (moduleObserver !== null) {
       moduleObserver.detach();

@@ -632,7 +632,8 @@ class Session:
                 for tid in loading:
                     self.script.post({"type": "load-%d" % tid})
                 # A teardown racing the exit of a thread just let go hangs or faults the program: wait for the exit to begin.
-                # Workaround for frida/frida-gum#1192 (17.24.0 to 17.24.3) and #1194 (17.23.3 to 17.24.3).
+                # Workaround for frida/frida-gum#1192 (17.24.0 to 17.24.3) and #1194
+                # (17.23.3 to 17.24.3). Neither reproduced on 17.25.2; fix commit unknown.
                 if held or loading or time.monotonic() - self.released_at < EXIT_GRACE:
                     self.exit_begun.wait(EXIT_GRACE)
                 # Replies still in flight never come after the unload.
