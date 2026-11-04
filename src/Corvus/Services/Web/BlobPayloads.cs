@@ -6,7 +6,7 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Web;
 
-/// <summary>A file a page's script builds in a Blob and saves, carved from its base64 literal.</summary>
+/// <summary>A file a page's script builds in a Blob and saves, carved from its base64 literal or numeric array.</summary>
 public sealed record BlobPayload(string Name, string Kind, long Size, string Sha256, byte[] Bytes);
 
 /// <summary>Carves the archive, program or document a standalone HTML or SVG page builds in a Blob; nothing runs.</summary>
@@ -65,6 +65,16 @@ internal static class BlobPayloads
                 if (!seen.Add(sha)) continue;
                 found.Add(new BlobPayload($"payload_{found.Count + 1}{Core.Documents.OneNoteReader.Extension(bytes)}", kind, bytes.Length, sha, bytes));
             }
+        foreach (var bytes in NumericArrays.Find(code, ct))
+        {
+            if (found.Count >= MaxPayloads) break;
+            if (bytes.Length <= MinBytes) continue;
+            var kind = Blob.Identify(bytes);
+            if (!Kinds.Contains(kind)) continue;
+            var sha = Blob.Sha256(bytes);
+            if (!seen.Add(sha)) continue;
+            found.Add(new BlobPayload($"payload_{found.Count + 1}{Core.Documents.OneNoteReader.Extension(bytes)}", kind, bytes.Length, sha, bytes));
+        }
         return found;
     }
 }
