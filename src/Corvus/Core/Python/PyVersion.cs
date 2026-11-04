@@ -31,6 +31,15 @@ public static class PyVersion
         return null;
     }
 
+    /// <summary>True when <paramref name="magic"/> is a number a CPython release of <paramref name="version"/> wrote: above its final magic is non-stock.</summary>
+    public static bool IsStockMagic((int Major, int Minor) version, int magic)
+    {
+        if (version == (2, 7)) return magic is >= 62171 and <= 62211;
+        foreach (var f in Finals)
+            if ((f.Major, f.Minor) == version) return magic <= f.Magic;
+        return false;
+    }
+
     /// <summary>A .pyc file: a known magic, the flags of PEP 552 (3.7+), then a code object.</summary>
     public static bool LooksLikePyc(ReadOnlySpan<byte> b)
     {

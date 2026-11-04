@@ -24,6 +24,26 @@ public static class PyDisassembler
         return sb.ToString();
     }
 
+    /// <summary>Instructions in <paramref name="code"/> and its nested code objects whose opcode the version leaves undefined, and all instructions counted; (0, 0) for an unsupported version.</summary>
+    public static (int Undefined, int Total) UndefinedOpcodes(PyCode code, (int Major, int Minor) version)
+    {
+        if (PyOpcodes.For(version) is not { } table) return (0, 0);
+        int undefined = 0, total = 0, visits = 0;
+        void Walk(PyCode c, int depth)
+        {
+            if (++visits > 100_000) return;
+            foreach (var i in Unpack(c.Code, table))
+            {
+                total++;
+                if (table.IsUndefined(i.Op)) undefined++;
+            }
+            if (depth < 64)
+                foreach (var nested in c.Consts.OfType<PyCode>()) Walk(nested, depth + 1);
+        }
+        Walk(code, 0);
+        return (undefined, total);
+    }
+
     /// <summary>The names IMPORT_NAME loads in <paramref name="code"/> and its nested code objects, in order of first use.</summary>
     public static List<string> Imports(PyCode code, (int Major, int Minor) version)
     {

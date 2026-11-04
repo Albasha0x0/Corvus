@@ -38,6 +38,9 @@ internal sealed partial class PyOpcodes
     /// <summary>The name dis prints: unknown opcodes read &lt;N&gt;.</summary>
     public string Name(int op) => _names[op] ?? $"<{op}>";
 
+    /// <summary>True when this release defines no opcode with this number.</summary>
+    public bool IsUndefined(int op) => _names[op] == null;
+
     public bool Is(int op, Kinds kind) => (_kinds[op] & kind) != 0;
     public int Caches(int op) => _caches[op];
     public bool HasArgument(int op) => PyVersion.AtLeast(Version, 3, 12) ? Is(op, Kinds.HasArgument) : op >= HaveArgument;

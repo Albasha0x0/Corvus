@@ -83,6 +83,55 @@ public sealed class PythonBytecodeTests
         }
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
+    // The 3.11 fixture rewritten: its magic, and optionally each opcode moved to an undefined number.
+    private static PythonFileView.Bytecode Altered(int magic, bool remap)
+    {
+        var (code, v) = Read("3.11");
+        if (remap)
+        {
+            var table = PyOpcodes.For(v)!;
+            var map = Enumerable.Range(0, 256).ToArray();
+            var free = new Queue<int>(Enumerable.Range(1, 255).Where(table.IsUndefined));
+            for (int op = 1; op < 256; op++)
+                if (!table.IsUndefined(op)) map[op] = free.Dequeue();
+            void Rewrite(PyCode c)
+            {
+                for (int i = 0; i < c.Code.Length; i += 2) c.Code[i] = (byte)map[c.Code[i]];
+                foreach (var n in c.Consts.OfType<PyCode>()) Rewrite(n);
+            }
+            Rewrite(code);
+        }
+        var marshalled = PyMarshalWriter.Write(code, v);
+        var pyc = PyVersion.WithHeader([(byte)magic, (byte)(magic >> 8), (byte)'\r', (byte)'\n'], v, marshalled);
+        var input = new FileInput("altered.pyc", pyc, Blob.Identify(pyc)) { Options = new FileViewOptions("python") };
+        return Assert.IsType<PythonFileView.Bytecode>(new PythonFileView().Inspect(input, default)!.Detail);
+    }
+
+    [Fact]
+    public void A_stock_magic_and_opcode_table_is_reported_as_stock()
+    {
+        var facts = Altered(3495, remap: false);
+        Assert.Equal(("3.11", "stock", "stock", true), (facts.PythonVersion, facts.MagicStatus, facts.OpcodeTable, facts.Complete));
+        Assert.NotEmpty(facts.Imports!);
+    }
+
+    [Fact]
+    public void A_magic_past_the_final_stock_number_is_non_stock_with_a_nearest_version()
+    {
+        var facts = Altered(3496, remap: false);
+        Assert.Equal(("unknown", "non-stock", "3.11", 3496), (facts.PythonVersion, facts.MagicStatus, facts.NearestVersion, facts.Magic));
+        Assert.Contains(facts.Notes!, n => n.Contains("nearest"));
+    }
+
+    [Fact]
+    public void Remapped_opcodes_mark_the_table_unreliable_and_the_imports_unknown()
+    {
+        var facts = Altered(3495, remap: true);
+        Assert.Equal("likely remapped", facts.OpcodeTable);
+        Assert.False(facts.Complete);
+        Assert.Null(facts.Imports);
+        Assert.Contains(facts.Notes!, n => n.Contains("remapped"));
+    }
 }
 
 [Collection(ExternalToolEnvironmentCollection.Name)]

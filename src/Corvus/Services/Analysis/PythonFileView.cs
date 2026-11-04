@@ -19,13 +19,22 @@ internal sealed class PythonFileView : IFileSummaryView
 
     public sealed record Bytecode(string PythonVersion, int Magic, string Filename, int CodeObjects,
         [property: Description("Qualified names of the functions, classes and comprehensions, to 200.")] IReadOnlyList<string> Functions,
-        IReadOnlyList<string> Imports, long Offset, long? Next,
+        [property: Description("Modules the code imports; null when unknown because the opcode table is likely remapped.")] IReadOnlyList<string>? Imports, long Offset, long? Next,
         [property: Description("dis output from offset, as the file's own Python version prints it.")] string Disassembly, bool Complete,
         [property: Description("The source from CORVUS_PY_DECOMPILER, from the same offset.")] string? Source, long? SourceNext,
         [property: Description("The program that wrote the source.")] string? Decompiler, IReadOnlyList<string>? Notes)
     {
         [Description("Code objects held as encoded constants (marshal, zlib, base64), outermost first; unpack_container extracts each as a .pyc.")]
         public IReadOnlyList<Layer>? Layers { get; init; }
+
+        [Description("stock, or non-stock when the magic is none a CPython release wrote; PythonVersion is then unknown.")]
+        public string MagicStatus { get; init; } = "stock";
+
+        [Description("The closest stock version of a non-stock magic; the disassembly reads with it.")]
+        public string? NearestVersion { get; init; }
+
+        [Description("stock, or likely remapped when many opcodes are undefined for the version; names and imports are then unreliable.")]
+        public string OpcodeTable { get; init; } = "stock";
     }
 
     public sealed record Layer(int Depth, string Location, string Encodings, string Filename, [property: Description("Size of the decoded data.")] int Bytes);
@@ -85,14 +94,21 @@ internal sealed class PythonFileView : IFileSummaryView
 
     private const int MaxWalked = 100_000;
 
+    // Stock bytecode defines nearly every opcode it uses; past this share the table is not the version's.
+    private const double RemappedShare = 0.05;
+
     private static FileView? Pyc(FileInput file, CancellationToken ct)
     {
         var data = file.Bytes;
         if (PyVersion.FromMagic(data) is not { } version) return null;
         int header = PyVersion.HeaderLength(version);
-        var label = PyVersion.Label(version);
+        var nearest = PyVersion.Label(version);
+        int magic = PyVersion.Magic(data);
+        bool stock = PyVersion.IsStockMagic(version, magic);
+        var label = stock ? nearest : "unknown";
         if (PyMarshal.TryRead(data, version, out var error, header) is not PyCode code)
-            return new FileView(new Bytecode(label, PyVersion.Magic(data), "", 0, [], [], 0, null, "", false, null, null, null, [$"The code object does not read: {error}"]),
+            return new FileView(new Bytecode(label, magic, "", 0, [], null, 0, null, "", false, null, null, null, [$"The code object does not read: {error}"])
+                { MagicStatus = stock ? "stock" : "non-stock", NearestVersion = stock ? null : nearest },
                 [$"Python {label} bytecode whose code object does not read."]);
         var functions = new List<string>();
         int count = 0;
@@ -108,24 +124,34 @@ internal sealed class PythonFileView : IFileSummaryView
         }
         Walk(code, 0);
         var notes = new List<string>();
+        if (!stock) notes.Add($"Magic {magic} is none a CPython release wrote; {nearest} is the nearest version and the disassembly reads with it.");
+        var (undefined, total) = PyDisassembler.UndefinedOpcodes(code, version);
+        bool remapped = total > 0 && undefined > total * RemappedShare;
+        if (remapped) notes.Add($"{undefined:N0} of {total:N0} instructions use opcodes {nearest} leaves undefined: the opcode table is likely remapped, so opcode names and imports are unreliable.");
         if (count >= MaxWalked) notes.Add($"Code objects past the first {MaxWalked:N0} visits are not counted or listed.");
         bool asked = file.Options.Wants("python");
         string text = "";
         bool complete = true;
-        if (!PyDisassembler.Supports(version)) notes.Add($"Python {label} bytecode is not disassembled (2.7 and 3.0 to 3.14 are).");
+        if (!PyDisassembler.Supports(version)) notes.Add($"Python {nearest} bytecode is not disassembled (2.7 and 3.0 to 3.14 are).");
         else if (asked) text = PyDisassembler.Disassemble(code, version, MaxText, ct, out complete);
-        if (!complete) notes.Add($"The disassembly stops after {MaxText:N0} characters.");
+        if (remapped) complete = false;
+        else if (!complete) notes.Add($"The disassembly stops after {MaxText:N0} characters.");
         long offset = Math.Clamp(file.Options.Offset, 0, text.Length);
         var window = text.Substring((int)offset, (int)Math.Min(Window, text.Length - offset));
         long? next = offset + window.Length < text.Length ? offset + window.Length : null;
         if (next != null) notes.Add($"{text.Length:N0} characters of disassembly; offset={next} reads on");
         var (source, sourceNext, decompiler) = asked ? Decompile(file, offset, notes, ct) : (null, null, null);
-        var facts = new Bytecode(label, PyVersion.Magic(data), code.Filename, count, functions, PyDisassembler.Imports(code, version), offset, next, window, complete,
-            source, sourceNext, decompiler, notes.Count > 0 ? notes : null);
+        var facts = new Bytecode(label, magic, code.Filename, count, functions, remapped ? null : PyDisassembler.Imports(code, version), offset, next, window, complete,
+            source, sourceNext, decompiler, notes.Count > 0 ? notes : null)
+        {
+            MagicStatus = stock ? "stock" : "non-stock",
+            NearestVersion = stock ? null : nearest,
+            OpcodeTable = remapped ? "likely remapped" : "stock",
+        };
         var layers = PyLayers.Find(code, version, MaxPyc, ct);
         if (layers.Count > 0)
             facts = facts with { Layers = [.. layers.Select(l => new Layer(l.Depth, l.Location, l.Encodings, l.Filename, l.Size))] };
-        var highlight = $"Python {label} bytecode of {code.Filename}: {count:N0} code objects";
+        var highlight = $"{(stock ? $"Python {label}" : $"Python (nearest {nearest}, non-stock magic {magic})")} bytecode of {code.Filename}: {count:N0} code objects";
         if (layers.Count > 0) highlight += $", {layers.Count:N0} encoded layers";
         if (!asked && PyDisassembler.Supports(version)) highlight += "; view=python shows the disassembly";
         return new FileView(facts, [highlight + "."]);
