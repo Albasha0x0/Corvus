@@ -116,10 +116,11 @@ public sealed class LiveTtdTests : IDisposable
         return "";
     }
 
-    // Builds App and records one run of it with TTD.exe from CORVUS_TTD; null without the C++ toolset.
+    // Builds App and records one run of it with TTD.exe from CORVUS_TTD; null
+    // without the C++ toolset or an elevated run, which recording needs.
     private string? Record()
     {
-        if (!OperatingSystem.IsWindows() || VisualStudio.VcVarsAll() is not { } vcvars) return null;
+        if (!OperatingSystem.IsWindows() || !Environment.IsPrivilegedProcess || VisualStudio.VcVarsAll() is not { } vcvars) return null;
         File.WriteAllText(_dir.File("app.c"), App);
         var (code, log) = Tools.Run(new ProcessStartInfo("cmd.exe")
         {
