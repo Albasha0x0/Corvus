@@ -202,9 +202,6 @@
             ]
           }
         },
-        "labelTotal": {
-          "type": "integer"
-        },
         "notes": {
           "type": "array",
           "items": {

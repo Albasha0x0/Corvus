@@ -52,7 +52,7 @@ public sealed class SummaryCapaTests : IDisposable
         Keep(path, new("matched", "capa 10.0.0", true, "pe", [Label("create process on Windows"), Label("terminate process")], []));
         var record = Summarize(path);
         var capa = Assert.IsType<CapaSummary>(record.Capa);
-        Assert.Equal(("matched", 2, null), (capa.State, capa.Labels, capa.LabelTotal));
+        Assert.Equal(("matched", 2, 2), (capa.State, capa.Labels, capa.Items.Count));
         Assert.Equal(["create process on Windows", "terminate process"], capa.Items.Select(i => i.Name));
         Assert.Contains("capa: 2 labels kept (survey_features category=capa refreshes)", ContainerText.Summary(record));
         Assert.Contains("capa: 2 labels kept", ContainerText.Summary(Summarize(path, "indicators")));
@@ -92,7 +92,7 @@ public sealed class SummaryCapaTests : IDisposable
         var path = Fixture();
         Keep(path, new("matched", "capa 10.0.0", true, "pe", [.. Enumerable.Range(0, 60).Select(i => Label($"rule {i}"))], []));
         var record = Summarize(path);
-        Assert.Equal((60, 60, 50), (record.Capa!.Labels, record.Capa.LabelTotal, record.Capa.Items.Count));
+        Assert.Equal((60, 50), (record.Capa!.Labels, record.Capa.Items.Count));
         Assert.Contains("the first 50 of 60 are listed", ContainerText.Summary(record));
     }
 

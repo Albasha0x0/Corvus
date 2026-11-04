@@ -10,7 +10,8 @@ public class OutputSchemaTransformTests
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
     /// <summary>Ceiling of the output schemas in tools/list: the measured size rounded up to 50.</summary>
-    private const int MaxOutputSchemaTotalBytes = 107_300;
+    // Raised from 107,300 for the capa field of summarize_file (90e183c45).
+    private const int MaxOutputSchemaTotalBytes = 107_500;
 
     /// <summary>Record fields that say a result stopped early make the provenance partial; the others listed mean something else.</summary>
     [Fact]

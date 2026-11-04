@@ -88,10 +88,9 @@ public sealed record FileSummaryRecord(string Path, long Size, string Type, stri
     public CapaSummary? Capa { get; init; }
 }
 
-/// <summary>The capa labels kept for a file; State is a capa state or not run, and LabelTotal is set when labels were cut.</summary>
+/// <summary>The capa labels kept for a file; State is a capa state or not run, and Labels counts every label when Items holds only the first.</summary>
 public sealed record CapaSummary(string State, string? Checker, int Labels, IReadOnlyList<CapaLabelRow> Items)
 {
-    public int? LabelTotal { get; init; }
     public IReadOnlyList<string>? Notes { get; init; }
 }
 
@@ -152,7 +151,6 @@ internal static class ContainerText
         var rows = r.Labels.Take(MaxCapaLabels).Select(l => new CapaLabelRow(l.Name, l.Namespace, l.Scope, l.Attack, l.Mbc)).ToList();
         return new(r.State, r.Checker, r.Labels.Count, rows)
         {
-            LabelTotal = r.Labels.Count > rows.Count ? r.Labels.Count : null,
             Notes = r.Notes.Count > 0 ? r.Notes : null,
         };
     }
@@ -162,7 +160,7 @@ internal static class ContainerText
         null => null,
         { State: "not run" } => "capa: not run on this file (survey_features category=capa runs it)",
         { State: "matched" } => $"capa: {c.Labels:N0} labels kept (survey_features category=capa refreshes)"
-            + (c.LabelTotal is { } t ? $"; the first {c.Items.Count:N0} of {t:N0} are listed, survey_features category=capa lists all" : ""),
+            + (c.Labels > c.Items.Count ? $"; the first {c.Items.Count:N0} of {c.Labels:N0} are listed, survey_features category=capa lists all" : ""),
         _ => $"capa: {c.State}{(c.Notes is { Count: > 0 } n ? ", " + string.Join("; ", n) : "")}",
     };
     private const int MaxEntryPoints = 10, MaxNotes = 12, MaxFindings = 50, MaxTextFindings = 5;
