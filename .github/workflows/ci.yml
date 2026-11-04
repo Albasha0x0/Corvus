@@ -239,6 +239,28 @@ jobs:
           if ($IsWindows) { $env:TEMP = $env:TMP = $env:RUNNER_TEMP }
           ./test.ps1 -RemoteRun -Group ${{ matrix.group }} -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
 
+      # Names where a slow or timed-out shard spent its time.
+      - name: Class seconds
+        if: always()
+        shell: pwsh
+        run: |
+          $trx = 'TestResults/offload.trx'
+          if (-not (Test-Path $trx)) { "No results file; the shard ended before it wrote one." >> $env:GITHUB_STEP_SUMMARY; return }
+          [xml]$doc = Get-Content $trx -Raw
+          $ns = [System.Xml.XmlNamespaceManager]::new($doc.NameTable)
+          $ns.AddNamespace('t', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
+          $classes = @{}
+          foreach ($u in $doc.SelectNodes('//t:UnitTest', $ns)) { $classes[$u.Execution.id] = $u.TestMethod.className }
+          $rows = $doc.SelectNodes('//t:UnitTestResult', $ns) | ForEach-Object {
+            [pscustomobject]@{ Class = ($classes[$_.executionId] -replace '^.*\.', ''); Seconds = [timespan]::Parse($_.duration).TotalSeconds }
+          } | Group-Object Class | ForEach-Object {
+            [pscustomobject]@{ Class = $_.Name; Tests = $_.Count; Seconds = [math]::Round(($_.Group | Measure-Object Seconds -Sum).Sum, 1) }
+          } | Sort-Object Seconds -Descending
+          "### Class seconds: ${{ matrix.group }} ${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }}" >> $env:GITHUB_STEP_SUMMARY
+          "| Class | Tests | Seconds |" >> $env:GITHUB_STEP_SUMMARY
+          "| --- | ---: | ---: |" >> $env:GITHUB_STEP_SUMMARY
+          $rows | Select-Object -First 25 | ForEach-Object { "| $($_.Class) | $($_.Tests) | $($_.Seconds) |" >> $env:GITHUB_STEP_SUMMARY }
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
