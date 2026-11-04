@@ -158,11 +158,19 @@ public sealed class LiveConsoleTests : IDisposable
     {
         await _tools.LiveConsole("start", program: _program, script: ["wait goodbye", "send y"], timeoutSeconds: 10);
         await _tools.LiveConsole("stop", run: "con-1");
+        // CI run 41292755924 (ubuntu): the script task ends after the stop reply.
+        await _service.GetConsole("con-1").ScriptDone.WaitAsync(TimeSpan.FromSeconds(30));
         var status = await _tools.LiveConsole("status", run: "con-1");
         Assert.Matches(@"step 1\s+wait goodbye\s+cancelled: ended by action=stop", status);
         Assert.Matches(@"step 2\s+send y\s+not run", status);
         Assert.Contains("con-1 prompt.exe pid 4242: stopped (1), script cancelled at step 1", await _tools.LiveConsole());
-        Assert.Contains(_workspace.DrainNotices(), n => n.StartsWith("con-1 script cancelled at step 1") && n.Contains("Next: live_console action=transcript run=con-1"));
+        var notices = new List<string>();
+        for (int i = 0; i < 500 && !notices.Any(n => n.StartsWith("con-1 script cancelled at step 1")); i++)
+        {
+            notices.AddRange(_workspace.DrainNotices());
+            await Task.Delay(20);
+        }
+        Assert.Contains(notices, n => n.StartsWith("con-1 script cancelled at step 1") && n.Contains("Next: live_console action=transcript run=con-1"));
     }
 
     [Fact]
