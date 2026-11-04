@@ -275,7 +275,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         string stop = "", thread = "";
         for (int i = 0; i < 50; i++)
         {
-            stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = i == 0 ? "list" : "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            stop = await StopWithin(server, "live-1", i == 0 ? "list" : "continue");
             thread = Regex.Match(stop, @"thread (\d+) stopped at s1").Groups[1].Value;
             Assert.False(thread.Length == 0, stop);
             if ((await PathArgument(server, target, thread)).Contains(InputName, StringComparison.Ordinal)) break;
@@ -323,7 +323,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         // A name the assembly does not define fails when set, before the assembly loads.
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadTwice" }, "not_found");
         Assert.Contains("deferred until readers.dll loads", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" }));
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1");
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n" +
                        @"  #1 0x[0-9A-F]+ readers\.dll!Readers\.ReadLoop\(System\.String, Int32, Int32\)\+0x[0-9A-F]+\r?\n", stop);
         Assert.Contains("compiled", await Events(server, "live-1", kind: "module"));
@@ -351,9 +351,9 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         var pid = await Spawn(server, exe, "live-1", input, "1", "1", "0");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::Main" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" });
-        var main = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var main = await StopWithin(server, "live-1");
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.Main\(System\.String\[\]\)\)", main);
-        var once = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var once = await StopWithin(server, "live-1");
         Assert.Matches(@"stopped at s2 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n", once);
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         Assert.Matches(@"exit code 0(?![0-9xX])", await Exited(server, "live-1", pid));
@@ -375,7 +375,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         int after = -1;
         for (int i = 0; i < 200 && after < 3; i++)
         {
-            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 30 });
+            var stop = await WaitStop(server, "live-1");
             // A missed stop names the modules the session saw, where s1 was set and any error binding it.
             if (!stop.Contains("stopped at s1", StringComparison.Ordinal))
                 Assert.Fail($"{stop}\nafter {i} stops; module events:\n{await Events(server, "live-1", kind: "module", log: false)}\nerrors:\n{await Events(server, "live-1", kind: "error", log: false)}");
@@ -386,11 +386,11 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
 
         var pid = await Spawn(server, exe, "live-2", input, "1", "20000", "0");
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "Readers::ReadLoop" });
-        var first = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var first = await WaitStop(server, "live-2");
         // A missed stop on the method entered once lists the session's events, which order s1's bind among the loads.
         if (!first.Contains("stopped at s1", StringComparison.Ordinal))
             Assert.Fail($"{first}\nevents:\n{await Events(server, "live-2", log: false)}");
-        Assert.Contains("the program ended before a stop", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        Assert.Contains("the program ended before a stop", await WaitStop(server, "live-2"));
         Assert.DoesNotContain("also set at", await Events(server, "live-2", kind: "module"));
         Ended(pid);
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
@@ -454,7 +454,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Spawn(server, exe, "live-1", input, "1", "100000", "20");
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadTwice" }, "not_found");
         Assert.Contains("is compiled", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" }));
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await WaitStop(server, "live-1");
         // A missed stop names the modules the session saw, where s1 was set and any error binding it.
         if (!stop.Contains("stopped at s1", StringComparison.Ordinal))
             Assert.Fail($"{stop}\nmodule events:\n{await Events(server, "live-1", kind: "module", log: false)}\nstop events:\n{await Events(server, "live-1", kind: "stop", log: false)}\nerrors:\n{await Events(server, "live-1", kind: "error", log: false)}");
@@ -525,7 +525,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
-        var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var first = await WaitStop(server, "live-1");
         // A missed stop logs readers.dll's load and each thread's wait (start-up stall on eacaf14a).
         if (!first.Contains("stopped at s1", StringComparison.Ordinal))
         {
@@ -584,7 +584,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "System.dll!System.Text.RegularExpressions.Regex::IsMatch(string, string)" });
         Assert.Matches(@"stopped at s1 \(System\.dll!System\.Text\.RegularExpressions\.Regex\.IsMatch\(System\.String, System\.String\)\)",
-            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+            await StopWithin(server, "live-1"));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
@@ -712,7 +712,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Add" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1", "list");
         Assert.Matches(@"#0 0x[0-9A-F]+ Calc\.exe!Calc\.Add\(Int32, Int32\)", stop);
         Assert.Matches(@"#1 0x[0-9A-F]+ Calc\.exe!Calc\.Main\(\)\+0x[0-9A-F]+", stop);
     }
@@ -728,7 +728,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Add" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
-        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+        await StopWithin(server, "live-1", "list");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });
@@ -783,7 +783,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                 await Task.Delay(100);
             }
             File.WriteAllText(gate, "");
-            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+            var stop = await WaitStop(server, "live-1", "list");
             if (!Regex.IsMatch(stop, @"thread \d+ stopped at s1"))
                 Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}");
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
