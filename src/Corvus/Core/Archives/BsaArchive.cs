@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.IO.Compression;
 using System.Text;
 using Corvus.Core.Firmware;
 
@@ -30,22 +29,16 @@ public static class BsaArchive
     public static ContainerContents Open(Stream s, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         long fileSize = s.Length;
-        var notes = new List<string>();
-        var items = new List<ExtractedItem>();
-        var entries = new List<ContainerEntry>();
-        var names = new List<string>();
-        ContainerContents Done()
-        {
-            notes.AddRange(MemberNames.Notes(names));
-            return new ContainerContents(Kind, items, notes) { Entries = entries };
-        }
+        var listing = new PackedEntry.Listing(Kind);
+        var (notes, items, entries, names) = (listing.Notes, listing.Items, listing.Entries, listing.Names);
+        ContainerContents Done() => listing.Done();
 
         if (fileSize < HeaderSize)
         {
             notes.Add($"BSA archive cut short: {fileSize:N0} of {HeaderSize} header bytes; entries unknown.");
             return Done();
         }
-        var h = Range(s, 0, HeaderSize);
+        var h = PackedEntry.Range(s, 0, HeaderSize);
         uint version = BinaryPrimitives.ReadUInt32LittleEndian(h.AsSpan(4));
         uint start = BinaryPrimitives.ReadUInt32LittleEndian(h.AsSpan(8));
         uint flags = BinaryPrimitives.ReadUInt32LittleEndian(h.AsSpan(12));
@@ -68,7 +61,7 @@ public static class BsaArchive
         if ((flags & (DirNames | FileNames)) != (DirNames | FileNames))
             notes.Add("Archive flags omit folder or file names; unnamed entries are numbered.");
 
-        var index = Range(s, start, (int)(indexEnd - start));
+        var index = PackedEntry.Range(s, start, (int)(indexEnd - start));
         var folders = new List<(string Name, List<(uint Size, uint Offset)> Files)>();
         long listed = 0, namesAt = indexEnd;
         bool bad = false;
@@ -84,13 +77,13 @@ public static class BsaArchive
             string folder = "";
             if ((flags & DirNames) != 0)
             {
-                int len = Range(s, at, 1)[0];
+                int len = PackedEntry.Range(s, at, 1)[0];
                 if (len == 0 || at + 1 + len > fileSize) { bad = true; break; }
-                folder = Encoding.UTF8.GetString(Range(s, at + 1, len - 1)).Replace('\\', '/');
+                folder = Encoding.UTF8.GetString(PackedEntry.Range(s, at + 1, len - 1)).Replace('\\', '/');
                 at += 1 + len;
             }
             if (count > (fileSize - at) / 16) { bad = true; break; }
-            var rec = Range(s, at, (int)(16 * count));
+            var rec = PackedEntry.Range(s, at, (int)(16 * count));
             var files = new List<(uint, uint)>();
             for (int k = 0; k < count; k++)
                 files.Add((BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(k * 16 + 8)), BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(k * 16 + 12))));
@@ -102,7 +95,7 @@ public static class BsaArchive
             notes.Add($"BSA folder records malformed: {listed:N0} of {fileCount:N0} file(s) read.");
 
         // The name block follows the last folder's file records.
-        var nameBlock = hasFileNames && namesAt + fileNames <= fileSize ? Range(s, namesAt, (int)fileNames) : [];
+        var nameBlock = hasFileNames && namesAt + fileNames <= fileSize ? PackedEntry.Range(s, namesAt, (int)fileNames) : [];
         int nameAt = 0, ordinal = 0;
         long total = 0;
         bool stopped = false;
@@ -155,7 +148,7 @@ public static class BsaArchive
     {
         original = size;
         if (size > limits.MaxItemBytes && !packed) return null;
-        var raw = Range(s, offset, (int)Math.Min(size, int.MaxValue / 2));
+        var raw = PackedEntry.Range(s, offset, (int)Math.Min(size, int.MaxValue / 2));
         int at = 0;
         if (embedded)
         {
@@ -170,33 +163,8 @@ public static class BsaArchive
         if (raw.Length - at < 4) throw new InvalidDataException("compressed entry lacks its original size");
         original = BinaryPrimitives.ReadUInt32LittleEndian(raw.AsSpan(at));
         if (original > limits.MaxItemBytes) return null;
-        var body = raw.AsSpan(at + 4);
-        // The most one input byte expands to: Deflate 1032, an LZ4 block 255.
-        if (original > (body.Length + 16L) * (version == 105 ? 255 : 1032))
-            throw new InvalidDataException($"{original:N0} bytes declared from {body.Length:N0}, more than the codec can produce");
-        byte[] output;
-        try
-        {
-            if (version == 105) output = FsCodec.DecodeStream("lz4", body, original);
-            else
-            {
-                using var z = new ZLibStream(new MemoryStream(body.ToArray(), writable: false), CompressionMode.Decompress);
-                output = Blob.ReadBounded(z, original) ?? throw new InvalidDataException($"decodes past {original:N0} bytes");
-            }
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException)
-        {
-            throw new InvalidDataException($"damaged data: {ex.Message}", ex);
-        }
-        if (output.Length != original) throw new InvalidDataException($"{output.Length:N0} of {original:N0} bytes decoded");
-        return output;
-    }
-
-    private static byte[] Range(Stream s, long at, int n)
-    {
-        var b = new byte[n];
-        s.Position = at;
-        s.ReadExactly(b);
-        return b;
+        // Version 105 stores LZ4 frames.
+        return PackedEntry.Decode(raw.AsSpan(at + 4).ToArray(), original,
+            version == 105 ? (body, size) => FsCodec.DecodeStream("lz4", body, size) : null);
     }
 }

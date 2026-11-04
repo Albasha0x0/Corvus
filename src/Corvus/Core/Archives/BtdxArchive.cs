@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.IO.Compression;
 using System.Text;
 
 namespace Corvus.Core.Archives;
@@ -29,17 +28,11 @@ public static class BtdxArchive
     public static ContainerContents Open(Stream s, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         long fileSize = s.Length;
-        var notes = new List<string>();
-        var items = new List<ExtractedItem>();
-        var entries = new List<ContainerEntry>();
-        var names = new List<string>();
-        ContainerContents Done()
-        {
-            notes.AddRange(MemberNames.Notes(names));
-            return new ContainerContents(Kind, items, notes) { Entries = entries };
-        }
+        var listing = new PackedEntry.Listing(Kind);
+        var (notes, items, entries, names) = (listing.Notes, listing.Items, listing.Entries, listing.Names);
+        ContainerContents Done() => listing.Done();
 
-        var h = Range(s, 0, (int)Math.Min(fileSize, 40));
+        var h = PackedEntry.Range(s, 0, (int)Math.Min(fileSize, 40));
         if (h.Length < 24)
         {
             notes.Add($"BA2 archive cut short: {fileSize:N0} of 24 header bytes; entries unknown.");
@@ -69,9 +62,9 @@ public static class BtdxArchive
         for (uint i = 0; i < count; i++)
         {
             if (pos + 2 > fileSize) break;
-            int len = BinaryPrimitives.ReadUInt16LittleEndian(Range(s, pos, 2));
+            int len = BinaryPrimitives.ReadUInt16LittleEndian(PackedEntry.Range(s, pos, 2));
             if (pos + 2 + len > fileSize) break;
-            table.Add(Encoding.UTF8.GetString(Range(s, pos + 2, len)).Replace('\\', '/'));
+            table.Add(Encoding.UTF8.GetString(PackedEntry.Range(s, pos + 2, len)).Replace('\\', '/'));
             pos += 2 + len;
         }
         if (table.Count < count)
@@ -87,10 +80,10 @@ public static class BtdxArchive
             if (type == "DX10")
             {
                 if (at + TextureRecord > fileSize) { notes.Add("BA2 records end early."); break; }
-                var r = Range(s, at, TextureRecord);
+                var r = PackedEntry.Range(s, at, TextureRecord);
                 int chunks = r[13];
                 if (at + TextureRecord + (long)chunks * ChunkRecord > fileSize) { notes.Add("BA2 records end early."); break; }
-                var cs = Range(s, at + TextureRecord, chunks * ChunkRecord);
+                var cs = PackedEntry.Range(s, at + TextureRecord, chunks * ChunkRecord);
                 long unpacked = 0;
                 for (int c = 0; c < chunks; c++) unpacked += BinaryPrimitives.ReadUInt32LittleEndian(cs.AsSpan(c * ChunkRecord + 12));
                 entries.Add(new ContainerEntry(path, unpacked, $"{chunks:N0} chunk(s), not extracted: texture chunks"));
@@ -98,7 +91,7 @@ public static class BtdxArchive
                 continue;
             }
             if (at + GeneralRecord > fileSize) { notes.Add("BA2 records end early."); break; }
-            var g = Range(s, at, GeneralRecord);
+            var g = PackedEntry.Range(s, at, GeneralRecord);
             at += GeneralRecord;
             // An offset past the signed range lies outside the file.
             ulong rawOffset = BinaryPrimitives.ReadUInt64LittleEndian(g.AsSpan(16));
@@ -118,7 +111,7 @@ public static class BtdxArchive
             if (original > limits.MaxItemBytes) { notes.Add($"{path}: over the per-item limit of {limits.MaxItemBytes:N0} bytes; not extracted."); continue; }
             try
             {
-                var content = Decode(Range(s, offset, (int)stored), packed == 0, lz4, original);
+                var content = Decode(PackedEntry.Range(s, offset, (int)stored), packed == 0, lz4, original);
                 if (!allFiles && Blob.Identify(content) == "data") continue;
                 total += content.Length;
                 items.Add(new ExtractedItem(Blob.SafeRelativePath(path, "file"), content, "BA2 entry") { Member = true });
@@ -132,38 +125,15 @@ public static class BtdxArchive
         return Done();
     }
 
-    private static byte[] Decode(byte[] body, bool stored, bool lz4, uint original)
-    {
-        if (stored) return body;
-        // The most one input byte expands to: Deflate 1032, an LZ4 block 255.
-        if (original > (body.Length + 16L) * (lz4 ? 255 : 1032))
-            throw new InvalidDataException($"{original:N0} bytes declared from {body.Length:N0}, more than the codec can produce");
-        byte[] output;
-        try
-        {
-            if (lz4)
-            {
-                output = new byte[original];
-                int n = K4os.Compression.LZ4.LZ4Codec.Decode(body, output);
-                if (n != original) throw new InvalidDataException($"{Math.Max(n, 0):N0} of {original:N0} bytes decoded");
-                return output;
-            }
-            using var z = new ZLibStream(new MemoryStream(body, writable: false), CompressionMode.Decompress);
-            output = Blob.ReadBounded(z, original) ?? throw new InvalidDataException($"decodes past {original:N0} bytes");
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException)
-        {
-            throw new InvalidDataException($"damaged data: {ex.Message}", ex);
-        }
-        if (output.Length != original) throw new InvalidDataException($"{output.Length:N0} of {original:N0} bytes decoded");
-        return output;
-    }
+    // BA2 stores LZ4 blocks, not frames.
+    private static byte[] Decode(byte[] body, bool stored, bool lz4, uint original) =>
+        stored ? body : PackedEntry.Decode(body, original, lz4 ? Lz4Block : null);
 
-    private static byte[] Range(Stream s, long at, int n)
+    private static byte[] Lz4Block(byte[] body, long original)
     {
-        var b = new byte[n];
-        s.Position = at;
-        s.ReadExactly(b);
-        return b;
+        var output = new byte[original];
+        int n = K4os.Compression.LZ4.LZ4Codec.Decode(body, output);
+        if (n != original) throw new InvalidDataException($"{Math.Max(n, 0):N0} of {original:N0} bytes decoded");
+        return output;
     }
 }
