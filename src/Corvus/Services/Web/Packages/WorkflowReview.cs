@@ -31,6 +31,12 @@ public static partial class PackageReview
             review.Notes.Add($"{path}: no jobs read; workflow unknown");
             return;
         }
+        if (WorkflowAuditor.Configured())
+        {
+            var audit = WorkflowAuditor.Audit(text, path, ct);
+            review.Findings.AddRange(audit.Findings);
+            if (audit.Problem != null) review.Notes.Add(audit.Problem);
+        }
         var on = root["on"] ?? root["true"];
         var triggers = on?.Map?.Select(e => e.Key).ToList()
             ?? on?.Seq?.Select(i => i.Text ?? "").ToList()

@@ -223,6 +223,7 @@ file or its folder.
 | `CORVUS_TSHARK` | `tshark` 3+ (`PATH`, Wireshark folder) | packet filters on fields not decoded in process |
 | `CORVUS_OSV_DATABASE` | folder with `<Ecosystem>/all.zip` (or record files) from the osv.dev exports; NuGet, crates.io, PyPI, Go, Maven | advisories in `summarize_file view=dependencies` |
 | `CORVUS_GUARDDOG` | [GuardDog](https://github.com/DataDog/guarddog) 3.2.0; Linux and macOS only | rule matches in `summarize_file view=package` |
+| `CORVUS_ZIZMOR` | [zizmor](https://github.com/zizmorcore/zizmor) | workflow findings in `summarize_file view=package` |
 | `CORVUS_CAPA` | standalone [capa](https://github.com/mandiant/capa) 10.0.0 | `survey_features` capa labels |
 | `CORVUS_EMULATOR` | [speakeasy](https://github.com/mandiant/speakeasy) 2.0.0b9 (report format 5) | `emulate_native engine=speakeasy` |
 | `CORVUS_DIE` | Detect It Easy `diec` | `summarize_build detectItEasy=true`; packers and protectors in `summarize_file view=native` when set |

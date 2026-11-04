@@ -212,6 +212,7 @@ public class ServerStatusToolVariableTests
             ["CORVUS_EMULATOR"] = Place("speakeasy"),
             ["CORVUS_GUARDDOG"] = Place("guarddog"),
             ["CORVUS_DIE"] = Place("diec"),
+            ["CORVUS_ZIZMOR"] = Place("zizmor"),
         };
         var tools = Corvus.Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
         Assert.Equal(tools.Select(t => t.Variable).Order(), variables.Keys.Order());

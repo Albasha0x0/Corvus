@@ -183,6 +183,7 @@ public static class FindingRules
         N("package/gradle-wrapper-url", "a build tool downloaded and run from outside services.gradle.org", "the Gradle wrapper downloads its tool"),
         R("package/dockerfile-add-remote", "ADD of a remote source in a Dockerfile"),
         R("package/cmake-process", "CMake runs a process at configure"),
+        R("package/workflow-auditor", "a finding of the workflow auditor set in CORVUS_ZIZMOR"),
         N("guarddog/*", "a GuardDog threat-* rule", "a GuardDog rule matches"),
         // Archive and disk image entries.
         R("archive/unsafe-path", "an entry path with a '..', rooted, drive or stream part, or a part ending in a blank or a dot"),

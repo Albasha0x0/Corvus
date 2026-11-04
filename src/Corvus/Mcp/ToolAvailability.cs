@@ -39,6 +39,9 @@ public static class ToolAvailability
             .ToArray();
         yield return ("summarize_build", "detectItEasy=true", Services.Analysis.DetectItEasy.Find() != null,
             "diec was not found in CORVUS_DIE or on PATH", "set CORVUS_DIE to the Detect It Easy folder (or diec.exe)");
+        if (Services.Web.Packages.WorkflowAuditor.Configured())
+            yield return ("summarize_file", "view=package workflow audit", Services.Web.Packages.WorkflowAuditor.Find() != null,
+                "zizmor was not found in CORVUS_ZIZMOR or on PATH", "set CORVUS_ZIZMOR to the zizmor folder (or zizmor.exe)");
         foreach (var probe in checks[..2].Select(c => c.GetAwaiter().GetResult()))
             yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
         var emulator = checks[3].GetAwaiter().GetResult();
