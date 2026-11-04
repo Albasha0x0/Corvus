@@ -30,13 +30,13 @@ public sealed class RestartStateLiveTests : LiveSessionTestBase
     [Fact]
     public async Task A_run_or_session_of_an_ended_process_is_refused_with_the_call_that_lists_them()
     {
+        // A real event trace needs an elevated run; the process id is not one.
+        _service.ActivitySource = new ScriptedActivitySource();
         await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
-        // Activity traces are collected on Windows only.
-        if (OperatingSystem.IsWindows())
-            await _tools.LiveTimeline("live-1", "start");
+        await _tools.LiveTimeline("live-1", "start");
         var first = await Reads(_tools);
-        Assert.All(first.Where(p => p.Key is "live_coverage" || p.Key is "live_timeline" && OperatingSystem.IsWindows()), p => Assert.DoesNotContain("Error (", p.Value));
+        Assert.All(first.Where(p => p.Key is "live_coverage" or "live_timeline"), p => Assert.DoesNotContain("Error (", p.Value));
 
         using var second = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
         var restarted = await Reads(new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true }, second));
