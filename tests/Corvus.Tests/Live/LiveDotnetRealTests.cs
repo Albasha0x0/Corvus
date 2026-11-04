@@ -263,7 +263,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("program started", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" }));
         var opened = new Regex(Regex.Escape(InputName) + "\"");
         string opens = "";
-        for (int i = 0; i < 300 && !opened.IsMatch(opens); i++)
+        for (int i = 0; i < LiveWaits.Polls(300) && !opened.IsMatch(opens); i++)
         {
             opens = await Events(server, "live-1", from: "w1", log: false);
             await Task.Delay(100);
@@ -432,7 +432,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             await Ok(server, "live_break", new() { ["session"] = id, ["action"] = "continue" });
             // A point set while the runtime cannot be read names the reason, and waits for the JIT's compile.
             var set = "";
-            for (int i = 0; i < 100 && !set.Contains("cannot be read", StringComparison.Ordinal); i++)
+            for (int i = 0; i < LiveWaits.Polls(100) && !set.Contains("cannot be read", StringComparison.Ordinal); i++)
             {
                 await Task.Delay(100);
                 set = (await Call(server, "live_break", new() { ["session"] = id, ["action"] = "set", ["at"] = "Readers::ReadOnce" })).Text;
@@ -487,7 +487,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         string calls = "";
-        for (int i = 0; i < 50 && !calls.Contains(" call ", StringComparison.Ordinal); i++)
+        for (int i = 0; i < LiveWaits.Polls(50) && !calls.Contains(" call ", StringComparison.Ordinal); i++)
         {
             await Task.Delay(100);
             calls = await Events(server, "live-1", from: "w1", log: false);
@@ -544,7 +544,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
         string errors = "";
-        for (int i = 0; i < 100 && !errors.Contains("could not be set", StringComparison.Ordinal); i++)
+        for (int i = 0; i < LiveWaits.Polls(100) && !errors.Contains("could not be set", StringComparison.Ordinal); i++)
         {
             await Task.Delay(100);
             errors = await Events(server, "live-2", kind: "error", log: false);
@@ -685,7 +685,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Spawn(server, exe, "live-1", "120000");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         bool ready = false;
-        for (int i = 0; i < 900 && !(ready = (await Events(server, "live-1", kind: "output", log: false)).Contains("ready")); i++) await Task.Delay(100);
+        for (int i = 0; i < LiveWaits.Polls(900) && !(ready = (await Events(server, "live-1", kind: "output", log: false)).Contains("ready")); i++) await Task.Delay(100);
         // A heap read before "ready" sees a runtime still starting, so a
         // missed signal fails here with what the session saw.
         if (!ready)
@@ -777,7 +777,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
             // Late runs only once the run counts first compiles, however long the decoder takes to stop.
             string errors = "";
-            for (int i = 0; i < 600 && !errors.Contains("first compiles from now on", StringComparison.Ordinal); i++)
+            for (int i = 0; i < LiveWaits.Polls(600) && !errors.Contains("first compiles from now on", StringComparison.Ordinal); i++)
             {
                 errors = await Events(server, "live-1", kind: "error", log: false);
                 await Task.Delay(100);

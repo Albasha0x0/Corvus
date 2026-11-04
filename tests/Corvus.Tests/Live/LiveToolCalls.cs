@@ -89,7 +89,7 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
             await Call(server, "inspect_process", new() { ["process"] = process, ["view"] = "stacks", ["thread"] = m.Groups[1].Value });
     }
 
-    /// <summary>Waits for a stop in 30 s slices until the session's events stall; the idle answer is returned as the last text.</summary>
+    /// <summary>Waits for a stop in slices of 30 s (scaled by LiveWaits) until the session's events stall; the idle answer is returned as the last text.</summary>
     private protected Task<string> WaitStop(InProcessServer server, string session, string action = "continue")
     {
         var first = true;
@@ -99,10 +99,10 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
                 // Resume once; later slices only wait, so a held stop is never resumed.
                 var slice = first ? action : "list";
                 first = false;
-                return await Ok(server, "live_break", new() { ["session"] = session, ["action"] = slice, ["wait"] = true, ["waitSeconds"] = 30 });
+                return await Ok(server, "live_break", new() { ["session"] = session, ["action"] = slice, ["wait"] = true, ["waitSeconds"] = LiveWaits.Seconds(30) });
             },
             () => EventCount(server, session),
-            new StallRule(ServerOptions.StallWindow()));
+            new StallRule(LiveWaits.StallWindow()));
     }
 
     /// <summary>Returns the stop after <paramref name="action"/> ("continue" resumes first, "list" only waits); fails with the last status, the events and the target state when the session stalls.</summary>
@@ -119,7 +119,7 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
     /// <summary>Polls <paramref name="probe"/> every 200 ms until it returns a value; fails with the last status and the target state when the session's events stall.</summary>
     private protected async Task<string> HeldWithin(InProcessServer server, string session, Func<string, string?> probe, string what)
     {
-        var rule = new StallRule(ServerOptions.StallWindow());
+        var rule = new StallRule(LiveWaits.StallWindow());
         var status = "";
         var result = await Poll(
             async () =>

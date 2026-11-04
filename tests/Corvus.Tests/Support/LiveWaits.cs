@@ -18,4 +18,7 @@ internal static class LiveWaits
 
     /// <summary>The count of fixed-interval polls that spans the scaled local budget.</summary>
     public static int Polls(int local) => (int)Math.Ceiling(local * Scale);
+
+    /// <summary>The stall window of the server options, stretched by <see cref="Scale"/>.</summary>
+    public static TimeSpan StallWindow() => Corvus.Core.ServerOptions.StallWindow() * Scale;
 }
