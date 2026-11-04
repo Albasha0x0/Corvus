@@ -24,7 +24,8 @@ internal sealed class XbfFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        // The kind checks the version and the table sizes; the signature alone also starts random data.
+        // The kind checks the version and the table sizes; the signature alone
+        // also starts random data.
         if (file.Kind != "xbf (compiled XAML)" || file.Streamed) return null;
         var bytes = file.Bytes;
         var first = XbfReader.Read(bytes);

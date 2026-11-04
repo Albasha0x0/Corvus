@@ -102,7 +102,8 @@ public sealed class RpaArchiveTests
     [Fact]
     public void An_index_with_an_unexpected_pickle_opcode_is_refused()
     {
-        // A GLOBAL opcode names a callable; the reader refuses it and runs nothing.
+        // A GLOBAL opcode names a callable; the reader refuses it and runs
+        // nothing.
         var data = Build(3, 1, "cos\nsystem\n"u8.ToArray(), ("a.txt", "alpha text", ""));
         var contents = Containers.Open(data, "a.rpa", AnalysisLimits.Default, default, allFiles: true);
         Assert.Empty(contents.Items);

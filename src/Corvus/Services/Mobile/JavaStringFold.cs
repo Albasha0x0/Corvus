@@ -96,7 +96,8 @@ public static class JavaStringFold
         return new(sb.Append(text, at, text.Length - at).ToString(), edits.Count, unknown);
     }
 
-    // The values per call in text order; null where the calls cannot be bound uniquely.
+    // The values per call in text order; null where the calls cannot be bound
+    // uniquely.
     private static string?[]? Bind(string text, List<DexFoldSite> sites, List<Call> calls)
     {
         if (sites.Count != calls.Count) return null;
@@ -104,7 +105,8 @@ public static class JavaStringFold
             [.. s.OrderBy(x => x.Offset).Select(x => x.Fold is { Status: DexFoldStatus.Simplified, Value: { } v } ? v : null)];
         var methods = sites.GroupBy(s => s.Method, StringComparer.Ordinal).ToList();
         if (methods.Count == 1) return Values(sites);
-        // Several methods: calls are grouped by the method declaration above them in the text.
+        // Several methods: calls are grouped by the method declaration above
+        // them in the text.
         var names = methods.Select(g => g.Key[(g.Key.IndexOf("->", StringComparison.Ordinal) + 2)..g.Key.IndexOf('(')]).ToList();
         if (names.Distinct(StringComparer.Ordinal).Count() != names.Count) return null;
         var starts = names.Select(n => Declaration(text, n)).ToList();
@@ -121,7 +123,8 @@ public static class JavaStringFold
         return taken.Select((n, i) => n == perMethod[i].Values.Length).All(x => x) ? result : null;
     }
 
-    // The start of the first declaration of a method of this name, -1 when none.
+    // The start of the first declaration of a method of this name, -1 when
+    // none.
     private static int Declaration(string text, string name)
     {
         for (int at = text.IndexOf(name + "(", StringComparison.Ordinal); at >= 0; at = text.IndexOf(name + "(", at + 1, StringComparison.Ordinal))
@@ -194,7 +197,8 @@ public static class JavaStringFold
         return p >= 0 && (s[p] == '.' || s[p] == ')' || s[p] == ']');
     }
 
-    // A method declaration has a type before its name; return and similar keywords are not types.
+    // A method declaration has a type before its name; return and similar
+    // keywords are not types.
     private static bool IsDeclaration(string s, int start)
     {
         int p = start - 1;
@@ -212,7 +216,8 @@ public static class JavaStringFold
         return Math.Min(i + 1, s.Length);
     }
 
-    // The index of the parenthesis closing the one at open; null when unbalanced.
+    // The index of the parenthesis closing the one at open; null when
+    // unbalanced.
     private static int? ArgumentsEnd(string s, int open)
     {
         int depth = 0;

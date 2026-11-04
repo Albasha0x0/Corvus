@@ -36,7 +36,8 @@ internal static partial class ToolCli
     {
         var result = FileTimes.Read(path, ct);
         var source = Path.GetFileName(path);
-        // Write beside the output and move into place, so a refused file leaves none.
+        // Write beside the output and move into place, so a refused file leaves
+        // none.
         var temp = output + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

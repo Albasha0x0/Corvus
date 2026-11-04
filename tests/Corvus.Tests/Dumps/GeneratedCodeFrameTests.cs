@@ -13,7 +13,8 @@ public sealed class GeneratedCodeFrameTests
 
     private static ManagedFrame Named(ulong ip) => new(ip, 0, true, "Readers.ReadLoop(System.String, Int32, Int32)", 0x06000002, 0, null, null, null);
 
-    // A snapshot caught a thread where the runtime's walk returned no method frame.
+    // A snapshot caught a thread where the runtime's walk returned no method
+    // frame.
     [Fact]
     public void An_unwound_frame_in_generated_code_is_named_when_the_runtime_walk_named_none()
     {

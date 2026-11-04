@@ -87,7 +87,8 @@ public sealed class ImagePrints
         get
         {
             if (_calleeFanIn is { } cached) return cached;
-            // One thread computes; concurrent first queries wait instead of repeating the pass.
+            // One thread computes; concurrent first queries wait instead of
+            // repeating the pass.
             lock (_tables) return _calleeFanIn ??= ComputeFanIn();
         }
     }
@@ -178,7 +179,8 @@ public sealed class ImagePrints
             {
                 if (_ignored is { } again) return again;
                 var fanIn = CalleeFanIn;
-                // Below 400 functions the floor is the fan-in discount threshold, not 2%.
+                // Below 400 functions the floor is the fan-in discount
+                // threshold, not 2%.
                 int floor = Math.Max(SimilarFunctions.CommonCalleeFanIn, (int)(Functions.Length * CommonCalleeShare));
                 var ignored = new bool[Functions.Length];
                 int helpers = 0, common = 0;

@@ -5,7 +5,8 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Inspector;
 
-// Ops: hello, open, scripts, source, set, clear, resume, ipc, coverage, listeners, close. Events: stop, output, exit. Positions are 0-based.
+// Ops: hello, open, scripts, source, set, clear, resume, ipc, coverage,
+// listeners, close. Events: stop, output, exit. Positions are 0-based.
 /// <summary>The <c>corvus inspector-worker</c> process: the session worker protocol over one V8 inspector connection.</summary>
 internal static class InspectorWorker
 {
@@ -24,7 +25,8 @@ internal static class InspectorWorker
         "load_script", "unload_script", "art_dump", "capture_memory", "resume_child", "drop_child",
     ];
 
-    // Rows kept by one coverage take, and elements visited by one listener walk.
+    // Rows kept by one coverage take, and elements visited by one listener
+    // walk.
     private const int MaxCoverageRows = 2000, MaxElements = 2000;
 
     private sealed record Script(string Id, string Url, string? Map, int Length, string Hash, string Initiator);
@@ -220,7 +222,8 @@ internal static class InspectorWorker
             return line;
         }
 
-        // Listeners of the elements under the page body in document order, up to MaxElements elements.
+        // Listeners of the elements under the page body in document order, up
+        // to MaxElements elements.
         private async Task<JsonNode?> ListenersAsync(JsonObject args, CancellationToken ct)
         {
             if (!_page) throw new ToolError(ErrorCode.Unsupported, "listeners are read from a page's document; a Node or Electron main process has none.",
@@ -298,7 +301,8 @@ internal static class InspectorWorker
             return step;
         }
 
-        // The tool list a page registers for agents; a page without the API offers none.
+        // The tool list a page registers for agents; a page without the API
+        // offers none.
         private const string PageToolsExpression = """
             (async () => {
               try {
@@ -325,7 +329,8 @@ internal static class InspectorWorker
             return new JsonObject { ["data"] = r.TryGetProperty("data", out var d) ? d.GetString() : null };
         }
 
-        // Evaluates the page's tool registry; a throwing page reads unknown with its message.
+        // Evaluates the page's tool registry; a throwing page reads unknown
+        // with its message.
         private async Task<JsonNode?> PageToolsAsync(JsonObject args, CancellationToken ct)
         {
             if (!_page) throw new ToolError(ErrorCode.Unsupported, "page tools are registered by a page; a Node or Electron main process has none.",
@@ -452,7 +457,8 @@ internal static class InspectorWorker
             }
         }
 
-        // The creating call's position from the parse event; empty when the inspector names none.
+        // The creating call's position from the parse event; empty when the
+        // inspector names none.
         private static string Initiator(JsonElement p)
         {
             if (p.TryGetProperty("stackTrace", out var trace) && trace.TryGetProperty("callFrames", out var frames) && frames.GetArrayLength() > 0)

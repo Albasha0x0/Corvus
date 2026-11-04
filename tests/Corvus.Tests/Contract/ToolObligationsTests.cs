@@ -60,7 +60,8 @@ public partial class ToolObligationsTests
     [Fact]
     public void Every_tool_declares_its_annotations_and_each_fits_what_the_tool_runs()
     {
-        // Each read of ExternalProgramTools probes the installed programs, so read it once.
+        // Each read of ExternalProgramTools probes the installed programs, so
+        // read it once.
         var externalPrograms = ToolAvailability.ExternalProgramTools.ToHashSet(StringComparer.Ordinal);
         var violations = new List<string>();
         foreach (var name in Names)

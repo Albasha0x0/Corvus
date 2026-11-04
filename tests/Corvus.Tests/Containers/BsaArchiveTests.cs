@@ -30,7 +30,8 @@ public sealed class BsaArchiveTests
 
     private static byte[] Payload() => Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("MZ payload line\n", 64)));
 
-    // One folder; each file is its name and the bytes stored after the optional embedded name and size prefix.
+    // One folder; each file is its name and the bytes stored after the optional
+    // embedded name and size prefix.
     private static byte[] Build(uint version, uint flags, string folder, params (string Name, byte[] Stored, uint Original)[] files)
     {
         bool embed = (flags & 0x100) != 0, packed = (flags & 4) != 0;

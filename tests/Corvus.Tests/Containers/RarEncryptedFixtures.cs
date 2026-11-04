@@ -35,7 +35,8 @@ internal static class RarEncryptedFixtures
             using var aes = Aes.Create();
             aes.Key = key;
             var packed = aes.EncryptCbc(data, iv, PaddingMode.Zeros);
-            // Extra record: file encryption (type 1), version 0, flags 1 (check value present).
+            // Extra record: file encryption (type 1), version 0, flags 1 (check
+            // value present).
             var record = new List<byte>();
             record.AddRange(Vint(1));
             record.AddRange(Vint(0));
@@ -46,7 +47,8 @@ internal static class RarEncryptedFixtures
             record.AddRange(check);
             var extra = Vint((ulong)record.Count).Concat(record).ToArray();
             var nameBytes = Encoding.UTF8.GetBytes(name);
-            // File flags (checksum present), unpacked size, attributes, checksum, stored, host OS, name.
+            // File flags (checksum present), unpacked size, attributes,
+            // checksum, stored, host OS, name.
             var fields = new List<byte>();
             fields.AddRange(Vint(4));
             fields.AddRange(Vint((ulong)data.Length));
@@ -63,7 +65,8 @@ internal static class RarEncryptedFixtures
         return output.ToArray();
     }
 
-    // Blocks after the encryption header carry a fresh IV and are padded with zeros.
+    // Blocks after the encryption header carry a fresh IV and are padded with
+    // zeros.
     private static void Append(MemoryStream output, byte[] block, byte[] key, bool encrypt)
     {
         if (!encrypt) { output.Write(block); return; }
@@ -74,7 +77,8 @@ internal static class RarEncryptedFixtures
         output.Write(aes.EncryptCbc(block, iv, PaddingMode.Zeros));
     }
 
-    // A block is its CRC-32, then the header size and the header the CRC covers.
+    // A block is its CRC-32, then the header size and the header the CRC
+    // covers.
     private static byte[] Block(int type, byte[] fields, byte[]? extra = null, int data = 0)
     {
         var h = new List<byte>();
@@ -88,7 +92,8 @@ internal static class RarEncryptedFixtures
         return [.. BitConverter.GetBytes(Crc32.HashToUInt32(sized)), .. sized];
     }
 
-    // The check value folds the key stream 32 iterations past the key to 8 bytes; 4 bytes of its SHA-256 follow.
+    // The check value folds the key stream 32 iterations past the key to 8
+    // bytes; 4 bytes of its SHA-256 follow.
     private static byte[] Check(string password, byte[] salt, int kdfCount)
     {
         var stream = Pbkdf2(password, salt, (1 << kdfCount) + 32, 32);

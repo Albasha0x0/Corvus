@@ -101,7 +101,8 @@ internal static class OutlookMessage
             var label = SafeName(name, storage, message ? ".msg" : ".bin");
             if (message && depth + 1 < limits.MaxDepth) embedded = Read(cf, objectStorage, 24, limits, depth + 1, ct);
             else if (message) problem = $"an embedded message {depth + 1} levels deep, not read (the nesting limit)";
-            // PidTagAttachMethod 6 (ATTACH_OLE): a Package object names the file it carries.
+            // PidTagAttachMethod 6 (ATTACH_OLE): a Package object names the
+            // file it carries.
             else if (stored && Value(PropertyValues(cf, At(storage, Properties), 8), 0x3705, Int32) == 6)
             {
                 var package = cf.Find(At(objectStorage, "\u0001Ole10Native"));

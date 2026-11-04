@@ -114,7 +114,8 @@ public static class RpaArchive
         return new ContainerContents(Kind, items, notes) { Entries = entries };
     }
 
-    // Bound the inflated index, which is the one stream the archive does not size.
+    // Bound the inflated index, which is the one stream the archive does not
+    // size.
     private static byte[] Inflate(Stream packed, long limit)
     {
         using var z = new ZLibStream(packed, CompressionMode.Decompress, leaveOpen: true);
@@ -147,7 +148,8 @@ public static class RpaArchive
         public long Limit { get; } = limit;
     }
 
-    // Reads only the opcodes the index uses; any other opcode is refused and nothing is run.
+    // Reads only the opcodes the index uses; any other opcode is refused and
+    // nothing is run.
     private sealed class PickleReader(byte[] p, CancellationToken ct)
     {
         private static readonly object Mark = new();

@@ -99,7 +99,8 @@ internal static class SevenZipEncryptedFixtures
         {
             if (f.Compressor != null)
             {
-                // LZMA or LZMA2 first in unpack order, 7zAES second, bound output to input.
+                // LZMA or LZMA2 first in unpack order, 7zAES second, bound
+                // output to input.
                 Number(s, 2);
                 s.WriteByte((byte)(f.Compressor.Id.Length | 0x20));
                 s.Write(f.Compressor.Id);
@@ -133,7 +134,8 @@ internal static class SevenZipEncryptedFixtures
             Number(s, (ulong)f.Unpack);
             if (f.Compressor != null) Number(s, (ulong)f.Mid);
         }
-        // A header folder carries its checksum; file folders carry it per substream.
+        // A header folder carries its checksum; file folders carry it per
+        // substream.
         if (!files) Crcs(s, folders);
         s.WriteByte(0x00);
         if (files)
@@ -189,7 +191,8 @@ internal static class SevenZipEncryptedFixtures
         return output.ToArray();
     }
 
-    // The coder properties carry the cycle power, an 8-byte salt and a 16-byte IV.
+    // The coder properties carry the cycle power, an 8-byte salt and a 16-byte
+    // IV.
     private static (byte[] Cipher, byte[]? Props) Pack(byte[] data, string? password)
     {
         if (password == null) return (data, null);

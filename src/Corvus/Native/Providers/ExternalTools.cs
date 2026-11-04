@@ -175,7 +175,8 @@ public static partial class ExternalTools
         Ops(("scan", ["-j", "{file}"])));
 
     // Zizmor audits one workflow file and prints its findings as JSON.
-    // Offline keeps the run local; no-exit-codes keeps a finding from reading as a failure.
+    // Offline keeps the run local; no-exit-codes keeps a finding from reading
+    // as a failure.
     public static readonly ExternalTool Zizmor = new("zizmor", "zizmor (workflow auditor)", "CORVUS_ZIZMOR", ExternalToolKind.Executable,
         ["zizmor" + Exe], ["--version"], 0, "summarize_file view=package workflow findings", false,
         Ops(("audit", ["--format", "json", "--offline", "--no-exit-codes", "{file}"])));

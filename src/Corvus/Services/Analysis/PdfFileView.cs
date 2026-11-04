@@ -38,7 +38,8 @@ internal sealed class PdfFileView : IFileSummaryView
         return new FileView(facts, Highlights(doc, facts)) { Findings = [.. FindingRules.FromMacros(doc.Findings, "pdf"), .. LocalHandlerTargets.Scan(targets, "pdf")], Indicators = IndicatorList.FromText("pdf", targets, ct) };
     }
 
-    // No password applies under a handler other than Standard, so the handler is named.
+    // No password applies under a handler other than Standard, so the handler
+    // is named.
     private static string NotDecrypted(PdfFile pdf) =>
         pdf.Resolve(pdf.Trailer?["Encrypt"]) is PdfDict e && e.Name("Filter") is { } filter && filter != "Standard"
             ? $"security handler /{filter} (not read)"

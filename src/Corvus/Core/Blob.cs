@@ -128,7 +128,8 @@ public static class Blob
         return "data";
     }
 
-    // Header: signature, metadata size, node size, major, minor; version 1 or 2.
+    // Header: signature, metadata size, node size, major, minor; version 1 or
+    // 2.
     private static bool LooksLikeXbf(ReadOnlySpan<byte> b) =>
         b.Length >= 0x14 && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[12..]) is 1 or 2
         && (ulong)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) + System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[8..]) <= (ulong)b.Length;

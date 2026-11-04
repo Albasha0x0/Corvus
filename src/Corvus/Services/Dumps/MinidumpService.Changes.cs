@@ -40,7 +40,8 @@ public sealed partial class MinidumpService
     {
         var (id, full, directories) = Resolve(path, imageDirectories);
         string selector = string.IsNullOrWhiteSpace(module) ? "all" : module.Trim();
-        // Code regions belong to no image, so there is no file to compare them with.
+        // Code regions belong to no image, so there is no file to compare them
+        // with.
         if (selector.Equals("code", StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, "view=changes compares modules with their files; code regions have none.",
                 "pass outputPath with modules=code to save the code regions");

@@ -362,7 +362,8 @@ public sealed class LiveCdpTests : IDisposable
             ["children"] = new JsonArray(children.Select(c => (JsonNode)c).ToArray()),
         };
 
-        // body#app holds div.box.wide with one button, plus ExtraElements empty divs.
+        // body#app holds div.box.wide with one button, plus ExtraElements empty
+        // divs.
         private JsonObject Document()
         {
             var body = Element(3, "BODY", new JsonArray("id", "app"), Element(4, "DIV", new JsonArray("class", "box wide"), Element(5, "BUTTON", null)));

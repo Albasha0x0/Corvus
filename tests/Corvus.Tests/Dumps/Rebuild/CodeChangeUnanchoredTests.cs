@@ -55,7 +55,8 @@ public sealed class CodeChangeUnanchoredTests : IDisposable
     [InlineData(false)]
     public void An_export_address_before_the_range_gives_a_known_start(bool is64)
     {
-        // The section start lies 2000 bytes before the range; the export is 10 bytes before it.
+        // The section start lies 2000 bytes before the range; the export is 10
+        // bytes before it.
         var code = Enumerable.Repeat((byte)0x90, 3000).ToArray();
         var spec = new PeSpec(is64, [new SectionSpec(".text", 0x60000020, code)], Exports: [new ExportSpec("fn", 0x1000 + 2000)]);
         var file = RebuildFixtures.Pe(spec);

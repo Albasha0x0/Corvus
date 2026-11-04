@@ -50,6 +50,7 @@ public sealed class DumpChangesViewTests : FileIsolationTestBase
         Assert.Contains("beta", text);
     }
 
+    // Regression for 8e39e0250: modules=code failed as an unknown module.
     [Fact]
     public async Task The_changes_view_refuses_code_regions_and_names_the_save()
     {

@@ -485,7 +485,8 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
             }
             using var pool = Pool();
             using var shared = WorkerPool.UseShared(pool);
-            // The modes use separate sessions and output folders, so they run side by side.
+            // The modes use separate sessions and output folders, so they run
+            // side by side.
             var both = await Task.WhenAll(Run(true), Run(false));
             var (inProcess, worker) = (both[0], both[1]);
             for (int i = 0; i < calls.Count; i++)

@@ -28,6 +28,7 @@ public sealed class SevenZipPasswordTests
         Assert.DoesNotContain(contents.Notes, n => n.Contains("not read"));
     }
 
+    // Regression for 2463bc49a: a wrong password returned decrypted garbage.
     [Fact]
     public void A_wrong_password_names_each_7z_entry_as_not_read()
     {

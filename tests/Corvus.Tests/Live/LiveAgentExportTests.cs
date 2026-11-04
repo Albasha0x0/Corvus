@@ -67,6 +67,7 @@ public sealed class LiveAgentExportTests : IDisposable
             dev.kill(pid)
         """;
 
+    // Regression for e874ead66: the JIT export lookup entered the loader.
     [LiveTargetFact("win-x64", attaches: true)]
     public void A_loaded_modules_exports_match_its_file_and_a_forwarded_or_absent_name_is_null()
     {

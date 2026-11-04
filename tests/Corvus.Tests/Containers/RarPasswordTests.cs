@@ -32,6 +32,7 @@ public sealed class RarPasswordTests
         Assert.Equal(Files[1].Data, contents.Items.Single(i => i.Name == "readme.txt").Bytes);
     }
 
+    // Regression for 2463bc49a: the first unreadable entry stopped the listing.
     [Fact]
     public void A_wrong_password_names_each_rar5_entry_as_not_read()
     {

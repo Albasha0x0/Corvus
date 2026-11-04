@@ -45,7 +45,8 @@ internal sealed class ProgramEmulationOps : IWorkerOps
         long seconds = Number(args, "seconds") ?? 10;
         Directory.CreateDirectory(output);
         var report = Path.Combine(output, "report.json");
-        // speakeasy 2.0.0b9 mounts every file beside a PE (mandiant/speakeasy#497);
+        // speakeasy 2.0.0b9 mounts every file beside a PE
+        // (mandiant/speakeasy#497);
         // a copy in its own folder keeps neighbours out of reach.
         var target = Path.Combine(output, "target", Path.GetFileName(input));
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);

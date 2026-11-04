@@ -36,6 +36,7 @@ public static class FridaVersions
         return new Version(numbers[0], numbers[1], numbers[2]);
     }
 
+    /// <summary>True when the version lies in the tested range and is not the excluded one.</summary>
     public static bool Tested(Version v) => v >= TestedFrom && v < TestedBefore && v != Excluded;
 
     /// <summary>Why sessions cannot run on this Frida (provider_unavailable), or null.</summary>

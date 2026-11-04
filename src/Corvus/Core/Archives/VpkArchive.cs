@@ -44,7 +44,8 @@ public static class VpkArchive
         uint treeSize = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(8));
         long treeEnd = (long)header + treeSize;
         long dataBase = treeEnd;
-        // The tree is read whole, so a header naming a larger tree is read up to the per-item limit.
+        // The tree is read whole, so a header naming a larger tree is read up
+        // to the per-item limit.
         long treeLimit = Math.Min(limits.MaxItemBytes, int.MaxValue / 2);
         bool overLimit = Math.Min(treeEnd, fileSize) > treeLimit;
         int end = (int)Math.Min(Math.Min(treeEnd, fileSize), treeLimit);

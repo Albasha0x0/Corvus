@@ -19,7 +19,8 @@ public sealed class StixMatchNotesTests : IDisposable
         _dir.Dispose();
     }
 
-    // The OASIS bundle schema does not list note among its objects, so notes are checked against note.json.
+    // The OASIS bundle schema does not list note among its objects, so notes
+    // are checked against note.json.
     private static readonly Lazy<(JsonSchema Bundle, JsonSchema Note)> Schemas = new(() =>
     {
         var root = Path.Combine(AppContext.BaseDirectory, "Containers", "StixSchemas");

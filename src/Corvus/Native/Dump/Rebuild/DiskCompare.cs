@@ -128,7 +128,8 @@ public static class DiskCompare
 
         var (iat, iatSize) = pe.Directory(file, ImportAddressTable);
         Mark(iat, iatSize);
-        // The rebuild sets each file offset for its own layout, so it differs from the file's.
+        // The rebuild sets each file offset for its own layout, so it differs
+        // from the file's.
         var (debug, debugSize) = pe.Directory(file, Debug);
         long entries = pe.Offset(debug);
         if (debug != 0 && entries >= 0 && entries + debugSize <= file.Length)

@@ -70,7 +70,8 @@ public sealed class JavaStringFoldTests : IDisposable
     public void A_call_that_cannot_be_bound_stays_and_is_counted_unknown()
     {
         var (sites, scope) = Sites("hello", "use", "twice");
-        // Two calls in the text but one is outside the sites' methods: counts differ, nothing binds.
+        // Two calls in the text but one is outside the sites' methods: counts
+        // differ, nothing binds.
         var text = "a() { return Dec.r(\"olleh\"); }\nb() { return Dec.r(s); }\n";
         var r = JavaStringFold.Apply(text, sites, scope);
         Assert.Equal(text, r.Text);

@@ -64,6 +64,7 @@ public sealed class PdfPasswordTests
         AssertReadable(f);
     }
 
+    // Regression for 486472c0b: AES under /Identity streams read as RC4.
     [Fact]
     public void An_aes_pdf_with_identity_streams_is_labelled_aes()
     {
@@ -71,6 +72,7 @@ public sealed class PdfPasswordTests
         Assert.Equal("AES-128, revision 4", f.Encryption);
     }
 
+    // Regression for 486472c0b: the note repeated and blamed the password.
     [Fact]
     public void A_non_standard_security_handler_is_named_not_read()
     {
@@ -81,6 +83,7 @@ public sealed class PdfPasswordTests
         Assert.DoesNotContain(f.Actions, a => a.Target == PdfAesV2Fixtures.Target);
     }
 
+    // Regression for 486472c0b: the owner password was not said untried.
     [Fact]
     public void An_owner_password_is_not_tried_and_the_note_says_so()
     {

@@ -94,7 +94,8 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
             if (Environment.GetEnvironmentVariable("CORVUS_FIRMWARE_IMAGES") is not { Length: > 0 } root || !Directory.Exists(root)
                 || Environment.GetEnvironmentVariable("CORVUS_FS_REFERENCE") is not { Length: > 0 } runner) return;
             var script = Path.Combine(FirmwareFilesystemTests.FixtureDir, "reference.sh");
-            // Largest first: the scanner's time grows with size, so the last image taken is a small one.
+            // Largest first: the scanner's time grows with size, so the last
+            // image taken is a small one.
             lock (Gate) _pending ??= new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
                 .OrderByDescending(f => new FileInfo(f).Length).ThenBy(f => f, StringComparer.Ordinal));
             while (true)

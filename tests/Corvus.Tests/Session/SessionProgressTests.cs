@@ -31,8 +31,10 @@ public sealed class SessionProgressTests(ITestOutputHelper output) : IDisposable
         });
         var result = await server.Client.CallToolAsync("load_session", new Dictionary<string, object?> { ["path"] = session }, new Progress());
         Assert.NotEqual(true, result.IsError);
-        // The client handles notifications concurrently, so the final update can
-        // arrive first; wait for both ends (modelcontextprotocol/csharp-sdk#1991,
+        // The client handles notifications concurrently, so the final update
+        // can
+        // arrive first; wait for both ends (modelcontextprotocol/csharp-
+        // sdk#1991,
         // 2.2.0 and 2.3.1).
         for (int i = 0; i < 250 && !(updates.Any(u => u.Value.Progress.Progress == u.Value.Progress.Total) && updates.Any(u => u.Value.Progress.Progress == 0)); i++)
             await Task.Delay(20);

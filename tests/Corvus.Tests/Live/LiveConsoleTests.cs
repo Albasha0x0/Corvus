@@ -157,7 +157,8 @@ public sealed class LiveConsoleTests : IDisposable
     public async Task Stop_cancels_a_waiting_script_and_a_notice_names_the_next_call()
     {
         await _tools.LiveConsole("start", program: _program, script: ["wait goodbye", "send y"], timeoutSeconds: 10);
-        // CI run 41292755924 (ubuntu): the stop replied before the script ended.
+        // CI run 41292755924 (ubuntu): the stop replied before the script
+        // ended.
         await _tools.LiveConsole("stop", run: "con-1");
         var status = await _tools.LiveConsole("status", run: "con-1");
         Assert.Matches(@"step 1\s+wait goodbye\s+cancelled: ended by action=stop", status);

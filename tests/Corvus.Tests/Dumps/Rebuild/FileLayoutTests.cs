@@ -40,7 +40,8 @@ public sealed class FileLayoutTests : IDisposable
     }
 
     // Reproduces the shift seen after 601bd06c9: one more section header moves
-    // every raw offset by 512, so each debug entry offset differs from the file's.
+    // every raw offset by 512, so each debug entry offset differs from the
+    // file's.
     [Fact]
     public void A_debug_entry_file_offset_set_for_the_new_layout_is_not_a_difference_from_the_file()
     {

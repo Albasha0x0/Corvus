@@ -60,7 +60,8 @@ public sealed class FileTimesTests : IDisposable
     public void A_compound_file_entry_time_is_read()
     {
         var bytes = DocumentFixtures.Compound([("Stream", new byte[10])]);
-        // The second directory entry (the stream) holds its modified time at byte 108.
+        // The second directory entry (the stream) holds its modified time at
+        // byte 108.
         int dir = (BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(48)) + 1) * 512;
         BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(dir + 128 + 108), Stamp.ToFileTimeUtc());
         var result = FileTimes.Read(Write("a.cfb", bytes), default);

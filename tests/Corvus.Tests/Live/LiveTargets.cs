@@ -293,7 +293,8 @@ internal static class LivePrograms
         static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r)
         {
             if (reason != DLL_PROCESS_DETACH) return;
-            // Markers beside the program, built by hand as the C runtime has ended: tls-<pid> the callback ran, hold-<pid> the hold entered.
+            // Markers beside the program, built by hand as the C runtime has
+            // ended: tls-<pid> the callback ran, hold-<pid> the hold entered.
             Mark("tls-", 4);
             if (!g_stuck) return;
             Mark("hold-", 5);

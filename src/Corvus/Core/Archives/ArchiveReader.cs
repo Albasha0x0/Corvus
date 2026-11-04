@@ -104,7 +104,8 @@ internal sealed class ArchiveReader : IContainerReader
                 notes.Add(ContainerPassword.NotRead(path, password != null));
                 return;
             }
-            // A wrong key decrypts without a fault, so the stored checksum decides.
+            // A wrong key decrypts without a fault, so the stored checksum
+            // decides.
             if (encrypted && crc is { } expected && System.IO.Hashing.Crc32.HashToUInt32(bytes) != expected)
             {
                 entries[^1] = entries[^1] with { Detail = "encrypted; not read" };
@@ -129,7 +130,8 @@ internal sealed class ArchiveReader : IContainerReader
             if (format is "7z" or "rar")
             {
                 using var archive = ArchiveFactory.OpenArchive(stream, password == null ? null : new ReaderOptions { Password = password });
-                // Read every header first: a failed entry read leaves the stream
+                // Read every header first: a failed entry read leaves the
+                // stream
                 // inside that entry's data, where the next header is not.
                 foreach (var e in archive.Entries.ToList())
                     if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream, e.IsEncrypted, format == "7z" && e.Crc != 0 ? (uint)e.Crc : null);

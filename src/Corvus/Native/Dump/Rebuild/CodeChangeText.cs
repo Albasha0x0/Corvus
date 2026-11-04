@@ -118,7 +118,8 @@ public static class CodeChangeText
         return text + " " + FromRangeStart;
     }
 
-    // True when the file bytes of [start, end) decode as whole instructions; bytes past the file are not checked.
+    // True when the file bytes of [start, end) decode as whole instructions;
+    // bytes past the file are not checked.
     private static bool Decodes(ReadOnlySpan<byte> file, int bits, ulong address, int start, int end)
     {
         end = Math.Min(end, file.Length);

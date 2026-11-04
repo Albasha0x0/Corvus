@@ -278,8 +278,10 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     Output.WriteLine($"{session}: exited {sw.Elapsed.TotalSeconds:F1} s after the start");
                     Assert.Matches(@"exit code 7(?![0-9xX])", exited);
                     var errors = await Events(server, session, kind: "error");
-                    // hold-<pid> marks a hold entered. In about 4 exits in 100 the loader never calls the TLS callback
-                    // (tls-<pid> absent), spawned or attached; the exit is then not held.
+                    // hold-<pid> marks a hold entered. In about 4 exits in 100
+                    // the loader never calls the TLS callback
+                    // (tls-<pid> absent), spawned or attached; the exit is then
+                    // not held.
                     if (File.Exists(Path.Combine(folder, $"hold-{pid}")))
                     {
                         held++;

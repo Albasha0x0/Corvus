@@ -129,14 +129,17 @@ function isDeferred(m) {
   return deferredModules.has(name) || (dot > 0 && deferredModules.has(name.substring(0, dot)));
 }
 
-// The address of m's export; null when absent or forwarded. Windows reads the export directory from memory:
-// findExportByName is GetProcAddress (frida-gum gummodule-windows.c), which deadlocks in the module observer.
+// The address of m's export; null when absent or forwarded. Windows reads the
+// export directory from memory:
+// findExportByName is GetProcAddress (frida-gum gummodule-windows.c), which
+// deadlocks in the module observer.
 function exportAddress(m, name) {
   if (Process.platform !== 'windows') return m.findExportByName(name);
   try {
     const nt = m.base.add(m.base.add(0x3c).readU32());
     const pe32plus = nt.add(24).readU16() === 0x20b;
-    // The export entry is the first data directory: 0x60 into the optional header in PE32, 0x70 in PE32+.
+    // The export entry is the first data directory: 0x60 into the optional
+    // header in PE32, 0x70 in PE32+.
     const entry = nt.add(24 + (pe32plus ? 0x70 : 0x60));
     if (nt.add(24 + (pe32plus ? 0x6c : 0x5c)).readU32() === 0) return null;
     const rva = entry.readU32(), length = entry.add(4).readU32();
@@ -495,7 +498,8 @@ function beforeExit(code) {
   send({ type: 'exit_status', tid, code, ack: true });
   waitFor('exit-' + tid);
   // A Frida thread cut off by the exit can hold the heap lock and hang the shutdown: give them time to finish.
-  // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on 17.23.3 and earlier; not reproduced on
+  // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on
+  // 17.23.3 and earlier; not reproduced on
   // 17.25.2, fix commit unknown.
   if (Process.platform === 'windows') Thread.sleep(EXIT_DRAIN);
 }
@@ -661,7 +665,8 @@ rpc.exports = {
   closeBegin() {
     closing = true;
     // Observers go first: a callback during the unload faults the script runtime.
-    // Workaround for frida/frida-gum#1194: fails on 17.23.3 to 17.24.3; not seen on 17.25.2, too rare to call fixed.
+    // Workaround for frida/frida-gum#1194: fails on 17.23.3 to 17.24.3; not
+    // seen on 17.25.2, too rare to call fixed.
     stopThreadEvents();
     if (moduleObserver !== null) {
       moduleObserver.detach();
