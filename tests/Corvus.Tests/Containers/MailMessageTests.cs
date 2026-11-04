@@ -136,6 +136,69 @@ public sealed class MailMessageTests : IDisposable
         return DocumentFixtures.Compound(streams);
     }
 
+    private static byte[] Package(string label, byte[] data, bool damaged = false)
+    {
+        var o = new MemoryStream();
+        o.Write(new byte[2]);
+        foreach (var text in new[] { label, "C:\\src\\" + label })
+        {
+            o.Write(Encoding.Latin1.GetBytes(text));
+            o.WriteByte(0);
+        }
+        o.Write(new byte[4]);
+        o.Write(BitConverter.GetBytes(0));
+        o.Write(BitConverter.GetBytes(damaged ? data.Length + 100 : data.Length));
+        o.Write(data);
+        var body = o.ToArray();
+        return [.. BitConverter.GetBytes(body.Length), .. body];
+    }
+
+    /// <summary>A .msg with one OLE attachment (method 6) holding <paramref name="stream"/> and a storage class id.</summary>
+    private static byte[] OleMsg(byte[] stream, Guid? clsid = null, string streamName = "\u0001Ole10Native")
+    {
+        const string at = "__attach_version1.0_#00000000", obj = at + "/__substg1.0_3701000D";
+        var data = DocumentFixtures.Compound(
+        [
+            ("__properties_version1.0", Props(32)),
+            ("__substg1.0_0037001F", U16("Object")),
+            (at + "/__properties_version1.0", Props(8, (0x37050003, 6))),
+            (at + "/__substg1.0_3707001F", U16("object.bin")),
+            (obj + "/" + streamName, stream),
+        ]);
+        if (clsid is { } id)
+        {
+            var name = U16("__substg1.0_3701000D");
+            for (int i = 0; i + name.Length <= data.Length; i += 128)
+                if (data.AsSpan(i, name.Length).SequenceEqual(name)) { id.TryWriteBytes(data.AsSpan(i + 80, 16)); break; }
+        }
+        return data;
+    }
+
+    [Fact]
+    public void A_package_object_attachment_is_extracted_with_its_file_name()
+    {
+        var payload = "packaged text"u8.ToArray();
+        var c = Containers.Open(OleMsg(Package("tool.txt", payload)), "object.msg", AnalysisLimits.Default, default);
+        Assert.Equal(payload, Assert.Single(c.Items, i => i.Name == "attachments/tool.txt").Bytes);
+    }
+
+    [Fact]
+    public void An_ole_object_of_another_class_names_its_class()
+    {
+        var clsid = new Guid("0002CE02-0000-0000-C000-000000000046");
+        var f = View(OleMsg([1, 2, 3], clsid, "Contents"), "object.msg");
+        var a = Assert.Single(f.Attachments);
+        Assert.Equal("OLE object of class 0002CE02-0000-0000-C000-000000000046, not extracted", a.Problem);
+    }
+
+    [Fact]
+    public void A_damaged_package_stream_is_reported_not_dropped()
+    {
+        var f = View(OleMsg(Package("tool.txt", "abc"u8.ToArray(), damaged: true)), "object.msg");
+        var a = Assert.Single(f.Attachments);
+        Assert.Contains("damaged", a.Problem);
+    }
+
     private static MailFileView.Facts View(byte[] data, string name) =>
         (MailFileView.Facts)new MailFileView().Inspect(new FileInput(name, data, Blob.Identify(data)), default)!.Detail;
 

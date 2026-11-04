@@ -101,18 +101,39 @@ internal static class OutlookMessage
             var label = SafeName(name, storage, message ? ".msg" : ".bin");
             if (message && depth + 1 < limits.MaxDepth) embedded = Read(cf, objectStorage, 24, limits, depth + 1, ct);
             else if (message) problem = $"an embedded message {depth + 1} levels deep, not read (the nesting limit)";
+            // PidTagAttachMethod 6 (ATTACH_OLE): a Package object names the file it carries.
+            else if (stored && Value(PropertyValues(cf, At(storage, Properties), 8), 0x3705, Int32) == 6)
+            {
+                var package = cf.Find(At(objectStorage, "\u0001Ole10Native"));
+                try
+                {
+                    if (package != null && OfficeDocument.Ole10Native(cf.Read(package, limits.MaxItemBytes)) is { } obj)
+                    {
+                        data = obj.Bytes;
+                        label = SafeName(obj.Name, storage, ".bin");
+                    }
+                    else problem = package != null ? "the OLE Package stream is damaged; not extracted" : ObjectProblem(cf, objectStorage);
+                }
+                catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { problem = ex.Message; }
+            }
             else
             {
                 try { data = Bytes(cf, storage, 0x3701, Binary, limits); }
                 catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { problem = ex.Message; }
                 if (data == null && problem == null)
-                    problem = stored ? "stored as an OLE object storage; not extracted" : "no attachment data stream, as for an attachment by reference";
+                    problem = stored ? ObjectProblem(cf, objectStorage) : "no attachment data stream, as for an attachment by reference";
             }
             m.Attachments.Add(new MailAttachment(label, type ?? (message ? "application/vnd.ms-outlook" : null), contentId != null ? "inline" : "attachment", contentId, data, problem)
                 { Embedded = embedded, Stream = data != null ? At(storage, $"__substg1.0_3701{Binary:X4}") : null });
         }
         m.FindLinks();
         return m;
+    }
+
+    private static string ObjectProblem(CompoundFile cf, string objectStorage)
+    {
+        var clsid = cf.Entries.First(e => e.IsStorage && e.Path.Equals(objectStorage, StringComparison.OrdinalIgnoreCase)).Clsid;
+        return $"OLE object of class {(clsid == Guid.Empty ? "unknown" : clsid.ToString("D").ToUpperInvariant())}, not extracted";
     }
 
     private static string SafeName(string? given, string storage, string extension)
