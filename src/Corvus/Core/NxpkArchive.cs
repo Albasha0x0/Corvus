@@ -6,13 +6,15 @@ namespace Corvus.Core;
 /// <summary>
 /// An NXPK archive (.npk): "NXPK", u32 entry count, three u32 fields, u32 index offset,
 /// then 28-byte index entries (signature, offset, stored size, original size,
-/// stored crc, crc, u16 compression flag, u16 file flag).
+/// stored crc, crc, u16 compression flag, u16 file flag), then an optional
+/// "NXFN" name table: u32 0, u32 size, u32 size, NUL-terminated paths in index order.
 /// </summary>
 public static class NxpkArchive
 {
     /// <summary>The container kind reported for an NXPK archive.</summary>
     public const string Kind = "nxpk archive";
-    private const int HeaderSize = 24, EntrySize = 28, MaxDamagedNotes = 5;
+    private const int HeaderSize = 24, EntrySize = 28, MaxDamagedNotes = 5, MaxRefusedNotes = 5;
+    private const long MaxNameTable = 256L << 20;
 
     /// <summary>The magic, a count of 1 to 4,000,000 and an index offset past the header.</summary>
     public static bool Looks(ReadOnlySpan<byte> b) =>
@@ -42,8 +44,11 @@ public static class NxpkArchive
         uint count = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
         uint index = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(20));
         var kinds = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        int outside = 0;
+        int outside = 0, refused = 0;
+        var issues = new List<NameIssue>();
         var table = index >= length ? [] : Range(s, index, (int)Math.Min(length - index, (long)count * EntrySize));
+        bool whole = table.Length == (long)count * EntrySize;
+        var names = whole ? ReadNames(s, index + (long)count * EntrySize, count, notes, out bool hasTable) : NoTable(out hasTable);
         for (uint i = 0; i < count; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -52,11 +57,23 @@ public static class NxpkArchive
             var e = table.AsSpan((int)at, EntrySize);
             uint sign = BinaryPrimitives.ReadUInt32LittleEndian(e), offset = BinaryPrimitives.ReadUInt32LittleEndian(e[4..]);
             uint stored = BinaryPrimitives.ReadUInt32LittleEndian(e[8..]), original = BinaryPrimitives.ReadUInt32LittleEndian(e[12..]);
+            string label = $"{sign:x8}";
+            bool named = false;
+            if (i < names.Count && names[(int)i].Length > 0)
+            {
+                string given = names[(int)i];
+                if (MemberNames.PathConcern(given) is { } why)
+                {
+                    issues.Add(new NameIssue("unsafe-path", given, why));
+                    if (++refused <= MaxRefusedNotes) notes.Add($"{label}: name '{MemberNames.Show(given)}' refused ({why}); kept as the signature.");
+                }
+                else { label = given; named = true; }
+            }
             string kind;
             if ((long)offset + stored > length) { kind = "outside the file"; outside++; }
             else kind = Compression(Range(s, offset, (int)Math.Min(stored, 8)), stored, original);
             kinds[kind] = kinds.GetValueOrDefault(kind) + 1;
-            entries.Add(new ContainerEntry($"{sign:x8}", stored, $"{kind}, offset 0x{offset:X}, {stored:N0} stored, {original:N0} original"));
+            entries.Add(new ContainerEntry(label, stored, $"{kind}, offset 0x{offset:X}, {stored:N0} stored, {original:N0} original"));
             if (kind == "outside the file" || stopped) continue;
             if (kind == "unknown compression") { undecoded++; continue; }
             if (items.Count >= limits.MaxItems || total + original > limits.MaxTotalBytes) { stopped = true; continue; }
@@ -73,18 +90,62 @@ public static class NxpkArchive
             }
             if (!allFiles && Blob.Identify(content) == "data") continue;
             total += content.Length;
-            items.Add(new ExtractedItem($"{sign:x8}.bin", content, $"NXPK entry ({kind})"));
+            items.Add(named
+                ? new ExtractedItem(Blob.SafeRelativePath(label, $"{sign:x8}"), content, $"NXPK entry ({kind})") { Member = true }
+                : new ExtractedItem($"{sign:x8}.bin", content, $"NXPK entry ({kind})"));
         }
         notes.Insert(0, $"NXPK archive, {count:N0} entr(ies), index at 0x{index:X}" +
                         (kinds.Count > 0 ? " (" + string.Join(", ", kinds.OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => $"{k.Value:N0} {k.Key}")) + ")" : "") + ".");
-        notes.Add("Entries are named by signature; the archive stores no file names.");
+        if (!hasTable) notes.Add(whole
+            ? "Entries are named by signature; the archive stores no file names."
+            : "Entries are named by signature; the name table is unknown because the index is cut short.");
+        if (refused > MaxRefusedNotes) notes.Add($"{refused - MaxRefusedNotes:N0} more unsafe names not listed.");
         if (outside > 0) notes.Add($"{outside:N0} entr(ies) lie outside the file.");
         if (damaged > MaxDamagedNotes) notes.Add($"{damaged - MaxDamagedNotes:N0} more damaged entr(ies) not named.");
         if (dictionaries.Count > 0) notes.Add($"{dictionaries.Values.Sum():N0} zstd entr(ies) need a trained dictionary the archive does not hold (ids {string.Join(", ", dictionaries.Take(8).Select(d => $"{d.Key} x{d.Value:N0}"))}); listed, not extracted.");
         if (undecoded > 0) notes.Add($"{undecoded:N0} entr(ies) use an unknown compression; listed, not extracted.");
         if (skipped > 0) notes.Add($"{skipped:N0} entr(ies) are over the per-item limit of {limits.MaxItemBytes:N0} bytes; not extracted.");
         if (stopped) notes.Add("Stopped: the extraction limit was reached.");
-        return new ContainerContents(Kind, items, notes) { Entries = entries };
+        return new ContainerContents(Kind, items, notes) { Entries = entries, Names = hasTable ? issues : null };
+    }
+
+    private static List<string> NoTable(out bool hasTable)
+    {
+        hasTable = false;
+        return [];
+    }
+
+    // The name table follows the index; a short or oversized table keeps the names read.
+    private static List<string> ReadNames(Stream s, long at, uint count, List<string> notes, out bool hasTable)
+    {
+        var names = new List<string>();
+        hasTable = false;
+        if (at + 16 > s.Length || !Range(s, at, 4).AsSpan().SequenceEqual("NXFN"u8)) return names;
+        hasTable = true;
+        var head = Range(s, at + 4, 12);
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4)), again = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(8));
+        long room = s.Length - (at + 16);
+        long take = Math.Min(Math.Min(size, room), MaxNameTable);
+        bool partial = false;
+        if (size != again) { notes.Add($"NXPK name table declares two sizes ({size:N0}, {again:N0}); the first is used."); partial = true; }
+        if (size > room) { notes.Add($"NXPK name table declares {size:N0} bytes, {room:N0} remain; partial."); partial = true; }
+        else if (size > MaxNameTable) { notes.Add($"NXPK name table is over the limit of {MaxNameTable:N0} bytes; partial."); partial = true; }
+        var block = Range(s, at + 16, (int)take);
+        int pos = 0;
+        while (pos < block.Length && names.Count < count)
+        {
+            int end = Array.IndexOf(block, (byte)0, pos);
+            if (end < 0) { notes.Add("NXPK name table ends inside a name; the last name is dropped."); partial = true; break; }
+            names.Add(System.Text.Encoding.UTF8.GetString(block, pos, end - pos));
+            pos = end + 1;
+        }
+        if (names.Count < count)
+        {
+            notes.Add($"NXPK name table holds {names.Count:N0} of {count:N0} names; the rest keep the signature.");
+            partial = true;
+        }
+        if (!partial) notes.Add($"NXPK name table: {names.Count:N0} names.");
+        return names;
     }
 
     // The frame header names the dictionary in 0, 1, 2 or 4 bytes after the window descriptor.
