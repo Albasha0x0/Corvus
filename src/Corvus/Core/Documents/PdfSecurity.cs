@@ -105,7 +105,7 @@ internal sealed class PdfSecurity
             for (int i = 1; i <= 19; i++) x = Rc4(fileKey.Select(k => (byte)(k ^ i)).ToArray(), x);
             ok = u.Length >= 16 && x.AsSpan().SequenceEqual(u.AsSpan(0, 16));
         }
-        return ok ? new PdfSecurity(fileKey, streams, strings, $"{(streams == "AES" ? "AES-128" : $"RC4 {length * 8}-bit")}, revision {r}") : null;
+        return ok ? new PdfSecurity(fileKey, streams, strings, $"{(streams == "AES" || strings == "AES" ? "AES-128" : $"RC4 {length * 8}-bit")}, revision {r}") : null;
     }
 
     private static byte[] Padded(byte[] password) => [.. password.Take(32), .. Pad.Take(32 - Math.Min(32, password.Length))];

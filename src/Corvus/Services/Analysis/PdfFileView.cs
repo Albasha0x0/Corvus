@@ -29,7 +29,7 @@ internal sealed class PdfFileView : IFileSummaryView
         var facts = new Facts(pdf.Version, pdf.HeaderOffset, pdf.Current.Count(), pdf.Objects.Count(o => o.InObjectStream == null), pdf.Objects.Count(o => o.InObjectStream != null),
             pdf.Objects.Count(o => o.Stream != null), pdf.Objects.Count(o => o.Dict?.Name("Type") == "ObjStm"),
             Math.Max(0, pdf.EofMarkers - 1), pdf.XrefSections, pdf.AfterLastEof,
-            pdf.Trailer?["Encrypt"] == null ? null : pdf.Security?.Description ?? "user password (not decrypted)",
+            pdf.Trailer?["Encrypt"] == null ? null : pdf.Security?.Description ?? NotDecrypted(pdf),
             [.. doc.Keywords.Where(k => k.Count > 0)], doc.Actions,
             [.. doc.Scripts.Select(s => new Script(s.Object, s.Trigger, s.Code.Length, s.Code.Length <= 200 ? s.Code : s.Code[..200] + "..."))],
             [.. doc.Files.Select(f => new EmbeddedFile(f.Object, f.Name, f.Description, f.Bytes.Length, Blob.Identify(f.Bytes), Blob.Sha256(f.Bytes)))],
@@ -37,6 +37,12 @@ internal sealed class PdfFileView : IFileSummaryView
         var targets = doc.Actions.Where(a => !string.IsNullOrEmpty(a.Target)).Select(a => (a.Target!, $"{a.Type} action, object {a.Object}"));
         return new FileView(facts, Highlights(doc, facts)) { Findings = [.. FindingRules.FromMacros(doc.Findings, "pdf"), .. LocalHandlerTargets.Scan(targets, "pdf")], Indicators = IndicatorList.FromText("pdf", targets, ct) };
     }
+
+    // No password applies under a handler other than Standard, so the handler is named.
+    private static string NotDecrypted(PdfFile pdf) =>
+        pdf.Resolve(pdf.Trailer?["Encrypt"]) is PdfDict e && e.Name("Filter") is { } filter && filter != "Standard"
+            ? $"security handler /{filter} (not read)"
+            : "user password (not decrypted)";
 
     private static List<string> Highlights(PdfDocument doc, Facts f)
     {

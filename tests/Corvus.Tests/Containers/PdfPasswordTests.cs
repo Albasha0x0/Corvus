@@ -65,10 +65,18 @@ public sealed class PdfPasswordTests
     }
 
     [Fact]
+    public void An_aes_pdf_with_identity_streams_is_labelled_aes()
+    {
+        var f = View(new PdfAesV2Fixtures { IdentityStreams = true, UserPassword = "open sesame" }.Build(), "open sesame");
+        Assert.Equal("AES-128, revision 4", f.Encryption);
+    }
+
+    [Fact]
     public void A_non_standard_security_handler_is_named_not_read()
     {
         var f = View(new PdfAesV2Fixtures { Filter = "Custom" }.Build(), "open sesame");
         Assert.Contains("security handler /Custom is not read", f.Notes);
+        Assert.Equal("security handler /Custom (not read)", f.Encryption);
         Assert.DoesNotContain(f.Notes, n => n.Contains("the password did not decrypt it"));
         Assert.DoesNotContain(f.Actions, a => a.Target == PdfAesV2Fixtures.Target);
     }
