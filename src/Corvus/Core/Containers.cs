@@ -114,6 +114,8 @@ public static class Containers
         if (kind == "nxpk archive") return NxpkArchive.Open(data, name, allFiles, limits, ct);
         if (kind == "rpa archive") return Archives.RpaArchive.Open(data, name, allFiles, limits, ct);
         if (kind == "vpk archive") return Archives.VpkArchive.Open(data, name, allFiles, limits, ct);
+        if (kind == "bsa archive") return Archives.BsaArchive.Open(data, name, allFiles, limits, ct);
+        if (kind == "ba2 archive") return Archives.BtdxArchive.Open(data, name, allFiles, limits, ct);
         if (kind == "unreal pak") return UnrealPak.Open(data, name, allFiles, limits, ct);
         if (kind == "unreal utoc") return UnrealIoStore.Open(data, name, location, allFiles, limits, ct);
         if (kind == "gamemaker data") return GameMakerData.Open(data, name, allFiles, limits, ct);
@@ -404,6 +406,16 @@ public static class Containers
         {
             using var vpk = open();
             return Archives.VpkArchive.Open(vpk, name, allFiles: false, limits, ct);
+        }
+        if (kind == "bsa archive")
+        {
+            using var bsa = open();
+            return Archives.BsaArchive.Open(bsa, name, allFiles: false, limits, ct);
+        }
+        if (kind == "ba2 archive")
+        {
+            using var ba2 = open();
+            return Archives.BtdxArchive.Open(ba2, name, allFiles: false, limits, ct);
         }
         if (ReaderFor(head, name) is { } reader)
         {
