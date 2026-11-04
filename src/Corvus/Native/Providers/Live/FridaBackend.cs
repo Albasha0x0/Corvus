@@ -156,7 +156,9 @@ public sealed class FridaBackend : ILiveBackend
         var worker = EmbeddedScript.Extract(WorkerResource, dir, "live_worker", ".py");
         var agent = EmbeddedScript.Extract(AgentResource, dir, "live_agent", ".js");
         // Frida unpacks its helper DLLs into TEMP and leaves them: each worker gets a folder of its own, removed when it ends.
-        var temp = Path.Combine(dir, "live-temp", Guid.NewGuid().ToString("N")[..12]);
+        var tempRoot = Path.Combine(dir, "live-temp");
+        SweepWorkerFolders(tempRoot);
+        var temp = Path.Combine(tempRoot, $"{Environment.ProcessId}-{Guid.NewGuid().ToString("N")[..12]}");
         PrivateFolder.Create(temp);
         if (OperatingSystem.IsWindows()) AllowSandboxedReads(temp);
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", worker, agent])
@@ -194,6 +196,39 @@ public sealed class FridaBackend : ILiveBackend
             acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.ReadAndExecute,
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
         info.SetAccessControl(acl);
+    }
+
+    /// <summary>
+    /// Deletes the worker folders under <paramref name="root"/> whose server has ended, and old-form folders (no
+    /// process id); a folder with a held file or a running server stays.
+    /// </summary>
+    internal static void SweepWorkerFolders(string root)
+    {
+        try
+        {
+            if (!Directory.Exists(root)) return;
+            foreach (var folder in Directory.EnumerateDirectories(root))
+            {
+                var name = Path.GetFileName(folder);
+                var dash = name.IndexOf('-');
+                if (dash > 0 && int.TryParse(name.AsSpan(0, dash), out var pid) && (pid == Environment.ProcessId || IsRunning(pid))) continue;
+                try { Directory.Delete(folder, recursive: true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static bool IsRunning(int pid)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch (ArgumentException) { return false; }
+        // A process that cannot be read counts as running: its folder stays.
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { return true; }
     }
 
     /// <summary>Deletes a worker's temp folder once its files are no longer held (a few tries over about 10 s).</summary>
