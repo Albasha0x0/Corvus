@@ -80,6 +80,9 @@ Requires a loopback host: `inspector:HOST:PORT`, `inspector:ws://HOST:PORT/ID`, 
 - `live_session action=status` lists scripts with their source maps; `live_events kind=output` shows `console.*` calls.
 - `live_session action=ipc` on an Electron main process records each route (channel, direction, `send`, `sendSync`, `invoke` or its result) with its message count and value shape, never values. Routes join the static rows of `app.getAppPath()` (`search_container kind=electron`); unused channels are listed as not seen. The recorder keeps 500 routes; messages of later routes are counted as dropped.
 - `program=cdp:PORT` attaches to a page of a browser started with `--remote-debugging-port=PORT`; `#TARGET` takes a page id, title or url, and service workers are skipped.
+- `live_session action=coverage modules=start|take|stop` lists the functions called since start with script, line and call count; an unparsed script reads `unknown`; a take keeps 2,000 rows and names the cut.
+- `live_session action=listeners` on a page lists each listener by event, element selector path, handler script and line, `capture` and `once`; it reads 2,000 elements of the body and names the cut; a Node or Electron program has no document and is refused.
+- `live_session action=status` shows the position that created each script as `initiator`, `unknown` when the inspector names none.
 - Native actions (`live_watch`, `live_read`, `live_coverage`, `live_script`, snapshots) are refused. `--live-allow` is checked against the process id the program reports.
 
 ### JVM (JDWP)

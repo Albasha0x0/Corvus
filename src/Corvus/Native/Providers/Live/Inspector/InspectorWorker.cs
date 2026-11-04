@@ -5,7 +5,7 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Inspector;
 
-// Ops: hello, open, scripts, source, set, clear, resume, ipc, close. Events: stop, output, exit. Positions are 0-based.
+// Ops: hello, open, scripts, source, set, clear, resume, ipc, coverage, listeners, close. Events: stop, output, exit. Positions are 0-based.
 /// <summary>The <c>corvus inspector-worker</c> process: the session worker protocol over one V8 inspector connection.</summary>
 internal static class InspectorWorker
 {
@@ -24,7 +24,10 @@ internal static class InspectorWorker
         "load_script", "unload_script", "art_dump", "capture_memory", "resume_child", "drop_child",
     ];
 
-    private sealed record Script(string Id, string Url, string? Map, int Length, string Hash);
+    // Rows kept by one coverage take, and elements visited by one listener walk.
+    private const int MaxCoverageRows = 2000, MaxElements = 2000;
+
+    private sealed record Script(string Id, string Url, string? Map, int Length, string Hash, string Initiator);
 
     private sealed class State
     {
@@ -34,7 +37,7 @@ internal static class InspectorWorker
         private readonly Dictionary<string, string> _points = new(StringComparer.Ordinal), _breakpoints = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _hits = new(StringComparer.Ordinal);
         private CdpConnection? _cdp;
-        private bool _paused, _closing, _heldAtStart;
+        private bool _paused, _closing, _heldAtStart, _page, _coverage;
         private TaskCompletionSource? _startPause;
 
         public IReadOnlyDictionary<string, WorkerOp> Ops
@@ -53,6 +56,8 @@ internal static class InspectorWorker
                     ["clear"] = ClearAsync,
                     ["resume"] = ResumeAsync,
                     ["ipc"] = IpcAsync,
+                    ["coverage"] = CoverageAsync,
+                    ["listeners"] = ListenersAsync,
                     ["close"] = CloseAsync,
                 };
                 // Ops on native code are refused by name, so every tool that sends one says why.
@@ -83,6 +88,7 @@ internal static class InspectorWorker
             var suspended = await Task.WhenAny(_startPause.Task, Task.Delay(StartPause, ct)).ConfigureAwait(false) == _startPause.Task;
             _startPause = null;
             lock (_gate) _heldAtStart = suspended;
+            _page = target.Type == "page";
             var pid = await EvaluateAsync("typeof process === 'object' ? process.pid : 0", ct).ConfigureAwait(false);
             var runtime = await EvaluateAsync("typeof process === 'object' ? 'node ' + process.version : navigator.userAgent", ct).ConfigureAwait(false);
             int count;
@@ -128,10 +134,172 @@ internal static class InspectorWorker
             return value;
         }
 
+        // Functions called since start: start, take or stop.
+        private async Task<JsonNode?> CoverageAsync(JsonObject args, CancellationToken ct)
+        {
+            var mode = args["mode"]?.GetValue<string>() ?? "take";
+            switch (mode)
+            {
+                case "start":
+                    await Cdp.SendAsync("Profiler.enable", null, CommandTimeout, ct).ConfigureAwait(false);
+                    await Cdp.SendAsync("Profiler.startPreciseCoverage", new JsonObject { ["callCount"] = true, ["detailed"] = false }, CommandTimeout, ct).ConfigureAwait(false);
+                    _coverage = true;
+                    return new JsonObject { ["started"] = true };
+                case "stop":
+                    if (!_coverage) return new JsonObject { ["stopped"] = false };
+                    _coverage = false;
+                    await Cdp.SendAsync("Profiler.stopPreciseCoverage", null, CommandTimeout, ct).ConfigureAwait(false);
+                    await Cdp.SendAsync("Profiler.disable", null, CommandTimeout, ct).ConfigureAwait(false);
+                    return new JsonObject { ["stopped"] = true };
+                case "take":
+                    if (!_coverage) throw new ToolError(ErrorCode.InvalidArgument, "no coverage is running.", "modules=start, then modules=take");
+                    return await TakeCoverageAsync(ct).ConfigureAwait(false);
+                default:
+                    throw new ToolError(ErrorCode.InvalidArgument, $"coverage mode '{mode}' is not known.", "modules=start, take or stop");
+            }
+        }
+
+        private async Task<JsonNode?> TakeCoverageAsync(CancellationToken ct)
+        {
+            var r = await Cdp.SendAsync("Profiler.takePreciseCoverage", null, CommandTimeout, ct).ConfigureAwait(false);
+            var rows = new JsonArray();
+            var cut = false;
+            foreach (var entry in r.GetProperty("result").EnumerateArray())
+            {
+                var id = entry.GetProperty("scriptId").GetString() ?? "";
+                Script? script;
+                lock (_gate) _scripts.TryGetValue(id, out script);
+                string? text = null;
+                foreach (var f in entry.GetProperty("functions").EnumerateArray())
+                {
+                    if (!f.TryGetProperty("ranges", out var ranges) || ranges.GetArrayLength() == 0) continue;
+                    var first = ranges[0];
+                    var count = first.GetProperty("count").GetInt32();
+                    if (count == 0) continue;
+                    if (rows.Count >= MaxCoverageRows)
+                    {
+                        cut = true;
+                        break;
+                    }
+                    var line = 0;
+                    if (script != null)
+                    {
+                        text ??= await SourceTextAsync(id, ct).ConfigureAwait(false);
+                        if (text != null) line = LineOf(text, first.GetProperty("startOffset").GetInt32());
+                    }
+                    var name = f.TryGetProperty("functionName", out var n) ? n.GetString() ?? "" : "";
+                    rows.Add(new JsonObject { ["script"] = ScriptName(script, id), ["function"] = name, ["line"] = line, ["count"] = count });
+                }
+                if (cut) break;
+            }
+            return new JsonObject { ["rows"] = rows, ["cut"] = cut, ["limit"] = MaxCoverageRows };
+        }
+
+        // An unparsed script reads unknown.
+        private static string ScriptName(Script? script, string id) => script == null ? "unknown" : script.Url.Length > 0 ? script.Url : "script " + id;
+
+        // Null when the source cannot be read; its lines then stay unknown.
+        private async Task<string?> SourceTextAsync(string id, CancellationToken ct)
+        {
+            try
+            {
+                var r = await Cdp.SendAsync("Debugger.getScriptSource", new JsonObject { ["scriptId"] = id }, CommandTimeout, ct).ConfigureAwait(false);
+                return r.TryGetProperty("scriptSource", out var t) ? t.GetString() : null;
+            }
+            catch (ToolError) { return null; }
+        }
+
+        // The 1-based line holding a UTF-16 offset.
+        private static int LineOf(string text, int offset)
+        {
+            var line = 1;
+            for (int i = 0; i < offset && i < text.Length; i++)
+                if (text[i] == '\n') line++;
+            return line;
+        }
+
+        // Listeners of the elements under the page body in document order, up to MaxElements elements.
+        private async Task<JsonNode?> ListenersAsync(JsonObject args, CancellationToken ct)
+        {
+            if (!_page) throw new ToolError(ErrorCode.Unsupported, "listeners are read from a page's document; a Node or Electron main process has none.",
+                "live_session action=attach program=cdp:PORT");
+            var doc = await Cdp.SendAsync("DOM.getDocument", new JsonObject { ["depth"] = -1 }, CommandTimeout, ct).ConfigureAwait(false);
+            var body = FindBody(doc.GetProperty("root"));
+            var rows = new JsonArray();
+            var visited = 0;
+            var cut = false;
+            if (body is { } start)
+            {
+                var pending = new Stack<(JsonElement Node, string Path)>();
+                pending.Push((start, Step(start)));
+                while (pending.Count > 0)
+                {
+                    var (node, path) = pending.Pop();
+                    if (visited >= MaxElements)
+                    {
+                        cut = true;
+                        break;
+                    }
+                    visited++;
+                    await ReadListenersAsync(node, path, rows, ct).ConfigureAwait(false);
+                    if (node.TryGetProperty("children", out var kids))
+                        foreach (var child in kids.EnumerateArray().Reverse())
+                            if (child.GetProperty("nodeType").GetInt32() == 1) pending.Push((child, path + " > " + Step(child)));
+                }
+            }
+            return new JsonObject { ["rows"] = rows, ["elements"] = visited, ["cut"] = cut, ["limit"] = MaxElements, ["body"] = body != null };
+        }
+
+        private async Task ReadListenersAsync(JsonElement node, string path, JsonArray rows, CancellationToken ct)
+        {
+            var resolved = await Cdp.SendAsync("DOM.resolveNode", new JsonObject { ["nodeId"] = node.GetProperty("nodeId").GetInt32(), ["objectGroup"] = "corvus-listeners" }, CommandTimeout, ct).ConfigureAwait(false);
+            if (!resolved.TryGetProperty("object", out var obj) || !obj.TryGetProperty("objectId", out var objectId)) return;
+            var r = await Cdp.SendAsync("DOMDebugger.getEventListeners", new JsonObject { ["objectId"] = objectId.GetString() }, CommandTimeout, ct).ConfigureAwait(false);
+            if (!r.TryGetProperty("listeners", out var listeners)) return;
+            foreach (var l in listeners.EnumerateArray())
+            {
+                var id = l.TryGetProperty("scriptId", out var sid) ? sid.GetString() ?? "" : "";
+                Script? script;
+                lock (_gate) _scripts.TryGetValue(id, out script);
+                rows.Add(new JsonObject
+                {
+                    ["type"] = l.GetProperty("type").GetString(),
+                    ["element"] = path,
+                    ["script"] = ScriptName(script, id),
+                    ["line"] = script != null && l.TryGetProperty("lineNumber", out var line) ? line.GetInt32() + 1 : 0,
+                    ["capture"] = l.TryGetProperty("useCapture", out var c) && c.GetBoolean(),
+                    ["once"] = l.TryGetProperty("once", out var o) && o.GetBoolean(),
+                });
+            }
+        }
+
+        private static JsonElement? FindBody(JsonElement node)
+        {
+            if (node.TryGetProperty("nodeName", out var name) && string.Equals(name.GetString(), "BODY", StringComparison.OrdinalIgnoreCase)) return node;
+            if (node.TryGetProperty("children", out var kids))
+                foreach (var child in kids.EnumerateArray())
+                    if (FindBody(child) is { } found) return found;
+            return null;
+        }
+
+        // Tag, id and classes of an element, as one selector step.
+        private static string Step(JsonElement node)
+        {
+            var step = (node.GetProperty("nodeName").GetString() ?? "").ToLowerInvariant();
+            if (!node.TryGetProperty("attributes", out var attrs)) return step;
+            var values = attrs.EnumerateArray().Select(a => a.GetString() ?? "").ToList();
+            for (int i = 0; i + 1 < values.Count; i += 2)
+            {
+                if (values[i] == "id" && values[i + 1].Length > 0) step += "#" + values[i + 1];
+                else if (values[i] == "class") step += string.Concat(values[i + 1].Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(x => "." + x));
+            }
+            return step;
+        }
+
         private JsonArray Scripts()
         {
             lock (_gate)
-                return [.. _scripts.Values.Select(s => (JsonNode)new JsonObject { ["id"] = s.Id, ["url"] = s.Url, ["map"] = s.Map, ["length"] = s.Length, ["hash"] = s.Hash })];
+                return [.. _scripts.Values.Select(s => (JsonNode)new JsonObject { ["id"] = s.Id, ["url"] = s.Url, ["map"] = s.Map, ["length"] = s.Length, ["hash"] = s.Hash, ["initiator"] = s.Initiator })];
         }
 
         private async Task<JsonNode?> SourceAsync(JsonObject args, CancellationToken ct)
@@ -214,7 +382,7 @@ internal static class InspectorWorker
                 {
                     var map = p.TryGetProperty("sourceMapURL", out var m) && m.GetString() is { Length: > 0 } u ? u : null;
                     var script = new Script(p.GetProperty("scriptId").GetString()!, p.TryGetProperty("url", out var url) ? url.GetString() ?? "" : "", map,
-                        p.TryGetProperty("length", out var len) ? len.GetInt32() : 0, p.TryGetProperty("hash", out var h) ? h.GetString() ?? "" : "");
+                        p.TryGetProperty("length", out var len) ? len.GetInt32() : 0, p.TryGetProperty("hash", out var h) ? h.GetString() ?? "" : "", Initiator(p));
                     lock (_gate) _scripts[script.Id] = script;
                     break;
                 }
@@ -236,6 +404,20 @@ internal static class InspectorWorker
                     lock (_gate) _scripts.Clear();
                     break;
             }
+        }
+
+        // The creating call's position from the parse event; empty when the inspector names none.
+        private static string Initiator(JsonElement p)
+        {
+            if (p.TryGetProperty("stackTrace", out var trace) && trace.TryGetProperty("callFrames", out var frames) && frames.GetArrayLength() > 0)
+            {
+                var f = frames[0];
+                var where = f.TryGetProperty("url", out var u) && u.GetString() is { Length: > 0 } url ? url : f.TryGetProperty("functionName", out var n) ? n.GetString() ?? "" : "";
+                return where.Length == 0 ? "" : where + (f.TryGetProperty("lineNumber", out var l) ? ":" + (l.GetInt32() + 1) : "");
+            }
+            if (p.TryGetProperty("initiator", out var i))
+                return i.ValueKind == JsonValueKind.String ? i.GetString() ?? "" : i.ValueKind == JsonValueKind.Object && i.TryGetProperty("url", out var iu) ? iu.GetString() ?? "" : "";
+            return "";
         }
 
         private void Paused(JsonElement p)

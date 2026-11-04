@@ -16,6 +16,8 @@ public sealed class LiveScriptState(string id, string url, string? mapUrl)
     public string Url { get; } = url;
     public string? MapUrl { get; } = mapUrl;
     public string? File { get; } = Uri.TryCreate(url, UriKind.Absolute, out var u) && u.IsFile ? u.LocalPath : null;
+    /// <summary>The position that created the script, or null when the inspector named none.</summary>
+    public string? Initiator { get; internal set; }
     public SourceMap? Map { get; internal set; }
     public string? MapNote { get; internal set; }
     internal bool MapRead { get; set; }
@@ -108,7 +110,10 @@ public sealed partial class LiveSessionService
             {
                 var id = s.GetProperty("id").GetString()!;
                 if (!js.Scripts.ContainsKey(id))
-                    js.Scripts[id] = new LiveScriptState(id, s.GetProperty("url").GetString() ?? "", s.TryGetProperty("map", out var m) ? m.GetString() : null);
+                    js.Scripts[id] = new LiveScriptState(id, s.GetProperty("url").GetString() ?? "", s.TryGetProperty("map", out var m) ? m.GetString() : null)
+                    {
+                        Initiator = s.TryGetProperty("initiator", out var i) && i.GetString() is { Length: > 0 } from ? from : null,
+                    };
             }
         if (js.Jvm && readMaps) await ReadThreadsAsync(session, ct).ConfigureAwait(false);
         if (!readMaps || js.Jvm) return;

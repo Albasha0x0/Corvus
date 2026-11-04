@@ -85,6 +85,53 @@ public sealed class LiveCdpTests : IDisposable
         Assert.Contains("Debugger.disable", _browser.Received);
     }
 
+    [Fact]
+    public async Task A_page_session_reports_called_functions_from_precise_coverage()
+    {
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        Assert.Contains("no coverage is running", (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("coverage", session: "live-1"))).Message);
+        Assert.Contains("coverage started", await _tools.LiveSession("coverage", session: "live-1", modules: "start"));
+        var taken = await _tools.LiveSession("coverage", session: "live-1", modules: "take");
+        Assert.Contains("2 function(s) called", taken);
+        Assert.Contains("main.js:2 tick x3", taken);
+        Assert.Contains("unknown:unknown (anonymous) x1", taken);
+        Assert.DoesNotContain("idle", taken);
+        Assert.Contains("coverage stopped", await _tools.LiveSession("coverage", session: "live-1", modules: "stop"));
+        Assert.Contains("Profiler.startPreciseCoverage", _browser.Received);
+        Assert.Contains("Profiler.stopPreciseCoverage", _browser.Received);
+    }
+
+    [Fact]
+    public async Task A_page_session_lists_listeners_with_their_handler_positions()
+    {
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        var listed = await _tools.LiveSession("listeners", session: "live-1");
+        Assert.Contains("1 listener(s) on 3 element(s)", listed);
+        Assert.Contains("click body#app > div.box.wide > button http://localhost/main.js:7 capture", listed);
+        Assert.DoesNotContain("cut at", listed);
+        var status = await _tools.LiveSession("status", session: "live-1");
+        Assert.Contains("initiator: http://localhost/index.html:4", status);
+    }
+
+    [Fact]
+    public async Task A_listener_walk_past_its_element_bound_names_the_cut()
+    {
+        _browser.ExtraElements = 2100;
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        var listed = await _tools.LiveSession("listeners", session: "live-1");
+        Assert.Contains("on 2000 element(s)", listed);
+        Assert.Contains("Walk cut at 2000 elements", listed);
+    }
+
+    [Fact]
+    public async Task A_node_session_refuses_listeners_with_a_reason()
+    {
+        await _tools.LiveSession("attach", program: $"inspector:{_browser.Port}#n1");
+        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("listeners", session: "live-1"));
+        Assert.Contains("a Node or Electron main process has none", e.Message);
+        Assert.DoesNotContain("Unknown", e.Message);
+    }
+
     private static async Task<string> WaitForAsync(Func<Task<string>> read, string text)
     {
         var until = DateTime.UtcNow.AddSeconds(30);
@@ -118,6 +165,9 @@ public sealed class LiveCdpTests : IDisposable
 
         public int Port { get; }
 
+        /// <summary>Elements added under the body beyond the three the document holds.</summary>
+        public int ExtraElements { get; set; }
+
         public string Received { get { lock (_received) return string.Join(',', _received); } }
 
         private string Entry(string id, string type, string title, string url) =>
@@ -139,7 +189,8 @@ public sealed class LiveCdpTests : IDisposable
                         continue;
                     }
                     var body = Encoding.UTF8.GetBytes("[" + string.Join(',', Entry("w1", "service_worker", "worker", "http://localhost/sw.js"),
-                        Entry("p1", "page", "First", "http://localhost/first.html"), Entry("p2", "page", "Second", "http://localhost/second.html")) + "]");
+                        Entry("p1", "page", "First", "http://localhost/first.html"), Entry("p2", "page", "Second", "http://localhost/second.html"),
+                        Entry("n1", "node", "Program", "file:///app/server.js")) + "]");
                     context.Response.ContentType = "application/json";
                     await context.Response.OutputStream.WriteAsync(body);
                     context.Response.Close();
@@ -168,7 +219,11 @@ public sealed class LiveCdpTests : IDisposable
                             ["breakpointId"] = "bp1",
                             ["locations"] = new JsonArray(new JsonObject { ["scriptId"] = "1", ["lineNumber"] = request["params"]!["lineNumber"]!.GetValue<int>(), ["columnNumber"] = 0 }),
                         },
-                        "Debugger.getScriptSource" => new JsonObject { ["scriptSource"] = "// source\n" },
+                        "Debugger.getScriptSource" => new JsonObject { ["scriptSource"] = "// source\nfunction tick() {}\n" },
+                        "Profiler.takePreciseCoverage" => Coverage(),
+                        "DOM.getDocument" => new JsonObject { ["root"] = Document() },
+                        "DOM.resolveNode" => new JsonObject { ["object"] = new JsonObject { ["objectId"] = "o" + request["params"]!["nodeId"]!.GetValue<int>() } },
+                        "DOMDebugger.getEventListeners" => Listeners(request["params"]!["objectId"]!.GetValue<string>()),
                         _ => new JsonObject(),
                     };
                     await SendAsync(new JsonObject { ["id"] = request["id"]!.DeepClone(), ["result"] = result });
@@ -181,10 +236,65 @@ public sealed class LiveCdpTests : IDisposable
             catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException) { }
         }
 
+        // Script 1 is parsed; script 9 is not, and its function reads unknown.
+        private static JsonObject Coverage() => new()
+        {
+            ["result"] = new JsonArray(
+                new JsonObject
+                {
+                    ["scriptId"] = "1",
+                    ["functions"] = new JsonArray(Function("tick", 11, 3), Function("idle", 0, 0)),
+                },
+                new JsonObject { ["scriptId"] = "9", ["functions"] = new JsonArray(Function("", 0, 1)) }),
+        };
+
+        private static JsonObject Function(string name, int offset, int count) => new()
+        {
+            ["functionName"] = name,
+            ["isBlockCoverage"] = false,
+            ["ranges"] = new JsonArray(new JsonObject { ["startOffset"] = offset, ["endOffset"] = offset + 5, ["count"] = count }),
+        };
+
+        private static JsonObject Element(int id, string name, JsonArray? attributes, params JsonObject[] children) => new()
+        {
+            ["nodeId"] = id,
+            ["nodeType"] = 1,
+            ["nodeName"] = name,
+            ["attributes"] = attributes ?? [],
+            ["children"] = new JsonArray(children.Select(c => (JsonNode)c).ToArray()),
+        };
+
+        // body#app holds div.box.wide with one button, plus ExtraElements empty divs.
+        private JsonObject Document()
+        {
+            var body = Element(3, "BODY", new JsonArray("id", "app"), Element(4, "DIV", new JsonArray("class", "box wide"), Element(5, "BUTTON", null)));
+            var extra = (JsonArray)body["children"]!;
+            for (int i = 0; i < ExtraElements; i++) extra.Add(Element(100 + i, "DIV", null));
+            return new JsonObject
+            {
+                ["nodeId"] = 1,
+                ["nodeType"] = 9,
+                ["nodeName"] = "#document",
+                ["children"] = new JsonArray(new JsonObject { ["nodeId"] = 2, ["nodeType"] = 1, ["nodeName"] = "HTML", ["children"] = new JsonArray(body) }),
+            };
+        }
+
+        private static JsonObject Listeners(string objectId) => new()
+        {
+            ["listeners"] = objectId != "o5" ? new JsonArray() : new JsonArray(new JsonObject
+            {
+                ["type"] = "click", ["useCapture"] = true, ["passive"] = false, ["once"] = false, ["scriptId"] = "1", ["lineNumber"] = 6, ["columnNumber"] = 0,
+            }),
+        };
+
         private static JsonObject Parsed(string id, string url) => new()
         {
             ["method"] = "Debugger.scriptParsed",
-            ["params"] = new JsonObject { ["scriptId"] = id, ["url"] = url, ["length"] = 10, ["hash"] = "h" + id },
+            ["params"] = new JsonObject
+            {
+                ["scriptId"] = id, ["url"] = url, ["length"] = 10, ["hash"] = "h" + id,
+                ["stackTrace"] = new JsonObject { ["callFrames"] = new JsonArray(new JsonObject { ["functionName"] = "load", ["url"] = "http://localhost/index.html", ["lineNumber"] = 3 }) },
+            },
         };
 
         private async Task SendAsync(JsonObject message) =>

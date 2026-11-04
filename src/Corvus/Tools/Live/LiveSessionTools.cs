@@ -131,7 +131,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt module images.")]
+    [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt modules.")]
     public Task<string> LiveSession(
         [Description("Action.")] string action = "list",
         [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
@@ -143,7 +143,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("Hold children by image name (* any) at start.")] string[]? childNames = null,
         [Description("Download a missing DAC.")] bool downloadDac = false,
         [Description("adb serial; device runs frida-server.")] string? device = null,
-        [Description("save_modules: file name, 0x address, all, unlisted or code.")] string? modules = null,
+        [Description("save_modules: file name, 0x address, all, unlisted or code; coverage: start|take|stop.")] string? modules = null,
         [Description("save_modules: file or mapped.")] string? layout = null,
         [Description("save_modules: restore or keep.")] string? imports = null,
         [Description("save_modules: loaded or preferred.")] string? @base = null,
@@ -218,12 +218,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "ipc":
                     var recorded = live.Get(RequireSession(session));
                     return Ipc(recorded, await live.IpcAsync(recorded, cancellationToken).ConfigureAwait(false));
+                case "coverage" or "listeners":
+                    var paged = live.Get(RequireSession(session));
+                    var found = a == "coverage" ? await live.CoverageAsync(paged, modules, cancellationToken).ConfigureAwait(false)
+                        : await live.ListenersAsync(paged, cancellationToken).ConfigureAwait(false);
+                    return ToolOutput.With($"{paged.Id} {a}: {string.Join('\n', found)}\n",
+                        new LiveSessionReport(a, paged.Id, paged.Backend, paged.Program, paged.ProcessId, paged.State, [], []));
                 case "close":
                     var closing = live.Get(RequireSession(session));
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, save_modules, ipc, close, children, attach_child or release_child");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, save_modules, ipc, coverage, listeners, close, children, attach_child or release_child");
             }
         }, cancellationToken);
 
@@ -391,7 +397,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         text.AppendLine($"inspector target {js.Target}{(js.Runtime != null ? $", {js.Runtime}" : "")}");
         text.AppendLine($"{all.Count} scripts, {own.Count} of the program, {own.Count(s => s.MapUrl != null)} naming a source map:");
         foreach (var s in own.Take(Shown))
-            text.AppendLine($"  {s.Url}{(s.MapUrl == null ? "" : s.Map != null ? $"  map: {s.Map.Sources.Count} source(s)" : s.MapNote != null ? $"  map: {s.MapNote}" : "  map named")}");
+            text.AppendLine($"  {s.Url}{(s.MapUrl == null ? "" : s.Map != null ? $"  map: {s.Map.Sources.Count} source(s)" : s.MapNote != null ? $"  map: {s.MapNote}" : "  map named")}  initiator: {s.Initiator ?? "unknown"}");
         if (own.Count > Shown) text.AppendLine($"  ... {own.Count - Shown} more");
     }
 

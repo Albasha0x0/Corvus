@@ -2874,7 +2874,7 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a program** (destructive, open-world)
 
-Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt module images.
+Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt modules.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2888,7 +2888,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | `childNames` | string[] |  |  | Hold children by image name (* any) at start. |
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
 | `device` | string |  |  | adb serial; device runs frida-server. |
-| `modules` | string |  |  | save_modules: file name, 0x address, all, unlisted or code. |
+| `modules` | string |  |  | save_modules: file name, 0x address, all, unlisted or code; coverage: start\|take\|stop. |
 | `layout` | string |  |  | save_modules: file or mapped. |
 | `imports` | string |  |  | save_modules: restore or keep. |
 | `base` | string |  |  | save_modules: loaded or preferred. |
