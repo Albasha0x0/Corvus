@@ -87,10 +87,12 @@ public sealed class LiveSaveModulesRealTests(ITestOutputHelper output) : LiveToo
     }
 
     // A module loaded from another folder has the same name but its own build.
-    private static bool SameBuild(byte[] a, byte[] b)
+    // The saved image may append sections, so its size is not below the file's.
+    private static bool SameBuild(byte[] file, byte[] saved)
     {
-        int x = BinaryPrimitives.ReadInt32LittleEndian(a.AsSpan(0x3C)), y = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(0x3C));
-        return a.AsSpan(x + 8, 4).SequenceEqual(b.AsSpan(y + 8, 4)) && a.AsSpan(x + 80, 4).SequenceEqual(b.AsSpan(y + 80, 4));
+        int x = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(0x3C)), y = BinaryPrimitives.ReadInt32LittleEndian(saved.AsSpan(0x3C));
+        return file.AsSpan(x + 8, 4).SequenceEqual(saved.AsSpan(y + 8, 4))
+            && BinaryPrimitives.ReadUInt32LittleEndian(saved.AsSpan(y + 80)) >= BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(x + 80));
     }
 
     /// <summary>
@@ -100,10 +102,12 @@ public sealed class LiveSaveModulesRealTests(ITestOutputHelper output) : LiveToo
     /// </summary>
     private static List<string> CodeDifferences(byte[] saved, byte[] file)
     {
-        var x = Executable(saved);
         var y = Executable(file);
+        // The saved image may mark more sections executable or append some;
+        // each executable section of the file must be there at its address.
+        var x = Executable(saved).Where(s => y.Any(t => t.Rva == s.Rva)).ToList();
         var found = new List<string>();
-        if (x.Count == 0 || x.Count != y.Count) return ["sections differ"];
+        if (y.Count == 0 || x.Count != y.Count) return ["sections differ"];
         uint imageSize = BinaryPrimitives.ReadUInt32LittleEndian(saved.AsSpan(BinaryPrimitives.ReadInt32LittleEndian(saved.AsSpan(0x3C)) + 80));
         for (int i = 0; i < x.Count; i++)
         {
