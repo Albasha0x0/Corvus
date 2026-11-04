@@ -2716,7 +2716,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
 | `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
 | `outputPath` | string |  |  | view=modules: new or empty image folder. |
-| `modules` | string |  |  | outputPath or view=changes: file name, 0x address, all, unlisted or code. |
+| `modules` | string |  |  | File name, 0x address, all or unlisted; outputPath also code. |
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
 | `base` | string |  |  | outputPath: loaded or preferred. |

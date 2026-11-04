@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Corvus.Core;
 using Corvus.Native.Providers.Worker;
 using Corvus.Services;
 using Corvus.Tools;
@@ -47,6 +48,18 @@ public sealed class DumpChangesViewTests : FileIsolationTestBase
         Assert.Contains("alpha", text);
         Assert.Contains("jump to", text);
         Assert.Contains("beta", text);
+    }
+
+    [Fact]
+    public async Task The_changes_view_refuses_code_regions_and_names_the_save()
+    {
+        var (dump, images) = PatchedDump();
+        using var service = new MinidumpService();
+
+        var e = await Assert.ThrowsAsync<ToolError>(() => new MinidumpTools(service).OpenMinidump(dump, "changes", modules: "code", imageDirectories: images));
+
+        Assert.Contains("code regions have none", e.Message);
+        Assert.Contains("outputPath with modules=code", e.Remediation);
     }
 
     [Fact]

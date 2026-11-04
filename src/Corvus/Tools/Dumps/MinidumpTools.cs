@@ -31,7 +31,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
         [Description("view=modules: new or empty image folder.")] string? outputPath = null,
-        [Description("outputPath or view=changes: file name, 0x address, all, unlisted or code.")] string? modules = null,
+        [Description("File name, 0x address, all or unlisted; outputPath also code.")] string? modules = null,
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,
         [Description("outputPath: loaded or preferred.")] string? @base = null,
