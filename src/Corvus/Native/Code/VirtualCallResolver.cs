@@ -1228,8 +1228,12 @@ internal sealed class VirtualCallResolver
                     if (b < 0) return null;
                     long disp = r._is64 ? (long)x.MemoryDisplacement64 : (int)(uint)x.MemoryDisplacement64;
                     var p = s.Regs[b];
-                    if (p.Kind is not (VKind.Field or VKind.Opaque or VKind.Const)) return null;
-                    fn = LoadFrom(p, disp, s);
+                    // An object pointer loaded from memory has no known class,
+                    // so its slot call is listed as unresolved.
+                    if (p.Kind is VKind.FieldSlot or VKind.OpaqueSlot && p.Slot == 0)
+                        fn = disp is >= 0 and <= int.MaxValue ? new Val(VKind.OpaqueSlot, 0, 0, (int)disp) : Val.Unknown;
+                    else if (p.Kind is not (VKind.Field or VKind.Opaque or VKind.Const)) return null;
+                    else fn = LoadFrom(p, disp, s);
                 }
             }
             else if (x.Op0Kind == OpKind.Register)

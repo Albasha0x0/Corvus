@@ -24,7 +24,7 @@ public class VirtualCallTests(ITestOutputHelper output)
     private static readonly string[] Functions =
     [
         "Base_f", "Base_g", "Mid_f", "Leaf_g", "Other_f", "StoreThenCall", "Leaf_ctor", "ConstructThenCall", "UnknownReceiver", "purecall",
-        "Shape_name", "Circle_area", "Multi_g", "Multi_h", "Second_h", CallBase, GetLeaf, "UseGetLeaf", "MakeCircle",
+        "Shape_name", "Circle_area", "Multi_g", "Multi_h", "Second_h", CallBase, GetLeaf, "UseGetLeaf", "MakeCircle", "PlainSlotCall",
     ];
 
     /// <summary>int __cdecl CallBase(class Base *) and class Leaf * __cdecl GetLeaf(void): classes from decorated names.</summary>
@@ -180,6 +180,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         Put("Second_h", a => { a.mov(eax, 5); a.ret(); });
         // A Base* parameter: g in Base and every derived class.
         Put(CallBase, a => { a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax + 8]); });
+        Put("PlainSlotCall", a => { a.sub(rsp, 0x28); a.mov(rcx, __qword_ptr[rdx + 8]); a.mov(rax, __qword_ptr[rcx]); a.call(__qword_ptr[rax + 0x58]); a.add(rsp, 0x28); a.ret(); });
         Put(GetLeaf, a => { a.xor(eax, eax); a.ret(); });
         // The Leaf* GetLeaf returns: f in Leaf (Mid's).
         Put("UseGetLeaf", a =>
@@ -219,9 +220,10 @@ public class VirtualCallTests(ITestOutputHelper output)
             "Multi_g: exact Multi_h",
             $"{CallBase}: possible Base_g|Leaf_g|Multi_g",
             "UseGetLeaf: exact Mid_f",
+            "PlainSlotCall: unresolved receiver_unknown",
         ], Describe(index));
         var s = index.VirtualCalls.Stats;
-        Assert.Equal((9, 6, 2, 1, 12, 8, 1), (s.Sites, s.Exact, s.Possible, s.Unresolved, s.Edges, s.RttiClasses, s.PureTargetsExcluded));
+        Assert.Equal((10, 6, 2, 2, 12, 8, 1), (s.Sites, s.Exact, s.Possible, s.Unresolved, s.Edges, s.RttiClasses, s.PureTargetsExcluded));
 
         // Receivers: this of a virtual method, a known vftable, or a class from a decorated name.
         var receivers = index.VirtualCalls.Sites.ToDictionary(x => Name(index, x.Function), x => VirtualCallSet.ReceiverCode(x.Receiver));
@@ -251,13 +253,26 @@ public class VirtualCallTests(ITestOutputHelper output)
     [Fact]
     public void Sites_in_a_named_function_are_listed_with_the_image_wide_total()
     {
-        // Fixture: the synthetic image has nine sites in total, one in Leaf_g.
+        // Fixture: the synthetic image has ten sites in total, one in Leaf_g.
         var (image, _) = Synthetic();
         var index = NativeCodeIndex.Build(image);
         var scope = NativeVirtualCallTools.Scope(index, "Leaf_g");
         Assert.Equal(At("Leaf_g"), scope.Sites.Single().Function);
-        Assert.Contains("1 of 9", scope.Note);
+        Assert.Contains("1 of 10", scope.Note);
         Assert.Contains("totals cover the whole image", scope.Note);
+    }
+
+    // Field report against 2.10.0: a call through [rax+58h] in a named function was not listed.
+    [Fact]
+    public void A_slot_call_through_a_loaded_object_is_listed_with_and_without_a_function()
+    {
+        // Fixture: PlainSlotCall loads its receiver through an unknown pointer.
+        var (image, _) = Synthetic();
+        var index = NativeCodeIndex.Build(image);
+        var site = Assert.Single(index.VirtualCalls.Sites, x => x.Function == At("PlainSlotCall"));
+        Assert.Equal((11, VirtualCallStatus.Unresolved), (site.Slot, site.Status));
+        var scope = NativeVirtualCallTools.Scope(index, "PlainSlotCall");
+        Assert.Equal(site.Rva, Assert.Single(scope.Sites).Rva);
     }
 
     [Fact]
