@@ -109,4 +109,12 @@ public sealed class RpaArchiveTests
         Assert.Empty(contents.Entries!);
         Assert.Contains(contents.Notes, n => n.Contains("malformed") && n.Contains("opcode 0x63"));
     }
+
+    [Fact]
+    [FuzzEntry(typeof(RpaArchive))]
+    public void Fuzzed_archives_never_throw_past_a_tool_error()
+    {
+        var failures = FormatFuzz.Run(Build(3, 0x5A5A5A5A, [], ("a.txt", "alpha text", ""), ("b.txt", "tail", "head-")), b => { try { RpaArchive.Open(b, "a.rpa", true, AnalysisLimits.Default, default); } catch (ToolError) { } }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
 }

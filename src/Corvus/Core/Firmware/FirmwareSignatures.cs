@@ -136,6 +136,7 @@ internal static class FirmwareSignatures
         list.Add(S("ar archive", Arc, "!<arch>\n", Ar));
         list.Add(S("WebPlayerData table", Arc, "UnityWebData1.0\0", WebPlayerData));
         list.Add(S("NXPK archive", Arc, "NXPK", (w, at) => w.Le32(at + 4) is >= 1 and <= 4_000_000 && w.Le32(at + 20) >= 24 ? Found() : null));
+        list.Add(S("RPA archive", Arc, "RPA-", (w, at) => w.U8(at + 4) is (byte)'2' or (byte)'3' && w.Is(at + 5, ".0 "u8) ? Found() : null));
         list.Add(S("RPM package", Arc, [0xED, 0xAB, 0xEE, 0xDB], (w, at) => w.U8(at + 4) is 3 or 4 && w.Be16(at + 6) <= 1 && w.Printable(at + 10, 1) ? Found($"'{w.Ascii(at + 10, 66)}'") : null));
         list.Add(S("xar archive", Arc, "xar!", (w, at) => w.Be16(at + 4) >= 28 && w.Be16(at + 6) == 1 ? Found() : null));
         list.Add(S("ARJ archive", Arc, [0x60, 0xEA], (w, at) => w.Le16(at + 2) is > 0 and <= 2600 && w.U8(at + 4) is >= 30 and < 64 && w.U8(at + 10) == 2 ? Found() : null));

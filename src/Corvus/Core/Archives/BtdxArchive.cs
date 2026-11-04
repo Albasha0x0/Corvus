@@ -100,7 +100,9 @@ public static class BtdxArchive
             if (at + GeneralRecord > fileSize) { notes.Add("BA2 records end early."); break; }
             var g = Range(s, at, GeneralRecord);
             at += GeneralRecord;
-            long offset = (long)BinaryPrimitives.ReadUInt64LittleEndian(g.AsSpan(16));
+            // An offset past the signed range lies outside the file.
+            ulong rawOffset = BinaryPrimitives.ReadUInt64LittleEndian(g.AsSpan(16));
+            long offset = rawOffset > long.MaxValue / 2 ? long.MaxValue / 2 : (long)rawOffset;
             uint packed = BinaryPrimitives.ReadUInt32LittleEndian(g.AsSpan(24)), original = BinaryPrimitives.ReadUInt32LittleEndian(g.AsSpan(28));
             long stored = packed == 0 ? original : packed;
             var detail = $"offset 0x{offset:X}, {(packed == 0 ? "stored" : lz4 ? "lz4 block" : "zlib")}";

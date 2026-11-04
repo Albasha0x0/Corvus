@@ -34,7 +34,7 @@ public static class VpkArchive
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
         var head = Range(s, 0, (int)Math.Min(fileSize, 28));
-        uint version = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4));
+        uint version = head.Length >= 8 ? BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4)) : 0;
         int header = version == 2 ? 28 : 12;
         if (fileSize < header)
         {

@@ -107,4 +107,12 @@ public sealed class VpkArchiveTests
         var contents = Containers.Open(cut, "pak01_dir.vpk", AnalysisLimits.Default, default, allFiles: true);
         Assert.Contains(contents.Notes, n => n.Contains("malformed"));
     }
+
+    [Fact]
+    [FuzzEntry(typeof(VpkArchive))]
+    public void Fuzzed_archives_never_throw_past_a_tool_error()
+    {
+        var failures = FormatFuzz.Run(Build(2, ("txt", "docs/en", "readme", "PRE-", "body text", 0x7FFF)), b => { try { VpkArchive.Open(b, "a.vpk", true, AnalysisLimits.Default, default); } catch (ToolError) { } }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
 }

@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Numerics;
 using System.Text;
+using Corvus.Core.Firmware;
 
 namespace Corvus.Core.Archives;
 
@@ -18,8 +19,7 @@ public static class RpaArchive
 
     /// <summary>True when the data starts with the "RPA-2.0 " or "RPA-3.0 " signature.</summary>
     public static bool Looks(ReadOnlySpan<byte> b) =>
-        b.Length >= 8 && b[..4].SequenceEqual("RPA-"u8) && (b[4] == '2' || b[4] == '3')
-        && b[5] == '.' && b[6] == '0' && b[7] == ' ';
+        b.Length >= 8 && FirmwareSignatures.Holds(b, long.MaxValue, "RPA archive");
 
     /// <summary>Lists the index entries and extracts the files within <paramref name="limits"/>; a bad index is named as malformed and lists nothing.</summary>
     public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>

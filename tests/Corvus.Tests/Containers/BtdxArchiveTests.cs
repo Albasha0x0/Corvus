@@ -83,4 +83,12 @@ public sealed class BtdxArchiveTests
         var contents = Containers.Open(data, "a.ba2", AnalysisLimits.Default, default, allFiles: true);
         Assert.Contains(contents.Notes, n => n.Contains("BA2 index malformed"));
     }
+
+    [Fact]
+    [FuzzEntry(typeof(BtdxArchive))]
+    public void Fuzzed_archives_never_throw_past_a_tool_error()
+    {
+        var failures = FormatFuzz.Run(General(("a.bin", Encoding.ASCII.GetBytes("MZ body"), 0, 7)), b => { try { BtdxArchive.Open(b, "a.ba2", true, AnalysisLimits.Default, default); } catch (ToolError) { } }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
 }

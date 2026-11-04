@@ -102,4 +102,12 @@ public sealed class BsaArchiveTests
         Assert.Empty(contents.Entries!);
         Assert.Contains(contents.Notes, n => n.Contains("BSA index malformed"));
     }
+
+    [Fact]
+    [FuzzEntry(typeof(BsaArchive))]
+    public void Fuzzed_archives_never_throw_past_a_tool_error()
+    {
+        var failures = FormatFuzz.Run(Build(104, 4, "scripts", ("run.bin", Zlib(Payload()), (uint)Payload().Length)), b => { try { BsaArchive.Open(b, "a.bsa", true, AnalysisLimits.Default, default); } catch (ToolError) { } }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
 }
