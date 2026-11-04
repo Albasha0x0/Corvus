@@ -54,7 +54,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Matches($@"s2 set at 0x[0-9A-F]+ {name}!AddLine\+0x[0-9A-F]+  .*orders\.c:{totalLine}\b", s2);
         Assert.Contains("live-1: suspended, 2 stop point(s)", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list" }));
 
-        var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var first = await StopWithin(server, "live-1");
         Assert.Contains("program started", first);
         Assert.Matches($@"thread \d+ stopped at s1 \({name}!AddLine\)", first);
         Assert.Matches($@"#0 0x[0-9A-F]+ {name}!AddLine", first);
@@ -68,7 +68,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
         // The second stop of the same call, reported however the resume and the stop interleave.
         Assert.Contains("resumed thread(s)", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" }));
-        var second = await Ok(server, "live_break", new() { ["session"] = "live-1", ["wait"] = true, ["waitSeconds"] = 60 });
+        var second = await StopWithin(server, "live-1", "list");
         Assert.Matches($@"stopped at s2 \({name}!AddLine\+0x[0-9A-F]+\)", second);
         var stops = await Events(server, "live-1", kind: "stop");
         Assert.Matches($@"stop thread \d+ 0x[0-9A-F]+ {name}!AddLine: stop point s1 hit 1", stops);
@@ -195,7 +195,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
             Assert.Contains("live-1 (frida): ", open);
             Assert.DoesNotContain("suspended", open);
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine" });
-            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["wait"] = true, ["waitSeconds"] = 60 });
+            var stop = await StopWithin(server, "live-1", "list");
             Assert.Matches($@"stopped at s1 \({name}!AddLine\)", stop);
             var order = await FirstArgument(server, target);
             Assert.Matches(@"(?m)^  7$", (await Ok(server, "live_read", new() { ["session"] = "live-1", ["memory"] = order, ["type"] = "int32" })).ReplaceLineEndings("\n"));

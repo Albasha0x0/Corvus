@@ -89,20 +89,62 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
             await Call(server, "inspect_process", new() { ["process"] = process, ["view"] = "stacks", ["thread"] = m.Groups[1].Value });
     }
 
-    /// <summary>Waits for a stop in 30 s slices until the session's events stall.</summary>
-    private protected Task<string> WaitStop(InProcessServer server, string session)
+    /// <summary>Waits for a stop in 30 s slices until the session's events stall; the idle answer is returned as the last text.</summary>
+    private protected Task<string> WaitStop(InProcessServer server, string session, string action = "continue")
     {
         var first = true;
         return WaitStop(
             async () =>
             {
                 // Resume once; later slices only wait, so a held stop is never resumed.
-                var action = first ? "continue" : "list";
+                var slice = first ? action : "list";
                 first = false;
-                return await Ok(server, "live_break", new() { ["session"] = session, ["action"] = action, ["wait"] = true, ["waitSeconds"] = 30 });
+                return await Ok(server, "live_break", new() { ["session"] = session, ["action"] = slice, ["wait"] = true, ["waitSeconds"] = 30 });
             },
-            async () => (await Events(server, session, log: false)).Split('\n').Length,
+            () => EventCount(server, session),
             new StallRule(ServerOptions.StallWindow()));
+    }
+
+    /// <summary>Returns the stop after <paramref name="action"/> ("continue" resumes first, "list" only waits); fails with the last status, the events and the target state when the session stalls.</summary>
+    private protected async Task<string> StopWithin(InProcessServer server, string session, string action = "continue")
+    {
+        var stop = await WaitStop(server, session, action);
+        if (stop.Contains("no stop within", StringComparison.Ordinal))
+            Assert.Fail($"{stop}\n{Phases.Summary()}\n{TargetState(server, session)}\nevents:\n{await Events(server, session, log: false)}");
+        return stop;
+    }
+
+    private async Task<int> EventCount(InProcessServer server, string session) => (await Events(server, session, log: false)).Split('\n').Length;
+
+    /// <summary>Polls <paramref name="probe"/> every 200 ms until it returns a value; fails with the last status and the target state when the session's events stall.</summary>
+    private protected async Task<string> HeldWithin(InProcessServer server, string session, Func<string, string?> probe, string what)
+    {
+        var rule = new StallRule(ServerOptions.StallWindow());
+        var status = "";
+        var result = await Poll(
+            async () =>
+            {
+                status = await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = session });
+                return probe(status);
+            },
+            () => EventCount(server, session),
+            rule);
+        if (result == null) Assert.Fail($"{what}: {status}\n{rule.LastUnitText}\n{Phases.Summary()}\n{TargetState(server, session)}\nevents:\n{await Events(server, session, log: false)}");
+        return result!;
+    }
+
+    /// <summary>Repeats <paramref name="probe"/> until it returns a value; null when <paramref name="eventCount"/> stops growing for the rule's window.</summary>
+    internal static async Task<string?> Poll(Func<Task<string?>> probe, Func<Task<int>> eventCount, StallRule rule)
+    {
+        var seen = -1;
+        while (true)
+        {
+            if (await probe() is { } found) return found;
+            var count = await eventCount();
+            if (count != seen) { seen = count; rule.Progress($"{count} event lines"); }
+            else if (rule.Stalled(null)) return null;
+            await Task.Delay(200);
+        }
     }
 
     /// <summary>Repeats <paramref name="slice"/> until it returns a stop; ends when <paramref name="eventCount"/> stops growing for the rule's window.</summary>

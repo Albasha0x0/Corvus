@@ -192,7 +192,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         {
             Assert.Contains("s1 set", await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "set", ["at"] = "AddLine" }));
             Assert.Matches($@"thread \d+ stopped at s1 \({name}!AddLine\)",
-                await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+                await StopWithin(server, session));
         }
         var list = await Ok(server, "live_session", new() { ["action"] = "list" });
         Assert.Contains($"live-1 (frida): {exe} pid {pid1}, stopped", list);
@@ -205,7 +205,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
 
         // The other session keeps working: another stop, then the program runs to its end.
         Assert.Matches($@"thread \d+ stopped at s1 \({name}!AddLine\)",
-            await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+            await StopWithin(server, "live-2"));
         Assert.Matches(@"stop point s1 hit 2\b", await Events(server, "live-2", kind: "stop"));
         Assert.Contains(", 0 stop point(s)", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "clear", ["stopPoint"] = "s1" }));
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });

@@ -92,7 +92,7 @@ public sealed class LiveCompiledNamesRealTests(ITestOutputHelper output) : LiveT
         try
         {
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Sample_Zoo_Program__Compute" });
-            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            var stop = await StopWithin(server, "live-1");
             Assert.Matches(@"#0 0x[0-9A-F]+ app\.exe!Sample_Zoo_Program__Compute\b", stop);
         }
         finally

@@ -97,7 +97,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         Assert.Contains($"live-2 (frida): {child} pid {child}, suspended", attached);
         Assert.Contains("(held by live-1)", attached);
         Assert.Contains("s1 set at", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "AddLine" }));
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-2");
         Assert.Contains("program started", stop);
         Assert.Matches($@"stopped at s1 \({Regex.Escape(target.Exe("orders"))}!AddLine\)", stop);
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "clear", ["stopPoint"] = "s1" });
@@ -271,7 +271,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         var copy = await HeldChild(server, exe);
         await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
         Assert.Contains("s1 set at", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "libc.so.6!exit" }));
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-2");
         Assert.Matches($@"thread {copy} stopped at s1 \(libc\.so\.6!", stop);
         Assert.Matches(@"selfstart!main\+0x[0-9A-F]+", stop);
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
@@ -298,7 +298,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "libc.so.6!exit" });
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         // The parent's close starts the copy, so its stop may already be held.
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-2", "list");
         Assert.Matches($@"thread {copy} stopped at s1 \(libc\.so\.6!", stop);
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
         Assert.Matches(@"exit code 3(?![0-9xX])", await UntilExited(server, "live-2", 30));

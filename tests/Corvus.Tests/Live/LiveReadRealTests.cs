@@ -28,7 +28,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1", "3", "500");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Show" });
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1");
         var thread = Regex.Match(stop, @"thread (\d+) stopped at s1").Groups[1].Value;
         Assert.False(string.IsNullOrEmpty(thread), stop);
 
@@ -91,7 +91,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1", $"0x{image.ImageBase + 0x10000:X}", $"0x{image.ImageBase + image.SizeOfImage:X}");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Hold" });
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1");
         if (!stop.Contains("stopped at s1", StringComparison.Ordinal))
             Assert.Fail($"{stop}\noutput:\n{await Events(server, "live-1", kind: "output")}");
         var at = await Argument(server, target, 0);

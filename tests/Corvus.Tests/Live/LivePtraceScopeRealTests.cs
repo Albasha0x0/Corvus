@@ -27,7 +27,7 @@ public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToo
             Set("1");
             var pid = await Spawn(server, exe, "live-1", "100000", "5");
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine" });
-            Assert.Matches(@"stopped at s1 \(orders!AddLine\)", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+            Assert.Matches(@"stopped at s1 \(orders!AddLine\)", await StopWithin(server, "live-1"));
             Assert.Contains("ptrace_scope is 1", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "access_denied"));
             Assert.Contains($"pid {pid}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
             Ended(pid);

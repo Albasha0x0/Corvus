@@ -16,18 +16,11 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     private Task<string> Set(InProcessServer server, string at) => Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = at });
 
-    /// <summary>A thread held at <paramref name="point"/> that <paramref name="which"/> accepts, read from the session status within 60 s.</summary>
-    private async Task<string> HeldAt(InProcessServer server, string point, Func<string, bool> which)
-    {
-        var status = "";
-        for (var clock = System.Diagnostics.Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromSeconds(60); await Task.Delay(200))
-        {
-            status = await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
-            if (Regex.Matches(status, $@"held: thread (\d+) at {point}\b").Select(m => m.Groups[1].Value).FirstOrDefault(which) is { } thread) return thread;
-        }
-        Assert.Fail($"no matching thread held at {point}: {status}");
-        return "";
-    }
+    /// <summary>A thread held at <paramref name="point"/> that <paramref name="which"/> accepts, read from the session status until the session stalls.</summary>
+    private Task<string> HeldAt(InProcessServer server, string point, Func<string, bool> which) =>
+        HeldWithin(server, "live-1",
+            status => Regex.Matches(status, $@"held: thread (\d+) at {point}\b").Select(m => m.Groups[1].Value).FirstOrDefault(which),
+            $"no matching thread held at {point}\b");
 
     private Task<string> Clear(InProcessServer server, string id) => Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = id });
 
@@ -74,12 +67,12 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Contains("s6 set at", await Set(server, target.FileOpen));
 
         int addLine = 0;
-        string stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        string stop = await StopWithin(server, "live-1");
         for (int i = 0; i < 10 && !stop.Contains("stopped at s6"); i++)
         {
             Assert.Matches($@"stopped at s5 \({name}!AddLine\)", stop);
             addLine++;
-            stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            stop = await StopWithin(server, "live-1");
         }
         Assert.Equal(4, addLine);
         Assert.Contains("stopped at s6", stop);
@@ -109,7 +102,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         const int calls = 100;
         var pid = await Spawn(server, exe, "live-1", $"{calls}", "5");
         await Set(server, "Work");
-        var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var first = await StopWithin(server, "live-1");
         var a = Regex.Match(first, @"thread (\d+) stopped at s1").Groups[1].Value;
         Assert.False(string.IsNullOrEmpty(a), first);
         // A wait returns the oldest held stop until it continues; the others are read from the held list.
@@ -153,7 +146,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Contains("w1 deferred: ", watch);
         Assert.Contains($"s1 {module}!PluginWork: deferred until {module} loads", await Ok(server, "live_break", new() { ["session"] = "live-1" }));
 
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1");
         Assert.Contains($"stopped at s1 ({target.Library("plugin")}!PluginWork)", stop);
         Assert.Matches($@"#1 0x[0-9A-F]+ {Regex.Escape(target.Exe("loader"))}!main\+0x", stop);
         Assert.Equal(0UL, await FirstArgument(server, target)); // the first call: none was missed while the library loaded
@@ -201,7 +194,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
             Ended(pid);
             return;
         }
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1");
         // A missed stop logs plugin.dll's load, entry-point following and the ntdll version for crash offsets.
         if (!stop.Contains("stopped at s1 (plugin.dll!PluginWork)", StringComparison.Ordinal))
             Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}\nntdll.dll {NtdllVersion()}");
@@ -245,7 +238,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         static HashSet<string> Names(string status) =>
             new(Regex.Matches(status, @"^\s+0x[0-9A-F]+ (\S+)", RegexOptions.Multiline).Select(m => m.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
         var before = Names(await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
-        Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        Assert.Contains("stopped at s1", await StopWithin(server, "live-1"));
         var atStop = Names(await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
         Assert.Contains("windows.storage.dll", atStop);
         // The loader's list adds system DLLs only; the agent's cloaked modules (frida-agent.dll) stay out of every list.
@@ -274,7 +267,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         string? named = null;
         for (int i = 0; i < 20 && named == null; i++)
         {
-            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            var stop = await StopWithin(server, "live-1");
             if (!stop.Contains("stopped at s1", StringComparison.Ordinal)) break;
             if (Regex.Match(stop, @"^\s+#1 0x[0-9A-F]+ (\S+)", RegexOptions.Multiline) is { Success: true } caller && caller.Groups[1].Value.StartsWith("windows.storage.dll", StringComparison.OrdinalIgnoreCase))
                 named = stop;
@@ -301,7 +294,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1", lib, "10");
         await Set(server, "libc.so.6!exit");
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        var stop = await StopWithin(server, "live-1");
         // Finish ends at PluginWork's first byte, so a lookup of the return
         // address itself would name PluginWork.
         Assert.Matches(@"#1 0x[0-9A-F]+ libleaver\.so!Finish\+0x[0-9A-F]+", stop);

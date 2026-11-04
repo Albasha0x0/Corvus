@@ -205,7 +205,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                 await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "set", ["at"] = "AtExit" });
                 program.StandardInput.WriteLine("go");
                 program.StandardInput.Flush();
-                Assert.Matches($@"stopped at s1 \({name}!AtExit\)", await Ok(server, "live_break", new() { ["session"] = session, ["wait"] = true, ["waitSeconds"] = 60 }));
+                Assert.Matches($@"stopped at s1 \({name}!AtExit\)", await StopWithin(server, session, "list"));
                 if (run % 2 == 0) await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue" });
                 var sw = Stopwatch.StartNew();
                 Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = session }));
