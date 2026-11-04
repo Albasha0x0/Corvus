@@ -360,9 +360,8 @@ function moduleAdded(m) {
 }
 
 // The program's thread ids, without Frida's. Workaround for
-// frida/frida-gum#1196 (tested 17.24.3; one run on 17.25.2 did not reproduce
-// it, unknown): Linux enumeration ptrace-attaches each thread and can hang, so
-// /proc lists the ids.
+// frida/frida-gum#1196 (tested 17.24.3 to 17.25.2, not fixed): Linux
+// enumeration ptrace-attaches each thread and can hang, so /proc lists the ids.
 const readTaskDir = (() => {
   if (Process.platform !== 'linux') return null;
   const [open, read, close] = ['opendir', 'readdir64', 'closedir'].map(globalExport);
