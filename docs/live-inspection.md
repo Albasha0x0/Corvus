@@ -83,6 +83,9 @@ Requires a loopback host: `inspector:HOST:PORT`, `inspector:ws://HOST:PORT/ID`, 
 - `live_session action=coverage modules=start|take|stop` lists the functions called since start with script, line and call count; an unparsed script reads `unknown`; a take keeps 2,000 rows and names the cut.
 - `live_session action=listeners` on a page lists each listener by event, element selector path, handler script and line, `capture` and `once`; it reads 2,000 elements of the body and names the cut; a Node or Electron program has no document and is refused.
 - `live_session action=status` shows the position that created each script as `initiator`, `unknown` when the inspector names none.
+- `live_session action=screenshot outputPath=page.png` saves the page's PNG and reports path, size and SHA-256; links, remote paths and an existing file without `overwrite` are refused.
+- `live_session action=page_tools` lists the tools the page registers for agents (`navigator.modelContext`) as name, description and input schema size; a page without the API reads `not offered`, a throwing one `unknown` with its message.
+- `live_session action=page_state` keeps script urls with hashes, listener rows and page tools as a result id; `action=page_diff arguments=[r-..., r-...]` (old, then new) lists the rows added, removed and changed between two.
 - Native actions (`live_watch`, `live_read`, `live_coverage`, `live_script`, snapshots) are refused. `--live-allow` is checked against the process id the program reports.
 
 ### JVM (JDWP)

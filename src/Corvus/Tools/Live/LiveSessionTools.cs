@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 
 /// <summary>Sessions on local programs, observation only; refused without --allow-live, except action=list, which reports no sessions; spawn and attach need their own flags, and --live-allow limits both to listed programs.</summary>
 [McpServerToolType]
-public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null, Services.Mobile.DexService? dex = null)
+public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null, Services.Mobile.DexService? dex = null, ResultStore? results = null)
 {
     private readonly Services.Mobile.DexService _dex = dex ?? new();
 
@@ -134,15 +134,15 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Open, list, inspect or close a session on a program; modules match to images; snapshot saves a dump; save_modules saves rebuilt modules.")]
     public Task<string> LiveSession(
         [Description("Action.")] string action = "list",
-        [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
-        [Description("spawn: program arguments.")] string[]? arguments = null,
-        [Description("spawn: NAME=value variables.")] string[]? environment = null,
+        [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (suspended); processes: name filter; *_child: pid.")] string? program = null,
+        [Description("spawn: program arguments; page_diff: old, new result id.")] string[]? arguments = null,
+        [Description("spawn: NAME=value.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
-        [Description("snapshot: dump file (default temp); save_modules: new or empty image folder (default temp).")] string? outputPath = null,
+        [Description("snapshot: dump file; screenshot: PNG file; save_modules: new or empty folder (default temp).")] string? outputPath = null,
         [Description("Overwrite outputPath.")] bool overwrite = false,
-        [Description("Hold children by image name (* any) at start.")] string[]? childNames = null,
+        [Description("Hold children by image name (* any).")] string[]? childNames = null,
         [Description("Download a missing DAC.")] bool downloadDac = false,
-        [Description("adb serial; device runs frida-server.")] string? device = null,
+        [Description("adb serial for frida-server.")] string? device = null,
         [Description("save_modules: file name, 0x address, all, unlisted or code; coverage: start|take|stop.")] string? modules = null,
         [Description("save_modules: file or mapped.")] string? layout = null,
         [Description("save_modules: restore or keep.")] string? imports = null,
@@ -224,14 +224,34 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                         : await live.ListenersAsync(paged, cancellationToken).ConfigureAwait(false);
                     return ToolOutput.With($"{paged.Id} {a}: {string.Join('\n', found)}\n",
                         new LiveSessionReport(a, paged.Id, paged.Backend, paged.Program, paged.ProcessId, paged.State, [], []));
+                case "screenshot" or "page_tools" or "page_state":
+                    var shown = live.Get(RequireSession(session));
+                    if (a == "screenshot")
+                        return PageReport(a, shown, await live.ScreenshotAsync(shown, outputPath, overwrite, cancellationToken).ConfigureAwait(false));
+                    if (a == "page_tools")
+                        return PageReport(a, shown, await live.PageToolsAsync(shown, cancellationToken).ConfigureAwait(false));
+                    var state = await live.PageStateAsync(shown, cancellationToken).ConfigureAwait(false);
+                    var kept = (results ?? throw new ToolError(ErrorCode.Unsupported, "page_state keeps its read in the result store, which is off.", "start the server with its result cache")).Keep(state, new KeptOrigin("live_session", "action=page_state"));
+                    return PageReport(a, shown, [$"result: {kept}", .. state.TrimEnd().Split('\n')]);
+                case "page_diff":
+                    var store = results ?? throw new ToolError(ErrorCode.Unsupported, "page_diff reads kept results, and the result store is off.", "start the server with its result cache");
+                    if (arguments is not [var oldResult, var newResult])
+                        throw new ToolError(ErrorCode.InvalidArgument, "page_diff needs two result ids in arguments, old then new.", "each is the result id printed by live_session action=page_state");
+                    var diff = LiveSessionService.PageDiff(store.Read(oldResult).Text, store.Read(newResult).Text);
+                    return ToolOutput.With($"page_diff {oldResult} -> {newResult}: {string.Join('\n', diff)}\n",
+                        new LiveSessionReport(a, null, null, null, null, null, [], []));
                 case "close":
                     var closing = live.Get(RequireSession(session));
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, save_modules, ipc, coverage, listeners, close, children, attach_child or release_child");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, save_modules, ipc, coverage, listeners, screenshot, page_tools, page_state, page_diff, close, children, attach_child or release_child");
             }
         }, cancellationToken);
+
+    private static string PageReport(string action, Services.LiveSession s, IReadOnlyList<string> lines) =>
+        ToolOutput.With($"{s.Id} {action}: {string.Join('\n', lines)}\n",
+            new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []));
 
     // A program already running under its inspector or JDWP agent; --live-allow is checked against its process once it is known.
     private async Task<Services.LiveSession> OpenInspector(string action, string program, string? device, string[]? childNames, CancellationToken ct)

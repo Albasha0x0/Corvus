@@ -2879,15 +2879,15 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `action` | string |  | `list` | Action. Values: list, processes, attach, spawn, status, snapshot, save_modules, ipc, close, children, attach_child, release_child. |
-| `program` | string |  |  | attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid. |
-| `arguments` | string[] |  |  | spawn: program arguments. |
-| `environment` | string[] |  |  | spawn: NAME=value variables. |
+| `program` | string |  |  | attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (suspended); processes: name filter; *_child: pid. |
+| `arguments` | string[] |  |  | spawn: program arguments; page_diff: old, new result id. |
+| `environment` | string[] |  |  | spawn: NAME=value. |
 | `session` | string |  |  | Id from live_session. |
-| `outputPath` | string |  |  | snapshot: dump file (default temp); save_modules: new or empty image folder (default temp). |
+| `outputPath` | string |  |  | snapshot: dump file; screenshot: PNG file; save_modules: new or empty folder (default temp). |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
-| `childNames` | string[] |  |  | Hold children by image name (* any) at start. |
+| `childNames` | string[] |  |  | Hold children by image name (* any). |
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
-| `device` | string |  |  | adb serial; device runs frida-server. |
+| `device` | string |  |  | adb serial for frida-server. |
 | `modules` | string |  |  | save_modules: file name, 0x address, all, unlisted or code; coverage: start\|take\|stop. |
 | `layout` | string |  |  | save_modules: file or mapped. |
 | `imports` | string |  |  | save_modules: restore or keep. |

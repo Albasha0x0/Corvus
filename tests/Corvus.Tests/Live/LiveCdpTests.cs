@@ -16,11 +16,12 @@ public sealed class LiveCdpTests : IDisposable
     private readonly LiveSessionService _service;
     private readonly LiveSessionTools _tools;
     private readonly FakeBrowser _browser = new();
+    private readonly string _dir = Directory.CreateTempSubdirectory("corvus-cdp-").FullName;
 
     public LiveCdpTests()
     {
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options()));
-        _tools = new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, _service, results: new ResultStore(ResultCacheOptions.MemoryOnly));
     }
 
     public void Dispose()
@@ -28,6 +29,7 @@ public sealed class LiveCdpTests : IDisposable
         _service.Dispose();
         _workspace.Dispose();
         _browser.Dispose();
+        try { Directory.Delete(_dir, true); } catch (IOException) { }
     }
 
     [Fact]
@@ -132,6 +134,68 @@ public sealed class LiveCdpTests : IDisposable
         Assert.DoesNotContain("Unknown", e.Message);
     }
 
+    [Fact]
+    public async Task A_page_screenshot_is_written_with_its_hash()
+    {
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        var path = Path.Combine(_dir, "page.png");
+        var saved = await _tools.LiveSession("screenshot", session: "live-1", outputPath: path);
+        var bytes = File.ReadAllBytes(path);
+        Assert.Equal(FakeBrowser.Image, bytes);
+        Assert.Contains($"size: {bytes.Length} bytes", saved);
+        Assert.Contains("sha256: " + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), saved);
+        Assert.Contains("Page.captureScreenshot", _browser.Received);
+    }
+
+    [Fact]
+    public async Task A_screenshot_path_through_a_link_is_refused()
+    {
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        var target = Path.Combine(_dir, "target.png");
+        File.WriteAllBytes(target, [1]);
+        var link = Path.Combine(_dir, "link.png");
+        File.CreateSymbolicLink(link, target);
+        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("screenshot", session: "live-1", outputPath: link, overwrite: true));
+        Assert.Contains("link", e.Message);
+        Assert.Equal([1], File.ReadAllBytes(target));
+        Assert.DoesNotContain("Page.captureScreenshot", _browser.Received);
+    }
+
+    [Fact]
+    public async Task A_page_without_the_tool_api_reports_not_offered()
+    {
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        Assert.Contains("tools not offered", await _tools.LiveSession("page_tools", session: "live-1"));
+        _browser.ModelContext = "throws";
+        Assert.Contains("tools unknown: registry failed", await _tools.LiveSession("page_tools", session: "live-1"));
+        _browser.ModelContext = "offered";
+        var listed = await _tools.LiveSession("page_tools", session: "live-1");
+        Assert.Contains("1 tool(s)", listed);
+        Assert.Contains("tool search | Find items | schema 42", listed);
+    }
+
+    [Fact]
+    public async Task Two_page_reads_compare_by_script_hash_and_listener_row()
+    {
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        var first = ResultId(await _tools.LiveSession("page_state", session: "live-1"));
+        await _tools.LiveSession("close", session: "live-1");
+        _browser.ScriptHash = "h1b";
+        _browser.ListenerLine = 9;
+        _browser.ModelContext = "offered";
+        await _tools.LiveSession("attach", program: $"cdp:{_browser.Port}");
+        var second = ResultId(await _tools.LiveSession("page_state", session: "live-2"));
+        var diff = await _tools.LiveSession("page_diff", arguments: [first, second]);
+        Assert.Contains("changed script http://localhost/main.js: h1 -> h1b", diff);
+        Assert.Contains("added listener click body#app > div.box.wide > button http://localhost/main.js:10 capture", diff);
+        Assert.Contains("removed listener click body#app > div.box.wide > button http://localhost/main.js:7 capture", diff);
+        Assert.Contains("added tool search", diff);
+        Assert.Contains("removed tools not offered", diff);
+        Assert.Contains("no difference", await _tools.LiveSession("page_diff", arguments: [first, first]));
+    }
+
+    private static string ResultId(string text) => System.Text.RegularExpressions.Regex.Match(text, "result: (r-[0-9a-f]+)").Groups[1].Value;
+
     private static async Task<string> WaitForAsync(Func<Task<string>> read, string text)
     {
         var until = DateTime.UtcNow.AddSeconds(30);
@@ -167,6 +231,18 @@ public sealed class LiveCdpTests : IDisposable
 
         /// <summary>Elements added under the body beyond the three the document holds.</summary>
         public int ExtraElements { get; set; }
+
+        /// <summary>Hash the first script reports.</summary>
+        public string ScriptHash { get; set; } = "h1";
+
+        /// <summary>Zero-based line of the button listener's handler.</summary>
+        public int ListenerLine { get; set; } = 6;
+
+        /// <summary>Null: no tool API; "throws": the registry throws; "offered": one tool.</summary>
+        public string? ModelContext { get; set; }
+
+        /// <summary>Bytes the screenshot returns.</summary>
+        public static readonly byte[] Image = [0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
 
         public string Received { get { lock (_received) return string.Join(',', _received); } }
 
@@ -213,7 +289,8 @@ public sealed class LiveCdpTests : IDisposable
                     lock (_received) _received.Add(method);
                     JsonNode result = method switch
                     {
-                        "Runtime.evaluate" => new JsonObject { ["result"] = new JsonObject { ["type"] = "string", ["value"] = "FakeChrome/1.0" } },
+                        "Runtime.evaluate" => Evaluate(request["params"]!["expression"]!.GetValue<string>()),
+                        "Page.captureScreenshot" => new JsonObject { ["data"] = Convert.ToBase64String(Image) },
                         "Debugger.setBreakpointByUrl" => new JsonObject
                         {
                             ["breakpointId"] = "bp1",
@@ -229,12 +306,33 @@ public sealed class LiveCdpTests : IDisposable
                     await SendAsync(new JsonObject { ["id"] = request["id"]!.DeepClone(), ["result"] = result });
                     if (method == "Debugger.enable")
                     {
-                        await SendAsync(Parsed("1", "http://localhost/main.js"));
+                        await SendAsync(Parsed("1", "http://localhost/main.js", ScriptHash));
                     }
                 }
             }
             catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException) { }
         }
+
+        private JsonObject Evaluate(string expression)
+        {
+            if (!expression.Contains("modelContext", StringComparison.Ordinal))
+                return new JsonObject { ["result"] = new JsonObject { ["type"] = "string", ["value"] = "FakeChrome/1.0" } };
+            return ModelContext switch
+            {
+                "throws" => new JsonObject { ["result"] = Value(new JsonObject { ["state"] = "unknown", ["message"] = "registry failed" }) },
+                "offered" => new JsonObject
+                {
+                    ["result"] = Value(new JsonObject
+                    {
+                        ["state"] = "offered",
+                        ["rows"] = new JsonArray(new JsonObject { ["name"] = "search", ["description"] = "Find items", ["schema"] = 42 }),
+                    }),
+                },
+                _ => new JsonObject { ["result"] = Value(new JsonObject { ["state"] = "not offered" }) },
+            };
+        }
+
+        private static JsonObject Value(JsonObject value) => new() { ["type"] = "object", ["value"] = value };
 
         // Script 1 is parsed; script 9 is not, and its function reads unknown.
         private static JsonObject Coverage() => new()
@@ -279,20 +377,20 @@ public sealed class LiveCdpTests : IDisposable
             };
         }
 
-        private static JsonObject Listeners(string objectId) => new()
+        private JsonObject Listeners(string objectId) => new()
         {
             ["listeners"] = objectId != "o5" ? new JsonArray() : new JsonArray(new JsonObject
             {
-                ["type"] = "click", ["useCapture"] = true, ["passive"] = false, ["once"] = false, ["scriptId"] = "1", ["lineNumber"] = 6, ["columnNumber"] = 0,
+                ["type"] = "click", ["useCapture"] = true, ["passive"] = false, ["once"] = false, ["scriptId"] = "1", ["lineNumber"] = ListenerLine, ["columnNumber"] = 0,
             }),
         };
 
-        private static JsonObject Parsed(string id, string url) => new()
+        private static JsonObject Parsed(string id, string url, string hash) => new()
         {
             ["method"] = "Debugger.scriptParsed",
             ["params"] = new JsonObject
             {
-                ["scriptId"] = id, ["url"] = url, ["length"] = 10, ["hash"] = "h" + id,
+                ["scriptId"] = id, ["url"] = url, ["length"] = 10, ["hash"] = hash,
                 ["stackTrace"] = new JsonObject { ["callFrames"] = new JsonArray(new JsonObject { ["functionName"] = "load", ["url"] = "http://localhost/index.html", ["lineNumber"] = 3 }) },
             },
         };

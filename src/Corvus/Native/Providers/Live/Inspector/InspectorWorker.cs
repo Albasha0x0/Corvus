@@ -58,6 +58,8 @@ internal static class InspectorWorker
                     ["ipc"] = IpcAsync,
                     ["coverage"] = CoverageAsync,
                     ["listeners"] = ListenersAsync,
+                    ["screenshot"] = ScreenshotAsync,
+                    ["page_tools"] = PageToolsAsync,
                     ["close"] = CloseAsync,
                 };
                 // Ops on native code are refused by name, so every tool that sends one says why.
@@ -294,6 +296,50 @@ internal static class InspectorWorker
                 else if (values[i] == "class") step += string.Concat(values[i + 1].Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(x => "." + x));
             }
             return step;
+        }
+
+        // The tool list a page registers for agents; a page without the API offers none.
+        private const string PageToolsExpression = """
+            (async () => {
+              try {
+                const mc = navigator.modelContext;
+                if (!mc) return { state: 'not offered' };
+                let list;
+                if (typeof mc.listTools === 'function') list = await mc.listTools();
+                else if (mc.tools && typeof mc.tools[Symbol.iterator] === 'function') list = mc.tools;
+                else return { state: 'unknown', message: 'navigator.modelContext lists no tools' };
+                const rows = Array.from(list, t => ({
+                  name: String(t.name), description: String(t.description || ''),
+                  schema: JSON.stringify(t.inputSchema || {}).length }));
+                return { state: 'offered', rows };
+              } catch (e) { return { state: 'unknown', message: String((e && e.message) || e) }; }
+            })()
+            """;
+
+        // Returns the page's visible surface as PNG bytes in base64.
+        private async Task<JsonNode?> ScreenshotAsync(JsonObject args, CancellationToken ct)
+        {
+            if (!_page) throw new ToolError(ErrorCode.Unsupported, "a screenshot is taken of a page; a Node or Electron main process has no surface.",
+                "live_session action=attach program=cdp:PORT");
+            var r = await Cdp.SendAsync("Page.captureScreenshot", new JsonObject { ["format"] = "png", ["fromSurface"] = true }, CommandTimeout, ct).ConfigureAwait(false);
+            return new JsonObject { ["data"] = r.TryGetProperty("data", out var d) ? d.GetString() : null };
+        }
+
+        // Evaluates the page's tool registry; a throwing page reads unknown with its message.
+        private async Task<JsonNode?> PageToolsAsync(JsonObject args, CancellationToken ct)
+        {
+            if (!_page) throw new ToolError(ErrorCode.Unsupported, "page tools are registered by a page; a Node or Electron main process has none.",
+                "live_session action=attach program=cdp:PORT");
+            lock (_gate)
+                if (_paused) throw new ToolError(ErrorCode.Conflict, "the program is paused and evaluates nothing until it runs", "live_break action=continue, then read the page tools again");
+            var r = await Cdp.SendAsync("Runtime.evaluate", new JsonObject
+            {
+                ["expression"] = PageToolsExpression, ["returnByValue"] = true, ["awaitPromise"] = true, ["silent"] = true,
+            }, CommandTimeout, ct).ConfigureAwait(false);
+            if (r.TryGetProperty("exceptionDetails", out var ex))
+                return new JsonObject { ["state"] = "unknown", ["message"] = ex.TryGetProperty("exception", out var e) && e.TryGetProperty("description", out var d) ? d.GetString() : ex.GetProperty("text").GetString() };
+            return r.TryGetProperty("result", out var v) && v.TryGetProperty("value", out var value) ? JsonNode.Parse(value.GetRawText())
+                : new JsonObject { ["state"] = "unknown", ["message"] = "the page returned no value" };
         }
 
         private JsonArray Scripts()
