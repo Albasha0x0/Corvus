@@ -256,8 +256,9 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     /// <summary>Starts live-1, stops at an input open, snapshots, checks every open finishes with exit code 0, closes; returns the stop's stack.</summary>
     private async Task<string> SnapshotRun(InProcessServer server, DotnetTarget target, string exe, string input)
     {
-        const int threads = 4, rounds = 400;
-        var pid = await Spawn(server, exe, "live-1", input, $"{threads}", $"{rounds}", "20");
+        // The pause keeps the program running while a loaded host pages events and sets the stop.
+        const int threads = 4, rounds = 400, pauseMs = 60;
+        var pid = await Spawn(server, exe, "live-1", input, $"{threads}", $"{rounds}", $"{pauseMs}");
         Assert.Contains("w1", await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = target.FileOpen, ["rateLimit"] = 100_000 }));
         Assert.Contains("program started", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" }));
         var opened = new Regex(Regex.Escape(InputName) + "\"");
