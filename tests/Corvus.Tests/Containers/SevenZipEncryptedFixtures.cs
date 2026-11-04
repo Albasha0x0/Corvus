@@ -1,28 +1,39 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using SharpCompress.Compressors.LZMA;
 
 namespace Corvus.Tests;
 
-/// <summary>Builds stored 7z archives whose entries, and optionally the header, are packed behind the 7zAES coder.</summary>
+/// <summary>Builds stored 7z archives whose entries, and optionally the header, are packed behind the 7zAES coder, optionally after an LZMA coder.</summary>
 internal static class SevenZipEncryptedFixtures
 {
     private const int CyclePower = 8;
 
     private static readonly byte[] AesId = [0x06, 0xF1, 0x07, 0x01];
 
-    private sealed record Folder(long Pack, long Unpack, uint Crc, byte[]? Props);
+    private sealed record Folder(long Pack, long Unpack, uint Crc, byte[]? Props, Lz? Compressor = null, long Mid = 0);
+
+    private sealed record Lz(byte[] Id, byte[] Props);
+
+    /// <summary>The compressor placed before 7zAES in a folder.</summary>
+    internal enum Compression { None, Lzma }
 
     /// <summary>A 7z with one folder per file; a null <paramref name="password"/> stores plainly, and <paramref name="encryptHeader"/> packs the header behind the coder.</summary>
-    internal static byte[] Build(string? password, bool encryptHeader, params (string Name, byte[] Data)[] files)
+    internal static byte[] Build(string? password, bool encryptHeader, params (string Name, byte[] Data)[] files) =>
+        Build(password, encryptHeader, Compression.None, files);
+
+    /// <summary>As above, with each folder compressed by <paramref name="compression"/> before it is encrypted.</summary>
+    internal static byte[] Build(string? password, bool encryptHeader, Compression compression, params (string Name, byte[] Data)[] files)
     {
         var packed = new MemoryStream();
         var folders = new List<Folder>();
         foreach (var (_, data) in files)
         {
-            var (cipher, props) = Pack(data, password);
+            var (squeezed, lz) = Compress(data, compression);
+            var (cipher, props) = Pack(squeezed, password);
             packed.Write(cipher);
-            folders.Add(new Folder(cipher.Length, data.Length, Crc32(data), props));
+            folders.Add(new Folder(cipher.Length, data.Length, Crc32(data), props, lz, squeezed.Length));
         }
 
         var header = new MemoryStream();
@@ -86,6 +97,22 @@ internal static class SevenZipEncryptedFixtures
         s.WriteByte(0);
         foreach (var f in folders)
         {
+            if (f.Compressor != null)
+            {
+                // LZMA first in unpack order, 7zAES second, bound output to input.
+                Number(s, 2);
+                s.WriteByte((byte)(f.Compressor.Id.Length | 0x20));
+                s.Write(f.Compressor.Id);
+                Number(s, (ulong)f.Compressor.Props.Length);
+                s.Write(f.Compressor.Props);
+                s.WriteByte(0x24);
+                s.Write(AesId);
+                Number(s, (ulong)f.Props!.Length);
+                s.Write(f.Props);
+                Number(s, 0);
+                Number(s, 1);
+                continue;
+            }
             Number(s, 1);
             if (f.Props == null)
             {
@@ -101,7 +128,11 @@ internal static class SevenZipEncryptedFixtures
             s.Write(f.Props);
         }
         s.WriteByte(0x0C);
-        foreach (var f in folders) Number(s, (ulong)f.Unpack);
+        foreach (var f in folders)
+        {
+            Number(s, (ulong)f.Unpack);
+            if (f.Compressor != null) Number(s, (ulong)f.Mid);
+        }
         // A header folder carries its checksum; file folders carry it per substream.
         if (!files) Crcs(s, folders);
         s.WriteByte(0x00);
@@ -124,6 +155,20 @@ internal static class SevenZipEncryptedFixtures
             BinaryPrimitives.WriteUInt32LittleEndian(crc, f.Crc);
             s.Write(crc);
         }
+    }
+
+    private static (byte[] Data, Lz? Coder) Compress(byte[] data, Compression compression)
+    {
+        if (compression == Compression.None) return (data, null);
+        var output = new MemoryStream();
+        byte[] props;
+        using (var encoder = LzmaStream.Create(new LzmaEncoderProperties(), false, output))
+        {
+            encoder.Write(data);
+            encoder.Flush();
+            props = encoder.Properties;
+        }
+        return (output.ToArray(), new Lz([0x03, 0x01, 0x01], props));
     }
 
     // The coder properties carry the cycle power, an 8-byte salt and a 16-byte IV.

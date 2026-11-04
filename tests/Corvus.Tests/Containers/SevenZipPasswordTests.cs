@@ -1,3 +1,4 @@
+using System.Text;
 using Corvus.Core;
 using Corvus.Services.Analysis;
 
@@ -73,5 +74,32 @@ public sealed class SevenZipPasswordTests
     {
         var contents = Open(SevenZipEncryptedFixtures.Build(null, false, Files[1..]), Secret);
         Assert.Equal("readme.txt", Assert.Single(contents.Items).Name);
+    }
+
+    private static readonly (string Name, byte[] Data)[] Text =
+        [("notes.txt", Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("compressible line of text. ", 300))))];
+
+    [Fact]
+    public void A_compressed_encrypted_7z_entry_opens_with_the_password()
+    {
+        var contents = Open(SevenZipEncryptedFixtures.Build(Secret, false, SevenZipEncryptedFixtures.Compression.Lzma, Text), Secret);
+        Assert.Equal(Text[0].Data, Assert.Single(contents.Items).Bytes);
+        Assert.DoesNotContain(contents.Notes, n => n.Contains("not read"));
+    }
+
+    [Fact]
+    public void A_compressed_encrypted_7z_entry_with_a_wrong_password_is_named_as_not_read()
+    {
+        var contents = Open(SevenZipEncryptedFixtures.Build(Secret, false, SevenZipEncryptedFixtures.Compression.Lzma, Text), "another password");
+        Assert.Empty(contents.Items);
+        Assert.Contains("notes.txt: not read (the password did not decrypt it).", contents.Notes);
+    }
+
+    [Fact]
+    public void A_compressed_encrypted_7z_entry_without_a_password_is_named_as_not_read()
+    {
+        var contents = Open(SevenZipEncryptedFixtures.Build(Secret, false, SevenZipEncryptedFixtures.Compression.Lzma, Text), null);
+        Assert.Empty(contents.Items);
+        Assert.Contains("notes.txt: not read (encrypted; pass password to read it).", contents.Notes);
     }
 }
