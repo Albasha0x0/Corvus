@@ -1,5 +1,110 @@
 # Release notes
 
+## 2.11.0
+
+### Highlights
+
+- Save the modules of a minidump in file layout, with relocations undone and imports restored.
+- Compare a rebuilt module with the file of the same build, or one module across two dumps.
+- List the ranges changed in memory with `open_minidump`, grouped by shape, with stub chains followed to their target.
+- List and extract RPA, VPK, NXPK, BSA and BA2 archives.
+
+### Breaking changes
+
+- **Engines:** Before: a 32-bit `app.idb` or `app.dll.idb` beside the input started the IDA analysis. After: it is ignored; convert it to `.i64` in IDA and place `app.i64` beside the input. [108a7ac5](https://github.com/Albasha0x0/Corvus/commit/108a7ac5)
+
+### Changes
+
+- **Dumps:** `open_minidump` saves modules in file layout by default, with imports and delay-load slots restored. [c624b322](https://github.com/Albasha0x0/Corvus/commit/c624b322)
+- **Dumps:** `open_minidump` lists the ranges changed in memory against the file of the same build. [c59c9fb0](https://github.com/Albasha0x0/Corvus/commit/c59c9fb0)
+- **Dumps:** `open_minidump` compares one module across two dumps. [8e39e025](https://github.com/Albasha0x0/Corvus/commit/8e39e025)
+- **Dumps:** `group=shape` lists changed ranges by shape; jump stubs are followed to their target. [ff2e635b](https://github.com/Albasha0x0/Corvus/commit/ff2e635b)
+- **Dumps:** changed x86, x64 and ARM64 code is shown as instructions. [e5720ae5](https://github.com/Albasha0x0/Corvus/commit/e5720ae5)
+- **Dumps:** sections and pointers a module fills in at run time are listed and added to the saved import directory. [fc881306](https://github.com/Albasha0x0/Corvus/commit/fc881306)
+- **Dumps:** saved modules carry their PDB; `--dump-modules` takes the rebuild options and `--symbols`. [db5b3a6f](https://github.com/Albasha0x0/Corvus/commit/db5b3a6f)
+- **Dumps:** dynamic modules are saved as assemblies and their method bodies read. [1df9d261](https://github.com/Albasha0x0/Corvus/commit/1df9d261)
+- **Dumps:** a dump's function table and API set map are read. [a2cf229f](https://github.com/Albasha0x0/Corvus/commit/a2cf229f)
+- **Dumps:** ELF modules are rebuilt from a core file's load segments. [8edd3bc7](https://github.com/Albasha0x0/Corvus/commit/8edd3bc7)
+- **Dumps:** PE images the module list does not name, and .NET assemblies loaded from memory, are listed. [794b9cb1](https://github.com/Albasha0x0/Corvus/commit/794b9cb1)
+- **Live:** `live_session action=save_modules` checks code and saves code regions. [8028d1c4](https://github.com/Albasha0x0/Corvus/commit/8028d1c4)
+- **Live:** the tested Frida range is widened; 17.25.2 is pinned. [07c0dbbf](https://github.com/Albasha0x0/Corvus/commit/07c0dbbf)
+- **Live:** a page session lists event listeners and the functions called since start. [65cd2c1a](https://github.com/Albasha0x0/Corvus/commit/65cd2c1a)
+- **Live:** a page session saves a screenshot, lists the tools a page registers and compares two page states. [05a208c8](https://github.com/Albasha0x0/Corvus/commit/05a208c8)
+- **Live:** the workaround for IL-only images is dropped; Frida 17.25.1 fixed it. [8eb638dd](https://github.com/Albasha0x0/Corvus/commit/8eb638dd)
+- **Native:** `extract_strings` lists typed strings of PE, ELF and Mach-O images by section and address. [e6dd2de4](https://github.com/Albasha0x0/Corvus/commit/e6dd2de4)
+- **Native:** a CPython runtime in a native image is reported. [44541b1c](https://github.com/Albasha0x0/Corvus/commit/44541b1c)
+- **Native:** a protector SDK module is named from its export sets. [b5a81a8b](https://github.com/Albasha0x0/Corvus/commit/b5a81a8b)
+- **Native:** `inspect_instruction` shows printable immediates as characters. [4251560c](https://github.com/Albasha0x0/Corvus/commit/4251560c)
+- **Native:** `get_pe_info` lists counted issues and trims `view=code`. [2331309a](https://github.com/Albasha0x0/Corvus/commit/2331309a)
+- **Native:** patches in protected sections and signed files are warned about. [3e31b954](https://github.com/Albasha0x0/Corvus/commit/3e31b954)
+- **Native:** concurrent `find_similar_functions` queries build the callee tables once. [15f14a05](https://github.com/Albasha0x0/Corvus/commit/15f14a05)
+- **Native:** Rust v0 symbol names are demangled. [81567142](https://github.com/Albasha0x0/Corvus/commit/81567142)
+- **Native:** `batch --times-jsonl` writes the times stored inside a file as JSON lines. [57000cfb](https://github.com/Albasha0x0/Corvus/commit/57000cfb)
+- **Containers:** RPA, VPK and NXPK archives are listed and extracted. [dab20e4b](https://github.com/Albasha0x0/Corvus/commit/dab20e4b)
+- **Containers:** an event log's events are written as JSON lines. [699a605d](https://github.com/Albasha0x0/Corvus/commit/699a605d)
+- **Containers:** code a pyc holds as encoded constants is decoded. [653f7eb2](https://github.com/Albasha0x0/Corvus/commit/653f7eb2)
+- **Containers:** a file that is one compressed stream is unpacked. [0fc1382c](https://github.com/Albasha0x0/Corvus/commit/0fc1382c)
+- **Containers:** an encrypted 7z entry opened with a wrong password is reported as not read. [2326e35b](https://github.com/Albasha0x0/Corvus/commit/2326e35b)
+- **Containers:** BSA and BA2 archives are listed and extracted; texture archives are listed. [5dd95f2c](https://github.com/Albasha0x0/Corvus/commit/5dd95f2c)
+- **Containers:** Package objects attached to an Outlook message are extracted. [fc448c00](https://github.com/Albasha0x0/Corvus/commit/fc448c00)
+- **Containers:** `summarize_file stixPath=` writes one STIX note per matched capa label. [d2e73468](https://github.com/Albasha0x0/Corvus/commit/d2e73468)
+- **Web:** a PyPI repository mismatch and close crate names are flagged. [012de554](https://github.com/Albasha0x0/Corvus/commit/012de554)
+- **Web:** npm local-install hooks are reported as running on git installs. [21d3a8b7](https://github.com/Albasha0x0/Corvus/commit/21d3a8b7)
+- **Web:** numeric byte arrays in page scripts are decoded. [f470b2e2](https://github.com/Albasha0x0/Corvus/commit/f470b2e2)
+- **Web:** numeric-array payloads are carved from pages. [3e86930d](https://github.com/Albasha0x0/Corvus/commit/3e86930d)
+- **Web:** Cursor CLI permissions in a project configuration are reviewed. [e6f3ad83](https://github.com/Albasha0x0/Corvus/commit/e6f3ad83)
+- **Web:** workflow review adds the findings of zizmor when `CORVUS_ZIZMOR` is set. [eb67fed1](https://github.com/Albasha0x0/Corvus/commit/eb67fed1)
+- **Mobile:** an accessibility service with overlay or SMS access is noted. [aa9287a0](https://github.com/Albasha0x0/Corvus/commit/aa9287a0)
+- **Mobile:** `decompile_java simplified=true` shows decoder calls as their decoded strings. [5f5fad12](https://github.com/Albasha0x0/Corvus/commit/5f5fad12)
+- **Dotnet:** `summarize_file` names compiled XAML (XBF) files. [0ebff6dd](https://github.com/Albasha0x0/Corvus/commit/0ebff6dd)
+- **Dotnet:** `summarize_file` shows the kept capa labels with their ATT&CK and MBC ids. [b19bfd38](https://github.com/Albasha0x0/Corvus/commit/b19bfd38)
+- **Session:** the relay runs the newest published relay code without a new client registration. [270cc6bd](https://github.com/Albasha0x0/Corvus/commit/270cc6bd)
+- **Catalog:** `offset`, `limit` and `maxTokens` have a description in `tools/list`. [f4b68148](https://github.com/Albasha0x0/Corvus/commit/f4b68148)
+
+### Fixes
+
+- **Dumps:** an import directory rebuilt from a scan is reported partial and the file of the same build is still found. [496bea4c](https://github.com/Albasha0x0/Corvus/commit/496bea4c)
+- **Dumps:** relocations are undone only where the loader applied them; loader-patched sites are restored from the file. [ff1dd985](https://github.com/Albasha0x0/Corvus/commit/ff1dd985)
+- **Dumps:** a module's whole code section is compared with its file, including code written past its raw data. [601bd06c](https://github.com/Albasha0x0/Corvus/commit/601bd06c)
+- **Dumps:** images up to the PE reader's file limit are rebuilt. [edf5d834](https://github.com/Albasha0x0/Corvus/commit/edf5d834)
+- **Dumps:** unreadable runtime sections and unknown signatures are reported as unknown with the reason. [60eb9e35](https://github.com/Albasha0x0/Corvus/commit/60eb9e35)
+- **Dumps:** a module loaded from memory is reported as having no file on disk. [a9ba5e29](https://github.com/Albasha0x0/Corvus/commit/a9ba5e29)
+- **Dumps:** changed code is decoded from an instruction boundary. [30bc33af](https://github.com/Albasha0x0/Corvus/commit/30bc33af)
+- **Dumps:** late-bound slots on data pages not captured are named. [9ba47cc5](https://github.com/Albasha0x0/Corvus/commit/9ba47cc5)
+- **Dumps:** debug entries point at their data in a rebuilt file. [bd76a648](https://github.com/Albasha0x0/Corvus/commit/bd76a648)
+- **Dumps:** debug entry file offsets are left out of the disk check. [39992d2d](https://github.com/Albasha0x0/Corvus/commit/39992d2d)
+- **Dumps:** changed code is shown as text only from a known instruction start. [c6c863f3](https://github.com/Albasha0x0/Corvus/commit/c6c863f3)
+- **Dumps:** `view=changes` refuses `modules=code` and names `outputPath`. [60a1d7c0](https://github.com/Albasha0x0/Corvus/commit/60a1d7c0)
+- **Native:** `compare_native_images` changed rows show both builds. [011039f0](https://github.com/Albasha0x0/Corvus/commit/011039f0)
+- **Native:** RTTI is found when the `type_info` vftable lies outside the image. [834ed635](https://github.com/Albasha0x0/Corvus/commit/834ed635)
+- **Native:** unnamed functions are named by virtual address in every source. [a2b8f677](https://github.com/Albasha0x0/Corvus/commit/a2b8f677)
+- **Native:** a null page fault names the register it is based on. [c4144cb2](https://github.com/Albasha0x0/Corvus/commit/c4144cb2)
+- **Native:** variadic slots of an unnamed callee are labelled from its format. [eab83ebe](https://github.com/Albasha0x0/Corvus/commit/eab83ebe)
+- **Native:** address-taken locals have an offset, a size and hex text. [b60e2932](https://github.com/Albasha0x0/Corvus/commit/b60e2932)
+- **Native:** stack displacements show in the hex form of disassembly. [5b94f70b](https://github.com/Albasha0x0/Corvus/commit/5b94f70b)
+- **Native:** edges between returned nodes are kept in paged graphs. [345f5834](https://github.com/Albasha0x0/Corvus/commit/345f5834)
+- **Native:** a watched Linux run reports the exit when it happens, not as a stall. [71fa7bde](https://github.com/Albasha0x0/Corvus/commit/71fa7bde)
+- **Edits:** control characters in renamed names are rejected. [5b695702](https://github.com/Albasha0x0/Corvus/commit/5b695702)
+- **Session:** `update_note` validates `verify` before writing anything. [10c21f6a](https://github.com/Albasha0x0/Corvus/commit/10c21f6a)
+- **Session:** note evidence links to a call with extra arguments. [fe958580](https://github.com/Albasha0x0/Corvus/commit/fe958580)
+- **Live:** a console or session end is queued before a waiting call returns. [969185f7](https://github.com/Albasha0x0/Corvus/commit/969185f7)
+- **Live:** a .NET program no longer stops at start-up when the JIT loads under CPU load. [1a505023](https://github.com/Albasha0x0/Corvus/commit/1a505023)
+- **Live:** helper files of a session whose server ended are removed at the next session start. [851531fe](https://github.com/Albasha0x0/Corvus/commit/851531fe)
+- **Dumps:** a .NET stack names its generated-code frames when the runtime walk names none. [55508da5](https://github.com/Albasha0x0/Corvus/commit/55508da5)
+- **Containers:** NXPK headers and large archives are read as a stream. [81f02c32](https://github.com/Albasha0x0/Corvus/commit/81f02c32)
+- **Containers:** an asset bundle points to the assets view. [25b59668](https://github.com/Albasha0x0/Corvus/commit/25b59668)
+- **Containers:** RPA and VPK archives are read as a stream. [2d33297a](https://github.com/Albasha0x0/Corvus/commit/2d33297a)
+- **Containers:** entries after an unreadable encrypted RAR entry are kept. [152ac708](https://github.com/Albasha0x0/Corvus/commit/152ac708)
+- **Containers:** a non-standard PDF security handler and the owner password are named. [92c3aaa1](https://github.com/Albasha0x0/Corvus/commit/92c3aaa1)
+- **Containers:** a PDF's encryption is labelled by its handler and filters. [e46ac3d5](https://github.com/Albasha0x0/Corvus/commit/e46ac3d5)
+- **Dotnet:** an unreadable file in a folder walk is skipped and named. [f2219cb7](https://github.com/Albasha0x0/Corvus/commit/f2219cb7)
+- **AOT:** v27+ vtable slots decode without the flag bit. [071fd66c](https://github.com/Albasha0x0/Corvus/commit/071fd66c)
+- **Engines:** a cut-short answer landing late throws the cancellation. [38e5571a](https://github.com/Albasha0x0/Corvus/commit/38e5571a)
+
+### In progress
+
+- YARA rule matches as STIX notes; no command writes them yet.
+
 ## 2.10.0
 
 ### Highlights
