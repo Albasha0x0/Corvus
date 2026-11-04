@@ -12,6 +12,11 @@ public static class CodeChangeText
 
     private const int MaxInstructions = 3;
 
+    private const string NoStartSuffix = ", no instruction start known before the range";
+
+    /// <summary>Returns the text of a changed range of <paramref name="bytes"/> bytes that is not shown as code.</summary>
+    public static string NoStart(int bytes) => $"bytes changed: {bytes} bytes{NoStartSuffix}";
+
     private sealed class Namer(Func<ulong, string?> name) : ISymbolResolver
     {
         public bool TryGetSymbol(in Instruction instruction, int operand, int instructionOperand,
@@ -35,6 +40,9 @@ public static class CodeChangeText
     /// complete the last instruction.
     /// </summary>
     /// <remarks>
+    /// Without an anchor the text is code only when decoding from the range start reaches whole
+    /// instructions to the range end and the file bytes over the range decode too; otherwise it is
+    /// <see cref="NoStart"/>. Invalid first bytes return null.
     /// A non-negative <paramref name="knownStart"/> is the offset in the buffers of an instruction
     /// start at or before the range; the file is decoded from it to find the instruction holding
     /// the range start. A negative one, a start at or past the end of the file, file bytes that do
@@ -91,17 +99,38 @@ public static class CodeChangeText
         formatter.Options.LeadingZeros = false;
         var output = new StringOutput();
         var parts = new List<string>();
-        while (parts.Count < MaxInstructions && decoder.IP < address + (ulong)(rangeEnd < 0 ? memBytes.Length : rangeEnd))
+        int end = Math.Min(rangeEnd < 0 ? memBytes.Length : rangeEnd, memBytes.Length);
+        bool whole = true;
+        while (decoder.IP < address + (ulong)end)
         {
             decoder.Decode(out var insn);
-            if (insn.IsInvalid) break;
+            if (insn.IsInvalid) { whole = false; break; }
+            if (parts.Count >= MaxInstructions && !exact) continue;
+            if (parts.Count >= MaxInstructions) break;
             output.Reset();
             formatter.Format(in insn, output);
             parts.Add(output.ToStringAndReset());
         }
         if (parts.Count == 0) return null;
         var text = string.Join("; ", parts);
-        return exact ? text : text + " " + FromRangeStart;
+        if (exact) return text;
+        if (!whole || !Decodes(file, bits, address, start, end)) return NoStart(end - start);
+        return text + " " + FromRangeStart;
+    }
+
+    // True when the file bytes of [start, end) decode as whole instructions; bytes past the file are not checked.
+    private static bool Decodes(ReadOnlySpan<byte> file, int bits, ulong address, int start, int end)
+    {
+        end = Math.Min(end, file.Length);
+        if (start >= end) return true;
+        var bytes = file.ToArray();
+        var decoder = Decoder.Create(bits, new ByteArrayCodeReader(bytes, start, bytes.Length - start), address + (ulong)start);
+        while (decoder.IP < address + (ulong)end)
+        {
+            decoder.Decode(out var insn);
+            if (insn.IsInvalid) return false;
+        }
+        return true;
     }
 
     private static string? DescribeArm64(ReadOnlySpan<byte> memory, ulong address, int diff, int end,

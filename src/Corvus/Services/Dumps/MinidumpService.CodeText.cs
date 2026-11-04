@@ -1,6 +1,7 @@
 using Corvus.Native;
 using Corvus.Native.Dump;
 using Corvus.Native.Dump.Rebuild;
+using Corvus.Native.Pe;
 
 namespace Corvus.Services;
 
@@ -27,13 +28,14 @@ public sealed partial class MinidumpService
             return memory.ModuleAt(target) is { } m ? $"{m.FileName}+0x{target - m.Base:X}" : null;
         }
         var text = CodeChangeText.Describe(memoryBytes, fileBytes, address, machine, knownStart, Name, rangeStart, rangeEnd);
-        return text == null ? null : "code changed: " + text;
+        if (text == null) return null;
+        return text.StartsWith("bytes changed: ", StringComparison.Ordinal) ? text : "code changed: " + text;
     }
 
     /// <summary>Buffers of a changed range that begin at a known instruction start, when there is one.</summary>
-    private readonly record struct CodeWindow(byte[] Memory, byte[] File, ulong Address, int KnownStart, int RangeStart, int RangeEnd);
+    internal readonly record struct CodeWindow(byte[] Memory, byte[] File, ulong Address, int KnownStart, int RangeStart, int RangeEnd);
 
-    private static CodeWindow Window(Func<uint, int, byte[]> readMemory, Func<uint, int, byte[]> readFile, ulong address,
+    internal static CodeWindow Window(Func<uint, int, byte[]> readMemory, Func<uint, int, byte[]> readFile, ulong address,
         uint rva, int length, int leadIn, int imageLength)
     {
         // Without a known start the window still begins on a 4-byte boundary,
@@ -43,10 +45,22 @@ public sealed partial class MinidumpService
         return new CodeWindow(readMemory(rva - back, count), readFile(rva - back, count), address - back, leadIn < 0 ? -1 : 0, (int)back, (int)back + length);
     }
 
-    // Bytes from the function holding the range when the file has a function
-    // table, else from the section start; negative when that start is farther
-    // back than MaxLeadInBytes.
-    private static int LeadIn(IReadOnlyList<RuntimeFunction> table, uint sectionRva, uint rva)
+    /// <summary>
+    /// Returns the sorted instruction start RVAs an image states: function table entries, non-forwarded
+    /// export addresses and the entry point.
+    /// </summary>
+    internal static IReadOnlyList<uint> StartFacts(PeFile image)
+    {
+        var starts = new SortedSet<uint>(image.RuntimeFunctions.Select(f => f.BeginRva));
+        foreach (var export in image.Exports)
+            if (export.ForwardedTo == null && export.Rva != 0) starts.Add(export.Rva);
+        if (image.EntryPointRva != 0) starts.Add(image.EntryPointRva);
+        return [.. starts];
+    }
+
+    // Bytes from the nearest start before the range among the function holding\n    // it, the section start and starts; negative when it is farther back than\n    // MaxLeadInBytes.
+    internal static int LeadIn(IReadOnlyList<RuntimeFunction> table, uint sectionRva, uint rva,
+        IReadOnlyList<uint>? starts = null)
     {
         uint start = sectionRva;
         int low = 0, high = table.Count - 1;
@@ -58,6 +72,23 @@ public sealed partial class MinidumpService
             else if (rva >= f.EndRva) low = mid + 1;
             else { start = f.BeginRva; break; }
         }
+        if (starts != null)
+        {
+            int at = LastAtOrBefore(starts, rva);
+            if (at >= 0 && starts[at] >= sectionRva && starts[at] > start) start = starts[at];
+        }
         return start <= rva && rva - start <= MaxLeadInBytes ? (int)(rva - start) : -1;
+    }
+
+    private static int LastAtOrBefore(IReadOnlyList<uint> sorted, uint value)
+    {
+        int low = 0, high = sorted.Count - 1, found = -1;
+        while (low <= high)
+        {
+            int mid = (low + high) >>> 1;
+            if (sorted[mid] <= value) { found = mid; low = mid + 1; }
+            else high = mid - 1;
+        }
+        return found;
     }
 }
