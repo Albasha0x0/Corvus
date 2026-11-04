@@ -76,18 +76,14 @@ function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
 
-// Workaround for frida/frida-gum#1190 (16.7 to 17.24, fixed in 4e628a8, first in 17.25.0): delay-loaded DLLs are
-// missing from the registry until the next LoadLibrary; K32EnumProcessModules (no loader lock) adds them, minus the
-// agent's cloaked ranges.
+// Workaround for frida/frida-gum#1190 (fixed in 4e628a8, first in 17.25.0;
+// tested 17.24.3 to 17.24.x): delay-loaded DLLs are missing from the registry
+// until the next LoadLibrary; K32EnumProcessModules (no loader lock) adds
+// them, minus the agent's cloaked ranges.
 const registryMissesDelayLoads = (() => {
   const [major, minor] = Frida.version.split('.').map(Number);
   return major < 17 || (major === 17 && minor < 25);
 })();
-
-// Workaround for frida/frida-gum#1199 (tested on 17.25.0, no fix release yet):
-// IL-only images the .NET runtime loads are in the loader's list but missing
-// from the registry and its observer; each LoadLibrary that returns adds them.
-const registryMissesIlImages = Process.platform === 'windows' && !registryMissesDelayLoads;
 
 // The loader's modules not in known, as rows; empty when the walk fails.
 function unlistedModules(known) {
@@ -119,7 +115,7 @@ function unlistedModules(known) {
 
 function loadedModules() {
   const rows = Process.enumerateModules().map(moduleRow);
-  if (Process.platform !== 'windows' || !(registryMissesDelayLoads || registryMissesIlImages)) return rows;
+  if (Process.platform !== 'windows' || !registryMissesDelayLoads) return rows;
   return rows.concat(unlistedModules(new Set(rows.map(r => r.base))));
 }
 
@@ -277,7 +273,7 @@ const emulated = (() => {
 })();
 
 let moduleObserver = null;
-// Module bases the observer or the load hook reported.
+// Module bases the observer reported.
 const reported = new Set();
 if (typeof Process.attachModuleObserver === 'function') {
   moduleObserver = Process.attachModuleObserver({
@@ -331,23 +327,6 @@ function moduleAdded(m) {
   }
 }
 
-if (moduleObserver !== null && registryMissesIlImages) {
-  const loadDll = Process.getModuleByName('ntdll.dll').findExportByName('LdrLoadDll');
-  if (loadDll !== null) {
-    Interceptor.attach(loadDll, {
-      onLeave(r) {
-        // STATUS_SUCCESS only: a failed load added nothing.
-        if (r.toInt32() !== 0) return;
-        for (const row of unlistedModules(reported)) {
-          const m = Process.findModuleByAddress(ptr(row.base));
-          if (m === null || reported.has(m.base.toString())) continue;
-          reported.add(m.base.toString());
-          moduleAdded(m);
-        }
-      },
-    });
-  }
-}
 // The program's thread ids, without Frida's. Workaround for frida/frida-gum#1196 (tested 17.24.3, no fix yet): Linux
 // enumeration ptrace-attaches each thread and can hang, so /proc lists the ids.
 const readTaskDir = (() => {
