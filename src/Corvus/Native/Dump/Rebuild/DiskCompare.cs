@@ -12,7 +12,7 @@ public static class DiskCompare
 
     private const uint ContainsCode = 0x20, Execute = 0x20000000, Write = 0x80000000;
     private const ushort HighLow = 3, Dir64 = 10;
-    private const int ImportAddressTable = 12, RelocationTable = 5;
+    private const int ImportAddressTable = 12, RelocationTable = 5, Debug = 6, DebugEntrySize = 28, DebugEntryOffset = 24, MaxDebugEntries = 64;
 
     /// <summary>The comparison, or null when no file of the same build is found.</summary>
     public static DiskComparison? Compare(byte[] rebuilt, CapturedImage captured, RebuildOptions options, List<RebuildCheck> checks)
@@ -43,7 +43,8 @@ public static class DiskCompare
         return null;
     }
 
-    // Fixup sites, the import address table and the checksum are left out; pages not captured are not compared.
+    // Fixup sites, the import address table, debug entry file offsets and the
+    // checksum are left out; pages not captured are not compared.
     private static DiskComparison CompareWith(string path, byte[] rebuilt, CapturedImage captured, List<RebuildCheck> checks)
     {
         var file = ReadFile(path);
@@ -127,6 +128,12 @@ public static class DiskCompare
 
         var (iat, iatSize) = pe.Directory(file, ImportAddressTable);
         Mark(iat, iatSize);
+        // The rebuild sets each file offset for its own layout, so it differs from the file's.
+        var (debug, debugSize) = pe.Directory(file, Debug);
+        long entries = pe.Offset(debug);
+        if (debug != 0 && entries >= 0 && entries + debugSize <= file.Length)
+            for (long e = 0; e < Math.Min(debugSize / DebugEntrySize, MaxDebugEntries); e++)
+                Mark(debug + e * DebugEntrySize + DebugEntryOffset, 4);
         var (reloc, relocSize) = pe.Directory(file, RelocationTable);
         long at = pe.Offset(reloc), end = at + relocSize;
         if (reloc == 0 || at < 0 || end > file.Length) return excluded;

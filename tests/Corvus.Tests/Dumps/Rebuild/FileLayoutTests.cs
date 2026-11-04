@@ -39,6 +39,40 @@ public sealed class FileLayoutTests : IDisposable
         Assert.Contains(rebuilt.Checks, c => c.Name == "parse" && c.State == "ok");
     }
 
+    // Reproduces the shift seen after 601bd06c9: one more section header moves
+    // every raw offset by 512, so each debug entry offset differs from the file's.
+    [Fact]
+    public void A_debug_entry_file_offset_set_for_the_new_layout_is_not_a_difference_from_the_file()
+    {
+        var file = RebuildFixtures.Pe(new PeSpec(true,
+            [new SectionSpec(".text", 0x60000020, Enumerable.Repeat((byte)0x90, 0x40).ToArray()), new SectionSpec(".rdata", 0x40000040, new byte[0x100])]));
+        int opt = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(0x3C)) + 24;
+        int table = opt + BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(opt - 4));
+        uint rva = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(table + 40 + 12));
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(table + 40 + 20));
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 12), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 16), 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 20), rva + 0x40);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 24), (uint)raw + 0x40);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(opt + 112 + 6 * 8), rva);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(opt + 112 + 6 * 8 + 4), 28);
+        var mapped = RebuildFixtures.Mapped(file);
+        BinaryPrimitives.WriteUInt32LittleEndian(mapped.AsSpan(table + 8), 0x1000);
+        var target = new RebuildTarget("lay.dll", 0x140000000, (uint)mapped.Length, ModuleOrigin.Listed);
+        var captured = new CapturedImage(target, mapped, Enumerable.Repeat(true, mapped.Length / 0x1000).ToArray(), "mapped");
+        var rebuilt = PeFileLayout.ToFileLayout(mapped, captured, []);
+        string folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
+        File.WriteAllBytes(Path.Combine(folder, "lay.dll"), file);
+
+        int rebuiltRaw = BinaryPrimitives.ReadInt32LittleEndian(rebuilt.AsSpan(table + 40 + 20));
+        var rebuiltOffset = BinaryPrimitives.ReadUInt32LittleEndian(rebuilt.AsSpan(rebuiltRaw + 24));
+        var checks = new List<RebuildCheck>();
+        var disk = DiskCompare.Compare(rebuilt, captured, RebuildOptions.Default with { ImageDirectories = folder }, checks);
+
+        Assert.NotEqual((uint)raw + 0x40, rebuiltOffset);
+        Assert.Equal(0, disk!.DifferingBytes);
+    }
+
     [Fact]
     public void A_section_with_missing_pages_is_written_with_zeros_and_reported_partial()
     {
