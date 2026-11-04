@@ -129,6 +129,35 @@ function isDeferred(m) {
   return deferredModules.has(name) || (dot > 0 && deferredModules.has(name.substring(0, dot)));
 }
 
+// The address of m's export; null when absent or forwarded. Windows reads the export directory from memory:
+// findExportByName is GetProcAddress (frida-gum gummodule-windows.c), which deadlocks in the module observer.
+function exportAddress(m, name) {
+  if (Process.platform !== 'windows') return m.findExportByName(name);
+  try {
+    const nt = m.base.add(m.base.add(0x3c).readU32());
+    const pe32plus = nt.add(24).readU16() === 0x20b;
+    // The export entry is the first data directory: 0x60 into the optional header in PE32, 0x70 in PE32+.
+    const entry = nt.add(24 + (pe32plus ? 0x70 : 0x60));
+    if (nt.add(24 + (pe32plus ? 0x6c : 0x5c)).readU32() === 0) return null;
+    const rva = entry.readU32(), length = entry.add(4).readU32();
+    if (rva === 0) return null;
+    const dir = m.base.add(rva), functionCount = dir.add(20).readU32(), count = dir.add(24).readU32();
+    const functions = m.base.add(dir.add(28).readU32()), names = m.base.add(dir.add(32).readU32());
+    const ordinals = m.base.add(dir.add(36).readU32());
+    for (let i = 0; i < count; i++) {
+      if (m.base.add(names.add(i * 4).readU32()).readCString() !== name) continue;
+      const ordinal = ordinals.add(i * 2).readU16();
+      if (ordinal >= functionCount) return null;
+      const target = functions.add(ordinal * 4).readU32();
+      // A target inside the directory is a forwarder string.
+      return target >= rva && target < rva + length ? null : m.base.add(target);
+    }
+  } catch (e) {
+    // Unreadable directory: the export is not found.
+  }
+  return null;
+}
+
 // Managed methods with points, by IL body address: the compiling thread waits for load-<tid> before the code first runs.
 const jitWatched = new Set();
 // IL bodies a coverage run counts, by run: each method's first compile is reported (not held) as its first run
@@ -137,7 +166,7 @@ let jitHooked = false;
 
 function hookJit(m, running) {
   if (jitHooked) return;
-  const getJit = m.findExportByName('getJit');
+  const getJit = exportAddress(m, 'getJit');
   if (getJit === null) return;
   jitHooked = true;
   let compilerHooked = false;
