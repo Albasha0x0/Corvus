@@ -27,16 +27,33 @@ public static class StixBundle
     // A custom observable: STIX 2.1 has no object for a TLS client fingerprint.
     private const string Fingerprint = "x-tls-fingerprint";
 
+    /// <summary>The most notes one bundle carries; matches past it are cut and the cut is named.</summary>
+    public const int MaxNotes = 1000;
+
+    /// <summary>A matched YARA rule or capa label; Source is yara or capa, Locations are paths or addresses.</summary>
+    public sealed record Match(string Source, string Name, string? Namespace, string? Scope, IReadOnlyList<string> Locations);
+
+    /// <summary>The matches of a kept capa report and the description line for a report that is not matched; both empty when capa does not apply.</summary>
+    public static (List<Match> Matches, string? Note) CapaMatches(CapaReport? capa, bool available)
+    {
+        if (capa is { State: "matched" })
+            return ([.. capa.Labels.Select(l => new Match("capa", l.Name, l.Namespace, l.Scope, [.. l.Addresses.Select(a => $"0x{a:x}")]))], null);
+        if (capa == null && !available) return ([], null);
+        var reason = capa == null ? "capa has not run" : capa.Notes.Count > 0 ? $"{capa.State}, {string.Join("; ", capa.Notes)}" : capa.State;
+        return ([], $"capa not run or unknown: {reason}.");
+    }
+
     private sealed record Observable(string Id, string Type, Dictionary<string, object> Properties, SortedSet<string> Locations)
     {
         public string Evidence { get; set; } = IndicatorEvidence.String;
     }
 
-    /// <summary>The bundle as UTF-8 JSON; observable ids are stable UUIDv5, the analysis and bundle ids are the given UUIDv4 values.</summary>
-    public static byte[] Write(InspectionService.FileSummary summary, string toolVersion, DateTimeOffset timestamp, Guid analysis, Guid bundle)
+    /// <summary>The bundle as UTF-8 JSON; observable and note ids are stable UUIDv5, the analysis and bundle ids are the given UUIDv4 values; matches become one note per source and name, up to <see cref="MaxNotes"/>.</summary>
+    public static byte[] Write(InspectionService.FileSummary summary, string toolVersion, DateTimeOffset timestamp, Guid analysis, Guid bundle,
+        IReadOnlyList<Match>? matches = null, IReadOnlyList<string>? extraNotes = null)
     {
         var observables = new Dictionary<string, Observable>(StringComparer.Ordinal);
-        var notes = new List<string>();
+        var notes = new List<string>(extraNotes ?? []);
         var file = summary.File;
         int networkValues = 0, stringOnly = 0;
         bool cut = false;
@@ -91,6 +108,17 @@ public static class StixBundle
         if (summary.Assemblies.Count == 0 && !summary.Views.Values.Any(v => v.Indicators.Count > 0))
             notes.Add("URLs, domains and IP addresses not checked: summarize_file reads them from managed assemblies only.");
 
+        var matchNotes = (matches ?? [])
+            .GroupBy(m => (m.Source, m.Name))
+            .Select(g => new Match(g.Key.Source, g.Key.Name, g.Select(m => m.Namespace).FirstOrDefault(n => n != null), g.Select(m => m.Scope).FirstOrDefault(n => n != null),
+                [.. g.SelectMany(m => m.Locations).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)]))
+            .OrderBy(m => m.Name, StringComparer.Ordinal).ThenBy(m => m.Source, StringComparer.Ordinal).ToList();
+        if (matchNotes.Count > MaxNotes)
+        {
+            notes.Add($"Partial: {matchNotes.Count - MaxNotes:N0} of {matchNotes.Count:N0} matched YARA rules and capa labels past the first {MaxNotes:N0} are not listed.");
+            matchNotes.RemoveRange(MaxNotes, matchNotes.Count - MaxNotes);
+        }
+
         var identity = $"identity--{Uuid5(CorvusNamespace, "corvus")}";
         var analysisId = $"malware-analysis--{analysis:D}";
         var stamp = timestamp.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
@@ -140,6 +168,7 @@ public static class StixBundle
 
             WriteObservable(w, sample);
             foreach (var o in found) WriteObservable(w, o);
+            foreach (var m in matchNotes) WriteNote(w, m, sample.Id, identity, stamp);
             w.WriteEndArray();
             w.WriteEndObject();
         }
@@ -171,6 +200,31 @@ public static class StixBundle
             known.Evidence = IndicatorEvidence.Stronger(known.Evidence, o.Evidence);
         }
         else observables[o.Id] = o;
+    }
+
+    private static void WriteNote(Utf8JsonWriter w, Match m, string sampleId, string identity, string stamp)
+    {
+        var label = m.Source == "yara" ? "YARA rule" : "capa label";
+        var detail = string.Join(", ", new[] { m.Namespace is { } n ? $"namespace {n}" : null, m.Scope is { } s ? $"scope {s}" : null }.Where(x => x != null));
+        w.WriteStartObject();
+        w.WriteString("type", "note");
+        w.WriteString("spec_version", SpecVersion);
+        w.WriteString("id", $"note--{Uuid5(CorvusNamespace, string.Join('|', "note", sampleId, m.Source, m.Name))}");
+        w.WriteString("created_by_ref", identity);
+        w.WriteString("created", stamp);
+        w.WriteString("modified", stamp);
+        w.WriteString("content", $"{label} {m.Name} matched{(detail.Length > 0 ? $" ({detail})" : "")}; {m.Locations.Count:N0} location(s).");
+        w.WriteStartArray("object_refs");
+        w.WriteStringValue(sampleId);
+        w.WriteEndArray();
+        w.WriteString("x_corvus_source", m.Source);
+        if (m.Locations.Count > 0)
+        {
+            w.WriteStartArray("x_corvus_locations");
+            foreach (var l in m.Locations) w.WriteStringValue(l);
+            w.WriteEndArray();
+        }
+        w.WriteEndObject();
     }
 
     private static void WriteObservable(Utf8JsonWriter w, Observable o)

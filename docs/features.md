@@ -469,7 +469,7 @@ Labels:
 
 - `summarize_file` reads up to 25 assemblies inside a container.
 - `summarize_file` counts a script's modules and map sources in their first 8 MB; a script over 64 MB is not named as a container.
-- `stixPath=` writes a STIX 2.1 bundle of the file, its members and the indicators of every view.
+- `stixPath=` writes a STIX 2.1 bundle of the file, its members, the indicators of every view and one note per matched capa label.
 - `view=indicators` lists URLs, domains, addresses, TLS fingerprints, strings of native images and certificate names and revocation URLs from every view, one row per value with its sources.
 - `batch --file --report` names each rule the YARA step matched.
 - `summarize_file` reports the import hash of a PE image beside its file hashes.

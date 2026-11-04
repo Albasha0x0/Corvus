@@ -528,7 +528,9 @@ public static class FileWork
     /// <summary>Writes the summary as a STIX 2.1 bundle to <paramref name="stixPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
     public static string WriteStix(InspectionService.FileSummary summary, string stixPath, bool overwrite)
     {
-        var bytes = Services.Analysis.StixBundle.Write(summary, ServerIdentity.InformationalVersion, DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid());
+        var (matches, capaNote) = Services.Analysis.StixBundle.CapaMatches(summary.Capa, summary.CapaAvailable);
+        var bytes = Services.Analysis.StixBundle.Write(summary, ServerIdentity.InformationalVersion, DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid(),
+            matches, capaNote == null ? null : [capaNote]);
         var full = SafeFile.WriteAllBytes(stixPath, bytes, overwrite);
         using var bundle = JsonDocument.Parse(bytes);
         return $"STIX {Services.Analysis.StixBundle.SpecVersion} bundle written to {full}: {bundle.RootElement.GetProperty("objects").GetArrayLength()} objects.";
