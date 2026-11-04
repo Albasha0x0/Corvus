@@ -59,6 +59,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
     private ITestOutputHelper Output => output;
 
     /// <summary>The largest e_sqlite3 function across processes: IDA analyzes the whole library once.</summary>
+    [Collection(nameof(LargestImages))]
     public sealed class LargestFunction(ITestOutputHelper output) : EngineOutputTests(output)
     {
         /// <summary>The largest function of e_sqlite3 (the slowest decompile measured): a second fresh process answers within a second, byte-identical.</summary>

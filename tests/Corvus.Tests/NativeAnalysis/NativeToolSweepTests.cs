@@ -5,8 +5,13 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
+/// <summary>Runs the tests that load the largest images one at a time, so their memory and engine time do not overlap.</summary>
+[CollectionDefinition(nameof(LargestImages), DisableParallelization = true)]
+public sealed class LargestImages;
+
 /// <summary>Every native tool on real Windows images: typed results and memory back to baseline (CORVUS_NATIVE_TOOL_SWEEP_*).</summary>
 [Trait("Speed", "Slow")]
+[Collection(nameof(LargestImages))]
 public class NativeToolSweepTests(ITestOutputHelper output)
 {
     private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_LIMIT"), out var l) ? l : SweepScope.Count(120);

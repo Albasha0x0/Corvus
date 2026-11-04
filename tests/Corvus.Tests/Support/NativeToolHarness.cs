@@ -220,6 +220,8 @@ internal sealed class NativeToolHarness : IDisposable
             targets.Add(("middle", functions[functions.Count / 2]));
         }
         if (pe.EntryPointRva != 0 && index.FunctionAt(pe.EntryPointRva) is { } entry) targets.Add(("entry", entry));
+        // The first dossier builds the call analysis every later one reuses, so it gets the index limit.
+        var dossierLimit = limit;
         foreach (var (label, f) in targets)
         {
             var at = Va(f.Start);
@@ -232,7 +234,8 @@ internal sealed class NativeToolHarness : IDisposable
             await Run(path, "inspect_instruction", label, ct => CodeTools.InspectInstruction(id, at, limit: 64, cancellationToken: ct), mustSucceed: operands);
             await Run(path, "inspect_instruction", label + " +1", ct => CodeTools.InspectInstruction(id, Va(f.Start + 1), limit: 4, cancellationToken: ct), mustSucceed: operands);
             await Run(path, "analyze_native_function", label, ct => Functions.AnalyzeNativeFunction(id, at, sections: "identity,signature,frame,callers,callees,data,flow,annotations,params",
-                maxItems: 500, cancellationToken: ct), mustSucceed: true);
+                maxItems: 500, cancellationToken: ct), mustSucceed: true, limit: dossierLimit);
+            dossierLimit = CallLimit;
         }
         if (functions.Count > 0 && functions[0].KnownName == null)
             await Run(path, "disassemble", "sub_ name", ct => CodeTools.Disassemble(id, functions[0].Name, cancellationToken: ct), mustSucceed: decoded);
