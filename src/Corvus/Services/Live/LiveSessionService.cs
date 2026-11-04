@@ -321,9 +321,11 @@ public sealed class LiveSession
     {
         lock (_gate)
         {
+            // Queue the notice first, then record the event, so a waiter the
+            // event wakes finds the notice.
+            if (!Closed) Notice?.Invoke($"{Id}: {Ended}. Next: live_break session={Id} wait=true");
             Add("exit", null, null, Ended!);
             _exitLogged = true;
-            if (!Closed) Notice?.Invoke($"{Id}: {Ended}. Next: live_break session={Id} wait=true");
         }
         // Outside the gate: the header build takes it while a timer save holds the file lock.
         Log?.Save();

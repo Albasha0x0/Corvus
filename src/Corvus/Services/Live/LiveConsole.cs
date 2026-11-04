@@ -416,8 +416,13 @@ public sealed partial class LiveSessionService
             {
                 run.FailScript(e.Message);
             }
-            finally { run.EndScript(); }
-            workspace.Notify(ScriptNotice(run));
+            finally
+            {
+                // Queue the notice first, then end the script, so a caller
+                // that joins the end finds the notice.
+                workspace.Notify(ScriptNotice(run));
+                run.EndScript();
+            }
         });
     }
 
@@ -513,12 +518,16 @@ public sealed partial class LiveSessionService
     public async Task StopConsoleAsync(LiveConsoleRun run)
     {
         run.CancelScript();
-        if (run.State != "running" || run.Process is not { } process) return;
-        run.StopRequested = true;
-        process.Kill();
-        await Task.WhenAny(process.Exited, Task.Delay(TimeSpan.FromSeconds(8))).ConfigureAwait(false);
-        if (process.Exited.IsCompletedSuccessfully) run.Finish(process.Exited.Result);
-        await Task.WhenAny(run.ScriptDone, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+        if (run.State == "running" && run.Process is { } process)
+        {
+            run.StopRequested = true;
+            process.Kill();
+            await Task.WhenAny(process.Exited, Task.Delay(TimeSpan.FromSeconds(8))).ConfigureAwait(false);
+            if (process.Exited.IsCompletedSuccessfully) run.Finish(process.Exited.Result);
+        }
+        // The reply waits for the script to record its cancelled step, so a
+        // status read after the stop shows it; 8 s bounds a script that hangs.
+        await Task.WhenAny(run.ScriptDone, Task.Delay(TimeSpan.FromSeconds(8))).ConfigureAwait(false);
     }
 
     /// <summary>Waits up to the given time for the script to end; a cancelled call ends the wait only.</summary>

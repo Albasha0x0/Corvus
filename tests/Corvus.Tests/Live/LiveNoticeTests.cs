@@ -27,15 +27,9 @@ public sealed class LiveNoticeTests : LiveSessionTestBase
     {
         await _tools.LiveSession("attach", program: "99994242");
         _backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        // CI run 41624347552 (ubuntu): the wait returned before the notice was queued.
         await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
-        // CI run 41624347552 (ubuntu): the exit notice can be queued after the wait returns.
-        var queued = new List<string>();
-        for (int i = 0; i < 500 && !queued.Any(n => n.Contains("process-terminated")); i++)
-        {
-            queued.AddRange(_workspace.DrainNotices());
-            await Task.Delay(20);
-        }
-        var notice = Assert.Single(queued, n => n.Contains("process-terminated"));
+        var notice = Assert.Single(_workspace.DrainNotices(), n => n.Contains("process-terminated"));
         Assert.Contains("Next: live_break session=live-1 wait=true", notice);
     }
 
