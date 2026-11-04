@@ -56,6 +56,12 @@ public sealed class ClrReads(ClrRuntime runtime)
         return thread.EnumerateStackTrace(false, maxFrames).Select(f => Frame(f.InstructionPointer, f.StackPointer, f.Method, f.FrameName, f.Kind, returnAddress: true)).ToList();
     }
 
+    /// <summary>The method whose code holds <paramref name="ip"/> as a frame at <paramref name="sp"/>; null when the runtime knows no method there.</summary>
+    public ManagedFrame? MethodFrame(ulong ip, ulong sp, bool returnAddress) =>
+        Runtime.GetMethodByInstructionPointer(returnAddress && ip > 0 ? ip - 1 : ip) is { } m
+            ? Frame(ip, sp, m, null, ClrStackFrameKind.ManagedMethod, returnAddress)
+            : null;
+
     /// <summary>The exception's _stackTrace read here, since .NET 9+ shifts its x86 elements by 4 bytes past ClrMD's layout; null when no header fits.</summary>
     private List<(ulong Ip, ulong Sp, ClrMethod? Method)>? TraceArray(ulong exception)
     {

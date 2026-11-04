@@ -360,6 +360,10 @@ public sealed class ClrDecoder : IDisposable
     public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames, byte[]? context = null) =>
         context != null && Require() is InProcessClr clr ? clr.Frames(threadId, maxFrames, context) : Require().Frames(threadId, maxFrames);
 
+    /// <summary>The method whose code holds an address, as a frame; null when the runtime knows none or decodes in the 32-bit decoder.</summary>
+    public ManagedFrame? MethodFrame(ulong ip, ulong sp, bool returnAddress) =>
+        Require() is InProcessClr clr ? clr.MethodFrame(ip, sp, returnAddress) : null;
+
     /// <summary>A bounded heap walk (see <see cref="ClrHeapView.Walk"/>).</summary>
     public HeapWalk Walk(string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct) =>
         Require().Walk(type, minSize, maxObjects, objectsFrom, objectsTake, ct);
@@ -398,6 +402,7 @@ public sealed class ClrDecoder : IDisposable
         public ManagedFacts Facts() => _reads.Facts();
         public ManagedException? Exception(uint? threadId) => _reads.Exception(threadId);
         public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => _reads.Frames(threadId, maxFrames);
+        public ManagedFrame? MethodFrame(ulong ip, ulong sp, bool returnAddress) => _reads.MethodFrame(ip, sp, returnAddress);
 
         public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames, byte[] context)
         {

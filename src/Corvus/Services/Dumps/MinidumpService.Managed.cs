@@ -266,6 +266,29 @@ public sealed partial class MinidumpService
         }
     }
 
+    /// <summary>
+    /// Names the unwound frames in generated code through <paramref name="lookup"/> when the runtime's own walk named no
+    /// method of the thread; frames inferred by a scan keep their address only.
+    /// </summary>
+    internal static void NameGeneratedCode(List<(WalkFrame? Native, ManagedFrame? Managed)> merged, Func<ulong, bool> inModule, Func<WalkFrame, ManagedFrame?> lookup)
+    {
+        if (merged.Any(x => x.Managed != null)) return;
+        for (int i = 0; i < merged.Count; i++)
+            if (merged[i].Native is { Heuristic: false } f && !inModule(f.LookupAddress) && lookup(f) is { } named)
+                merged[i] = (f, named);
+    }
+
+    private async Task NameGeneratedCode(Session s, List<(WalkFrame? Native, ManagedFrame? Managed)> merged, CancellationToken ct)
+    {
+        var decoder = await Decoder(s, new DacRequest(), ct);
+        if (decoder is not { Loaded: true }) return;
+        lock (decoder.Gate)
+        {
+            try { NameGeneratedCode(merged, ip => s.Memory.ModuleAt(ip) != null, f => decoder.MethodFrame(f.Ip, f.Sp, f.IsReturnAddress)); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+        }
+    }
+
     private StackFrame ManagedStackFrame(Session s, int index, WalkFrame? native, ManagedFrame f, CancellationToken ct)
     {
         var d = s.Memory;

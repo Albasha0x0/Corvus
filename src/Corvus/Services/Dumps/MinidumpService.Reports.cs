@@ -816,6 +816,7 @@ public sealed partial class MinidumpService
         // The runtime walks from the same context; a thread held by a session waits in code it cannot unwind.
         var (clrFrames, managedState) = ctx == null ? ([], null) : await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct, exceptionBytes);
         var merged = Merge(walk.Frames, clrFrames);
+        if (managedState == "decoded") await NameGeneratedCode(s, merged, ct);
         string arch = ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), stop = walk.Stop;
         string? registers = ctx?.Format();
         if (wow64Side is { } wow)
