@@ -158,6 +158,7 @@ public sealed partial class MinidumpService
         PeFile? asFile = null;
         try { asFile = PeFile.FromBytes(mapped); }
         catch (Exception e) when (e is InvalidDataException or ArgumentException or IOException) { }
+        var starts = asFile == null ? null : StartFacts(asFile);
         foreach (var range in set.Ranges)
         {
             uint rva = ParseRva(range.Rva);
@@ -178,7 +179,7 @@ public sealed partial class MinidumpService
             var afterBytes = mapped.AsSpan((int)rva, described).ToArray();
             var beforeBytes = oldCaptured.Image.AsSpan((int)rva, described).ToArray();
             var window = range.Code
-                ? Window(Slice(mapped), Slice(oldCaptured.Image), address, rva, described, LeadInSection(layout, rva), mapped.Length)
+                ? Window(Slice(mapped), Slice(oldCaptured.Image), address, rva, described, LeadInSection(layout, rva, starts), mapped.Length)
                 : default;
             var (description, valueTarget) = range.Code
                 ? (DescribeCode(afterBytes, beforeBytes, address, machine, layout.Is64, window, memory, exports), (string?)null)
@@ -207,11 +208,11 @@ public sealed partial class MinidumpService
         return PeNames.Arch(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(nt + 4)));
     }
 
-    // Two dumps carry no function table, so the section start is the boundary.
-    private static int LeadInSection(DiskCompare.PeLayout layout, uint rva)
+    // Two dumps carry no file, so starts come from the newer image as mapped.
+    private static int LeadInSection(DiskCompare.PeLayout layout, uint rva, IReadOnlyList<uint>? starts)
     {
         var section = layout.Sections.FirstOrDefault(x => rva >= x.Rva && rva - x.Rva < Math.Max(x.VirtualSize, x.RawSize));
-        return section == null ? -1 : LeadIn([], section.Rva, rva);
+        return section == null ? -1 : LeadIn([], section.Rva, rva, starts);
     }
 
     private static Func<uint, int, byte[]> Slice(byte[] image) => (rva, count) => image.AsSpan((int)rva, count).ToArray();
@@ -276,6 +277,7 @@ public sealed partial class MinidumpService
         {
             return [UnknownModule(target, "the file of the same build is not readable")];
         }
+        var starts = StartFacts(disk);
 
         var mapped = rebuilt.Bytes;
         var set = ImageChanges.Compare(mapped, captured, file);
@@ -309,7 +311,7 @@ public sealed partial class MinidumpService
             uint sectionRva = disk.Sections.FirstOrDefault(x => x.Contains(rva))?.Rva ?? rva;
             var window = range.Code
                 ? Window(Slice(mapped), (r, n) => { var b = new byte[n]; disk.Read(r, b); return b; }, address, rva, described,
-                    LeadIn(disk.RuntimeFunctions, sectionRva, rva), mapped.Length)
+                    LeadIn(disk.RuntimeFunctions, sectionRva, rva, starts), mapped.Length)
                 : default;
             var (description, valueTarget) = range.Code
                 ? (DescribeCode(memoryBytes, fileBytes, address, disk.Arch, disk.Is64Bit, window, memory, exports), (string?)null)

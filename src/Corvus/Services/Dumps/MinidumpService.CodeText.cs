@@ -58,7 +58,9 @@ public sealed partial class MinidumpService
         return [.. starts];
     }
 
-    // Bytes from the nearest start before the range among the function holding\n    // it, the section start and starts; negative when it is farther back than\n    // MaxLeadInBytes.
+    // Bytes from the nearest start before the range among the function holding
+    // it, the section start and starts; negative when it is farther back than
+    // MaxLeadInBytes.
     internal static int LeadIn(IReadOnlyList<RuntimeFunction> table, uint sectionRva, uint rva,
         IReadOnlyList<uint>? starts = null)
     {
