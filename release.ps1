@@ -241,7 +241,7 @@ if (-not $VerifyOnly) {
 
             # A release needs a full pass at most -MaxBehind commits back and no failure after it on this history.
             # Families not yet verified on these inputs are named.
-            $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
+            $gitDir = [IO.Path]::GetFullPath((git -C $root rev-parse --git-common-dir).Trim(), $root)
             $result = Join-Path $gitDir 'corvus-background.result'
             $last = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { '' }
             if (-not $SkipTests) {
