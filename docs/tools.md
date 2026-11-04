@@ -2474,7 +2474,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). Without either: disassemble_dex.
+Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). simplified=true replaces each decoder call with a known value by its string literal. Without either: disassemble_dex.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2482,6 +2482,7 @@ Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or 
 | `symbol` | string | yes |  | Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)). |
 | `javaOnly` | boolean |  |  | Partial Java where JADX fails; default: smali there. |
 | `engine` | string |  |  | jadx (default) or vineflower (class files only). Values: jadx. |
+| `simplified` | boolean |  |  | Replace each string decoder call with a known value by its literal; a header counts folded and unknown calls. Default false. |
 | `offset` | integer |  |  | Character offset (nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |

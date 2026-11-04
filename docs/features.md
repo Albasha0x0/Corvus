@@ -80,7 +80,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 | Android DEX | `list_dex_classes`: classes of every DEX file |
 | | `get_dex_class`: one class with fields, methods and Kotlin metadata |
 | | `disassemble_dex`: smali of a method or class; decoded strings with `format=simplified` |
-| Android Java | `decompile_java`: Java source through JADX or Vineflower; smali where JADX fails; cached on disk |
+| Android Java | `decompile_java`: Java source through JADX or Vineflower; smali where JADX fails; `simplified=true` shows known decoder strings as literals; cached on disk |
 | | `search_dex`: strings, types, members, constants and opcodes in DEX code |
 | | `find_dex_references`: cross-references in DEX code |
 | Android bindings | `map_java_dotnet`: Java wrappers to .NET types and back |

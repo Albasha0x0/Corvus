@@ -41,16 +41,17 @@ public sealed class JavaDecompilerService(DexService dex, AssemblyWorkspace? wor
     /// The source of a class or method. With <paramref name="wait"/>, a load still running at its limit
     /// throws a retryable conflict and goes on in the background; null waits for the load to end.
     /// </summary>
-    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null, string engine = Jadx, LoadWait? wait = null)
+    public async Task<string> Decompile(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping = null, string engine = Jadx, LoadWait? wait = null, bool simplified = false)
     {
         symbol = symbol.Trim();
         bool vineflower = engine == Vineflower;
         // Keyed by the symbol as asked, so a warm call needs no DEX index either.
         var entry = Cache != null && JavaSourceCache.Engine(vineflower ? ExternalTools.JavaDecompiler2 : ExternalTools.JavaDecompiler) is { } build
-            ? Cache.Entry(path, build, $"{symbol}|{smaliFallback}", mapping) : null;
+            ? Cache.Entry(path, build, $"{symbol}|{smaliFallback}" + (simplified ? "|simplified" : ""), mapping) : null;
         if (JavaSourceCache.Read(entry) is { } cached) return cached;
         var text = vineflower ? await Task.Run(() => DecompileClassFiles(path, symbol, ct), ct).ConfigureAwait(false)
-            : await DecompileUncached(path, symbol, smaliFallback, ct, mapping, wait).ConfigureAwait(false);
+            : await DecompileUncached(path, symbol, smaliFallback, ct, mapping, wait, simplified).ConfigureAwait(false);
+        if (vineflower && simplified) text = JavaStringFold.ClassFileHeader + "\n" + text;
         JavaSourceCache.Write(entry, text);
         return text;
     }
@@ -110,15 +111,55 @@ public sealed class JavaDecompilerService(DexService dex, AssemblyWorkspace? wor
             SafeFile.WritePrivateUnderRoot(root, Blob.SafeRelativePath(name, "class.class", maxParts: 64), bytes, overwrite: true, flush: false);
     }
 
-    private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping, LoadWait? wait)
+    private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping, LoadWait? wait, bool simplified)
     {
         DexIndex index;
         try { index = dex.Index(path, ct); }
-        catch (ToolError e) when (e.Code == ErrorCode.NotFound && ClassFileJar(path) is { } jar) { return await DecompileJar(jar, symbol, smaliFallback, ct, wait).ConfigureAwait(false); }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound && ClassFileJar(path) is { } jar)
+        {
+            var text = await DecompileJar(jar, symbol, smaliFallback, ct, wait).ConfigureAwait(false);
+            return simplified ? JavaStringFold.ClassFileHeader + "\n" + text : text;
+        }
         var names = dex.Names(index, mapping, ct);
         symbol = DexService.Resolve(index, names, symbol);
         var source = await DecompileDex(index, symbol, smaliFallback, ct, wait).ConfigureAwait(false);
-        return names == null || names.IsEmpty ? source : WithNames(source, names, index, symbol, ct);
+        // Folded before renaming: the sites carry the names JADX wrote.
+        string? header = null;
+        if (simplified)
+        {
+            if (JavaStringFold.IsSmali(source)) header = JavaStringFold.SmaliHeader;
+            else
+            {
+                var (sites, scope) = FoldSites(index, symbol, ct);
+                var folded = JavaStringFold.Apply(source, sites, scope);
+                (source, header) = (folded.Text, folded.Header);
+            }
+        }
+        var named = names == null || names.IsEmpty ? source : WithNames(source, names, index, symbol, ct);
+        return header == null ? named : header + "\n" + named;
+    }
+
+    /// <summary>The static String decoder sites of a class with its nested classes, or of one method, and the classes whose decoders may be called unqualified.</summary>
+    private static (IReadOnlyList<DexFoldSite> Sites, IReadOnlySet<string> Scope) FoldSites(DexIndex index, string symbol, CancellationToken ct)
+    {
+        bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
+        var folding = DexStringFolding.For(index);
+        var methods = new List<DexMethodEntry>();
+        var scope = new HashSet<string>(StringComparer.Ordinal);
+        if (member)
+        {
+            if (index.Methods.GetValueOrDefault(index.ResolveMethod(symbol, ct)) is { } m) { methods.Add(m); scope.Add(m.Class.Descriptor); }
+        }
+        else if (index.FindClass(symbol) is { } cls)
+        {
+            var prefix = cls.Class.Descriptor.TrimEnd(';') + "$";
+            foreach (var d in index.Classes.Keys)
+                if (d == cls.Class.Descriptor || d.StartsWith(prefix, StringComparison.Ordinal)) scope.Add(d);
+            methods.AddRange(index.Methods.Values.Where(m => scope.Contains(m.Class.Descriptor)));
+        }
+        var sites = methods.SelectMany(folding.Method)
+            .Where(s => s.Wrapper == null && s.Decoder.Contains('(') && folding.Opcode(s) == "invoke-static").ToList();
+        return (sites, scope);
     }
 
     /// <summary>The source with original names applied, since the JADX server takes no mapping, under a line counting them.</summary>

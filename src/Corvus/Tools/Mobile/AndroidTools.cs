@@ -267,12 +267,13 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or a jar or .class via Vineflower " +
-                 "(engine=vineflower, CORVUS_JAVA_DECOMPILER2). Without either: disassemble_dex.")]
+                 "(engine=vineflower, CORVUS_JAVA_DECOMPILER2). simplified=true replaces each decoder call with a known value by its string literal. Without either: disassemble_dex.")]
     public async Task<string> DecompileJava(
         [Description("An .apk, .aab or split set, a .dex, a jar or a .class.")] string path,
         [Description("Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)).")] string symbol,
         [Description("Partial Java where JADX fails; default: smali there.")] bool javaOnly = false,
         [Description("jadx (default) or vineflower (class files only).")] string? engine = null,
+        [Description("Replace each string decoder call with a known value by its literal; a header counts folded and unknown calls. Default false.")] bool simplified = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
@@ -290,8 +291,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             progress.Report(new ProgressNotificationValue { Progress = 0, Message = decompiler == JavaDecompilerService.Jadx
                 ? "JADX: starting and loading the package (once per package)" : "Vineflower: decompiling the class" });
             static string Q(string v) => "\"" + v.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
-            var repeat = $"decompile_java path={Q(path)} symbol={Q(symbol)}" + (javaOnly ? " javaOnly=true" : "") + (mapping != null ? $" mapping={Q(mapping)}" : "");
-            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping, decompiler, new(JavaDecompilerService.LoadWaitDefault, repeat)), cancellationToken);
+            var repeat = $"decompile_java path={Q(path)} symbol={Q(symbol)}" + (javaOnly ? " javaOnly=true" : "") + (simplified ? " simplified=true" : "") + (mapping != null ? $" mapping={Q(mapping)}" : "");
+            return Task.Run(() => java.Decompile(path, symbol, !javaOnly, cancellationToken, mapping, decompiler, new(JavaDecompilerService.LoadWaitDefault, repeat), simplified), cancellationToken);
         }).ConfigureAwait(false);
         return pager.Page(text, offset, maxTokens);
     }
