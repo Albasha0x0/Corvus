@@ -90,4 +90,30 @@ public sealed class ImageChangesTests
         Assert.Equal(0x1000, unknown.Length);
         Assert.Equal("", unknown.MemoryBytes);
     }
+
+    // Reproduces the debug entry rows fixed in 39992d2df.
+    [Fact]
+    public void A_debug_entry_file_offset_set_to_the_RVA_is_not_a_change_but_a_code_byte_is()
+    {
+        var file = RebuildFixtures.Pe(new PeSpec(true,
+            [new SectionSpec(".text", 0x60000020, Enumerable.Repeat((byte)0x90, 0x40).ToArray()), new SectionSpec(".rdata", 0x40000040, new byte[0x100])]));
+        int opt = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(0x3C)) + 24;
+        int table = opt + BinaryPrimitives.ReadUInt16LittleEndian(file.AsSpan(opt - 4));
+        uint rva = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(table + 40 + 12));
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(table + 40 + 20));
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 12), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 16), 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 20), rva + 0x40);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(raw + 24), (uint)raw + 0x40);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(opt + 112 + 6 * 8), rva);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(opt + 112 + 6 * 8 + 4), 28);
+        var mapped = RebuildFixtures.Mapped(file);
+        BinaryPrimitives.WriteUInt32LittleEndian(mapped.AsSpan((int)rva + 24), rva + 0x40);
+
+        Assert.Empty(ImageChanges.Compare(mapped, Capture(mapped), file).Ranges);
+
+        mapped[0x1004] = 0xCC;
+        var set = ImageChanges.Compare(mapped, Capture(mapped), file);
+        Assert.Equal("0x1004", Assert.Single(set.Ranges).Rva);
+    }
 }
