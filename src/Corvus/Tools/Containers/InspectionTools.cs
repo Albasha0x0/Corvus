@@ -43,7 +43,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("assets: assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
-        [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
+        [Description("Write dependencies here, CycloneDX 1.6; with no component, view=indicators keeps its result and warns.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Overwrite either file.")] bool overwrite = false,
         [Description("Password to decrypt with; only it is tried.")] string? password = null,
@@ -77,7 +77,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
             }
             record = ContainerText.Summary(summary, name);
-            if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite)] };
+            if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite, name == "dependencies")] };
             if (stixPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteStix(summary, stixPath, overwrite)] };
             if (name == "layers" && graph != null)
             {
@@ -155,7 +155,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
     [Description("Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and " +
-                 "serialized asset fields, or native image strings (section, address), with count, locations and receiving APIs. " +
+                 "serialized asset fields, or native image strings (section, VA; view=indicators gives file offsets from a bounded scan), with count, locations and receiving APIs. " +
                  "read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,

@@ -178,7 +178,7 @@ public sealed class IndicatorTests : IDisposable
     public void A_native_image_string_gives_its_URL_and_host_with_the_offset()
     {
         var hits = NativeHits("beacon http://c2.example.org/gate ok");
-        Assert.Contains(hits, h => h is { Type: "url", Value: "http://c2.example.org/gate", Source: "native" } && h.Location!.StartsWith("ASCII string at 0x", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h is { Type: "url", Value: "http://c2.example.org/gate", Source: "native" } && h.Location!.StartsWith("ASCII string at file offset 0x", StringComparison.Ordinal));
         Assert.Contains(hits, h => h is { Type: "domain", Value: "c2.example.org" });
     }
 
@@ -190,6 +190,33 @@ public sealed class IndicatorTests : IDisposable
         var input = new FileInput("a.so", bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("indicators") };
         var hits = new NativeFileView().Inspect(input, default)!.Indicators;
         Assert.Contains(hits, h => h is { Type: "url", Value: "https://wide.example.net/x" } && h.Location!.StartsWith("UTF-16", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_certificate_URL_in_a_native_image_ends_at_its_DER_length()
+    {
+        var url = Encoding.ASCII.GetBytes("http://crl.example.org/ca.crl");
+        var bytes = AndroidDependencyTests.NativeLibrary();
+        bytes = [.. bytes, 0x86, (byte)url.Length, .. url, 0x30, 0x41, 0];
+        var input = new FileInput("a.so", bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("indicators") };
+        var hits = new NativeFileView().Inspect(input, default)!.Indicators;
+        Assert.Contains(hits, h => h is { Type: "url", Value: "http://crl.example.org/ca.crl" });
+        Assert.DoesNotContain(hits, h => h.Value.EndsWith("0A", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_sbom_path_on_an_executable_keeps_the_indicators_and_writes_the_STIX_file()
+    {
+        // Fixes the 2.10.0 failure where sbomPath refused the whole indicators result.
+        var path = _dir.File("a.so");
+        File.WriteAllBytes(path, AndroidDependencyTests.NativeLibrary("beacon http://c2.example.org/gate ok"));
+        var stix = _dir.File("a.stix.json");
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
+        var text = await tools.SummarizeFile(path: path, view: "indicators", sbomPath: _dir.File("a.cdx.json"), stixPath: stix);
+        Assert.Contains("c2.example.org", text);
+        Assert.Contains("no SBOM written", text);
+        Assert.True(File.Exists(stix));
+        Assert.False(File.Exists(_dir.File("a.cdx.json")));
     }
 
     [Fact]

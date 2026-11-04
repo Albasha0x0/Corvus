@@ -566,7 +566,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `script` | string |  |  | assets: assets of this script class. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  |  | Max rows. |
-| `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
+| `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6; with no component, view=indicators keeps its result and warns. |
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
 | `overwrite` | boolean |  |  | Overwrite either file. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |
@@ -595,7 +595,7 @@ Structured output: `assembly`, `methodsScanned`, `features`, `category`.
 
 **Extract typed strings** (read-only, idempotent)
 
-Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and serialized asset fields, or native image strings (section, address), with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
+Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and serialized asset fields, or native image strings (section, VA; view=indicators gives file offsets from a bounded scan), with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

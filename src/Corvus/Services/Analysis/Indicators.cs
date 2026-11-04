@@ -81,14 +81,26 @@ public static class IndicatorList
             Flush();
             void Flush()
             {
+                if (step == 1) TrimToDerLength(run, start, image);
                 if (run.Length >= MinStringChars && run.ToString() is var t && (t.Contains("://") || t.Contains('@') || t.Contains('.')))
-                    fields.Add((t, $"{encoding} string at 0x{start:x}"));
+                    fields.Add((t, $"{encoding} string at file offset 0x{start:x}"));
                 run.Clear();
             }
         }
         Scan(1, "ASCII");
         Scan(2, "UTF-16");
         return FromText(source, fields, ct, IndicatorEvidence.String);
+    }
+
+    // An IA5String or URI general name in DER states its length; the next tag byte is no part of it.
+    private static void TrimToDerLength(System.Text.StringBuilder run, int start, byte[] image)
+    {
+        if (start < 2 || run.Length == 0) return;
+        int length = image[start - 1], tagAt = start - 2;
+        // Long form with one length byte: 0x81, then the length.
+        if (tagAt >= 1 && image[tagAt] == 0x81) tagAt--;
+        if (image[tagAt] is not (0x16 or 0x86) || length == 0 || length >= run.Length) return;
+        run.Length = length;
     }
 
     /// <summary>The signer and issuer names and the OCSP, CRL and CA issuer URLs of certificates; self-issued certificates give no issuer.</summary>

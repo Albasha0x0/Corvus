@@ -504,7 +504,7 @@ public static class FileWork
         using var _ = ContainerPassword.Enter(a.Password);
         var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Stix = a.StixPath != null, Script = a.Script });
         var record = ContainerText.Summary(summary, a.View);
-        if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite)] };
+        if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite, a.View == "dependencies")] };
         if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };
         if (a.View == "layers" && graph != null)
         {
@@ -515,10 +515,15 @@ public static class FileWork
     }
 
     /// <summary>Writes the dependencies view to <paramref name="sbomPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
-    public static string WriteSbom(InspectionService.FileSummary summary, string sbomPath, bool overwrite)
+    public static string WriteSbom(InspectionService.FileSummary summary, string sbomPath, bool overwrite, bool required = true)
     {
         if (summary.Views.GetValueOrDefault("dependencies")?.Detail is not Services.Analysis.Dependencies.DependencyFacts facts)
-            throw new ToolError(ErrorCode.NotFound, "No component was read from the file; no SBOM written. A part the readers cannot read is unknown, not absent.", "call summarize_file view=dependencies path=<an app, bundle, executable or package> sbomPath=<file>");
+        {
+            // Another view keeps its own result when there is no SBOM to write.
+            if (!required)
+                return "Warning: no SBOM written, no component was read from the file; an executable has no component list. list_imports names its libraries.";
+            throw new ToolError(ErrorCode.NotFound, "No component was read from the file; no SBOM written. A part the readers cannot read is unknown, not absent.", "call summarize_file view=dependencies path=<an app, bundle or package> sbomPath=<file>");
+        }
         var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,
             null, Services.Analysis.Dependencies.CycloneDx.SerialFor(summary.File.Sha256, ServerIdentity.InformationalVersion));
         var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);
