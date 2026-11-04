@@ -89,6 +89,7 @@ public static class Blob
         if (StartsWith(b, "XABA"u8) && FileHeaders.AssemblyStore(b)) return "xaba (Xamarin assembly store)";
         if (StartsWith(b, [0xCE, 0xCA, 0xEF, 0xBE]) && FileHeaders.Resources(b)) return ".resources";
         if (StartsWith(b, "BSJB"u8) && FileHeaders.MetadataRoot(b)) return "portable pdb";
+        if (StartsWith(b, "XBF\0"u8) && LooksLikeXbf(b)) return "xbf (compiled XAML)";
         if (FileHeaders.Wasm(b)) return "wasm";
         if (StartsWith(b, "WbIL"u8) && FileHeaders.Webcil(b)) return "webcil";
         if (FileHeaders.Pdb(b)) return "pdb";
@@ -126,6 +127,11 @@ public static class Blob
         if (LooksLikeText(b)) return "text";
         return "data";
     }
+
+    // Header: signature, metadata size, node size, major, minor; version 1 or 2.
+    private static bool LooksLikeXbf(ReadOnlySpan<byte> b) =>
+        b.Length >= 0x14 && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[12..]) is 1 or 2
+        && (ulong)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) + System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[8..]) <= (ulong)b.Length;
 
     public static bool StartsWith(ReadOnlySpan<byte> b, ReadOnlySpan<byte> magic) => b.Length >= magic.Length && b[..magic.Length].SequenceEqual(magic);
 

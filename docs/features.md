@@ -504,7 +504,7 @@ Pass the name as `view=`.
 | `pcap` | flows, DNS, TLS fingerprints, HTTP templates, beaconing hints |
 | `qlog` | QUIC and HTTP/3 event logs |
 | `certificate` | certificates, chains, SPKI pins, trust verdict |
-| `nib`, `xbf`, `pri`, `plist` | compiled UI and resource files decoded |
+| `nib`, `xbf`, `pri`, `plist` | compiled UI and resource files decoded; `xbf` named by `summarize_file` |
 | `esp32` | ESP32 images, partitions, NVS values |
 | `model` | safetensors, GGUF, ONNX, PyTorch, pickle, joblib, `.npy`, `.npz`, `.keras`; code a file runs when loaded; nothing unpickled |
 | `installer` | MSI custom actions, services, autostart entries; NSIS and Inno Setup commands, `[Run]` and registry writes at their entries; InstallShield and Advanced Installer named |
