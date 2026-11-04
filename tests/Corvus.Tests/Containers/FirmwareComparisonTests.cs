@@ -74,10 +74,11 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
     }
 
     /// <summary>Classes the signature images are taken by; each takes a reference-tool permit of its own.</summary>
-    public const int SignatureParts = 2;
+    public const int SignatureParts = 3;
 
     public sealed class Signatures1(ITestOutputHelper output) : SignatureScan(output);
     public sealed class Signatures2(ITestOutputHelper output) : SignatureScan(output);
+    public sealed class Signatures3(ITestOutputHelper output) : SignatureScan(output);
 
     /// <summary>Signature hits compared with binwalk by offset; parts share images and totals, so any split checks every image.</summary>
     [Trait("Speed", "Slow")]
@@ -93,7 +94,9 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
             if (Environment.GetEnvironmentVariable("CORVUS_FIRMWARE_IMAGES") is not { Length: > 0 } root || !Directory.Exists(root)
                 || Environment.GetEnvironmentVariable("CORVUS_FS_REFERENCE") is not { Length: > 0 } runner) return;
             var script = Path.Combine(FirmwareFilesystemTests.FixtureDir, "reference.sh");
-            lock (Gate) _pending ??= new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal));
+            // Largest first: the scanner's time grows with size, so the last image taken is a small one.
+            lock (Gate) _pending ??= new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .OrderByDescending(f => new FileInfo(f).Length).ThenBy(f => f, StringComparer.Ordinal));
             while (true)
             {
                 string file;
