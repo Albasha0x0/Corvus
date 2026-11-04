@@ -128,7 +128,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             ["install_dir"] = ghidra.Directory,
             ["install_source"] = ghidra.Source,
             ["version"] = ghidra.Version,
-            ["decompiler"] = ghidra.DecompilerPath ?? "missing: " + ghidra.DecompilerRemediation,
+            ["decompiler"] = ghidra.DecompilerPath is { } decompiler ? Path.GetRelativePath(ghidra.Directory, decompiler) : "missing: " + ghidra.DecompilerRemediation,
         };
         var log = new List<string>();
         var java = JavaRuntime.Locate(_options.JavaHome, ghidra.JavaMin, ghidra.JavaMax, log);
