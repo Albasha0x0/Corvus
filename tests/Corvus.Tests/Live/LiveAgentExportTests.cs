@@ -82,6 +82,8 @@ public sealed class LiveAgentExportTests : IDisposable
         File.WriteAllText(_dir.File("driver.py"), Driver);
         var python = new FridaBackend().Python!.Executable;
         var psi = new ProcessStartInfo(python) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        // Frida unpacks into TEMP: a folder of the test's own is deleted with it.
+        psi.Environment["TEMP"] = psi.Environment["TMP"] = Directory.CreateDirectory(_dir.File("frida-temp")).FullName;
         foreach (var a in new[] { "-I", _dir.File("driver.py"), _dir.File("agent_export.js"), _dir.File("names.json"), "kernel32.dll" }) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         var error = p.StandardError.ReadToEndAsync();
