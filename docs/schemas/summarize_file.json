@@ -154,6 +154,70 @@
       "description": "Overview: version digest of the rule table behind the levels; read_result format=verify names a change.",
       "type": "string"
     },
+    "capa": {
+      "description": "Overview and indicators, PE and ELF files: the capa labels kept for the file (state, checker, label count, first 50 labels); state not run when capa is set up and none is kept; absent when capa is not set up.",
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "checker": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "integer"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "attack": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "mbc": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "scope",
+              "attack",
+              "mbc"
+            ]
+          }
+        },
+        "labelTotal": {
+          "type": "integer"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "state",
+        "labels",
+        "items"
+      ]
+    },
     "notices": {
       "type": "array",
       "items": {

@@ -109,6 +109,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         /// <summary>Set for a Go program: toolchain, main package and module, dependencies (first 64) and build settings.</summary>
         public GoBuildFacts? Go { get; init; }
 
+        /// <summary>The capa report kept for a PE or ELF file; null when none is kept. summarize_file never runs capa.</summary>
+        public CapaReport? Capa { get; init; }
+
+        /// <summary>True for a PE or ELF file when capa is set up, so a missing <see cref="Capa"/> means capa has not run.</summary>
+        public bool CapaAvailable { get; init; }
+
         /// <summary>The views that apply to the file (<see cref="IFileSummaryView"/>), by name; the typed properties above are the built-in ones.</summary>
         [JsonIgnore] public IReadOnlyDictionary<string, FileView> Views { get; init; } = new Dictionary<string, FileView>();
 
@@ -1086,6 +1092,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 Go = views.GetValueOrDefault("go")?.Detail as GoBuildFacts,
                 Views = views,
             };
+            if (Native.NativeImageLoader.Detect(input.Head) is Native.NativeFileKind.Pe or Native.NativeFileKind.Elf)
+                s = s with
+                {
+                    Capa = NativeCapa.Cached(full),
+                    CapaAvailable = Native.Providers.ExternalTools.Locate(Native.Providers.ExternalTools.Capa) != null,
+                };
             if (input.Options.View != "indicators") return s;
             var indicators = IndicatorList.Of(s);
             views["indicators"] = new FileView(indicators, [$"{indicators.Total:N0} indicators ({string.Join(", ", indicators.ByType.Select(t => $"{t.Value:N0} {t.Key}"))})."]);

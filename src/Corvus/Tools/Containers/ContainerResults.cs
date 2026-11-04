@@ -83,7 +83,20 @@ public sealed record FileSummaryRecord(string Path, long Size, string Type, stri
 
     [System.ComponentModel.Description("Overview: version digest of the rule table behind the levels; read_result format=verify names a change.")]
     public string? RuleTable { get; init; }
+
+    [System.ComponentModel.Description("Overview and indicators, PE and ELF files: the capa labels kept for the file (state, checker, label count, first 50 labels); state not run when capa is set up and none is kept; absent when capa is not set up.")]
+    public CapaSummary? Capa { get; init; }
 }
+
+/// <summary>The capa labels kept for a file; State is a capa state or not run, and LabelTotal is set when labels were cut.</summary>
+public sealed record CapaSummary(string State, string? Checker, int Labels, IReadOnlyList<CapaLabelRow> Items)
+{
+    public int? LabelTotal { get; init; }
+    public IReadOnlyList<string>? Notes { get; init; }
+}
+
+/// <summary>A capa label: rule name, namespace, scope, ATT&amp;CK ids and MBC ids.</summary>
+public sealed record CapaLabelRow(string Name, string? Namespace, string Scope, IReadOnlyList<string> Attack, IReadOnlyList<string> Mbc);
 
 /// <summary>An assembly of the file in the overview; features counts its survey_features matches.</summary>
 public sealed record AssemblyRow(string Path, string Name, string Kind, string Architecture, int Features)
@@ -130,6 +143,28 @@ internal static class ContainerText
     }
 
     internal const int MaxHighlights = 25;
+    internal const int MaxCapaLabels = 50;
+
+    private static CapaSummary? CapaOf(InspectionService.FileSummary s)
+    {
+        if (s.Capa is not { } r)
+            return s.CapaAvailable ? new("not run", null, 0, []) : null;
+        var rows = r.Labels.Take(MaxCapaLabels).Select(l => new CapaLabelRow(l.Name, l.Namespace, l.Scope, l.Attack, l.Mbc)).ToList();
+        return new(r.State, r.Checker, r.Labels.Count, rows)
+        {
+            LabelTotal = r.Labels.Count > rows.Count ? r.Labels.Count : null,
+            Notes = r.Notes.Count > 0 ? r.Notes : null,
+        };
+    }
+
+    private static string? CapaLine(CapaSummary? c) => c switch
+    {
+        null => null,
+        { State: "not run" } => "capa: not run on this file (survey_features category=capa runs it)",
+        { State: "matched" } => $"capa: {c.Labels:N0} labels kept (survey_features category=capa refreshes)"
+            + (c.LabelTotal is { } t ? $"; the first {c.Items.Count:N0} of {t:N0} are listed, survey_features category=capa lists all" : ""),
+        _ => $"capa: {c.State}{(c.Notes is { Count: > 0 } n ? ", " + string.Join("; ", n) : "")}",
+    };
     private const int MaxEntryPoints = 10, MaxNotes = 12, MaxFindings = 50, MaxTextFindings = 5;
 
     /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies in ordinal order, all; reserved names are listed once.</summary>
@@ -145,6 +180,7 @@ internal static class ContainerText
         var record = new FileSummaryRecord(s.File.Path, s.File.Size, s.File.Type, s.File.Sha256, s.Container, name, views)
         {
             Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
+            Capa = name is "overview" or "indicators" ? CapaOf(s) : null,
         };
         if (name != "overview") return record with { Detail = Detail(s, name), Notes = s.Notes.Count > 0 ? s.Notes : null };
         var main = s.Assemblies.FirstOrDefault();
@@ -229,11 +265,13 @@ internal static class ContainerText
             }
             if (r.EntryPoints is { } entries) sb.Append("Entry points: ").Append(Escape(string.Join("; ", entries))).Append('\n');
             if (r.Values is { } values) sb.Append("Typed values: ").Append(string.Join(", ", values.Select(v => $"{v.Value} {v.Key}"))).Append(" (extract_strings lists them)\n");
+            if (CapaLine(r.Capa) is { } capa) sb.Append(Escape(capa)).Append('\n');
         }
         else
         {
             sb.Append($"; view {r.View}\n");
             if (r.Detail is { } detail) sb.Append(RecordText.Render(detail, null));
+            if (CapaLine(r.Capa) is { } capa) sb.Append(Escape(capa)).Append('\n');
         }
         sb.Append("Views: ").Append(string.Join(", ", r.Views)).Append('\n');
         foreach (var n in r.Notes ?? []) sb.Append("Note: ").Append(Escape(n)).Append('\n');
