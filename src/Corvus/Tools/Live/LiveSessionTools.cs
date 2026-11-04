@@ -138,7 +138,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("spawn: program arguments; page_diff: old, new result id.")] string[]? arguments = null,
         [Description("spawn: NAME=value.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
-        [Description("snapshot: dump file; screenshot: PNG file; save_modules: new or empty folder (default temp).")] string? outputPath = null,
+        [Description("snapshot: dump file, save_modules: new or empty folder (both default temp); screenshot: PNG file.")] string? outputPath = null,
         [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description("Hold children by image name (* any).")] string[]? childNames = null,
         [Description("Download a missing DAC.")] bool downloadDac = false,

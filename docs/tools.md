@@ -2883,7 +2883,7 @@ Open, list, inspect or close a session on a program; modules match to images; sn
 | `arguments` | string[] |  |  | spawn: program arguments; page_diff: old, new result id. |
 | `environment` | string[] |  |  | spawn: NAME=value. |
 | `session` | string |  |  | Id from live_session. |
-| `outputPath` | string |  |  | snapshot: dump file; screenshot: PNG file; save_modules: new or empty folder (default temp). |
+| `outputPath` | string |  |  | snapshot: dump file, save_modules: new or empty folder (both default temp); screenshot: PNG file. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 | `childNames` | string[] |  |  | Hold children by image name (* any). |
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
