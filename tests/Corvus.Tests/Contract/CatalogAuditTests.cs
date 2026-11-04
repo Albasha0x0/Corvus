@@ -14,12 +14,13 @@ public class CatalogAuditTests
     private const int MaxInputSchemaBytes = 8 * 1024;
 
     // Both ceilings rose by 300 bytes for the symbols and compareWith
-    // parameters; then by 100 and 150 for the group parameter.
+    // parameters; then by 100 and 150 for the group parameter; then by 250
+    // and 450 for the simplified parameter and the capa summary field.
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 150_100;
+    private const int MaxModelFacingBytes = 150_350;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 295_600;
+    private const int MaxToolsListBytes = 296_050;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()

@@ -571,7 +571,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `overwrite` | boolean |  |  | Overwrite either file. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |
 
-Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `level`, `findings`, `findingTotal`, `ruleTable`.
+Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `level`, `findings`, `findingTotal`, `ruleTable`, `capa`.
 
 ### survey_features
 
@@ -2482,7 +2482,7 @@ Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or 
 | `symbol` | string | yes |  | Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)). |
 | `javaOnly` | boolean |  |  | Partial Java where JADX fails; default: smali there. |
 | `engine` | string |  |  | jadx (default) or vineflower (class files only). Values: jadx. |
-| `simplified` | boolean |  |  | Replace each string decoder call with a known value by its literal; a header counts folded and unknown calls. Default false. |
+| `simplified` | boolean |  |  | Show string decoder calls as their decoded literals; a header counts unknown calls. |
 | `offset` | integer |  |  | Character offset (nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens. |
 | `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
