@@ -122,20 +122,25 @@ public class LiveSaveModulesTests
         }
     }
 
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static System.Diagnostics.Process StartChild()
     {
         var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
-        // The main thread waits on input, past the entry point a test rewrites.
-        for (int i = 0; i < 100; i++)
+        // Loader worker threads wait before the entry point runs, so only the
+        // main thread waiting on input, seen twice, is past the entry point a
+        // test rewrites.
+        int waits = 0;
+        for (int i = 0; i < 200 && waits < 2; i++)
         {
             Thread.Sleep(50);
             try
             {
                 child.Refresh();
-                if (child.MainModule != null && child.Threads.Cast<System.Diagnostics.ProcessThread>().Any(t => t.ThreadState == System.Diagnostics.ThreadState.Wait)) break;
+                var main = child.Threads.Cast<System.Diagnostics.ProcessThread>().MinBy(t => t.StartTime);
+                waits = child.MainModule != null && main?.ThreadState == System.Diagnostics.ThreadState.Wait ? waits + 1 : 0;
             }
-            catch (System.ComponentModel.Win32Exception) { }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { waits = 0; }
         }
         return child;
     }
