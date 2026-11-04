@@ -218,6 +218,9 @@ public sealed partial class JsonInputTests
         ["Services/Web/Packages/AgentConfigReview.cs"] = (
             """{"version":"2.0.0","tasks":[{"label":"x","command":"echo","runOptions":{"runOn":"folderOpen"}}]}""",
             b => PackageReview.JsonTree.Parse(Decoded(b))),
+        ["Services/Web/Packages/WorkflowAuditor.cs"] = (
+            """[{"ident":"template-injection","determinations":{"severity":"High"},"desc":"d","locations":[{"concrete":{"location":{"start_point":{"row":3}}}}]}]""",
+            b => Static(typeof(WorkflowAuditor), "Read", b, "w.yml")),
         ["Services/Web/Packages/Lockfiles.cs"] = (
             """{"lockfileVersion":3,"packages":{"":{"name":"a"},"node_modules/b":{"version":"1.0.0","resolved":"https://r.example/b/-/b-1.0.0.tgz","integrity":"sha512-x"}}}""",
             b => Lockfiles.Read("package-lock.json", Decoded(b))),

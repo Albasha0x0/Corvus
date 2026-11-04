@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Corvus.Core;
 using Corvus.Native.Providers;
@@ -27,8 +28,7 @@ internal static class WorkflowAuditor
         var copy = PrivateFolder.Temp("workflow-audit", Guid.NewGuid().ToString("N") + extension);
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
-            File.WriteAllText(copy, text);
+            SafeFile.WritePrivate(copy, Encoding.UTF8.GetBytes(text), overwrite: false);
             var run = ExternalTools.Run(exe, ExternalTools.Arguments(ExternalTools.Zizmor, "audit", ("file", copy)), Timeout.InfiniteTimeSpan, MaxOutput, ct,
                 watch: new(new StallRule(window)));
             if (run.StartError != null) return new([], $"{path}: workflow auditor: {run.StartError}");
@@ -51,7 +51,7 @@ internal static class WorkflowAuditor
         var found = new List<PackageFinding>();
         try
         {
-            using var doc = JsonDocument.Parse(output);
+            using var doc = InputJson.ParseDocument(output);
             foreach (var item in doc.RootElement.EnumerateArray())
             {
                 var id = Text(item, "ident") ?? Text(item, "id") ?? "unknown";
