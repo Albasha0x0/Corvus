@@ -5,7 +5,7 @@ using SharpCompress.Compressors.LZMA;
 
 namespace Corvus.Tests;
 
-/// <summary>Builds stored 7z archives whose entries, and optionally the header, are packed behind the 7zAES coder, optionally after an LZMA coder.</summary>
+/// <summary>Builds stored 7z archives whose entries, and optionally the header, are packed behind the 7zAES coder, optionally after an LZMA or LZMA2 coder.</summary>
 internal static class SevenZipEncryptedFixtures
 {
     private const int CyclePower = 8;
@@ -17,7 +17,7 @@ internal static class SevenZipEncryptedFixtures
     private sealed record Lz(byte[] Id, byte[] Props);
 
     /// <summary>The compressor placed before 7zAES in a folder.</summary>
-    internal enum Compression { None, Lzma }
+    internal enum Compression { None, Lzma, Lzma2 }
 
     /// <summary>A 7z with one folder per file; a null <paramref name="password"/> stores plainly, and <paramref name="encryptHeader"/> packs the header behind the coder.</summary>
     internal static byte[] Build(string? password, bool encryptHeader, params (string Name, byte[] Data)[] files) =>
@@ -99,7 +99,7 @@ internal static class SevenZipEncryptedFixtures
         {
             if (f.Compressor != null)
             {
-                // LZMA first in unpack order, 7zAES second, bound output to input.
+                // LZMA or LZMA2 first in unpack order, 7zAES second, bound output to input.
                 Number(s, 2);
                 s.WriteByte((byte)(f.Compressor.Id.Length | 0x20));
                 s.Write(f.Compressor.Id);
@@ -160,6 +160,7 @@ internal static class SevenZipEncryptedFixtures
     private static (byte[] Data, Lz? Coder) Compress(byte[] data, Compression compression)
     {
         if (compression == Compression.None) return (data, null);
+        if (compression == Compression.Lzma2) return (Lzma2Stored(data), new Lz([0x21], [0x18]));
         var output = new MemoryStream();
         byte[] props;
         using (var encoder = LzmaStream.Create(new LzmaEncoderProperties(), false, output))
@@ -169,6 +170,23 @@ internal static class SevenZipEncryptedFixtures
             props = encoder.Properties;
         }
         return (output.ToArray(), new Lz([0x03, 0x01, 0x01], props));
+    }
+
+    // Chunks are stored, not compressed: the stream needs no LZMA2 encoder.
+    private static byte[] Lzma2Stored(byte[] data)
+    {
+        var output = new MemoryStream();
+        for (int at = 0; at < data.Length; at += 0x10000)
+        {
+            int size = Math.Min(0x10000, data.Length - at);
+            // Control 1 resets the dictionary, 2 keeps it.
+            output.WriteByte(at == 0 ? (byte)1 : (byte)2);
+            output.WriteByte((byte)(size - 1 >> 8));
+            output.WriteByte((byte)(size - 1));
+            output.Write(data, at, size);
+        }
+        output.WriteByte(0);
+        return output.ToArray();
     }
 
     // The coder properties carry the cycle power, an 8-byte salt and a 16-byte IV.
