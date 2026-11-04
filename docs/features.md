@@ -442,6 +442,7 @@ Labels:
 - Variation-selector and private-use runs are decoded to bytes; terminal escapes and Markdown hidden from rendering in an instruction file are reported.
 - Agent settings (`.claude/settings.json`): `env` endpoint, proxy and loader overrides are noteworthy; helper commands, permission widening, plugins and marketplaces are reviewed.
 - Codex settings (`.codex/config.toml`): `approval_policy = "never"` and a loader or endpoint variable in `shell_environment_policy.set` are noteworthy; `danger-full-access`, `model_providers` and `profiles` (read from a user-level file only) and `mcp_servers` are review.
+- Cursor CLI settings (`.cursor/cli.json`, `.cursor/cli-config.json`): `Shell` permissions for a program that runs code or any command, `Write` over every path or outside the folder and `Mcp(*:*)` are review; a deny list is noted.
 - Plugin manifests and hooks, command, agent, skill and prompt files, MCP files of other agents and `chat.tools.autoApprove` are read; `.codex` and `.gemini` folders count as agent files.
 - A program that runs `claude`, `codex`, `gemini` or `copilot` with confirmation off is noteworthy.
 

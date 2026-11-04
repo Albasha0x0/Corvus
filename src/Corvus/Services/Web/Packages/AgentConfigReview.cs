@@ -58,6 +58,9 @@ public static partial class PackageReview
                 case "codex settings":
                     review.Notes.Add($"{path}: not read ({files.Size(path):N0} bytes, over the limit or unreadable); agent configuration unknown");
                     break;
+                case "cursor cli settings" when Tree(files, path, review.Notes) is { } s:
+                    CursorCliSettings(s, path, review);
+                    break;
                 case "plugin hooks" when Tree(files, path, review.Notes) is { } s:
                     Hooks(s, path, review, ct);
                     break;
