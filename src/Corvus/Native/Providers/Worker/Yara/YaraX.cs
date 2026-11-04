@@ -43,9 +43,25 @@ internal static class YaraX
         {
             throw new ToolError(ErrorCode.ProviderUnavailable,
                 $"YARA-X {Version} is not available for {RuntimeInformation.RuntimeIdentifier}: {_refused ?? e.Message}",
-                $"set {LibraryVariable} to a libyara_x_capi {Version} build for this platform");
+                UnavailableNext) { Retryable = false };
         }
     }
+
+    /// <summary>The next step of a missing library.</summary>
+    public static string UnavailableNext => $"set {LibraryVariable} to a libyara_x_capi {Version} build for this platform; a source build lacks it, the release build adds it (-p:YaraXRuntimes)";
+
+    /// <summary>The library file a load would try first, or null when none exists; nothing is loaded or hashed.</summary>
+    public static string? Locate()
+    {
+        if (Environment.GetEnvironmentVariable(LibraryVariable) is { Length: > 0 } configured) return File.Exists(configured) ? configured : null;
+        var dir = AppContext.BaseDirectory;
+        return new[] { Path.Combine(dir, "runtimes", RuntimeInformation.RuntimeIdentifier, "native", FileName), Path.Combine(dir, FileName) }.FirstOrDefault(File.Exists);
+    }
+
+    /// <summary>The error a worker's missing-library answer becomes in the server, with the specific next step and not retryable; null for any other error.</summary>
+    public static ToolError? Remap(ToolError e) =>
+        e.Code == ErrorCode.ProviderUnavailable && e.Message.StartsWith($"YARA-X {Version} is not available", StringComparison.Ordinal)
+            ? new ToolError(e.Code, e.Message, UnavailableNext) { Retryable = false } : null;
 
     private static IntPtr Resolve(string name, Assembly assembly, DllImportSearchPath? path)
     {

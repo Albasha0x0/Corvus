@@ -100,6 +100,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     (ReferencePacks.LastProblem is { } problem ? $"; last: {problem}" : ""), null),
         ];
         capabilities.Add(new("native PE analysis", true, "built in", null));
+        capabilities.Add(RuleScannerCapability());
         // The engines are checked beside the external programs, each check in parallel (see ExternalToolCapabilities).
         var deadline = DateTime.UtcNow + Native.Providers.ExternalTools.StatusWait;
         var external = OwnThread(() => ExternalToolStatus(Native.Providers.ExternalTools.StatusWait));
@@ -172,6 +173,12 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new CatalogFilter(options.ToolAllowList != null ? options.ToolAllowListSource ?? "(set)" : null, options.ToolAllowList?.Count, options.TracePath),
             sections?.GetAwaiter().GetResult() ?? []);
     }
+
+    /// <summary>The rule scanner row: its version when the library is found, else the file name and the fix.</summary>
+    internal static Capability RuleScannerCapability() => Native.Providers.Worker.Yara.YaraX.Locate() != null
+        ? new("YARA-X", true, Native.Providers.Worker.Yara.YaraX.Version, null)
+        : new("YARA-X", false, "not found",
+            $"set {Native.Providers.Worker.Yara.YaraX.LibraryVariable} or build with -p:YaraXRuntimes");
 
     private const string Pending = "its check is still running; call server_status again";
 

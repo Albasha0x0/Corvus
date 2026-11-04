@@ -70,8 +70,12 @@ internal sealed class YaraSearchKind : IContainerSearchKind
     private static T Read<T>(JsonElement answer) where T : class =>
         answer.Deserialize<T>(YaraOps.Json) ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
 
-    private static JsonElement Call(string op, JsonObject request, string target, CancellationToken ct, WorkerPool? pool) =>
-        (pool ?? WorkerPool.Shared).RunAsync("yara", op, request, Timeout.InfiniteTimeSpan, ct, target, ServerOptions.StallWindow()).GetAwaiter().GetResult();
+    // The worker protocol carries a code and a message only, so the next step is restored here.
+    private static JsonElement Call(string op, JsonObject request, string target, CancellationToken ct, WorkerPool? pool)
+    {
+        try { return (pool ?? WorkerPool.Shared).RunAsync("yara", op, request, Timeout.InfiniteTimeSpan, ct, target, ServerOptions.StallWindow()).GetAwaiter().GetResult(); }
+        catch (ToolError e) when (YaraX.Remap(e) is { } missing) { throw missing; }
+    }
 
     /// <summary>The retryable error for a stalled scan of <paramref name="target"/>, naming the call to repeat and the variable to raise.</summary>
     internal static ToolError Stalled(ToolError stalled, string target) =>
