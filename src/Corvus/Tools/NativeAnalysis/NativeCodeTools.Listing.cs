@@ -1,6 +1,8 @@
 using System.Text;
+using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Code;
+using Corvus.Services;
 using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
@@ -37,12 +39,30 @@ public sealed partial class NativeCodeTools
         }
     }
 
-    /// <summary>Linear listing of at most <paramref name="max"/> lines; data items render as data and mid-instruction starts resynchronize.</summary>
-    internal static void AppendLinear(StringBuilder sb, NativeCodeIndex index, AddressClassifier classifier, uint rva, int max, List<string> warnings, CancellationToken ct)
+    /// <summary>Per-instruction notes of <paramref name="fn"/> (calls, runtime code, field and slot notes) by address.</summary>
+    internal static Dictionary<uint, string> FunctionNotes(LoadedNative native, NativeCodeIndex index, NativeFunction fn, CancellationToken ct)
+    {
+        var calls = new Dictionary<uint, string>(NativeCallTools.CallComments(index, fn, ct));
+        void Merge(IEnumerable<KeyValuePair<uint, string>> notes)
+        {
+            foreach (var (at, note) in notes)
+                calls[at] = calls.TryGetValue(at, out var known) ? $"{note}; {known}" : note;
+        }
+        Merge(NativeAotCode.Comments(native, index, fn, ct));
+        Merge(AotFieldNotes.Comments(native, index, fn, ct));
+        Merge(AotSlotNotes.Comments(native, index, fn, ct));
+        return calls;
+    }
+
+    /// <summary>Linear listing of at most <paramref name="max"/> lines; data items render as data and mid-instruction starts resynchronize. Code inside a function keeps its block labels and <paramref name="notes"/>.</summary>
+    internal static void AppendLinear(StringBuilder sb, NativeCodeIndex index, AddressClassifier classifier, uint rva, int max, List<string> warnings, CancellationToken ct,
+        Func<NativeFunction, IReadOnlyDictionary<uint, string>>? notes = null)
     {
         var image = index.Image;
         string Va(uint r) => NativeAddress.Va(image, r);
         var disassembler = index.CreateDisassembler();
+        var labelsOf = new Dictionary<uint, IReadOnlyDictionary<uint, string>>();
+        var notesOf = new Dictionary<uint, IReadOnlyDictionary<uint, string>>();
         uint at = rva;
         for (int lines = 0; lines < max && at < image.SizeOfImage;)
         {
@@ -54,9 +74,10 @@ public sealed partial class NativeCodeTools
                 if (c.Status == AddressStatus.MidInstruction)
                 {
                     uint resume = at == rva ? c.InstructionStart!.Value : c.InstructionStart!.Value + (uint)c.InstructionLength;
+                    // The start warning above the listing already names the first one.
                     var note = $"desync: {Va(at)} is inside the instruction at {Va(c.InstructionStart.Value)}; resynchronized to {Va(resume)}";
-                    sb.AppendLine("; " + note);
-                    if (at != rva) warnings.Add(note);
+                    if (at != rva) { sb.AppendLine("; " + note); warnings.Add(note); }
+                    else sb.AppendLine($"; resynchronized to {Va(resume)}");
                     at = resume;
                     continue;
                 }
@@ -67,10 +88,17 @@ public sealed partial class NativeCodeTools
                 at = item.End;
                 continue;
             }
-            var line = disassembler.DecodeOne(at);
+            IReadOnlyDictionary<uint, string>? labels = null, calls = null;
+            if (owner != null && index.Support == CodeSupport.Full)
+            {
+                if (!labelsOf.TryGetValue(owner.Start, out labels)) labelsOf[owner.Start] = labels = index.BlockLabels(owner, ct);
+                if (notes != null && !notesOf.TryGetValue(owner.Start, out calls)) notesOf[owner.Start] = calls = notes(owner);
+            }
+            var line = disassembler.DecodeOne(at, labels);
             if (line == null) break;
-            if (owner != null && at == owner.Start && at != rva) sb.AppendLine($"{owner.Name}:");
-            sb.AppendLine(Line(line));
+            if (labels != null && labels.TryGetValue(at, out var label) && (at != rva || at != owner!.Start))
+                sb.AppendLine(label.EndsWith(':') ? label : label + ":");
+            sb.AppendLine(Line(line, calls));
             lines++;
             if (line.Facts.Flow == FlowKind.Invalid) break;
             at += (uint)line.Facts.Length;

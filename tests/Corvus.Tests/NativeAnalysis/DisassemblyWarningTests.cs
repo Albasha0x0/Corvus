@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Text.RegularExpressions;
 using Iced.Intel;
 using Corvus.Native;
 using Corvus.Native.Code;
@@ -65,6 +66,39 @@ public class DisassemblyWarningTests
         var lines = text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal)).ToList();
         Assert.StartsWith($"  {Base + mov:X}  488B4108", lines[0]);
         Assert.Equal(3, lines.Count);
+    }
+
+    [Fact]
+    public void A_linear_run_inside_a_function_keeps_its_labels_and_notes()
+    {
+        Label main = default, skip = default;
+        var (code, rva) = Assemble(a =>
+        {
+            main = a.CreateLabel(); skip = a.CreateLabel();
+            a.Label(ref main);
+            a.test(ecx, ecx);
+            a.jz(skip);
+            a.mov(eax, 7);
+            a.Label(ref skip);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        var fn = Assert.Single(index.Functions);
+        var sb = new StringBuilder();
+        var notes = new Dictionary<uint, string> { [rva(main)] = "slot note" };
+        NativeCodeTools.AppendLinear(sb, index, new AddressClassifier(index), rva(main), 10, [], CancellationToken.None, _ => notes);
+        var text = sb.ToString();
+        Assert.Contains($"loc_{rva(skip):X}:", text);
+        Assert.Contains("; slot note", text);
+        Assert.Equal(fn.Start, rva(main));
+    }
+
+    [Fact]
+    public void A_mid_instruction_start_prints_one_desync_warning()
+    {
+        var (index, mov, _, _, _) = StringInCode();
+        var text = Linear(index, mov + 2, 3, []);
+        Assert.Single(Regex.Matches(text, "inside the instruction"));
     }
 
     [Fact]

@@ -455,12 +455,19 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public List<DisasmLine> Disassemble(uint rva, int maxInstructions, uint end = uint.MaxValue) =>
         CreateDisassembler().Disassemble(rva, maxInstructions, end);
 
+    /// <summary>The label of each block start of <paramref name="f"/>: its name at the entry, else a chunk label or loc_.</summary>
+    public Dictionary<uint, string> BlockLabels(NativeFunction f, CancellationToken ct = default)
+    {
+        var labels = new Dictionary<uint, string>();
+        foreach (var b in GetGraph(f, ct).Blocks) labels[b.Start] = b.Start == f.Start ? f.Name : ChunkLabel(f, b.Start) ?? $"loc_{b.Start:X}";
+        return labels;
+    }
+
     /// <summary>Disassembly of a function's blocks in address order, each after its label line; at most <paramref name="maxInstructions"/>.</summary>
     public List<(string? Label, DisasmLine? Line)> DisassembleFunction(NativeFunction f, int maxInstructions, out bool truncated, CancellationToken ct = default)
     {
         var graph = GetGraph(f, ct);
-        var labels = new Dictionary<uint, string>();
-        foreach (var b in graph.Blocks) labels[b.Start] = b.Start == f.Start ? f.Name : ChunkLabel(f, b.Start) ?? $"loc_{b.Start:X}";
+        var labels = BlockLabels(f, ct);
         var dis = CreateDisassembler();
         var result = new List<(string?, DisasmLine?)>();
         int count = 0;

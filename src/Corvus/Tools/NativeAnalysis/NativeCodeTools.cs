@@ -231,28 +231,18 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             if (StartWarning(classifier, rva, cancellationToken) is { } start && (fromAddress || fn != null || !start.StartsWith("note:", StringComparison.Ordinal)))
             {
                 sb.AppendLine("; " + start);
-                if (start.StartsWith("warning:", StringComparison.Ordinal)) warnings.Add(start);
             }
             if (fn != null)
             {
                 sb.AppendLine($"; {fn.Name} at {NativeAddress.Va(index.Image, fn.Start)}, {fn.Size} bytes, {Plural(fn.BlockCount, "block")}{Flags(fn)}");
                 if (index.Sourced.CommentAt(fn.Start) is { } fc)
                     foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
-                var calls = new Dictionary<uint, string>(NativeCallTools.CallComments(index, fn, cancellationToken));
-                void Merge(IEnumerable<KeyValuePair<uint, string>> notes)
-                {
-                    foreach (var (at, note) in notes)
-                        calls[at] = calls.TryGetValue(at, out var known) ? $"{note}; {known}" : note;
-                }
-                Merge(NativeAotCode.Comments(native, index, fn, cancellationToken));
-                Merge(AotFieldNotes.Comments(native, index, fn, cancellationToken));
-                Merge(AotSlotNotes.Comments(native, index, fn, cancellationToken));
-                AppendFunction(sb, index, classifier, fn, max, calls, warnings, cancellationToken, fold);
+                AppendFunction(sb, index, classifier, fn, max, FunctionNotes(native, index, fn, cancellationToken), warnings, cancellationToken, fold);
             }
             else
             {
                 sb.AppendLine($"; {Plural(max, "instruction")} from {NativeAddress.Va(index.Image, rva)}" + (fromAddress ? "" : " (no function contains it)"));
-                AppendLinear(sb, index, classifier, rva, max, warnings, cancellationToken);
+                AppendLinear(sb, index, classifier, rva, max, warnings, cancellationToken, f => FunctionNotes(native, index, f, cancellationToken));
             }
             if (warnings.Count > 0) sb.Append("; warnings:\n").AppendJoin("", warnings.Select(w => $";   {w}\n"));
             return sb.ToString();
