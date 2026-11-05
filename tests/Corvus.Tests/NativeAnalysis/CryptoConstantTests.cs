@@ -657,6 +657,16 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.Contains("(weak evidence)", Lines(text, "BoringSSL"));
     }
 
+    // Field test: a curl build that embeds LibreSSL 4.4.0 gave no library row.
+    [Fact]
+    public async Task A_LibreSSL_version_string_is_named_with_its_version()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "LibreSSL 4.4.0"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("LibreSSL version string 4.4.0", 0x100, text);
+        Assert.Equal("cpe:2.3:a:openbsd:libressl:4.4.0:*:*:*:*:*:*:*", Corvus.Services.Analysis.Dependencies.ComponentRows.Cpe("LibreSSL", "4.4.0"));
+    }
+
     [Fact]
     public async Task A_truncated_version_prefix_and_bare_names_are_reported_without_a_version()
     {

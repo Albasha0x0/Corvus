@@ -16,7 +16,7 @@ corvus summarize_file path=publish/ componentsPath=components.jsonl
 
 - One JSON line per component; a folder writes the rows of each image under its relative name.
 - Reads version strings (zlib, OpenSSL, Mbed TLS, wolfSSL), Go modules and Rust crates, plus the other dependency sources.
-- A container's rows carry the container's hashes.
+- A container's rows carry the container's hashes; `unpack_container` extracts the images, whose rows carry their own.
 - An existing file needs `overwrite=true`.
 
 | Column | Content |

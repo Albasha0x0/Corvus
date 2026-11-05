@@ -32,6 +32,7 @@ public static class ComponentRows
     {
         ["zlib"] = "zlib:zlib",
         ["OpenSSL"] = "openssl:openssl",
+        ["LibreSSL"] = "openbsd:libressl",
         ["Mbed TLS"] = "trustedfirmware:mbed_tls",
         ["wolfSSL"] = "wolfssl:wolfssl",
     };

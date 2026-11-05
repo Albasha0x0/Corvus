@@ -150,6 +150,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["zlib-version"] = new("zlib version string", false, ["inflate 1."u8.ToArray(), "deflate 1."u8.ToArray()], Version: true),
         ["openssl-version"] = new("OpenSSL version string", false, ["OpenSSL 1."u8.ToArray(), "OpenSSL 3."u8.ToArray()], Version: true),
         ["mbedtls-version"] = new("Mbed TLS version string", false, ["Mbed TLS 2."u8.ToArray(), "Mbed TLS 3."u8.ToArray(), "Mbed TLS 4."u8.ToArray(), "mbed TLS 1."u8.ToArray(), "mbed TLS 2."u8.ToArray(), "mbed TLS 3."u8.ToArray()], Version: true),
+        ["libressl-version"] = new("LibreSSL version string", false, ["LibreSSL 2."u8.ToArray(), "LibreSSL 3."u8.ToArray(), "LibreSSL 4."u8.ToArray()], Version: true),
         ["wolfssl-version"] = new("wolfSSL version string", false, ["wolfSSL 3."u8.ToArray(), "wolfSSL 4."u8.ToArray(), "wolfSSL 5."u8.ToArray()], Version: true),
         // The library version functions return a bare number, so these names carry no version.
         ["wolfssl-name"] = new("wolfSSL identification string", false, ["wolfSSL_"u8.ToArray(), "wolfSSL Inc"u8.ToArray(), "WOLFSSL"u8.ToArray()], Weak: true),
@@ -918,7 +919,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:crc32c", "const:crc32c-poly", "const:crc64-poly", "const:adler32", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
         new("compression format markers or tables", "crypto", [["const:lz4", "const:zstd", "const:deflate", "const:xz", "const:brotli", "const:lzfse"]]),
         new("text encoding alphabets", "crypto", [["const:base64", "const:base32", "const:base58"]]),
-        new("crypto or compression library version strings", "crypto", [["const:zlib-version", "const:openssl-version", "const:mbedtls-version", "const:wolfssl-version", "const:wolfssl-name", "const:boringssl-name", "const:libsodium-name", "const:cryptopp-name"]]),
+        new("crypto or compression library version strings", "crypto", [["const:zlib-version", "const:openssl-version", "const:libressl-version", "const:mbedtls-version", "const:wolfssl-version", "const:wolfssl-name", "const:boringssl-name", "const:libsodium-name", "const:cryptopp-name"]]),
     ];
 
     private const int MaxCallerDepth = 4;

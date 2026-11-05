@@ -8,7 +8,7 @@ Requires Corvus ([installation](../installation.md)) and an MCP client that conn
 - Corvus never downloads the file; you collect it.
 - Triage collection: your home tenant only; no guest or delegated access; no query of the Sentinel data lake.
 - Triage collection: Sentinel users cannot choose the workspace; it uses the permissions you already hold.
-- Other Sentinel collections need the Security reader role and data lake onboarding.
+- Other Sentinel collections: most tools need data lake onboarding; listing and calling them needs the Security reader role.
 - Setup: [Get started with the Microsoft Sentinel MCP server](https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-get-started).
 
 ## Connect both servers
