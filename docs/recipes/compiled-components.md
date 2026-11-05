@@ -57,7 +57,7 @@ The Logs Ingestion API takes a JSON array, so join the lines first:
 jq -s . components.jsonl > components.json
 ```
 
-Send `components.json` with `POST {endpoint}/dataCollectionRules/{dcrImmutableId}/streams/Custom-CompiledComponents?api-version={apiVersion}` ([request format](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview)).
+A call holds at most 1 MB, so split a larger file into arrays under that size. Send each with `POST {endpoint}/dataCollectionRules/{dcrImmutableId}/streams/Custom-CompiledComponents?api-version={apiVersion}` ([request format](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview)).
 
 ## List the devices
 
