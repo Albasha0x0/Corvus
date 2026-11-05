@@ -214,7 +214,7 @@ public sealed class IndicatorTests : IDisposable
         var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
         var text = await tools.SummarizeFile(path: path, view: "indicators", sbomPath: _dir.File("a.cdx.json"), stixPath: stix);
         Assert.Contains("c2.example.org", text);
-        Assert.Contains("no SBOM written", text);
+        Assert.Contains("No SBOM written", text);
         Assert.True(File.Exists(stix));
         Assert.False(File.Exists(_dir.File("a.cdx.json")));
     }

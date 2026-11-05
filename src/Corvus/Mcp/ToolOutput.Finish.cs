@@ -304,6 +304,8 @@ public static partial class ToolOutput
         if (line.StartsWith(NoticePrefix, StringComparison.Ordinal)) return record["notices"] is not null;
         // A text line carries its marker ("Warning: ", "Note: ") where the record's entry does not.
         var bare = BarePrefixes.FirstOrDefault(m => line.StartsWith(m, StringComparison.Ordinal)) is { } marker ? line[marker.Length..] : line;
+        // A record entry that starts with a marker is escaped in the text.
+        if (bare.StartsWith(Format.MarkerEscape, StringComparison.Ordinal)) bare = bare[Format.MarkerEscape.Length..];
         var strings = Strings(record).ToList();
         if (strings.Any(s => s.Contains(bare, StringComparison.Ordinal))) return true;
         // A marker line over indented entries is carried when the record holds each entry.

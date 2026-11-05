@@ -460,13 +460,32 @@ public static class FileWork
         {
             if (paths[i] is not { } path) continue;
             var target = SafeFile.Output(path);
-            if (!a.Overwrite && System.IO.Path.Exists(target))
+            if (!a.Overwrite && File.Exists(target))
                 throw new ToolError(ErrorCode.Conflict, $"{target} exists: pass overwrite=true to replace it.");
             // One folder per output keeps the file name the notes show.
             staged[i] = System.IO.Path.Combine(staging, i.ToString(CultureInfo.InvariantCulture), System.IO.Path.GetFileName(target));
             files.Add((staged[i]!, target));
         }
         return (a with { SbomPath = staged[0], StixPath = staged[1], HuntsPath = staged[2], ComponentsPath = staged[3], Overwrite = false }, staging, [.. files]);
+    }
+
+    /// <summary>
+    /// Refuses output paths of a summarize call that name a folder or the same file twice, before anything is
+    /// read or written; paths the call leaves out are not checked.
+    /// </summary>
+    internal static void CheckOutputs(SummarizeArgs a)
+    {
+        var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, path) in new[] { ("sbomPath", a.SbomPath), ("stixPath", a.StixPath), ("huntsPath", a.HuntsPath), ("componentsPath", a.ComponentsPath) })
+        {
+            if (path == null) continue;
+            var target = SafeFile.Output(path);
+            if (Directory.Exists(target))
+                throw new ToolError(ErrorCode.InvalidArgument, $"{name} {target} is a folder.", $"pass a file path for {name}");
+            if (seen.TryGetValue(target, out var other))
+                throw new ToolError(ErrorCode.InvalidArgument, $"{other} and {name} name the same file {target}.", "pass a different file for each output");
+            seen[target] = name;
+        }
     }
 
     /// <summary>Moves the files a worker wrote to their targets and names the targets in the record's notes; a file the worker did not write is skipped.</summary>
@@ -477,7 +496,12 @@ public static class FileWork
         {
             // The worker is untrusted: a link it left must not make the server move another file.
             if (!File.Exists(staged) || File.GetAttributes(staged).HasFlag(FileAttributes.ReparsePoint)) continue;
-            SafeFile.MoveToOutput(staged, target, overwrite);
+            try { SafeFile.MoveToOutput(staged, target, overwrite); }
+            // The exception names no path, and a retry meets the same refusal.
+            catch (UnauthorizedAccessException)
+            {
+                throw new ToolError(ErrorCode.AccessDenied, $"{target} cannot be written: access denied.", "pick another path, or a file this user may write");
+            }
             notes = notes?.Select(n => n.Replace(staged, target, StringComparison.OrdinalIgnoreCase)).ToList();
         }
         return record with { Notes = notes };
@@ -562,7 +586,7 @@ public static class FileWork
         {
             // Another view keeps its own result when there is no SBOM to write.
             if (!required)
-                return "Warning: no SBOM written, no component was read from the file; an executable has no component list. list_imports names its libraries.";
+                return "No SBOM written: no component was read from the file; an executable has no component list. list_imports names its libraries.";
             throw new ToolError(ErrorCode.NotFound, "No component was read from the file; no SBOM written. A part the readers cannot read is unknown, not absent.", "call summarize_file view=dependencies path=<an app, bundle or package> sbomPath=<file>");
         }
         var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,
@@ -601,7 +625,7 @@ public static class FileWork
         }
         var tail = notes.Count == 0 ? "" : " " + string.Join("; ", notes) + ".";
         if (lines.Count == 0)
-            return $"Warning: no component rows written, no component was read from {images} image(s); a part the readers cannot read is unknown, not absent.{tail}";
+            return $"No component rows written: no component was read from {images} image(s); a part the readers cannot read is unknown, not absent.{tail}";
         var full = SafeFile.WriteAllBytes(componentsPath, Services.Analysis.Dependencies.ComponentRows.Encode(lines), overwrite);
         return $"{lines.Count} component rows from {images} image(s) written to {full}.{tail}";
     }

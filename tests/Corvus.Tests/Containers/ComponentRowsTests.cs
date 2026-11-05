@@ -140,7 +140,7 @@ public sealed class ComponentRowsTests : IDisposable
     public async Task An_image_with_no_component_is_reported_as_a_warning_with_the_unknown_rule()
     {
         var note = await Note(Write("plain.so", Image("nothing here")), _dir.File("rows.jsonl"));
-        Assert.Contains("Warning: no component rows written", note);
+        Assert.Contains("No component rows written", note);
         Assert.Contains("unknown, not absent", note);
     }
 

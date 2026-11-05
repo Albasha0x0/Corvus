@@ -66,6 +66,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             {
                 var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath);
                 // A sandboxed worker cannot write the caller's folders: it writes staged files the server then moves.
+                FileWork.CheckOutputs(args);
                 var staged = FileIsolation.PoolFor(serverOptions, workers) is { Sandboxed: true } ? FileWork.StageOutputs(args) : null;
                 try
                 {

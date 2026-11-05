@@ -28,7 +28,7 @@ public sealed class IsolatedSummaryOutputTests : FileIsolationTestBase
 
         Assert.True(result.IsError != true, Whole(result));
         // The fixture has no components: the SBOM is skipped with a note, the STIX bundle is written.
-        Assert.Contains("no SBOM written", Whole(result));
+        Assert.Contains("No SBOM written", Whole(result));
         Assert.True(File.Exists(stix) && new FileInfo(stix).Length > 0, Whole(result));
         Assert.Contains(stix, Whole(result));
         Assert.DoesNotContain("outputs-", Whole(result));
@@ -67,6 +67,62 @@ public sealed class IsolatedSummaryOutputTests : FileIsolationTestBase
         Assert.True(result.IsError == true);
         Assert.Contains("overwrite=true", Whole(result));
         Assert.Equal("old", File.ReadAllText(sbom));
+    }
+
+    [Fact]
+    public async Task Two_outputs_naming_one_file_are_refused_before_the_worker_runs()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var same = Path.Combine(_dir.Path, "same.json");
+        using var pool = SandboxedPool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+
+        var result = await Call(session, "summarize_file", new() { ["path"] = Env.FixturePath, ["huntsPath"] = same, ["stixPath"] = same });
+
+        Assert.True(result.IsError == true);
+        Assert.Contains("name the same file", Whole(result));
+        Assert.False(File.Exists(same));
+    }
+
+    [Fact]
+    public async Task An_output_path_naming_a_folder_is_refused()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var folder = Path.Combine(_dir.Path, "folder.json");
+        Directory.CreateDirectory(folder);
+        using var pool = SandboxedPool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+
+        var result = await Call(session, "summarize_file", new() { ["path"] = Env.FixturePath, ["stixPath"] = folder, ["overwrite"] = true });
+
+        Assert.True(result.IsError == true);
+        Assert.Contains("invalid_argument", Whole(result));
+        Assert.Contains("is a folder", Whole(result));
+    }
+
+    [Fact]
+    public async Task A_denied_output_names_its_path_and_is_not_retryable()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var stix = _dir.File("locked.stix.json");
+        File.WriteAllText(stix, "old");
+        File.SetAttributes(stix, FileAttributes.ReadOnly);
+        try
+        {
+            using var pool = SandboxedPool();
+            using var shared = WorkerPool.UseShared(pool);
+            await using var session = await Session(false);
+
+            var result = await Call(session, "summarize_file", new() { ["path"] = Env.FixturePath, ["stixPath"] = stix, ["overwrite"] = true });
+
+            Assert.True(result.IsError == true);
+            Assert.Contains("access_denied", Whole(result));
+            Assert.Contains("\"retryable\":false", Whole(result));
+            Assert.Contains(stix, Whole(result));
+        }
+        finally { File.SetAttributes(stix, FileAttributes.Normal); }
     }
 
     [Fact]
