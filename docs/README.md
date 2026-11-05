@@ -22,7 +22,8 @@ Guides on the sample in `samples/Notes`:
 Recipes: Corvus with other security tools.
 [Dependency-Track](recipes/dependency-track.md) · [Velociraptor](recipes/velociraptor.md) ·
 [Karton](recipes/karton.md) · [OpenCTI](recipes/opencti.md) · [Assemblyline](recipes/assemblyline.md) ·
-[GuardDog](recipes/guarddog.md) · [Package gate](recipes/package-gate.md).
+[GuardDog](recipes/guarddog.md) · [Package gate](recipes/package-gate.md) ·
+[Defender XDR or Sentinel incident](recipes/incident-file.md).
 
 Tasks from a terminal: [review a reported mail message](recipes/reported-message.md) ·
 [check an installer](recipes/installer-check.md) · [look at a file an alert named](recipes/alert-file.md).
