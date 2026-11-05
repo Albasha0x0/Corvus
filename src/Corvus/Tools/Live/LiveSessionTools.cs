@@ -1064,19 +1064,23 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 rows.Add(new LiveEvent(e.Sequence, Iso(e.Time), e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
                 lines.Add($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
             }
+            // Rows show in time order; a shortened page keeps the lowest
+            // sequences, so the next cursor neither repeats nor skips a row.
+            var bySequence = rows.Select((r, i) => (r.Sequence, i)).OrderBy(p => p.Sequence).Select(p => p.i).ToList();
             (string, object) Render(int count)
             {
-                var kept = rows.Take(count).ToList();
+                var pick = bySequence.Take(count).Order().ToList();
+                var kept = pick.Select(i => rows[i]).ToList();
                 // Past the last matching event the whole ring was scanned: the next poll starts after its end.
                 var cut = kept.Count > 0 && (count < rows.Count || more);
-                var next = cut ? kept[^1].Sequence + 1 : Math.Max(start, last + 1);
+                var next = cut ? kept.Max(r => r.Sequence) + 1 : Math.Max(start, last + 1);
                 string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
                 // One marker per ring counts the events evicted between the cursor and the end of this page.
                 long calls = Services.LiveRingGaps.Count(gaps.Calls, start, next - 1), others = Services.LiveRingGaps.Count(gaps.Others, start, next - 1);
                 var page = new StringBuilder(saved != null ? SavedNote(saved) : "");
                 if (calls > 0) page.AppendLine($"{(calls == 1 ? "1 call event" : $"{calls:N0} call events")} dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})");
                 if (others > 0) page.AppendLine($"{(others == 1 ? "1 event" : $"{others:N0} events")} dropped (ring capacity {Services.LiveSession.RingCapacity:N0})");
-                foreach (var l in lines.Take(count)) page.AppendLine(l);
+                foreach (var i in pick) page.AppendLine(lines[i]);
                 string empty = bound == 0 || saved != null ? "No events."
                     : s!.Closed || s.Ended != null ? $"Session {s.State}; no events past cursor={next}."
                     : $"No events within {bound} s. Call again with cursor={next}{again}";

@@ -68,15 +68,17 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
                 long lost = Regex.Matches(text, @"(?m)^([\d,]+) (?:call )?events? dropped \(ring capacity").Sum(g => Number(g.Groups[1].Value));
                 var rows = Regex.Matches(text, @"(?m)^#(\d+) (\w+)").Select(r => (Seq: Number(r.Groups[1].Value), Kind: r.Groups[2].Value)).ToList();
                 if (rows.Count == 0) break; // "No events.": the cursor stays
-                long gaps = rows[0].Seq - (cursor ?? 1);
-                for (int i = 1; i < rows.Count; i++) gaps += rows[i].Seq - rows[i - 1].Seq - 1;
+                // Rows show in the order they ran; the cursor counts sequences.
+                var seqs = rows.Select(r => r.Seq).Order().ToList();
+                long gaps = seqs[0] - (cursor ?? 1);
+                for (int i = 1; i < seqs.Count; i++) gaps += seqs[i] - seqs[i - 1] - 1;
                 Assert.True(gaps == lost, $"page after cursor {cursor} misses {gaps} events, its drop markers count {lost}:\n{text[..Math.Min(text.Length, 2_000)]}");
                 dropped += lost;
                 events += rows.Count;
                 calls += rows.Count(r => r.Kind == "call");
                 var next = Regex.Match(text, @"(more: |poll again with )cursor=(\d+)");
                 Assert.True(next.Success, text[..Math.Min(text.Length, 2_000)]);
-                Assert.Equal(rows[^1].Seq + 1, Number(next.Groups[2].Value));
+                Assert.Equal(seqs[^1] + 1, Number(next.Groups[2].Value));
                 cursor = Number(next.Groups[2].Value);
                 if (!next.Groups[1].Value.StartsWith("more", StringComparison.Ordinal)) break;
             }

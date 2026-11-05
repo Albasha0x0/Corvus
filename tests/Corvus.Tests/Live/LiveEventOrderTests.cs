@@ -68,6 +68,30 @@ public sealed class LiveEventOrderTests : IDisposable
         Assert.Equal([1L, 2L, 3L], s.Page(1, null, null, 10).Events.Select(e => e.Sequence));
     }
 
+    // Regression (21ad4520b): pages chosen by stamp repeated or skipped calls
+    // that arrived late; LiveDotnetRealTests counted 1605 and 1598 of 1600.
+    [Fact]
+    public async Task Paging_late_stamped_events_lists_each_event_once()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        var s = _service.Get("live-1");
+        // Batches arrive in reverse: each later batch ran earlier.
+        for (int batch = 0; batch < 10; batch++)
+            for (int i = 0; i < 7; i++)
+                s.Add("call", 5, Base, $"f({batch}, {i})", source: "w1", stampMs: 1_000_000 + (10 - batch) * 100 + i);
+
+        var seen = new List<string>();
+        string? cursor = "1";
+        for (int pages = 0; cursor != null && pages < 100; pages++)
+        {
+            var page = await _tools.LiveEvents("live-1", cursor: cursor, limit: 5);
+            seen.AddRange(System.Text.RegularExpressions.Regex.Matches(page, @"#(\d+) call").Select(m => m.Groups[1].Value));
+            cursor = System.Text.RegularExpressions.Regex.Match(page, @"more: cursor=(\d+)") is { Success: true } m2 ? m2.Groups[1].Value : null;
+        }
+        Assert.Equal(70, seen.Count);
+        Assert.Equal(70, seen.Distinct().Count());
+    }
+
     [Fact]
     public async Task A_stamp_outside_the_date_range_falls_back_to_arrival_time()
     {

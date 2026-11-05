@@ -441,18 +441,33 @@ public sealed class LiveSession
     {
         lock (_gate)
         {
-            var events = Merged(kind == "call" ? _calls.Events : kind != null ? _others.Events : _calls.Events.Concat(_others.Events), []);
+            // The cursor is a sequence, so a page is chosen in sequence order;
+            // only its rows are then ordered by when they ran. Choosing by time
+            // repeats or skips late-arriving events across pages.
+            var events = kind == "call" ? _calls.Events : kind != null ? _others.Events : BySequence(_calls.Events, _others.Events);
             var rows = events.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread)
                                          && (source == null || e.Source == source))
                 .Take(limit + 1).ToList();
             var more = rows.Count > limit;
             if (more) rows.RemoveAt(limit);
-            return (rows, new LiveRingGaps(_calls.EvictedFrom(from), _others.EvictedFrom(from)), _sequence, more);
+            return ([.. Merged(rows, [])], new LiveRingGaps(_calls.EvictedFrom(from), _others.EvictedFrom(from)), _sequence, more);
         }
     }
 
     /// <summary>A time in epoch milliseconds (fractions kept to 100 ns) as UTC.</summary>
     internal static DateTime FromEpochMs(double ms) => DateTime.UnixEpoch.AddTicks((long)(ms * TimeSpan.TicksPerMillisecond));
+
+    private static IEnumerable<LiveRingEvent> BySequence(IEnumerable<LiveRingEvent> a, IEnumerable<LiveRingEvent> b)
+    {
+        using var x = a.GetEnumerator();
+        using var y = b.GetEnumerator();
+        bool hx = x.MoveNext(), hy = y.MoveNext();
+        while (hx || hy)
+        {
+            if (hx && (!hy || x.Current.Sequence < y.Current.Sequence)) { yield return x.Current; hx = x.MoveNext(); }
+            else { yield return y.Current; hy = y.MoveNext(); }
+        }
+    }
 
     /// <summary>The events of both rings ordered by when they ran, arrival order where times are equal.</summary>
     internal static IEnumerable<LiveRingEvent> Merged(IEnumerable<LiveRingEvent> a, IEnumerable<LiveRingEvent> b) =>
