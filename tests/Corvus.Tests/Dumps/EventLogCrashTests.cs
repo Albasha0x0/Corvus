@@ -149,4 +149,24 @@ public sealed class EventLogCrashTests : IDisposable
         Assert.Contains("0x11223344", f.BuildDetail);
     }
 
+    [Fact]
+    public async Task EventData_entities_are_decoded_and_a_0x_time_stamp_is_read()
+    {
+        _ws.LoadAny(Build("a&b.dll", 0x11223344));
+        var xml = EventData("0x11223344").Replace("synth.dll", "a&amp;b.dll");
+        var f = Assert.Single((await Run(xml)).Items);
+        Assert.Equal("Big+0x5", f.Resolved);
+        Assert.StartsWith("same build", f.BuildDetail);
+    }
+
+    [Fact]
+    public async Task A_second_event_is_counted_not_merged_into_the_first()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var result = await Run(EventData("11223344") + "\n" + EventData("55667788").Replace("0000000000001085", "0000000000000005"));
+        var f = Assert.Single(result.Items);
+        Assert.Equal("Big+0x5", f.Resolved);
+        Assert.True(result.UnrecognizedLines > 0);
+    }
+
 }

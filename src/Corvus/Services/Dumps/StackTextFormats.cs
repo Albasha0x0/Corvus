@@ -215,7 +215,9 @@ internal static class StackTextFormats
     };
 
     private static readonly Regex EventDataItem = R(@"<Data Name=""(?<k>[A-Za-z]+)"">(?<v>[^<]*)</Data>");
-    private static readonly Regex XmlTag = R(@"</?[A-Za-z][^>]*>");
+    private static readonly Regex XmlTag = R(@"</?(?:Event|EventData|System|RenderingInfo)(?:\s[^>]*)?>");
+    private static readonly Regex DescriptionStart = R(@"Faulting (?:application|module) name: ");
+    private const int EventValueLimit = 512;
     private static readonly Regex DescriptionLabel = R(@"[ \t]+(?<label>(?:Faulting (?:application|module) name|Exception code|Fault offset|Faulting process id|Faulting module path|Faulting application path): )");
 
     /// <summary>Reads EventData Data elements into fields and splits a description flattened to one line.</summary>
@@ -223,10 +225,22 @@ internal static class StackTextFormats
     {
         var items = EventDataItem.Matches(text);
         int read = 0;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match m in items)
         {
             if (!EventDataFields.TryGetValue(m.Groups["k"].Value, out var key)) continue;
-            var v = m.Groups["v"].Value.Trim();
+            // A repeated field is another event: the first is read, the rest are counted.
+            if (!seen.Add(key))
+            {
+                Skipped(into, $"EventData {m.Groups["k"].Value} of a further event");
+                continue;
+            }
+            var v = System.Net.WebUtility.HtmlDecode(m.Groups["v"].Value).Trim();
+            if (v.Length > EventValueLimit)
+            {
+                Skipped(into, $"EventData {m.Groups["k"].Value} over {EventValueLimit} characters");
+                continue;
+            }
             s.Fields[key] = key.EndsWith(":timestamp", StringComparison.Ordinal) && v.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? v[2..] : v;
             read++;
         }
@@ -235,7 +249,14 @@ internal static class StackTextFormats
             into.Formats["eventlog"] = into.Formats.GetValueOrDefault("eventlog") + read;
             text = XmlTag.Replace(EventDataItem.Replace(text, ""), "");
         }
-        return DescriptionLabel.Replace(text, "\n${label}");
+        // Only a line that starts a description is split, so other text keeps its lines.
+        return string.Join('\n', text.Split('\n').Select(l => DescriptionStart.IsMatch(l) ? DescriptionLabel.Replace(l, "\n${label}") : l));
+    }
+
+    private static void Skipped(ParsedStackText into, string what)
+    {
+        into.Unrecognized++;
+        if (into.UnrecognizedSample.Count < 5) into.UnrecognizedSample.Add(what);
     }
 
     private static bool Add(ParsedStackText into, TextFrame frame)
