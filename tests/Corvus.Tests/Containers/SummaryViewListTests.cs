@@ -28,7 +28,7 @@ public sealed class SummaryViewListTests
         var a = ContainerText.ViewsOf(Summary("sideload", "native", "dependencies"), true);
         var b = ContainerText.ViewsOf(Summary("dependencies", "sideload", "native"), true);
         Assert.Equal(a, b);
-        Assert.Equal(["overview", "dependencies", "native", "sideload", "all"], a);
+        Assert.Equal(["overview", "dependencies", "hunts", "native", "sideload", "all"], a);
     }
 
     [Fact]
@@ -41,26 +41,33 @@ public sealed class SummaryViewListTests
     [Fact]
     public void A_triage_adds_the_native_view_when_no_provider_supplies_it()
     {
-        Assert.Equal(["overview", "native", "all"], ContainerText.ViewsOf(Summary(), true));
+        Assert.Equal(["overview", "hunts", "native", "all"], ContainerText.ViewsOf(Summary(), true));
     }
 
     [Fact]
     public void No_triage_and_no_native_view_lists_no_native_entry()
     {
-        Assert.Equal(["overview", "all"], ContainerText.ViewsOf(Summary(), false));
+        Assert.Equal(["overview", "hunts", "all"], ContainerText.ViewsOf(Summary(), false));
+    }
+
+    [Fact]
+    public void A_loaded_assembly_lists_no_hunts_view()
+    {
+        var loaded = Summary() with { Container = "none (loaded assembly)" };
+        Assert.Equal(["overview", "all"], ContainerText.ViewsOf(loaded, false));
     }
 
     [Fact]
     public void The_managed_view_follows_the_overview()
     {
-        Assert.Equal(["overview", "managed", "dependencies", "all"], ContainerText.ViewsOf(Summary(true, [], "dependencies"), false));
+        Assert.Equal(["overview", "managed", "dependencies", "hunts", "all"], ContainerText.ViewsOf(Summary(true, [], "dependencies"), false));
     }
 
     [Fact]
     public void A_provider_view_named_like_a_reserved_view_is_listed_once()
     {
         var views = ContainerText.ViewsOf(Summary(true, [], "all", "managed", "overview", "go"), false);
-        Assert.Equal(["overview", "managed", "go", "all"], views);
+        Assert.Equal(["overview", "managed", "go", "hunts", "all"], views);
     }
 
     [Fact]

@@ -154,18 +154,18 @@ public sealed class ContainerProviderTests : IDisposable
         var collector = Corvus.Mcp.ToolOutput.Collect();
         var text = await tools.SummarizeFile(path: Env.FixturePath);
         var overview = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
-        Assert.Equal(["overview", "managed", "all"], overview.Views);
+        Assert.Equal(["overview", "managed", "hunts", "all"], overview.Views);
         Assert.Equal("TestFixture", Assert.Single(overview.Assemblies!).Name);
         Assert.Null(overview.Detail);
         Assert.DoesNotContain("{\"", text);
-        Assert.Contains("Views: overview, managed, all", text);
+        Assert.Contains("Views: overview, managed, hunts, all", text);
 
         collector = Corvus.Mcp.ToolOutput.Collect();
         await tools.SummarizeFile(path: Env.FixturePath, view: "managed");
         var managed = Assert.IsType<Corvus.Tools.FileSummaryRecord>(collector.Value);
         Assert.Equal("TestFixture", (string?)managed.Detail!["assemblies"]![0]!["identity"]!["name"]);
         var bad = await Assert.ThrowsAsync<ToolError>(() => tools.SummarizeFile(path: Env.FixturePath, view: "android"));
-        Assert.Equal("pass view as one of overview, managed, all", bad.Remediation);
+        Assert.Equal("pass view as one of overview, managed, hunts, all", bad.Remediation);
 
         using var _ = Providers.With(new FakePackView());
         collector = Corvus.Mcp.ToolOutput.Collect();
