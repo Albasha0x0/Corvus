@@ -215,7 +215,10 @@ public sealed partial class DevRelay : IAsyncDisposable
     {
         var method = Method(message);
         var id = message["id"];
-        if (RequestMeta(message) is { } meta) _requestMeta = meta;
+        // A handshake session has no per-request metadata: a request that
+        // carries some anyway, such as a probe before the handshake, is not
+        // the session's and is never sent on the relay's own requests.
+        if (_initializeParams == null && RequestMeta(message) is { } meta) _requestMeta = meta;
         switch (method)
         {
             case "notifications/initialized":
@@ -387,6 +390,7 @@ public sealed partial class DevRelay : IAsyncDisposable
                 _initializeParams = request["params"]?.DeepClone() as JsonObject;
                 _initialized = false;
                 _protocolVersion = result["protocolVersion"]?.GetValue<string>();
+                _requestMeta = null;
                 ListChangedCapabilities(result);
                 break;
             case "server/discover":
