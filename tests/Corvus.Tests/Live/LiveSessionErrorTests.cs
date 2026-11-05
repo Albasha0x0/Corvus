@@ -121,7 +121,7 @@ public sealed class LiveSessionErrorTests : IDisposable
         Assert.Contains("live-1: closed, 0 watch(es)", await _tools.LiveWatchCalls("live-1"));
         Assert.Contains("live-1: closed, 0 script(s)", await _tools.LiveScriptCalls("live-1"));
         Assert.Contains("session closed (closed by request)", await _tools.LiveEvents("live-1", kind: "exit"));
-        Assert.Contains("live-1 (scripted): ", await _tools.LiveSession("list"));
+        Assert.Contains("No sessions.", await _tools.LiveSession("list"));
     }
 
     [Fact]

@@ -167,7 +167,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             switch (a)
             {
                 case "list":
-                    var rows = live.Sessions.Select(s => new LiveSessionRow(s.Id, s.Backend, s.Program, s.ProcessId, s.State)).ToList();
+                    var rows = OpenRows();
                     return ToolOutput.With(rows.Count == 0 ? "No sessions.\n"
                             : string.Concat(rows.Select(r => $"{r.Session} ({r.Backend}): {r.Program} pid {r.ProcessId}, {r.State}\n")),
                         new LiveSessionReport("list", null, null, null, null, null, [], rows));
@@ -210,7 +210,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     // Status reads the idle limit without restarting it.
                     var current = live.Get(RequireSession(session), use: false);
                     await live.RefreshModulesAsync(current, cancellationToken).ConfigureAwait(false);
-                    return Report(a, current);
+                    return Report(a, current, OpenRows());
                 case "snapshot":
                     return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
                 case "save_modules":
@@ -243,7 +243,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "close":
                     var closing = live.Get(RequireSession(session));
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
-                    return Report(a, closing);
+                    return CloseSummary(closing, OpenRows());
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, save_modules, ipc, coverage, listeners, screenshot, page_tools, page_state, page_diff, close, children, attach_child or release_child");
             }
@@ -448,7 +448,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string RequireSession(string? session) =>
         string.IsNullOrWhiteSpace(session) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs session.", "session=<id from live_session action=list>") : session;
 
-    private static string Report(string action, Services.LiveSession s)
+    // Closed sessions stay readable by id (live_events) but are not listed.
+    private List<LiveSessionRow> OpenRows() =>
+        live.Sessions.Where(s => !s.Closed).Select(s => new LiveSessionRow(s.Id, s.Backend, s.Program, s.ProcessId, s.State)).ToList();
+
+    private static string CloseSummary(Services.LiveSession s, IReadOnlyList<LiveSessionRow> open)
+    {
+        var span = DateTime.UtcNow - s.Opened;
+        var text = $"{s.Id} ({s.Backend}): {s.Program} pid {s.ProcessId}, closed after {span.TotalSeconds:0.#} s, {s.Sequence:N0} events ({s.CloseReason})\n";
+        return ToolOutput.With(text, new LiveSessionReport("close", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], open));
+    }
+
+    private static string Report(string action, Services.LiveSession s, IReadOnlyList<LiveSessionRow>? open = null)
     {
         List<LiveModuleState> modules;
         lock (s.Modules) modules = s.Modules.ToList();
@@ -483,7 +494,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image + (state.Image == null ? " (assembly)" : "") : "")}");
         }
         else if (children == null) text.AppendLine("does not follow child processes: open the session with childNames=[\"*\"]");
-        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, action == "children" ? [] : rows, []) { Processes = children });
+        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, action == "children" ? [] : rows, open ?? []) { Processes = children });
     }
 
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
