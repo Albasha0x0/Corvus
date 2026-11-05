@@ -677,7 +677,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     // A started program runs in its own folder, as a debugger starts it.
                     ["cwd"] = Path.GetDirectoryName(target),
                     // The worker's TEMP is private (see FridaBackend); a started program gets the user's.
-                    ["temp"] = Environment.GetEnvironmentVariable("TEMP"), ["tmp"] = Environment.GetEnvironmentVariable("TMP"),
+                    ["temp"] = Environment.GetEnvironmentVariable("TEMP"), ["tmp"] = Environment.GetEnvironmentVariable("TMP"), ["tmpdir"] = Environment.GetEnvironmentVariable("TMPDIR"),
                     ["environment"] = ProgramEnvironment(environment ?? []),
                 }
                 : new JsonObject { ["attach"] = target };

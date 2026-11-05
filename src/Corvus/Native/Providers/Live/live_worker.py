@@ -409,7 +409,7 @@ class Session:
             # The program's stdio is piped through Frida: on our stdout it could write protocol lines.
             self.device.on("output", self.on_output)
             # The worker's TEMP is its own (Frida unpacks helpers there); the program gets the user's.
-            env = {k: args[k.lower()] for k in ("TEMP", "TMP") if args.get(k.lower())}
+            env = {k: args[k.lower()] for k in ("TEMP", "TMP", "TMPDIR") if args.get(k.lower())}
             # W^X keeps .NET JIT code in a shared memory view that hooks cannot write; the caller may still turn it back on.
             env["DOTNET_EnableWriteXorExecute"] = "0"
             env.update({k: v for k, v in (args.get("environment") or {}).items() if v is not None})

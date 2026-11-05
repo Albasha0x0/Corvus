@@ -164,7 +164,7 @@ public sealed class FridaBackend : ILiveBackend
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", worker, agent])
         {
             WorkingDirectory = dir,
-            Environment = ExternalTools.MinimalEnvironment(new Dictionary<string, string?> { ["TEMP"] = temp, ["TMP"] = temp }),
+            Environment = ExternalTools.MinimalEnvironment(new Dictionary<string, string?> { ["TEMP"] = temp, ["TMP"] = temp, ["TMPDIR"] = temp }),
         };
         try
         {
