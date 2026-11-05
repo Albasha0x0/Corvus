@@ -183,6 +183,14 @@ internal static class OsvAdvisories
     private static DependencyAdvisories NotChecked(IReadOnlyList<DependencyComponent> components, Dictionary<string, string> reasons, string note) =>
         new("not checked", null, 0, components.Count, [], note)
         {
-            Unmatched = components.ToDictionary(c => c.Ref, c => reasons.GetValueOrDefault(c.Ref) ?? note, StringComparer.Ordinal),
+            Unmatched = Reasons(components, reasons, note),
         };
+
+    // An indexer, so a repeated ref keeps one reason instead of throwing.
+    private static Dictionary<string, string> Reasons(IReadOnlyList<DependencyComponent> components, Dictionary<string, string> reasons, string note)
+    {
+        var all = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var c in components) all[c.Ref] = reasons.GetValueOrDefault(c.Ref) ?? note;
+        return all;
+    }
 }
