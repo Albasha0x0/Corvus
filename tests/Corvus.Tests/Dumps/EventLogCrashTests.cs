@@ -105,6 +105,17 @@ public sealed class EventLogCrashTests : IDisposable
         Assert.Equal(text.Exception!.Code, xml.Exception!.Code);
     }
 
+    // Rendered XML (wevtutil /f:RenderedXml) holds the EventData and the
+    // description of the same event.
+    [Fact]
+    public async Task Rendered_XML_with_EventData_and_its_message_is_one_event()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var xml = $"<Event>{EventData("11223344")}<RenderingInfo Culture='en-US'><Message>{Description("11223344")}</Message></RenderingInfo></Event>";
+        var f = Assert.Single((await Run(xml)).Items);
+        Assert.Equal("Big+0x5", f.Resolved);
+    }
+
     [Fact]
     public async Task A_description_flattened_to_one_line_is_read()
     {

@@ -243,6 +243,7 @@ internal static class StackTextFormats
     };
 
     private static readonly Regex EventDataItem = R(@"<Data\s+Name\s*=\s*(?:\\?""""?|\\?')(?<k>[A-Za-z]+)(?:\\?""""?|\\?')\s*>(?<v>[^<]*)</Data\s*>");
+    private static readonly Regex RenderingInfo = new(@"<RenderingInfo\b.*?</RenderingInfo\s*>", Options | RegexOptions.Singleline | RegexOptions.NonBacktracking);
     private static readonly Regex XmlTag = R(@"</?(?:Event|EventData|System|RenderingInfo)(?:\s[^>]*)?>");
     private static readonly Regex DescriptionStart = R(@"Faulting (?:application|module) name: ");
     private const int EventValueLimit = 512;
@@ -268,6 +269,8 @@ internal static class StackTextFormats
         if (items.Count > 0)
         {
             into.Formats["eventlog"] = into.Formats.GetValueOrDefault("eventlog") + read;
+            // The rendered message repeats the event the EventData gave; read twice, it would count as a second event.
+            if (read > 0) text = RenderingInfo.Replace(text, "");
             text = XmlTag.Replace(EventDataItem.Replace(text, ""), "");
         }
         // Only a line that starts a description is split, so other text keeps its lines.
