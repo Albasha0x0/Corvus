@@ -86,6 +86,7 @@ internal static partial class DependencyInventory
         foreach (var deps in manifests) FromDepsJson(b, deps, input.Path, assemblies, claimed);
         FromAssemblies(b, input.Path, assemblies.Where(a => !claimed.Contains(a)).ToList(), ct);
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
+        else if (views.ContainsKey("native") && input.Options.Wants("dependencies")) FromNativeImage(b, input, ct);
         if (views.GetValueOrDefault("python")?.Detail is PythonFileView.Facts { App: { } python }) FromPython(b, python, input.Path, ct);
         bool aotSplit = FromAndroid(b, input, views, ct);
         // Reading global-metadata.dat takes seconds on a large build, so only the dependencies view reads it.
@@ -362,6 +363,14 @@ internal static partial class DependencyInventory
             if (rust.Section == "source paths") FromRustSourcePaths(b, input.Image);
             else if (RustAudit.Of(image, input.Image) is { } audit) FromRust(b, audit);
         }
+    }
+
+    private static void FromNativeImage(Builder b, FileInput input, CancellationToken ct)
+    {
+        INativeImage image;
+        try { image = NativeImageLoader.FromBytes(input.Image, input.Path); }
+        catch (Exception ex) when (ex is Core.ToolError or BadImageFormatException or ArgumentException or InvalidOperationException) { return; }
+        FromNativeVersionStrings(b, image, ct);
     }
 
     private static void FromGo(Builder b, Native.Go.GoBuildInfo go)

@@ -833,6 +833,10 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private static long SectionSize(INativeImage image, NativeSection section) =>
         image.FileBackedLength(section.Rva, section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize));
 
+    /// <summary>Each library with a version-string rule and the prefixes that precede its version.</summary>
+    internal static IReadOnlyList<(string Library, string[] Prefixes)> VersionStrings() =>
+        [.. Constants.Values.Where(c => c.Version).Select(c => (c.Algorithm.Replace(" version string", ""), c.Patterns.Select(p => System.Text.Encoding.ASCII.GetString(p.Bytes)).ToArray()))];
+
     /// <summary>The sections a scan reads, in image order, with the byte count taken from each within the limit.</summary>
     internal static IReadOnlyList<(NativeSection Section, int Size)> Plan(INativeImage image, long limit = ScanLimit)
     {
