@@ -57,9 +57,11 @@ The Logs Ingestion API takes a JSON array, so join the lines first:
 jq -s . components.jsonl > components.json
 ```
 
-A call holds at most 1 MB, so split a larger file into arrays under that size. Send each with `POST {endpoint}/dataCollectionRules/{dcrImmutableId}/streams/Custom-CompiledComponents?api-version={apiVersion}` ([request format](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview)).
+A call holds at most 1 MB ([limits](https://learn.microsoft.com/en-us/azure/azure-monitor/fundamentals/service-limits#logs-ingestion-api)), so split a larger file into arrays under that size. Send each with `POST {endpoint}/dataCollectionRules/{dcrImmutableId}/streams/Custom-CompiledComponents?api-version={apiVersion}` ([request format](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview)).
 
 ## List the devices
+
+Run in the workspace that also holds the Defender XDR tables ([Defender XDR connector](https://learn.microsoft.com/en-us/azure/sentinel/connect-microsoft-365-defender)).
 
 ```kusto
 let Components = CompiledComponents_CL | where Component == "OpenSSL" and Version startswith "3.0.";
