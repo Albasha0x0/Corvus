@@ -65,7 +65,15 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (assembly == null && path != null && native == null)
             {
                 var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath);
-                record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
+                // A sandboxed worker cannot write the caller's folders: it writes staged files the server then moves.
+                var staged = FileIsolation.PoolFor(serverOptions, workers) is { Sandboxed: true } ? FileWork.StageOutputs(args) : null;
+                try
+                {
+                    var sent = staged?.Args ?? args;
+                    record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, sent, path, () => FileWork.SummarizeWith(inspection, graph, sent, cancellationToken), cancellationToken);
+                    if (staged is { } s) record = FileWork.PlaceOutputs(record, s.Files, overwrite);
+                }
+                finally { if (staged is { } s) FileWork.DeleteStaging(s.Staging); }
                 Coverage(record);
                 return ToolOutput.Report(ContainerText.Summary(record), record);
             }

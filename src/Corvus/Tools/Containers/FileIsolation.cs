@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
@@ -442,6 +443,44 @@ public static class FileWork
         foreach (var file in Directory.EnumerateFiles(staging, "*", options))
             SafeFile.MoveToOutput(file, SafeFile.OutputUnderRoot(target, System.IO.Path.GetRelativePath(staging, file)), overwrite: false);
         return result with { Notes = result.Notes?.Select(n => n.Replace(staging, target, StringComparison.OrdinalIgnoreCase)).ToList() };
+    }
+
+    /// <summary>
+    /// The output files of a summarize call, each the server's checked target and the path a sandboxed worker writes
+    /// instead; null when the call names none. An existing target without overwrite is refused before the worker runs.
+    /// </summary>
+    internal static (SummarizeArgs Args, string Staging, (string Staged, string Target)[] Files)? StageOutputs(SummarizeArgs a)
+    {
+        string?[] paths = [a.SbomPath, a.StixPath, a.HuntsPath, a.ComponentsPath];
+        if (paths.All(p => p == null)) return null;
+        var staging = System.IO.Path.Combine(Native.Providers.WindowsSandbox.Scratch(), "outputs-" + Guid.NewGuid().ToString("N"));
+        var staged = new string?[paths.Length];
+        var files = new List<(string, string)>();
+        for (int i = 0; i < paths.Length; i++)
+        {
+            if (paths[i] is not { } path) continue;
+            var target = SafeFile.Output(path);
+            if (!a.Overwrite && System.IO.Path.Exists(target))
+                throw new ToolError(ErrorCode.Conflict, $"{target} exists: pass overwrite=true to replace it.");
+            // One folder per output keeps the file name the notes show.
+            staged[i] = System.IO.Path.Combine(staging, i.ToString(CultureInfo.InvariantCulture), System.IO.Path.GetFileName(target));
+            files.Add((staged[i]!, target));
+        }
+        return (a with { SbomPath = staged[0], StixPath = staged[1], HuntsPath = staged[2], ComponentsPath = staged[3], Overwrite = false }, staging, [.. files]);
+    }
+
+    /// <summary>Moves the files a worker wrote to their targets and names the targets in the record's notes; a file the worker did not write is skipped.</summary>
+    internal static FileSummaryRecord PlaceOutputs(FileSummaryRecord record, (string Staged, string Target)[] files, bool overwrite)
+    {
+        var notes = record.Notes;
+        foreach (var (staged, target) in files)
+        {
+            // The worker is untrusted: a link it left must not make the server move another file.
+            if (!File.Exists(staged) || File.GetAttributes(staged).HasFlag(FileAttributes.ReparsePoint)) continue;
+            SafeFile.MoveToOutput(staged, target, overwrite);
+            notes = notes?.Select(n => n.Replace(staged, target, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        return record with { Notes = notes };
     }
 
     /// <summary>Deletes a staging folder; one that stays is left to the scratch folder's own cleanup.</summary>
