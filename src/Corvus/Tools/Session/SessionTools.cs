@@ -196,7 +196,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     /// <summary>One capability per external program, test oracles left out; a version check past <paramref name="wait"/> reports an unknown version.</summary>
     internal static IEnumerable<Capability> ExternalToolCapabilities(TimeSpan? wait = null) => Probes(wait).Select(Row).ToList();
 
-    /// <summary><see cref="ExternalToolCapabilities"/> for server_status: programs not found share one row, so the report budget holds.</summary>
+    /// <summary><see cref="ExternalToolCapabilities"/> for server_status: programs not found share one row of names and variables, so the report budget holds; the tools that need one name it in their errors.</summary>
     internal static List<Capability> ExternalToolStatus(TimeSpan? wait = null)
     {
         var probes = Probes(wait);
@@ -205,7 +205,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         if (missing.Count == 1) rows.Add(Row(missing[0]));
         else if (missing.Count > 1)
             rows.Add(new Capability($"{missing.Count} programs not found", false,
-                string.Join("; ", missing.Select(p => $"{p.Name} ({Native.Providers.ExternalTools.Get(p.Id).Variable}): {p.Purpose}")),
+                string.Join("; ", missing.Select(p => $"{p.Name} ({Native.Providers.ExternalTools.Get(p.Id).Variable})")),
                 "set each variable to the program (or jar) or its folder, or put the program on PATH"));
         return rows;
     }

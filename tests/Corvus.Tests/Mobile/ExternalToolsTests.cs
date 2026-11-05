@@ -441,7 +441,7 @@ public class ExternalToolsTests : IDisposable
         var merged = Assert.Single(status, c => c.Name == $"{missing.Count} programs not found");
         Assert.False(merged.Available);
         foreach (var tool in ExternalTools.Table.Where(t => missing.Any(m => m.Name == $"{t.Name}: {t.Purpose}")))
-            Assert.Contains($"{tool.Name} ({tool.Variable}): {tool.Purpose}", merged.Detail);
+            Assert.Contains($"{tool.Name} ({tool.Variable})", merged.Detail);
     }
 
     [Fact]
