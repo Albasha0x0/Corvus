@@ -25,6 +25,15 @@ public class ParameterDomainTests
         Assert.DoesNotContain("default", (string?)passes["description"] ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
+    // Regression: the contract offered four views, so view=interface was
+    // refused before compare_native_images ran.
+    [Fact]
+    public void Every_view_compare_native_images_takes_passes_the_argument_check()
+    {
+        foreach (var view in Corvus.Tools.NativeDiffTools.Views)
+            ArgumentCheck.Apply(Schema("compare_native_images"), Args(("view", view)), "compare_native_images");
+    }
+
     [Fact]
     public void Every_domain_is_advertised_on_a_string_parameter()
     {
