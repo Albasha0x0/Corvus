@@ -53,11 +53,10 @@ public static class ZstdDictionaryLocator
 
     private static bool IsExecutable(Stream s)
     {
-        Span<byte> h = stackalloc byte[4];
+        Span<byte> h = stackalloc byte[64];
         s.Position = 0;
-        if (s.Read(h) < 4) return false;
-        return h[0] == (byte)'M' && h[1] == (byte)'Z' || h.SequenceEqual(new byte[] { 0x7F, (byte)'E', (byte)'L', (byte)'F' }) ||
-               BinaryPrimitives.ReadUInt32LittleEndian(h) is 0xFEEDFACE or 0xFEEDFACF or 0xBEBAFECA or 0xCAFEBABE or 0xCEFAEDFE or 0xCFFAEDFE;
+        int n = s.ReadAtLeast(h, h.Length, throwOnEndOfStream: false);
+        return Native.NativeImageLoader.Detect(h[..n]) is not (Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm);
     }
 
     private static FoundZstdDictionary? Scan(FileStream s, string file, uint id, IReadOnlyList<ZstdSample> samples, CancellationToken ct)

@@ -151,12 +151,15 @@ public static class NxpkArchive
         return [];
     }
 
+    // "NXFN", read little-endian.
+    private const uint NameTableTag = 0x4E46584E;
+
     // The name table follows the index; a short or oversized table keeps the names read.
     private static List<string> ReadNames(Stream s, long at, uint count, List<string> notes, out bool hasTable)
     {
         var names = new List<string>();
         hasTable = false;
-        if (at + 16 > s.Length || !Range(s, at, 4).AsSpan().SequenceEqual("NXFN"u8)) return names;
+        if (at + 16 > s.Length || BinaryPrimitives.ReadUInt32LittleEndian(Range(s, at, 4)) != NameTableTag) return names;
         hasTable = true;
         var head = Range(s, at + 4, 12);
         uint size = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4)), again = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(8));
