@@ -44,6 +44,9 @@ public sealed class MatchResult
 {
     public static readonly string[] TierNames = ["", "name_or_bytes", "structure", "signature", "call_graph", "fuzzy"];
 
+    /// <summary>The views compare_native_images takes; its argument contract offers the same list.</summary>
+    public static readonly string[] Views = ["pairs", "changed", "unmatched", "ambiguous", "interface"];
+
     public required ImagePrints Old { get; init; }
     public required ImagePrints New { get; init; }
     public required MatchOptions Options { get; init; }

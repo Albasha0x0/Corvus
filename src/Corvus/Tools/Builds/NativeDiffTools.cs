@@ -23,8 +23,8 @@ namespace Corvus.Tools;
 public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null,
     Services.Analysis.InspectionService? inspection = null)
 {
-    /// <summary>The views compare_native_images takes; the argument contract offers the same list.</summary>
-    public static readonly string[] Views = ["pairs", "changed", "unmatched", "ambiguous", "interface"];
+    /// <summary>The views compare_native_images takes.</summary>
+    public static IReadOnlyList<string> Views => MatchResult.Views;
 
     private const long MaxFuzzyCap = 1_000_000_000;
 
