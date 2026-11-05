@@ -36,6 +36,7 @@ public sealed partial class NativeLinker
     private readonly Dictionary<INativeImage, Dictionary<uint, NativeExport>> _byOrdinal = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<string, (string? File, List<string> Searched)> _located = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, LinkResult> _exports = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<(SideBySide.Dependency, bool), string?> _sideBySide = [];
     private ApiSetSchema? _apiSets;
     private bool _apiSetsLoaded;
 
@@ -108,6 +109,9 @@ public sealed partial class NativeLinker
             return (null, searched);
         }
 
+        // The loader's activation context redirects a name before the search order applies.
+        if (SideBySideFile(name, requester, x86, searched) is { } shared) return (shared, searched);
+
         string? requesterDir = requester != null ? Path.GetDirectoryName(requester) : null;
         if (!string.IsNullOrEmpty(requesterDir))
         {
@@ -135,6 +139,23 @@ public sealed partial class NativeLinker
             if (File.Exists(candidate)) return (Canonical(candidate), searched);
         }
         return (null, searched);
+    }
+
+    // Only an embedded manifest is read: an external .manifest file is not.
+    private string? SideBySideFile(string name, string? requester, bool x86, List<string> searched)
+    {
+        if (!OperatingSystem.IsWindows() || requester == null || Open(requester) is not Pe.PeFile { Manifest: { } manifest }) return null;
+        var store = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "WinSxS");
+        foreach (var dependency in SideBySide.Dependencies(manifest))
+        {
+            if (!_sideBySide.TryGetValue((dependency, x86), out var folder))
+                _sideBySide[(dependency, x86)] = folder = SideBySide.Folder(store, dependency, x86);
+            if (folder == null) continue;
+            searched.Add(folder);
+            var candidate = Path.Combine(folder, name);
+            if (File.Exists(candidate)) return Canonical(candidate);
+        }
+        return null;
     }
 
     /// <summary>The path with the file name spelled as on disk (import names are often upper-cased: NTDLL.dll).</summary>

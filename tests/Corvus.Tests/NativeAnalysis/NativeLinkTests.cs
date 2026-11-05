@@ -322,6 +322,57 @@ public sealed class NativeLinkTests : IDisposable
         Assert.Equal(NativeLinker.DllNotFound, linker.Bind("nosuch_8f3a.dll", a, false, "F", null, "import").Status);
     }
 
+    private const string CommonControls = """
+        <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+          <assemblyIdentity name="own" version="1.0.0.0" type="win32"/>
+          <dependency><dependentAssembly>
+            <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+              processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+          </dependentAssembly></dependency>
+        """;
+
+    [Fact]
+    public void A_manifest_lists_its_shared_assemblies_up_to_a_malformed_end()
+    {
+        var dependency = Assert.Single(SideBySide.Dependencies(CommonControls));
+        Assert.Equal("Microsoft.Windows.Common-Controls", dependency.Name);
+        Assert.Empty(SideBySide.Dependencies(null));
+    }
+
+    [Theory]
+    [InlineData("""name="..\..\evil" version="1.0.0.0" publicKeyToken="6595b64144ccf1df" """)]
+    [InlineData("""name="line&#10;" version="1.0.0.0" publicKeyToken="6595b64144ccf1df" """)]
+    [InlineData("""name="private" version="1.0.0.0" """)]
+    [InlineData("""name="shared" version="one" publicKeyToken="6595b64144ccf1df" """)]
+    public void A_manifest_identity_the_store_cannot_hold_is_skipped(string attributes)
+    {
+        var manifest = $"<assembly><dependentAssembly><assemblyIdentity {attributes}/></dependentAssembly></assembly>";
+        Assert.Empty(SideBySide.Dependencies(manifest));
+    }
+
+    [Fact]
+    public void A_shared_assembly_takes_the_newest_servicing_version_of_its_major_and_minor()
+    {
+        const string name = "amd64_microsoft.windows.common-controls_6595b64144ccf1df_";
+        foreach (var folder in new[] { "6.0.100.5_none_a", "6.0.9711.1_none_b", "6.0.9711.1_en-us_c", "6.1.0.0_none_d" })
+            Directory.CreateDirectory(_dir.File(name + folder));
+        var dependency = SideBySide.Dependencies(CommonControls)[0];
+        Assert.Equal(_dir.File(name + "6.0.9711.1_none_b"), SideBySide.Folder(_dir.Path, dependency, false));
+        Assert.Null(SideBySide.Folder(_dir.Path, dependency, true));
+    }
+
+    // Push run on 3aba30cbb: comctl32.dll!#344 exists only in version 6, and
+    // the System32 copy of version 5.82 read as a missing ordinal.
+    [WindowsFact]
+    public void A_manifested_image_binds_its_shared_assembly_before_the_system_folder()
+    {
+        var importer = Path.Combine(Environment.SystemDirectory, "EhStorPwdMgr.dll");
+        if (!File.Exists(importer)) return;
+        var bound = new NativeLinker(PeFile.Open).Bind("COMCTL32.dll", importer, false, null, 344, "import");
+        Assert.True(bound.IsResolved, bound.Detail);
+        Assert.Contains("WinSxS", bound.File, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void A_kernel_mode_forwarder_without_an_extension_binds_the_exe()
     {
