@@ -129,7 +129,7 @@ public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposabl
         var snapshot = await Call(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1", ["outputPath"] = dump });
         var changes = await Call(server, "open_minidump", new() { ["path"] = dump, ["view"] = "changes", ["modules"] = Path.GetFileName(exe), ["imageDirectories"] = Path.GetDirectoryName(exe), ["limit"] = 500 });
 
-        Assert.Contains("session hook(s) saved beside the dump", snapshot);
+        Assert.Contains($"session hook(s) saved to {Corvus.Native.Dump.SessionHookSidecar.PathFor(Path.GetFullPath(dump))};", snapshot);
         Assert.True(File.Exists(Corvus.Native.Dump.SessionHookSidecar.PathFor(dump)));
         var jumps = changes.Split('\n').Where(l => l.Contains("jump to")).ToList();
         Assert.NotEmpty(jumps);

@@ -219,7 +219,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
                     // program.
                     Assert.Matches($@"{Regex.Escape(Path.GetFileNameWithoutExtension(target.Exe("orders")))}!main\+", stack);
                 }
-                finally { File.Delete(dump.Groups[1].Value); }
+                finally { File.Delete(dump.Groups[1].Value); File.Delete(Corvus.Native.Dump.SessionHookSidecar.PathFor(dump.Groups[1].Value)); }
             }
 
             Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));

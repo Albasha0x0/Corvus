@@ -336,7 +336,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             var stack = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[2].Value, ["thread"] = Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value });
             Assert.Matches(@"#0 0x[0-9A-F]+ readers!Readers\.ReadOnce\(System\.String\) \[clr\] 0x06000003", stack);
         }
-        finally { File.Delete(dump.Groups[1].Value); }
+        finally { File.Delete(dump.Groups[1].Value); File.Delete(Corvus.Native.Dump.SessionHookSidecar.PathFor(dump.Groups[1].Value)); }
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadTwice" }, "not_found");
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
@@ -851,7 +851,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             }
             else Output.WriteLine(stack + "\n" + main); // a Linux core's stacks are shown, not yet checked
         }
-        finally { File.Delete(dump.Groups[1].Value); }
+        finally { File.Delete(dump.Groups[1].Value); File.Delete(Corvus.Native.Dump.SessionHookSidecar.PathFor(dump.Groups[1].Value)); }
     }
 
     /// <summary>Waits for the program's exit; on a timeout writes what its threads wait on and the session's last events.</summary>

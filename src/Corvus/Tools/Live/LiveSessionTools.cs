@@ -324,7 +324,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var text = $"{s.Id}: process {s.ProcessId} written to {full} ({bytes:N0} bytes), opened as {report.Id}; the program keeps running\n" +
                    (stop != null ? $"the stop of thread {stop.ThreadId} at {held!.Point} is {(OperatingSystem.IsWindows() ? "the dump's exception (a breakpoint)" : "the core's signal (SIGTRAP), with the stop's registers")}; dump_stack walks from it\n" : "") +
                    (dumps.ThreadsWithoutContext(report.Id) is { Count: > 0 } unknown ? $"register context unknown for thread(s) {string.Join(", ", unknown)}: the writer captured none\n" : "") +
-                   (hooks is { Count: > 0 } && hookReason == null ? $"{hooks.Count} session hook(s) saved beside the dump; open_minidump view=changes labels their rows\n" : "") +
+                   (hooks is { Count: > 0 } && hookReason == null ? $"{hooks.Count} session hook(s) saved to {Native.Dump.SessionHookSidecar.PathFor(full)}; open_minidump view=changes labels their rows\n" : "") +
                    (hookReason != null ? $"session hooks unknown, no sidecar saved: {hookReason}\n" : "") +
                    $"Next: open_minidump path={report.Id} view=threads, dump_stack dump={report.Id}\n";
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
