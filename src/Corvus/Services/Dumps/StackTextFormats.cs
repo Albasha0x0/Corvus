@@ -205,8 +205,8 @@ internal static class StackTextFormats
         return result;
     }
 
-    // Application Error EventData names, from the event 1000 XML shown at
-    // https://learn.microsoft.com/en-us/answers/questions/868473
+    // Application Error EventData names as Windows 11 writes event 1000; the
+    // same names appear at https://learn.microsoft.com/en-us/answers/questions/868473
     private static readonly Dictionary<string, string> EventDataFields = new(StringComparer.Ordinal)
     {
         ["AppName"] = "ev:application", ["AppVersion"] = "ev:application:version", ["AppTimeStamp"] = "ev:application:timestamp",
