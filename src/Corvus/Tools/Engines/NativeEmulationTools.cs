@@ -205,6 +205,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
                 "stubs=NAME=VALUE answers that call, stubs=*=0 every call outside the image") { Partial = text },
             "memory_fault" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",
                 "memory= maps bytes there, or args / registers pass a pointer to a buffer (buf:N)") { Partial = text },
+            "managed_exception" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",
+                "the trace (trace=50) shows the path to the throw helper") { Partial = text },
             "heap_error" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",
                 "the trace (trace=50) shows the calls that led here") { Partial = text },
             "unmapped_execute" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.", "the trace (trace=50) shows the jump") { Partial = text },

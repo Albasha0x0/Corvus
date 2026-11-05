@@ -251,6 +251,13 @@ public static partial class IntegerEmulation
                 afterCall = true;
                 string name = NativeCodeIndex.ImportName(reached);
                 string? named = Stub(stubs, name, pc), value = named;
+                if (named == null && ThrowHelpers.Find(name) is { } thrown)
+                {
+                    stop = "managed_exception";
+                    stoppedAt = lastSite;
+                    detail = $"call at 0x{lastSite:x} to {name} raises {thrown}";
+                    break;
+                }
                 if (named == null && Model(name, out var heapFault) is { } modelled)
                 {
                     if (heapFault != null)
@@ -298,6 +305,8 @@ public static partial class IntegerEmulation
             }
             catch (EmulatorFaultException f)
             {
+                // Step advanced the program counter; report the faulting instruction.
+                cpu.Pc = pc;
                 stop = "memory_fault";
                 stoppedAt = pc;
                 detail = NullPageDetail(f, cpu) ?? f.Message;
@@ -330,6 +339,13 @@ public static partial class IntegerEmulation
             if (byAddress.ContainsKey(target)) continue;
             var (calleeName, thunk) = Callee(image, imageBase, index, target);
             string? stubValue = Stub(stubs, calleeName, target);
+            if (stubValue == null && ThrowHelpers.Find(calleeName) is { } raised)
+            {
+                stop = "managed_exception";
+                stoppedAt = step.Site;
+                detail = $"call at 0x{step.Site:x} to {calleeName} raises {raised}";
+                break;
+            }
             if (stubValue == null && thunk != null && Model(calleeName, out var thunkFault) is { } thunkValue)
             {
                 if (thunkFault != null)
