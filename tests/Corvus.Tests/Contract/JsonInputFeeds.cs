@@ -86,6 +86,14 @@ public sealed partial class JsonInputTests
             """{"qlog_version":"0.3","title":"t","traces":[{"vantage_point":{"name":"n","type":"client"},"events":[[0,"transport","packet_sent",{}]]}]}""",
             b => Qlog.Read(new MemoryStream(b), _ => { }, default)),
         ["Core/ConfigFile.cs"] = ("""{"$schema":"s","CORVUS_X":"1","CORVUS_Y":2}""", b => WithFile(b, p => ConfigFile.Apply(p, "test", _ => null, (_, _) => { }))),
+        ["Native/Dump/SessionHookSidecar.cs"] = ("""{"hooks":[{"address":"0x1000","length":5,"kind":"coverage"}]}""", b =>
+        {
+            var dump = Path.Combine(Path.GetTempPath(), "corvus-hooks-" + Guid.NewGuid().ToString("N") + ".dmp");
+            var sidecar = SessionHookSidecar.PathFor(dump);
+            File.WriteAllBytes(sidecar, b);
+            try { SessionHookSidecar.Read(dump); }
+            finally { File.Delete(sidecar); }
+        }),
         ["Native/Dump/RegionSetFile.cs"] = ("""{"format":1,"regions":[{"base":"0x1000","size":16,"file":"a.bin"}]}""", b => WithFile(b, p => RegionSetFile.Open(p))),
         ["Native/RustAudit.cs"] = (
             """{"packages":[{"name":"a","version":"1.0.0","source":"registry","kind":"build","root":true,"dependencies":[]}]}""",

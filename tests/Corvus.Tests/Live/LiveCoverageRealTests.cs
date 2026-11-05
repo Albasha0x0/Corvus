@@ -113,4 +113,28 @@ public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal("", Node("Cube"));
         Assert.Matches(@"label=""Cube\\n-"" style=dashed", await Dot(server, new() { ["action"] = "report", ["run"] = "cov-1", ["match"] = "Cube", ["show"] = "all", ["format"] = "dot" }));
     }
+
+    [FridaFact]
+    public async Task A_snapshot_with_coverage_labels_every_jump_at_a_hook_address()
+    {
+        var exe = LiveFridaRealTests.Build(_dir, "shapes", Source);
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions
+        {
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
+        });
+        await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "2" } });
+        Assert.Contains("counting", await Call(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start" }));
+        var dump = _dir.File("covered.dmp");
+
+        var snapshot = await Call(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1", ["outputPath"] = dump });
+        var changes = await Call(server, "open_minidump", new() { ["path"] = dump, ["view"] = "changes", ["modules"] = Path.GetFileName(exe), ["imageDirectories"] = Path.GetDirectoryName(exe), ["limit"] = 500 });
+
+        Assert.Contains("session hook(s) saved beside the dump", snapshot);
+        Assert.True(File.Exists(Corvus.Native.Dump.SessionHookSidecar.PathFor(dump)));
+        var jumps = changes.Split('\n').Where(l => l.Contains("jump to")).ToList();
+        Assert.NotEmpty(jumps);
+        Assert.All(jumps, l => Assert.Contains("session hook (coverage)", l));
+        Assert.Matches(@"\d+ of \d+ changed range\(s\) are session hooks", changes);
+        await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+    }
 }

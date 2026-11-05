@@ -51,9 +51,26 @@ public static class LiveSessionHooks
             var hooks = Parse(reply, id => KindOf(session, id));
             return (hooks, hooks == null ? "the worker answered no hook list" : null);
         }
-        catch (Core.ToolError e)
+        catch (Exception e) when (e is Core.ToolError or TimeoutException or IOException)
         {
             return (null, e.Message);
+        }
+    }
+
+    /// <summary>Saves <paramref name="hooks"/> beside the dump at <paramref name="dump"/>; nothing is written for an empty list. Returns the reason when the write failed, null otherwise.</summary>
+    internal static string? SaveBeside(IReadOnlyList<LiveSessionHook> hooks, string dump)
+    {
+        if (hooks.Count == 0) return null;
+        // The span runs from the hook address to the end of the bytes it replaced.
+        var marks = hooks.Select(h => new SessionHookMark(h.Address, (int)(h.Start - h.Address) + (h.Original?.Length ?? (int)MaxSpan), h.Kind)).ToList();
+        try
+        {
+            SessionHookSidecar.Write(dump, marks);
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return e.Message;
         }
     }
 

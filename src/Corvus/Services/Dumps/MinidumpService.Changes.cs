@@ -46,13 +46,13 @@ public sealed partial class MinidumpService
             throw new ToolError(ErrorCode.InvalidArgument, "view=changes compares modules with their files; code regions have none.",
                 "pass outputPath with modules=code to save the code regions");
         string? otherFull = string.IsNullOrWhiteSpace(compareWith) ? null : Resolve(compareWith, imageDirectories).Path;
-        string key = $"{id}|{Stamp(full)}|{otherFull}|{(otherFull == null ? "" : Stamp(otherFull))}|{selector}|{directories}";
+        string key = $"{id}|{Stamp(full)}|{otherFull}|{(otherFull == null ? "" : Stamp(otherFull))}|{selector}|{directories}|{Stamp(SessionHookSidecar.PathFor(full))}";
 
         ChangeSet? set;
         lock (_changeSets) _changeSets.TryGetValue(key, out set);
         if (set == null)
         {
-            set = ComputeChanges(path, imageDirectories, selector, compareWith, ct);
+            set = ComputeChanges(path, full, imageDirectories, selector, compareWith, ct);
             lock (_changeSets)
             {
                 if (_changeSets.Count >= MaxCachedChangeSets) _changeSets.Remove(_changeSets.Keys.First());
@@ -88,7 +88,7 @@ public sealed partial class MinidumpService
         }
     }
 
-    private ChangeSet ComputeChanges(string path, string? imageDirectories, string selector, string? compareWith, CancellationToken ct)
+    private ChangeSet ComputeChanges(string path, string full, string? imageDirectories, string selector, string? compareWith, CancellationToken ct)
     {
         Interlocked.Increment(ref ChangeComputations);
         using var s = Open(path, imageDirectories);
@@ -120,7 +120,24 @@ public sealed partial class MinidumpService
                 all.Add((target.Name, target.Base, ParseAddress(row.Start), row));
         }
         var sorted = all.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Base).ThenBy(r => r.Address).Select(r => r.Row).ToList();
+        LabelSessionHooks(full, sorted, notes);
         return new ChangeSet(sorted, notes);
+    }
+
+    // Rows over a hook the session saved beside the dump read as session hooks,
+    // not injected code. Without a sidecar the rows stay as they are.
+    private static void LabelSessionHooks(string dump, List<ModuleChange> rows, List<string> notes)
+    {
+        if (SessionHookSidecar.Read(dump) is not { } hooks) return;
+        int labelled = 0;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.Kind != "code" || SessionHookSidecar.KindAt(hooks, ParseAddress(row.Start), row.Length) is not { } kind) continue;
+            rows[i] = row with { Description = $"session hook ({kind}); {row.Description}" };
+            labelled++;
+        }
+        notes.Add($"{labelled} of {rows.Count} changed range(s) are session hooks, saved beside the dump with {hooks.Count} hook(s).");
     }
 
     // Pairs each module with the same-named module of the other dump in address
