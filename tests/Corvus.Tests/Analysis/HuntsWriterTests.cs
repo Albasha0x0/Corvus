@@ -199,9 +199,34 @@ public sealed class HuntsWriterTests
     }
 
     [Fact]
+    public void A_path_seen_only_as_a_string_reads_writes_by_this_file_alone()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "decoded"), new(HuntKind.FilePath, @"C:\Windows\System32\cmd.exe", "string"),
+            new(HuntKind.FilePath, @"C:\Users\Public\drop.bin", "decoded")]);
+        var str = set.Hunts.Single(h => h.Facts[0].EndsWith("cmd.exe", StringComparison.Ordinal));
+        var dec = set.Hunts.Single(h => h.Facts[0].EndsWith("drop.bin", StringComparison.Ordinal));
+        Assert.Contains($"InitiatingProcessSHA1 == '{Sha1}'", str.Kql, StringComparison.Ordinal);
+        Assert.DoesNotContain("InitiatingProcessSHA1", dec.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(str.Kql).GetDiagnostics());
+        Assert.Empty(KqlHunts.Write([new(HuntKind.FilePath, @"C:\Windows\System32\cmd.exe", "string")]).Hunts);
+    }
+
+    [Fact]
+    public void The_library_query_takes_a_folder_or_a_full_path_in_any_case()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "decoded"), new(HuntKind.DllName, "helper.dll", "reference")])
+            .Hunts.Single(h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        // replace_string is case-sensitive and misses a folder-only path.
+        Assert.DoesNotContain("replace_string", hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains(@"FolderPath endswith strcat('\\', FileName)", hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains(@"trim_end(@'\\', InitiatingProcessFolderPath)", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+    }
+
+    [Fact]
     public void A_file_path_query_matches_the_folder_and_the_file_name_separately()
     {
-        var hunt = KqlHunts.Write([new(HuntKind.FilePath, @"C:\Users\Public\drop.bin", "string")]).Hunts.Single();
+        var hunt = KqlHunts.Write([new(HuntKind.FilePath, @"C:\Users\Public\drop.bin", "decoded")]).Hunts.Single();
         Assert.Contains(@"FolderPath =~ 'C:\\Users\\Public'", hunt.Kql, StringComparison.Ordinal);
         Assert.Contains(@"FolderPath =~ 'C:\\Users\\Public\\drop.bin'", hunt.Kql, StringComparison.Ordinal);
         Assert.Contains("FileName =~ 'drop.bin'", hunt.Kql, StringComparison.Ordinal);
@@ -247,7 +272,7 @@ public sealed class HuntsWriterTests
     [Fact]
     public void An_unpaired_surrogate_is_replaced_and_the_hunt_file_still_writes()
     {
-        var set = KqlHunts.Write([new(HuntKind.FilePath, @"C:\a\x" + "\ud800y.bin", "string"), new(HuntKind.NamedPipe, "p\udc00q", "string")]);
+        var set = KqlHunts.Write([new(HuntKind.FilePath, @"C:\a\x" + "\ud800y.bin", "decoded"), new(HuntKind.NamedPipe, "p\udc00q", "string")]);
         Assert.NotEmpty(set.Hunts);
         Assert.NotEmpty(HuntRules.Write(set));
         Assert.All(set.Hunts, h => Assert.DoesNotContain(h.Kql, c => char.IsSurrogate(c)));

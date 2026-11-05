@@ -159,7 +159,7 @@ public static class KqlHunts
         HuntKind.DllName => "they need the SHA-1 of the loading file",
         HuntKind.Ipv4 or HuntKind.Ipv6 => "the value is not an address",
         HuntKind.NamedPipe => "the pipe name is empty",
-        HuntKind.FilePath => "the path names no file",
+        HuntKind.FilePath => "the path names no file, or it is only a string and the file SHA-1 is unknown",
         _ => "no query applies",
     };
 
@@ -259,8 +259,8 @@ public static class KqlHunts
                         "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
                         $"| where FileName =~ {Literal(value)}",
                         "| where isnotempty(InitiatingProcessFolderPath)",
-                        "| extend LoaderDir = tolower(replace_string(InitiatingProcessFolderPath, InitiatingProcessFileName, ''))",
-                        "| extend DllDir = tolower(replace_string(FolderPath, FileName, ''))",
+                        $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
+                        $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
                         "| where DllDir == LoaderDir",
                         $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath"),
                 ];
@@ -292,16 +292,24 @@ public static class KqlHunts
                 if (leaf.Length == 0) { unqueried++; return []; }
                 var folder = value[..Math.Max(0, value.Length - leaf.Length - 1)];
                 var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
-                return
-                [
-                    Make(kind, value, evidence, "", $"Writes of {Short(leaf)}", "DeviceFileEvents", "low",
-                        "DeviceFileEvents", rooted ? $"| where (FolderPath =~ {Literal(folder)} or FolderPath =~ {Literal(value)}) and FileName =~ {Literal(leaf)}" : $"| where FileName =~ {Literal(leaf)}",
-                        $"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName"),
-                ];
+                // A path seen only as a string is not shown to be written, so
+                // the query reads writes by this file alone.
+                bool scoped = Rank(evidence) < Rank(IndicatorEvidence.Reference);
+                if (scoped && sha1 == null) { unqueried++; return []; }
+                List<string> lines = ["DeviceFileEvents",
+                    rooted ? $"| where (FolderPath =~ {Literal(folder)} or FolderPath =~ {Literal(value)}) and FileName =~ {Literal(leaf)}" : $"| where FileName =~ {Literal(leaf)}"];
+                if (scoped) lines.Add($"| where InitiatingProcessSHA1 == {Literal(sha1!)}");
+                lines.Add($"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName");
+                return [Make(kind, value, evidence, "", scoped ? $"Writes of {Short(leaf)} by this file" : $"Writes of {Short(leaf)}", "DeviceFileEvents", "low", [.. lines])];
             default:
                 return [];
         }
     }
+
+    // Learn names a folder, telemetry often holds the full path: either form
+    // gives the folder, lower case, without a trailing backslash.
+    private static string FolderOf(string path, string name) =>
+        $"tolower(iff({path} endswith strcat('\\\\', {name}), substring({path}, 0, strlen({path}) - strlen({name}) - 1), trim_end(@'\\\\', {path})))";
 
     private static Hunt Network(string kind, string value, string evidence, string title, string filter) =>
         Make(kind, value, evidence, "", title, "DeviceNetworkEvents", "low",

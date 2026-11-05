@@ -9,7 +9,7 @@ public static class KqlCheck
         { "where", "project", "extend", "and", "or", "not", "in", "has", "contains", "startswith", "endswith", "by", "take", "true", "false" };
 
     private static readonly HashSet<string> Functions = new(StringComparer.Ordinal)
-        { "tostring", "parse_json", "tolower", "replace_string", "isnotempty", "coalesce" };
+        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end" };
 
     /// <summary>The problems of <paramref name="kql"/> against the columns of its first table; empty when none.</summary>
     public static IReadOnlyList<string> Diagnostics(string kql)
@@ -49,7 +49,22 @@ public static class KqlCheck
         {
             char c = text[i];
             if (char.IsWhiteSpace(c)) { i++; continue; }
-            if (c is '\'' or '"')
+            // A verbatim literal has no escapes; a doubled quote is one quote.
+            if (c == '@' && i + 1 < text.Length && text[i + 1] is '\'' or '"')
+            {
+                char q = text[i + 1];
+                int end = i + 2;
+                while (end < text.Length && text[end] is not ('\n' or '\r'))
+                {
+                    if (text[end] != q) { end++; continue; }
+                    if (end + 1 < text.Length && text[end + 1] == q) { end += 2; continue; }
+                    break;
+                }
+                if (end >= text.Length || text[end] != q) { problems.Add("A string literal is not terminated."); return tokens; }
+                tokens.Add(new('s', text[i..(end + 1)]));
+                i = end + 1;
+            }
+            else if (c is '\'' or '"')
             {
                 int end = i + 1;
                 while (end < text.Length && text[end] != c)
@@ -76,7 +91,7 @@ public static class KqlCheck
                 tokens.Add(new('n', text[i..end]));
                 i = end;
             }
-            else if (c is '|' or ',' or '(' or ')' or '.' or '=' or '!' or '~' or '<' or '>')
+            else if (c is '|' or ',' or '(' or ')' or '.' or '=' or '!' or '~' or '<' or '>' or '-' or '+')
             {
                 var sb = new StringBuilder().Append(c);
                 while (c is '=' or '!' or '<' or '>' && i + sb.Length < text.Length && text[i + sb.Length] is '=' or '~') sb.Append(text[i + sb.Length]);
