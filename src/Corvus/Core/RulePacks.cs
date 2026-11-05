@@ -71,8 +71,15 @@ public static class RulePacks
         if (!Directory.Exists(root)) return [];
         var packs = new List<InstalledRulePack>();
         foreach (var pack in Directory.EnumerateDirectories(root).Order(StringComparer.Ordinal))
-            foreach (var version in Directory.EnumerateDirectories(pack).Where(d => File.Exists(Path.Combine(d, ManifestName))).Order(StringComparer.Ordinal))
-                packs.Add(At(version));
+        {
+            // Another process may remove a pack while this lists them; a removed pack is not installed.
+            try
+            {
+                foreach (var version in Directory.EnumerateDirectories(pack).Where(d => File.Exists(Path.Combine(d, ManifestName))).Order(StringComparer.Ordinal))
+                    packs.Add(At(version));
+            }
+            catch (DirectoryNotFoundException) { }
+        }
         return packs;
     }
 

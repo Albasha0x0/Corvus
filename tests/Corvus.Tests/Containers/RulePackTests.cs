@@ -100,6 +100,29 @@ public sealed class RulePackTests : IDisposable
         Assert.Equal(0, http.Requests);
     }
 
+    // Regression: IncidentListTests failed with DirectoryNotFoundException
+    // when a parallel test removed its pack while another listed the packs.
+    [Fact]
+    public void A_pack_removed_while_listing_is_skipped()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = _dir.File("rules");
+        var kept = Path.Combine(root, "kept", "1.0");
+        Directory.CreateDirectory(kept);
+        File.WriteAllText(Path.Combine(kept, "pack.json"), "{}");
+        // A junction to a removed folder lists as a pack and then cannot be read, as a pack removed mid-listing.
+        var gone = _dir.File("gone");
+        Directory.CreateDirectory(gone);
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", ["/c", "mklink", "/J", Path.Combine(root, "removed"), gone])
+            { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true })!)
+        {
+            mklink.WaitForExit();
+            Assert.Equal(0, mklink.ExitCode);
+        }
+        Directory.Delete(gone);
+        Assert.Equal(["kept"], RulePacks.Installed(root).Select(p => p.Name));
+    }
+
     [Fact]
     public void A_local_archive_with_a_pinned_hash_installs_and_lists_its_version_and_date()
     {
