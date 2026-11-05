@@ -368,7 +368,7 @@ public sealed partial class NativeCodeTools
             if (o.Access is { } access) facts.Add(access);
             if (o.FullRegister is { } full && full != o.Register) facts.Add($"part of {full}");
             var characters = o.Kind == "immediate" && o.Value is { } iv ? PrintableConstant(iv, o.Size) : null;
-            if (o.Kind == "immediate" && o.Value is { } v) facts.Add($"0x{v:X}" + (o.SignedValue < 0 ? $" ({o.SignedValue})" : "") + (characters != null ? $" '{characters}'" : ""));
+            if (o.Kind == "immediate" && o.Value is { } v) facts.Add($"0x{v:X}" + (o.SignedValue < 0 ? $" (-0x{(ulong)(-o.SignedValue.Value):X})" : "") + (characters != null ? $" '{characters}'" : ""));
             if (o.Base != null || o.IndexRegister != null || o.RipRelative || o.Displacement is not null and not 0)
             {
                 if (o.RipRelative) facts.Add(o.Kind is "pc_relative" or "near_branch" ? "pc-relative" : "rip-relative");

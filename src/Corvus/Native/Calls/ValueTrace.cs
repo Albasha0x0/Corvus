@@ -198,7 +198,7 @@ public sealed class ValueTrace
 
     private ValueTraceGraph Run()
     {
-        var seedNode = AddNode(TraceNodeKind.Seed, _seed.Address, _seed.Function, _seed.Location, _seed.Description, null, null, null, 0, "", -1, true);
+        var seedNode = AddNode(TraceNodeKind.Seed, _seed.Address, _seed.Function, _seed.Location, _seed.Description, null, null, null, 0, "", -1, _o.Direction != TraceDirection.Forward);
         if (_seed.Function != null) _functions.Add((0, _seed.Function.Start));
         if (_o.Direction != TraceDirection.Forward) StartBackward(seedNode);
         if (_o.Direction != TraceDirection.Backward) StartForward(seedNode);

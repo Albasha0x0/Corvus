@@ -439,7 +439,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     x.Add(Va(d.Rva), $"stack probe {probe} (a large frame)", "allocation");
             }
             if (pushed.Count > 0) x.Add(null, "saved registers: " + string.Join(", ", pushed), "saved");
-            x.Add(null, fc.HasFramePointer ? $"frame pointer {(calls.Is64 ? "rbp" : "ebp")}" : "no frame pointer", "frame_pointer");
+            x.Add(null, fc.HasFramePointer ? $"frame pointer {(calls.Is64 ? "rbp" : "ebp")} set by {fc.FrameSetup}" : "no frame pointer", "frame_pointer");
             // A 32-bit base register carries its displacement as an unsigned 32-bit value.
             static long Displacement(Instruction i) => i.MemoryBase is Register.ESP or Register.EBP ? (int)i.MemoryDisplacement64 : (long)i.MemoryDisplacement64;
             var accesses = fc.Blocks.SelectMany(b => b).Where(d => d.I.Mnemonic != Mnemonic.Lea && d.I.MemoryBase.GetFullRegister() is Register.RSP or Register.RBP

@@ -30,20 +30,32 @@ internal sealed class FunctionCode
     private HashSet<int>? _stackTaken, _frameTaken;
     private bool? _framePointer;
 
-    /// <summary>The prologue sets ebp / rbp from the stack pointer (mov ebp, esp / lea rbp, [rsp+n]): [rbp+n] are locals.</summary>
+    /// <summary>The prologue sets ebp / rbp from the stack pointer or a prologue copy of it (mov rbp, rsp / lea rbp, [rax+n] after mov rax, rsp): [rbp+n] are locals.</summary>
     public bool HasFramePointer => _framePointer ??= FindFramePointer();
+
+    /// <summary>The prologue instruction that sets the frame pointer, or null when there is none.</summary>
+    public string? FrameSetup { get { _ = HasFramePointer; return _frameSetup; } }
+
+    private string? _frameSetup;
 
     private bool FindFramePointer()
     {
         int entry = BlockIndexOf(Function.Start);
         if (entry < 0) return false;
         var insns = Blocks[entry];
+        // Registers copied from rsp in the prologue (mov rax,rsp); rbp set from
+        // any other register is a general register, not a frame.
+        var stackCopies = new HashSet<Register> { Register.RSP };
         for (int i = 0; i < Math.Min(insns.Length, 12); i++)
         {
             ref readonly var x = ref insns[i].I;
+            if (x.Mnemonic == Mnemonic.Mov && x.Op0Kind == OpKind.Register && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == Register.RSP)
+                stackCopies.Add(x.Op0Register.GetFullRegister());
             if (x.Op0Kind != OpKind.Register || x.Op0Register.GetFullRegister() != Register.RBP || x.Mnemonic == Mnemonic.Push) continue;
-            return x.Mnemonic == Mnemonic.Mov && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == Register.RSP
-                   || x.Mnemonic == Mnemonic.Lea && x.MemoryBase.GetFullRegister() == Register.RSP && x.MemoryIndex == Register.None;
+            var set = x.Mnemonic == Mnemonic.Mov && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == Register.RSP
+                      || x.Mnemonic == Mnemonic.Lea && stackCopies.Contains(x.MemoryBase.GetFullRegister()) && x.MemoryIndex == Register.None;
+            if (set) _frameSetup = x.ToString();
+            return set;
         }
         return false;
     }
