@@ -24,6 +24,12 @@ internal sealed record TextFrame(int Line, string Raw, string Format, string Kin
     public string? BuildId { get; init; }
     /// <summary>Which exception of a chain the frame belongs to: 0 the outermost.</summary>
     public int? Segment { get; set; }
+    /// <summary>The module's version and time stamp as the same event or list entry gives them.</summary>
+    public TextModule? Described { get; init; }
+    /// <summary>The text says the fault is outside any module and gives an address.</summary>
+    public bool Outside { get; init; }
+    /// <summary>The text has a fault offset that is not a 64-bit hex value.</summary>
+    public bool OffsetUnreadable { get; init; }
 }
 
 /// <summary>A module named with its load address (a crash log's module list), version or timestamp.</summary>
@@ -41,6 +47,7 @@ internal sealed class ParsedStackText
     public int Unrecognized { get; set; }
     public List<string> UnrecognizedSample { get; } = [];
     public Dictionary<string, int> Formats { get; } = [];
+    public List<string> Notes { get; } = [];
 }
 
 /// <summary>The crash-text parser table, one entry per line shape tried in order; other lines count as unrecognized.
@@ -48,6 +55,8 @@ internal sealed class ParsedStackText
 internal static class StackTextFormats
 {
     public static readonly string[] Families = ["mono", "dotnet", "wer", "eventlog", "windbg", "android"];
+    /// <summary>Events resolved per text; further events are counted.</summary>
+    public const int MaxEvents = 200;
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
 
     private delegate bool Rule(Match m, int line, string raw, ParsedStackText into, State state);
@@ -55,8 +64,27 @@ internal static class StackTextFormats
     private sealed class State
     {
         public Dictionary<int, (string? Name, string? Value)> Sig { get; } = [];
-        public Dictionary<string, string> Fields { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> Fields { get; private set; } = NewFields();
+        public List<Dictionary<string, string>> Events { get; } = [];
+        public int EventsSkipped { get; private set; }
         public int Depth { get; set; }
+
+        private static Dictionary<string, string> NewFields() => new(StringComparer.OrdinalIgnoreCase);
+
+        // A field seen twice starts the next event.
+        public void Set(string key, string value)
+        {
+            if (key.StartsWith("ev:", StringComparison.Ordinal) && Fields.ContainsKey(key)) Flush();
+            Fields[key] = value;
+        }
+
+        public void Flush()
+        {
+            if (!Fields.Keys.Any(k => k.StartsWith("ev:", StringComparison.Ordinal))) return;
+            if (Events.Count < MaxEvents) Events.Add(Fields);
+            else EventsSkipped++;
+            Fields = NewFields();
+        }
     }
 
     private sealed record Entry(string Family, Regex Pattern, Rule Apply);
@@ -144,19 +172,19 @@ internal static class StackTextFormats
                 s.Sig[i] = m.Groups["kind"].Value == "Name" ? (m.Groups["v"].Value.Trim(), e.Value) : (e.Name, m.Groups["v"].Value.Trim());
                 return true;
             }),
-        new("wer", R(@"^\s*(?<k>AppName|AppPath|FriendlyEventName|EventType|NsAppName)=(?<v>.*)$"), (m, _, _, _, s) => { s.Fields["wer:" + m.Groups["k"].Value] = m.Groups["v"].Value.Trim(); return true; }),
+        new("wer", R(@"^\s*(?<k>AppName|AppPath|FriendlyEventName|EventType|NsAppName)=(?<v>.*)$"), (m, _, _, _, s) => { s.Set("wer:" + m.Groups["k"].Value, m.Groups["v"].Value.Trim()); return true; }),
         // Event Log 1000 (Application Error)
-        new("eventlog", R(@"^\s*Faulting (?<what>application|module) name: (?<name>[^,]+), version: (?<ver>[^,]+), time stamp: 0x(?<ts>[0-9a-fA-F]+)"),
+        new("eventlog", R(@"^\s*Faulting (?<what>application|module) name: (?<name>[^,]+)(?:, version: (?<ver>[^,]+), time stamp: 0x(?<ts>[0-9a-fA-F]+))?"),
             (m, _, _, _, s) =>
             {
                 string p = m.Groups["what"].Value;
-                s.Fields[$"ev:{p}"] = m.Groups["name"].Value.Trim();
-                s.Fields[$"ev:{p}:version"] = m.Groups["ver"].Value.Trim();
-                s.Fields[$"ev:{p}:timestamp"] = m.Groups["ts"].Value;
+                s.Set($"ev:{p}", m.Groups["name"].Value.Trim());
+                if (m.Groups["ver"].Success) s.Set($"ev:{p}:version", m.Groups["ver"].Value.Trim());
+                if (m.Groups["ts"].Success) s.Set($"ev:{p}:timestamp", m.Groups["ts"].Value);
                 return true;
             }),
-        new("eventlog", R(@"^\s*(?<k>Exception code|Fault offset|Faulting process id|Faulting module path|Faulting application path): (?<v>.+)$"),
-            (m, _, _, _, s) => { s.Fields["ev:" + m.Groups["k"].Value] = m.Groups["v"].Value.Trim(); return true; }),
+        new("eventlog", R(@"^\s*(?<k>Exception code|Fault offset|Faulting process id|Faulting module path|Faulting application path|Faulting application start time|Report Id|Faulting package full name|Faulting package-relative application ID):(?:\s+(?<v>.*))?$"),
+            (m, _, _, _, s) => { s.Set("ev:" + m.Groups["k"].Value, m.Groups["v"].Value.Trim()); return true; }),
         // Debugger text: 00 000000a1`2b4ff6c8 00007ff6`1234abcd app!Crash+0x5 [c:\src\x.cpp @ 12]
         // The symbol starts like a name (decorated ?f@@, @f@8, <lambda_..>), so a "Crash!!!" banner is no frame.
         new("windbg", R(@"^(?:\s*[0-9a-fA-F]{2,}\s+)?(?:[0-9a-fA-F`]{8,17}\s+){0,2}(?<module>[A-Za-z_][\w.-]*)!(?<sym>[A-Za-z_?@$<~][^\s+\[]*)(?:\+0x(?<off>[0-9a-fA-F]+))?(?:\s+\[(?<src>[^\]]+)\])?\s*$"),
@@ -214,7 +242,7 @@ internal static class StackTextFormats
         ["ExceptionCode"] = "ev:Exception code", ["FaultingOffset"] = "ev:Fault offset",
     };
 
-    private static readonly Regex EventDataItem = R(@"<Data Name=""(?<k>[A-Za-z]+)"">(?<v>[^<]*)</Data>");
+    private static readonly Regex EventDataItem = R(@"<Data\s+Name\s*=\s*(?:\\?""""?|\\?')(?<k>[A-Za-z]+)(?:\\?""""?|\\?')\s*>(?<v>[^<]*)</Data\s*>");
     private static readonly Regex XmlTag = R(@"</?(?:Event|EventData|System|RenderingInfo)(?:\s[^>]*)?>");
     private static readonly Regex DescriptionStart = R(@"Faulting (?:application|module) name: ");
     private const int EventValueLimit = 512;
@@ -225,23 +253,16 @@ internal static class StackTextFormats
     {
         var items = EventDataItem.Matches(text);
         int read = 0;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match m in items)
         {
             if (!EventDataFields.TryGetValue(m.Groups["k"].Value, out var key)) continue;
-            // A repeated field is another event: the first is read, the rest are counted.
-            if (!seen.Add(key))
-            {
-                Skipped(into, $"EventData {m.Groups["k"].Value} of a further event");
-                continue;
-            }
             var v = System.Net.WebUtility.HtmlDecode(m.Groups["v"].Value).Trim();
             if (v.Length > EventValueLimit)
             {
                 Skipped(into, $"EventData {m.Groups["k"].Value} over {EventValueLimit} characters");
                 continue;
             }
-            s.Fields[key] = key.EndsWith(":timestamp", StringComparison.Ordinal) && v.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? v[2..] : v;
+            s.Set(key, key.EndsWith(":timestamp", StringComparison.Ordinal) && v.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? v[2..] : v);
             read++;
         }
         if (items.Count > 0)
@@ -346,23 +367,47 @@ internal static class StackTextFormats
         return Add(into, new TextFrame(line, raw, "mono", "native") { Module = module, Address = address, Symbol = symbol, File = file, SourceLine = sourceLine });
     }
 
-    /// <summary>WER and Event Log fields become the faulting frame, its module and the exception code.</summary>
+    /// <summary>WER and Event Log fields become the faulting frames (one per event), their modules and the exception code.</summary>
     private static void Finish(ParsedStackText result, State s)
     {
+        s.Flush();
         var sig = s.Sig.Values.Where(v => v.Name != null && v.Value != null).ToDictionary(v => v.Name!, v => v.Value!, StringComparer.OrdinalIgnoreCase);
-        string? module = sig.GetValueOrDefault("Fault Module Name") ?? s.Fields.GetValueOrDefault("ev:module");
-        string? version = sig.GetValueOrDefault("Fault Module Version") ?? s.Fields.GetValueOrDefault("ev:module:version");
-        string? stamp = sig.GetValueOrDefault("Fault Module Timestamp") ?? s.Fields.GetValueOrDefault("ev:module:timestamp");
-        string? code = sig.GetValueOrDefault("Exception Code") ?? s.Fields.GetValueOrDefault("ev:Exception code");
-        string? offset = sig.GetValueOrDefault("Exception Offset") ?? s.Fields.GetValueOrDefault("ev:Fault offset");
-        string family = sig.Count > 0 ? "wer" : "eventlog";
+        var events = s.Events.ToList();
+        // The WER report is one event; the first event's fields fill what it lacks.
+        var first = sig.Count > 0 ? events.FirstOrDefault() : null;
+        if (sig.Count > 0 && events.Count > 0) events.RemoveAt(0);
+        var frames = new List<TextFrame>();
+        if (sig.Count > 0) Fault(result, frames, "wer", sig, first ?? []);
+        foreach (var e in events) Fault(result, frames, "eventlog", [], e);
+        result.Frames.InsertRange(0, frames);
+        if (s.EventsSkipped > 0) result.Notes.Add($"{s.EventsSkipped} further events were not read: the limit is {MaxEvents} events.");
+    }
+
+    private static void Fault(ParsedStackText result, List<TextFrame> frames, string family, Dictionary<string, string> sig, Dictionary<string, string> fields)
+    {
+        string? module = sig.GetValueOrDefault("Fault Module Name") ?? fields.GetValueOrDefault("ev:module");
+        string? version = sig.GetValueOrDefault("Fault Module Version") ?? fields.GetValueOrDefault("ev:module:version");
+        string? stamp = sig.GetValueOrDefault("Fault Module Timestamp") ?? fields.GetValueOrDefault("ev:module:timestamp");
+        string? code = sig.GetValueOrDefault("Exception Code") ?? fields.GetValueOrDefault("ev:Exception code");
+        string? offset = sig.GetValueOrDefault("Exception Offset") ?? fields.GetValueOrDefault("ev:Fault offset");
         if (module != null)
         {
             uint? ts = ParseHex(stamp) is { } t and <= uint.MaxValue ? (uint)t : null;
-            result.Modules.Add(new TextModule(module, null, null, version, ts));
-            result.Frames.Insert(0, new TextFrame(0, $"{module}+{offset}", family, "native") { Module = module, Offset = ParseHex(offset) });
+            ulong? value = ParseHex(offset);
+            bool unreadable = value == null && !string.IsNullOrWhiteSpace(offset);
+            if (unreadable)
+                result.Notes.Add($"Fault offset '{(offset!.Length > 40 ? offset[..40] + "..." : offset)}' of {module} is unreadable: it is not a hex value of at most 64 bits.");
+            // Windows writes "unknown" with a zero stamp for a fault outside any module; the value is then an address.
+            bool outside = module.Equals("unknown", StringComparison.OrdinalIgnoreCase) && ts is null or 0;
+            var described = new TextModule(module, null, null, version, ts);
+            if (!outside) result.Modules.Add(described);
+            frames.Add(new TextFrame(0, $"{module}+{offset}", family, "native")
+            {
+                Module = outside ? null : module, Offset = outside ? null : value, Address = outside ? value : null,
+                Outside = outside, OffsetUnreadable = unreadable, Described = outside ? null : described,
+            });
         }
-        if (ParseHex(code) is { } c and <= uint.MaxValue)
+        if (result.Exception is not { Code: not null } && ParseHex(code) is { } c and <= uint.MaxValue)
             result.Exception = (result.Exception ?? new TextException(null, null, null, [])) with { Code = (uint)c };
     }
 
