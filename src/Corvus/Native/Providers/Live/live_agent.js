@@ -8,6 +8,19 @@ let observing = false;
 const awaited = new Set();
 let closing = false;
 
+// Milliseconds since the epoch at the moment of the event, strictly increasing in this agent so two events never tie.
+let lastStamp = 0;
+function stamp() {
+  lastStamp = Math.max(lastStamp + 0.001, Date.now());
+  return lastStamp;
+}
+
+// Sends an event with the stamp of when it ran; the worker keeps its own receipt time.
+function post(message, data) {
+  message.at = stamp();
+  send(message, data);
+}
+
 // Call before the send the reply answers, so closeBegin sees the wait even if the reply is not yet awaited.
 function expect(type) {
   awaited.add(type);
@@ -45,13 +58,13 @@ function stopsIn(id, context, at, bare) {
   hits[id] = (hits[id] || 0) + 1;
   const pc = at.toString();
   expect('resume-' + tid);
-  if (bare) send({ type: 'stop', point: id, tid, hits: hits[id], registers: {}, frames: [pc] });
+  if (bare) post({ type: 'stop', point: id, tid, hits: hits[id], registers: {}, frames: [pc] });
   else {
     const registers = JSON.parse(JSON.stringify(context));
     registers.pc = pc;
     if (Process.arch === 'x64' || Process.arch === 'ia32') registers[Process.arch === 'x64' ? 'rip' : 'eip'] = pc;
     const frames = [pc].concat(Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
-    send({ type: 'stop', point: id, tid, hits: hits[id], registers, frames }, stackFrom(context.sp));
+    post({ type: 'stop', point: id, tid, hits: hits[id], registers, frames }, stackFrom(context.sp));
   }
   waitFor('resume-' + tid);
 }
@@ -61,7 +74,7 @@ function countsIn(id, at, limit) {
   const p = points[id];
   if (!p || p.spent) return;
   hits[id] = (hits[id] || 0) + 1;
-  send({ type: 'stop', point: id, tid: Process.getCurrentThreadId(), hits: hits[id], registers: {}, frames: [at.toString()], counted: true });
+  post({ type: 'stop', point: id, tid: Process.getCurrentThreadId(), hits: hits[id], registers: {}, frames: [at.toString()], counted: true });
   if (hits[id] < limit) return;
   p.spent = true;
   // The hook is undone from the script's own thread once this thread has left it.
@@ -185,7 +198,7 @@ function hookJit(m, running) {
         const run = jitCounted.get(il);
         if (run !== undefined) {
           jitCounted.delete(il);
-          send({ type: 'jit_ran', run, il });
+          post({ type: 'jit_ran', run, il });
         }
         if (!jitWatched.has(il)) return;
         this.il = il;
@@ -197,7 +210,7 @@ function hookJit(m, running) {
         if (this.il === null || r.toInt32() !== 0) return; // CORJIT_OK
         const tid = Process.getCurrentThreadId();
         expect('load-' + tid);
-        send({ type: 'compiled', il: this.il, code: this.entry.readPointer().toString(), frames: this.frames, held: true, tid });
+        post({ type: 'compiled', il: this.il, code: this.entry.readPointer().toString(), frames: this.frames, held: true, tid });
         waitFor('load-' + tid);
       },
     });
@@ -239,7 +252,7 @@ function codeWrittenAtStart(m) {
 function moduleLoaded(m, held, afterEntry, unobserved) {
   const tid = Process.getCurrentThreadId();
   if (held) expect('load-' + tid);
-  send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid, afterEntry, unobserved });
+  post({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid, afterEntry, unobserved });
   if (held) waitFor('load-' + tid);
 }
 
@@ -315,7 +328,7 @@ if (typeof Process.attachModuleObserver === 'function') {
     },
     onRemoved(m) {
       reported.delete(m.base.toString());
-      if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) });
+      if (observing) post({ type: 'module', action: 'unloaded', module: moduleRow(m) });
     },
   });
 }
@@ -388,7 +401,7 @@ const threads = new Set(threadIds());
 function threadStarted(id) {
   if (threads.has(id)) return;
   threads.add(id);
-  send({ type: 'thread', action: 'started', tid: id });
+  post({ type: 'thread', action: 'started', tid: id });
 }
 
 // Thread ends: from the observer, or on Linux from a scan of /proc every THREAD_SCAN_MS, which reports each id once.
@@ -399,7 +412,7 @@ function scanThreads() {
   for (const id of threads) {
     if (running.has(id) || endedThreads.has(id)) continue;
     endedThreads.add(id);
-    if (observing) send({ type: 'thread', action: 'ended', tid: id });
+    if (observing) post({ type: 'thread', action: 'ended', tid: id });
   }
 }
 let threadObserver = null, threadScan = null;
@@ -408,7 +421,7 @@ if (readTaskDir !== null) {
 } else if (typeof Process.attachThreadObserver === 'function') {
   threadObserver = Process.attachThreadObserver({
     onAdded(t) { if (observing) threadStarted(t.id); },
-    onRemoved(t) { if (observing) send({ type: 'thread', action: 'ended', tid: t.id }); },
+    onRemoved(t) { if (observing) post({ type: 'thread', action: 'ended', tid: t.id }); },
   });
 }
 function stopThreadEvents() {
@@ -478,7 +491,7 @@ Process.setExceptionHandler(d => {
     flushAll();
     expect('exception-' + tid);
   }
-  send({ type: 'exception', tid, kind: d.type, address: d.address.toString(), ack,
+  post({ type: 'exception', tid, kind: d.type, address: d.address.toString(), ack,
     memory: d.memory ? { operation: d.memory.operation, address: d.memory.address.toString() } : null });
   if (ack) waitFor('exception-' + tid);
   // The program's own handlers decide.
@@ -494,7 +507,7 @@ function beforeExit(code) {
   flushAll();
   exiting = true;
   expect('exit-' + tid);
-  send({ type: 'exit_status', tid, code, ack: true });
+  post({ type: 'exit_status', tid, code, ack: true });
   waitFor('exit-' + tid);
   // A Frida thread cut off by the exit can hold the heap lock and hang the shutdown: give them time to finish.
   // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on
@@ -545,7 +558,7 @@ function flushAll() {
 
 function flush(w) {
   if (w.rows.length === 0 && w.skipped === 0) return;
-  send({ type: 'calls', watch: w.id, rows: w.rows, skipped: w.skipped });
+  post({ type: 'calls', watch: w.id, rows: w.rows, skipped: w.skipped });
   w.rows = [];
   w.skipped = 0;
 }
@@ -671,10 +684,11 @@ function watch(id, address, args, perSecond) {
       const values = new Array(args.length);
       for (let i = 0; i < args.length; i++) values[i] = args[i] === 'skip' ? null : readArg(args[i], a[i]);
       this.row = [Process.getCurrentThreadId(), now, this.returnAddress.toString(), values];
+      this.at = stamp();
     },
     onLeave(r) {
       if (this.row === null) return;
-      this.row.push(r.toString());
+      this.row.push(r.toString(), this.at);
       w.rows.push(this.row);
       if (w.rows.length >= BATCH_ROWS) flush(w);
     },

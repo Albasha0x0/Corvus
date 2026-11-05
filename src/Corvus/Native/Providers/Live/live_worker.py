@@ -199,6 +199,7 @@ class Session:
             self.exit_begun.set()
         ack = kind in ("exception", "exit_status") and payload.pop("ack", False)
         payload["event"] = kind
+        payload["received"] = time.time() * 1000
         emit(payload)
         with self.lock:
             # Once a close begins it answers what is awaited itself, so it knows whether an exit was let through.

@@ -68,7 +68,8 @@ public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IRea
 }
 
 /// <summary>An event; <see cref="Time"/> is the server's UTC record time, after worker latency; <see cref="Source"/> is its watch or script.</summary>
-public sealed record LiveRingEvent(long Sequence, DateTime Time, string Kind, long? Thread, ulong? Address, string Text, string? Source = null);
+/// <summary>One session event; Time is when it ran in the target when the agent stamped it, else when it arrived; Received is the arrival time of a stamped event.</summary>
+public sealed record LiveRingEvent(long Sequence, DateTime Time, string Kind, long? Thread, ulong? Address, string Text, string? Source = null, DateTime? Received = null);
 
 /// <summary>An address joined to the static model: module, image and RVA, function and offset, source line; null parts are unknown.</summary>
 public sealed record LiveFrameName(ulong Address, string? Module, LoadedNative? Image, uint Rva, string? Function, long Offset, string? Source,
@@ -296,13 +297,18 @@ public sealed class LiveSession
         id.Length > 1 && int.TryParse(id.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0
         && n <= (id[0] switch { 'w' => Volatile.Read(ref _nextWatch), 'u' => Volatile.Read(ref _nextScript), _ => 0 });
 
-    internal long Add(string kind, long? thread, ulong? address, string text, Func<long, LiveHeldStop>? held = null, string? source = null)
+    internal long Add(string kind, long? thread, ulong? address, string text, Func<long, LiveHeldStop>? held = null, string? source = null, double? stampMs = null)
     {
         lock (_gate)
         {
             var seq = ++_sequence;
             if (kind == "exception") Exceptions++;
-            var recorded = new LiveRingEvent(seq, DateTime.UtcNow, kind, thread, address, text, source);
+            var now = DateTime.UtcNow;
+            // The agent's stamp orders events by when they ran; arrival order does not.
+            // The agent runs inside the target, so a stamp outside 1970-9999 is ignored, not trusted.
+            if (stampMs is not (>= 0 and < 253_402_300_800_000)) stampMs = null;
+            var recorded = stampMs is { } ms ? new LiveRingEvent(seq, FromEpochMs(ms), kind, thread, address, text, source, now)
+                : new LiveRingEvent(seq, now, kind, thread, address, text, source);
             (kind == "call" ? _calls : _others).Add(recorded);
             Log?.Append(recorded);
             if (held != null && thread is { } t)
@@ -435,7 +441,7 @@ public sealed class LiveSession
     {
         lock (_gate)
         {
-            var events = kind == "call" ? _calls.Events : kind != null ? _others.Events : Merged(_calls.Events, _others.Events);
+            var events = Merged(kind == "call" ? _calls.Events : kind != null ? _others.Events : _calls.Events.Concat(_others.Events), []);
             var rows = events.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread)
                                          && (source == null || e.Source == source))
                 .Take(limit + 1).ToList();
@@ -445,17 +451,12 @@ public sealed class LiveSession
         }
     }
 
-    private static IEnumerable<LiveRingEvent> Merged(IEnumerable<LiveRingEvent> a, IEnumerable<LiveRingEvent> b)
-    {
-        using var x = a.GetEnumerator();
-        using var y = b.GetEnumerator();
-        bool hx = x.MoveNext(), hy = y.MoveNext();
-        while (hx || hy)
-        {
-            if (hx && (!hy || x.Current.Sequence < y.Current.Sequence)) { yield return x.Current; hx = x.MoveNext(); }
-            else { yield return y.Current; hy = y.MoveNext(); }
-        }
-    }
+    /// <summary>A time in epoch milliseconds (fractions kept to 100 ns) as UTC.</summary>
+    internal static DateTime FromEpochMs(double ms) => DateTime.UnixEpoch.AddTicks((long)(ms * TimeSpan.TicksPerMillisecond));
+
+    /// <summary>The events of both rings ordered by when they ran, arrival order where times are equal.</summary>
+    internal static IEnumerable<LiveRingEvent> Merged(IEnumerable<LiveRingEvent> a, IEnumerable<LiveRingEvent> b) =>
+        a.Concat(b).OrderBy(e => e.Time).ThenBy(e => e.Sequence);
 
     /// <summary>A bounded queue of events; the evicted ones are kept as sequence ranges, split where the other ring has an event between.</summary>
     private sealed class EventRing(int capacity)
@@ -907,6 +908,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private void OnEvent(LiveSession session, Native.Providers.WorkerMessage.Event e)
     {
         var body = e.Body;
+        double? Stamp() => body.TryGetProperty("at", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetDouble() : null;
         long? Thread() => body.TryGetProperty("tid", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetInt64() : null;
         switch (e.Name)
         {
@@ -949,7 +951,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 // A recording's stop names its TTD position, as WinDbg's !tt takes it.
                 var position = body.TryGetProperty("position", out var pos) ? $" at position {pos.GetString()}" : "";
                 session.Add("stop", thread, frames.FirstOrDefault(), $"stop point {point} hit {hits}{position}",
-                    seq => new LiveHeldStop(seq, thread ?? 0, point, registers, frames));
+                    seq => new LiveHeldStop(seq, thread ?? 0, point, registers, frames), stampMs: Stamp());
                 break;
             }
             case "calls":
@@ -967,7 +969,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                         if (w.Calls++ == 0) w.FirstMs = ms;
                         w.LastMs = ms;
                     }
-                    session.Add("call", row[0].GetInt64(), Hex(row[2].GetString()), LiveWatchPlans.Describe(w.Plan, values, row[4].GetString()), source: w.Id);
+                    session.Add("call", row[0].GetInt64(), Hex(row[2].GetString()), LiveWatchPlans.Describe(w.Plan, values, row[4].GetString()), source: w.Id,
+                        stampMs: row.GetArrayLength() > 5 && row[5].ValueKind == JsonValueKind.Number ? row[5].GetDouble() : null);
                 }
                 lock (w) w.Skipped += body.GetProperty("skipped").GetInt64();
                 break;
@@ -991,7 +994,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     if (loaded) session.Modules.Add(m);
                 }
                 if (loaded) Match(m);
-                session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})");
+                session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})", stampMs: Stamp());
                 long? holder = loaded && body.TryGetProperty("held", out var held) && held.ValueKind == JsonValueKind.True ? Thread() : null;
                 var afterEntry = body.TryGetProperty("afterEntry", out var started) && started.ValueKind == JsonValueKind.True;
                 var unobserved = body.TryGetProperty("unobserved", out var reason) && reason.ValueKind == JsonValueKind.String ? reason.GetString() : null;
@@ -1006,12 +1009,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     body.TryGetProperty("frames", out var callers) ? [.. callers.EnumerateArray().Select(f => Hex(f.GetString()))] : [], Thread());
                 break;
             case "thread":
-                session.Add("thread", Thread(), null, $"thread {body.GetProperty("action").GetString()}");
+                session.Add("thread", Thread(), null, $"thread {body.GetProperty("action").GetString()}", stampMs: Stamp());
                 break;
             case "exception":
                 session.Add("exception", Thread(), Hex(body.GetProperty("address").GetString()),
                     $"{body.GetProperty("kind").GetString()}" + (body.TryGetProperty("memory", out var mem) && mem.ValueKind == JsonValueKind.Object
-                        ? $" ({mem.GetProperty("operation").GetString()} of 0x{Hex(mem.GetProperty("address").GetString()):X})" : ""));
+                        ? $" ({mem.GetProperty("operation").GetString()} of 0x{Hex(mem.GetProperty("address").GetString()):X})" : ""),
+                    stampMs: Stamp());
                 break;
             case "exit_status":
                 // Windows keeps all 32 bits; elsewhere the low 8, as waitpid reports them.
