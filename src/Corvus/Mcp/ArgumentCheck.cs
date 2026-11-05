@@ -138,7 +138,7 @@ public static class ArgumentCheck
     /// <summary>Parameters that name a file or directory to write, in every tool that declares them; each passes <see cref="SafeFile.Output(string)"/>.</summary>
     public static readonly IReadOnlySet<string> OutputPathParameters = new HashSet<string>(StringComparer.Ordinal)
     {
-        "outputPath", "outputDirectory", "sbomPath", "stixPath", "imagePath",
+        "outputPath", "outputDirectory", "sbomPath", "stixPath", "huntsPath", "imagePath",
     };
 
     /// <summary>Every input and output path parameter.</summary>

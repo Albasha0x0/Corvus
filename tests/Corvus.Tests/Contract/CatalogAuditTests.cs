@@ -16,12 +16,13 @@ public class CatalogAuditTests
     // Both ceilings rose by 300 bytes for the symbols and compareWith
     // parameters; then by 100 and 150 for the group parameter; then by 250
     // and 450 for the simplified parameter and the capa summary field; then
-    // by 150 and 450 for the coverage left-out list, .pyc and dump fields.
+    // by 150 and 450 for the coverage left-out list, .pyc and dump fields;
+    // then by 100 for the huntsPath parameter and the hunts view.
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 150_500;
+    private const int MaxModelFacingBytes = 150_600;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 296_500;
+    private const int MaxToolsListBytes = 296_600;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()

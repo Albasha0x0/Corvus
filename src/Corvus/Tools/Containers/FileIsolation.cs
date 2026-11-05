@@ -186,7 +186,7 @@ internal sealed class FileOps : IWorkerOps
 public static class FileWork
 {
     public sealed record SummarizeArgs(string Path, string View, string? Table, string[]? Columns, long Offset, int? Limit, string? SbomPath = null,
-        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null);
+        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null, string? HuntsPath = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
@@ -502,10 +502,11 @@ public static class FileWork
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
     {
         using var _ = ContainerPassword.Enter(a.Password);
-        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Stix = a.StixPath != null, Script = a.Script });
+        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script });
         var record = ContainerText.Summary(summary, a.View);
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite, a.View == "dependencies")] };
         if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };
+        if (a.HuntsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteHunts(summary, a.HuntsPath, a.Overwrite)] };
         if (a.View == "layers" && graph != null)
         {
             var facts = graph.Build(summary.File.Path, (int)Math.Min(a.Offset, int.MaxValue), a.Limit ?? Services.Mobile.AppGraph.DefaultLimit, ct);
@@ -528,6 +529,15 @@ public static class FileWork
             null, Services.Analysis.Dependencies.CycloneDx.SerialFor(summary.File.Sha256, ServerIdentity.InformationalVersion));
         var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);
         return $"CycloneDX {Services.Analysis.Dependencies.CycloneDx.SpecVersion} SBOM written to {full}: {facts.ComponentTotal} components, {facts.WithPurl} with a package URL.";
+    }
+
+    /// <summary>Writes the hunting queries of the summary and a disabled detection rule body for each to <paramref name="huntsPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
+    public static string WriteHunts(InspectionService.FileSummary summary, string huntsPath, bool overwrite)
+    {
+        if (summary.Views.GetValueOrDefault("hunts")?.Detail is not Services.Analysis.Hunts.HuntSet set)
+            throw new ToolError(ErrorCode.NotFound, "No hunting queries were written: the input is not a file the hunts view reads (a loaded assembly or a folder has no hunts view).", "call summarize_file path=<a file> huntsPath=<file>");
+        var full = SafeFile.WriteAllBytes(huntsPath, Services.Analysis.Hunts.HuntRules.Write(set), overwrite);
+        return $"{set.Hunts.Count} hunting queries and detection rules (disabled) written to {full}.";
     }
 
     /// <summary>Writes the summary as a STIX 2.1 bundle to <paramref name="stixPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>

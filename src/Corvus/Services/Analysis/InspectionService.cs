@@ -1098,6 +1098,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                     Capa = NativeCapa.Cached(full),
                     CapaAvailable = Native.Providers.ExternalTools.Locate(Native.Providers.ExternalTools.Capa) != null,
                 };
+            if (input.Options.Hunts || input.Options.View == "hunts")
+            {
+                var (huntFacts, factNotes) = Hunts.HuntFacts.Of(s, input, ct);
+                var set = Hunts.KqlHunts.Write(huntFacts);
+                views["hunts"] = new FileView(new Hunts.HuntSet(set.Hunts, [.. factNotes, .. set.Notes]), [$"{set.Hunts.Count:N0} hunting queries."]);
+            }
             if (input.Options.View != "indicators") return s;
             var indicators = IndicatorList.Of(s);
             views["indicators"] = new FileView(indicators, [$"{indicators.Total:N0} indicators ({string.Join(", ", indicators.ByType.Select(t => $"{t.Value:N0} {t.Key}"))})."]);

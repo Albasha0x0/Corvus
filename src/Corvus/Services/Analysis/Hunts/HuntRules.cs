@@ -1,0 +1,61 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace Corvus.Services.Analysis.Hunts;
+
+/// <summary>Microsoft Graph v1.0 detectionRule bodies for hunting queries; a rule is created disabled, so nothing runs until a person enables it.</summary>
+public static class HuntRules
+{
+    /// <summary>The ISO 8601 run interval of every rule: once a day.</summary>
+    public const string Frequency = "P1D";
+
+    /// <summary>The detectionRule body of <paramref name="hunt"/>: id, names, query, schedule, status disabled and an alert template that maps the SHA1 column to a file.</summary>
+    public static JsonObject Rule(Hunt hunt)
+    {
+        var description = "Created from " + string.Join(", ", hunt.Facts.Select(f => f.Length > 200 ? f[..200] : f)) + ".";
+        return new JsonObject
+        {
+            ["@odata.type"] = "#microsoft.graph.security.detectionRule",
+            ["id"] = hunt.Id,
+            ["displayName"] = hunt.Title,
+            ["description"] = description,
+            ["status"] = "disabled",
+            ["queryCondition"] = new JsonObject { ["queryText"] = hunt.Kql },
+            ["schedule"] = new JsonObject { ["frequency"] = Frequency },
+            ["detectionAction"] = new JsonObject
+            {
+                ["alertTemplate"] = new JsonObject
+                {
+                    ["title"] = hunt.Title,
+                    ["description"] = description,
+                    ["severity"] = hunt.Severity,
+                    ["entityMappings"] = new JsonObject
+                    {
+                        ["files"] = new JsonArray(new JsonObject { ["sha1Column"] = "SHA1" }),
+                    },
+                },
+            },
+        };
+    }
+
+    /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
+    public static byte[] Write(HuntSet set)
+    {
+        var root = new JsonObject
+        {
+            ["hunts"] = new JsonArray([.. set.Hunts.Select(h => (JsonNode)new JsonObject
+            {
+                ["id"] = h.Id,
+                ["title"] = h.Title,
+                ["table"] = h.Table,
+                ["kql"] = h.Kql,
+                ["facts"] = new JsonArray([.. h.Facts.Select(f => (JsonNode)JsonValue.Create(f)!)]),
+                ["evidence"] = h.Evidence,
+            })]),
+            ["detectionRules"] = new JsonArray([.. set.Hunts.Select(h => (JsonNode)Rule(h))]),
+            ["notes"] = new JsonArray([.. set.Notes.Select(n => (JsonNode)JsonValue.Create(n)!)]),
+        };
+        return Encoding.UTF8.GetBytes(root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+}

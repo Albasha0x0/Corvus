@@ -560,7 +560,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 |---|---|---|---|---|
 | `path` | string |  |  | A file or folder. |
 | `assembly` | string |  |  | A loaded assembly; this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, indicators, android, apple, assets, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, lockfile, mail, model, msix, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, shell, sideload, sqlite, sqlite-recover, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, indicators, hunts, android, apple, assets, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, lockfile, mail, model, msix, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, shell, sideload, sqlite, sqlite-recover, wasm, xbf, all. |
 | `table` | string |  |  | Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace. |
 | `columns` | string[] |  |  | With table=: these columns and rowid. |
 | `script` | string |  |  | assets: assets of this script class. |
@@ -568,7 +568,8 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `limit` | integer |  |  | Max rows. |
 | `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
-| `overwrite` | boolean |  |  | Overwrite either file. |
+| `huntsPath` | string |  |  | Write hunting queries and disabled rules here, JSON. |
+| `overwrite` | boolean |  |  | Overwrite these files. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `level`, `findings`, `findingTotal`, `ruleTable`, `capa`.
