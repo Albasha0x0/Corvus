@@ -576,7 +576,7 @@ public class FileBatchTests
         var (_, document, _) = await Batch("--file", dir.Path, "--recurse", "--fail-on", "noteworthy");
         var deep = document!["records"]!.AsArray().Single(r => (string?)r!["file"]!["paths"]![0] == "deep.zip")!;
         Assert.False((bool)deep["complete"]!);
-        Assert.Contains(deep["unread"]!.AsArray(), u => ((string)u!).Contains("nesting limit", StringComparison.Ordinal));
+        Assert.True(deep["unread"]!.AsArray().Any(u => ((string)u!).Contains("nesting limit", StringComparison.Ordinal)), deep.ToJsonString());
         Assert.Contains(document["gate"]!["reasons"]!.AsArray(), r => ((string)r!).StartsWith("deep.zip: ", StringComparison.Ordinal) && ((string)r!).Contains("nesting limit", StringComparison.Ordinal));
     }
 
@@ -790,7 +790,8 @@ public class FileBatchTests
         Assert.DoesNotContain(locked!["records"]!.AsArray(), r => r!["file"]!["paths"]!.AsArray().Any(p => ((string)p!).EndsWith("readme.txt", StringComparison.Ordinal)));
         var (opened, document, output) = await Batch("--file", input, "--recurse", "--password-file", dir.File("password.txt"));
         Assert.Equal(0, opened);
-        Assert.Contains(document!["records"]!.AsArray(), r => r!["file"]!["paths"]!.AsArray().Any(p => ((string)p!).EndsWith("readme.txt", StringComparison.Ordinal)));
+        var records = document!["records"]!.AsArray();
+        Assert.True(records.Any(r => r!["file"]!["paths"]!.AsArray().Any(p => ((string)p!).EndsWith("readme.txt", StringComparison.Ordinal))), records.ToJsonString());
         Assert.DoesNotContain("batch secret", output);
     }
 
