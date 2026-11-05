@@ -483,6 +483,15 @@ public sealed class HuntsWriterTests
     }
 
     [Theory]
+    [InlineData("1.1.1.1", "ipv4", "1.1.1.1")]
+    [InlineData("2606:4700:4700::1111", "ipv6", "2606:4700:4700::1111")]
+    public void A_short_address_in_a_native_string_is_read(string text, string type, string value)
+    {
+        byte[] image = [0, .. System.Text.Encoding.ASCII.GetBytes(text), 0];
+        Assert.Contains(IndicatorList.FromImageStrings("native", image, default), h => h.Type == type && h.Value == value);
+    }
+
+    [Theory]
     [InlineData(@"pipe \\.\pipe\demo-pipe: ready", "named_pipe", @"\\.\pipe\demo-pipe")]
     [InlineData(@"C:\ProgramData\demo.txt: ok", "file_path", @"C:\ProgramData\demo.txt")]
     [InlineData("fetch https://example.net/demo:", "url", "https://example.net/demo")]

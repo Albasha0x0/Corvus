@@ -58,8 +58,9 @@ public static class IndicatorList
         [.. Values.FromFields(fields, out _, ct).Where(v => NetworkTypes.Contains(v.Type))
             .Select(v => new IndicatorHit(v.Type, v.Value, source, v.Locations.FirstOrDefault(), evidence))];
 
-    // Shorter runs are mostly identifiers and padding.
-    private const int MinStringChars = 8, MaxStringChars = 2_048, MaxImageBytes = 256 << 20;
+    // Shorter runs are mostly identifiers and padding; 1.1.1.1 is the shortest
+    // address that routes.
+    private const int MinStringChars = 7, MaxStringChars = 2_048, MaxImageBytes = 256 << 20;
 
     /// <summary>The network values of the printable ASCII and UTF-16 runs of a native image, each with its file offset; empty for none.</summary>
     public static List<IndicatorHit> FromImageStrings(string source, byte[] image, CancellationToken ct)
@@ -85,7 +86,7 @@ public static class IndicatorList
             void Flush()
             {
                 if (step == 1) TrimToDerLength(run, start, image);
-                if (run.Length >= MinStringChars && run.ToString() is var t && (t.Contains("://") || t.Contains('@') || t.Contains('.')))
+                if (run.Length >= MinStringChars && run.ToString() is var t && (t.Contains("://") || t.Contains('@') || t.Contains('.') || t.Count(c => c == ':') >= 2))
                     fields.Add((t, $"{encoding} string at file offset 0x{start:x}"));
                 run.Clear();
             }
