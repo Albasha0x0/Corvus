@@ -1899,6 +1899,8 @@ Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatche
 | `oldResult` | string |  |  | Instead: a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...). |
 | `newResult` | string |  |  | The new side, from the same tool. |
 | `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory. Values: ida, ghidra. |
+| `huntsPath` | string |  |  | view=hunts: save queries and rules here, JSON. |
+| `overwrite` | boolean |  |  | Replace huntsPath. |
 
 Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `notes`, `evidence`, `changes`, `oldVersion`, `newVersion`, `hunts`.
 

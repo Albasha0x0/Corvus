@@ -36,9 +36,10 @@ public static class UpdateHunts
     /// <summary>One note naming the functions the new build imports and the old one does not; empty when none.</summary>
     public static IReadOnlyList<string> AddedImports(IEnumerable<NativeImport> oldImports, IEnumerable<NativeImport> newImports)
     {
-        static string Name(NativeImport i) => $"{i.Module}!{i.Name ?? "#" + i.Ordinal}".ToLowerInvariant();
-        var before = oldImports.Select(Name).ToHashSet(StringComparer.Ordinal);
-        var added = newImports.Select(Name).Where(n => !before.Contains(n)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        // Module names compare without case; the note keeps the new build's spelling.
+        static string Name(NativeImport i) => $"{i.Module}!{i.Name ?? "#" + i.Ordinal}";
+        var before = oldImports.Select(Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = newImports.Select(Name).Where(n => !before.Contains(n)).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
         if (added.Count == 0) return [];
         var named = string.Join(", ", added.Take(MaxNamedImports));
         return [$"{added.Count} imported function(s) were added and have no query, Defender XDR lists no column for them: {named}" +

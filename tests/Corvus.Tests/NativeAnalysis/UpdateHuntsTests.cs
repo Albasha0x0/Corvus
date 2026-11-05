@@ -43,7 +43,7 @@ public sealed class UpdateHuntsTests
         return image;
     }
 
-    private static async Task<(NativeDiffTools.NativeComparison Record, string Text, string NewSha1)> Compare(byte[] before, byte[] after)
+    private static async Task<(NativeDiffTools.NativeComparison Record, string Text, string NewSha1)> Compare(byte[] before, byte[] after, string? huntsPath = null)
     {
         using var h = new NativeBuildUpdateTests.Harness();
         var (o, oi) = await h.Load(before, "old.dll", [Name, Other]);
@@ -55,7 +55,7 @@ public sealed class UpdateHuntsTests
             index.SetUserName(Other, "Steady");
         }
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code, inspection: new InspectionService(h.Env.Workspace));
-        var (record, text) = await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(o.Id, n.Id, view: "hunts"));
+        var (record, text) = await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(o.Id, n.Id, view: "hunts", huntsPath: huntsPath));
         return (record, text, Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(after)));
     }
 
@@ -97,10 +97,10 @@ public sealed class UpdateHuntsTests
     }
 
     [Fact]
-    public async Task An_added_imported_function_is_listed_in_a_note()
+    public async Task An_added_imported_function_is_listed_in_a_note_as_spelled()
     {
         var (record, _, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
-        Assert.Contains(record.Notes, n => n.Contains("added-lib.dll!go", StringComparison.Ordinal) && !n.Contains("shared-lib", StringComparison.Ordinal));
+        Assert.Contains(record.Notes, n => n.Contains("added-lib.dll!Go", StringComparison.Ordinal) && !n.Contains("shared-lib", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -173,6 +173,40 @@ public sealed class UpdateHuntsTests
         var set = KqlHunts.WriteCrash("host.dll", OldStamp, [(0u, 0x10u)]);
         Assert.Contains("isnotempty(FaultingOffset)", Assert.Single(set.Hunts).Kql, StringComparison.Ordinal);
         Assert.Empty(Parse(set.Hunts[0].Kql).GetDiagnostics().Select(d => d.Message));
+    }
+
+    // Field test: 2096 changed functions filled 200 clauses by 0x32a0a of a
+    // 3.3 MB image, many split only by alignment padding.
+    [Fact]
+    public void Ranges_split_only_by_padding_share_a_clause()
+    {
+        (uint, uint)[] ranges = [(0x1000, 0x1009), (0x1010, 0x1020), (0x1040, 0x1050), (0x2000, 0x2006), (0x200C, 0x2010)];
+        uint[] starts = [0x1000, 0x1010, 0x1030, 0x1040, 0x2000, 0x2008, 0x200C];
+        var kql = Assert.Single(KqlHunts.WriteCrash("host.dll", OldStamp, ranges, starts).Hunts).Kql;
+        // The first two merge; 0x1040 is past the padding; 0x2008 starts a function in the gap.
+        Assert.Equal(4, kql.Split("strcmp(Offset", StringSplitOptions.None).Length / 2);
+        Assert.Contains("'0000000000001000') >= 0 and strcmp(Offset, '0000000000001020')", kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(kql).GetDiagnostics().Select(d => d.Message));
+    }
+
+    [Fact]
+    public async Task HuntsPath_writes_the_update_queries_as_rule_bodies()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("update-hunts.json");
+        var (record, _, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1), file);
+        var written = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
+        Assert.Equal(record.Hunts!.Count, written["hunts"]!.AsArray().Count);
+        Assert.Contains(record.Notes, n => n.Contains("written to " + file, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_hunts_view_lists_no_function_pairs()
+    {
+        var (record, text, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
+        Assert.Empty(record.Items);
+        Assert.DoesNotContain("View hunts", text, StringComparison.Ordinal);
+        Assert.NotEmpty(record.Hunts!);
     }
 
     [Fact]

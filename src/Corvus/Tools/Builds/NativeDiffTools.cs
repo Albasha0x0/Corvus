@@ -192,6 +192,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(OldResultDescription)] string? oldResult = null,
         [Description(NewResultDescription)] string? newResult = null,
         [Description("ida or ghidra: compare oldImage's file with that engine's memory.")] string? engine = null,
+        [Description("view=hunts: save queries and rules here, JSON.")] string? huntsPath = null,
+        [Description("Replace huntsPath.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -202,8 +204,19 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
         if (!Views.Contains(v))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use " + string.Join(", ", Views));
+        if (huntsPath != null && v != "hunts") throw new ToolError(ErrorCode.InvalidArgument, "huntsPath applies to view=hunts.", "pass view=hunts");
+        // Checked before the builds are matched, which can take minutes.
+        var huntsFile = huntsPath == null ? null : SafeFile.Output(huntsPath);
+        if (huntsFile != null && Directory.Exists(huntsFile)) throw new ToolError(ErrorCode.InvalidArgument, $"huntsPath {huntsFile} is a folder.", "pass a file path for huntsPath");
+        if (huntsFile != null && !overwrite && File.Exists(huntsFile)) throw new ToolError(ErrorCode.Conflict, $"{huntsFile} exists: pass overwrite=true to replace it.");
         offset = Math.Max(0, offset);
         var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        if (huntsFile != null && result.Record.Hunts is { } written)
+        {
+            var full = SafeFile.WriteAllBytes(huntsFile, HuntRules.Write(new HuntSet(written, result.Record.Notes)), overwrite);
+            var note = $"{written.Count} hunting queries and detection rules (disabled) written to {full}.";
+            result = result with { Record = result.Record with { Notes = [.. result.Record.Notes, note] }, Head = result.Head + "Note: " + note + "\n" };
+        }
         return ToolOutput.List(result.Rows, offset, limit, result.Total,
             r => result.Interface ? $"{r.OldName}  {r.Reason}" + (r.Old != null ? $"  was {r.Old}" : "") + (r.New != null ? $"  now {r.New}" : "") : RowText(r),
             page => result.Record with { Items = page }, result.Noun, result.Head);
@@ -222,14 +235,16 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             throw new ToolError(ErrorCode.InvalidArgument, "view=hunts reads PE images; a WebAssembly module has none.", "use pairs, changed, unmatched, ambiguous or interface");
         if (oldNative.Image is WasmImage oldWasm && newNative.Image is WasmImage newWasm)
             return await Task.Run(() => CompareWasm(oldNative.Id, oldWasm, newNative.Id, newWasm, v, offset, limit, cancellationToken), cancellationToken);
-        if (v == "interface") throw new ToolError(ErrorCode.InvalidArgument, "view=interface compares two WebAssembly modules.", "use pairs, changed, unmatched or ambiguous");
+        if (v == "interface") throw new ToolError(ErrorCode.InvalidArgument, "view=interface compares two WebAssembly modules.", "use " + string.Join(", ", Views.Where(w => w != "interface")));
         var pair = await pairs.Match(oldImage!, newImage!, new MatchOptions { UseNames = !codeOnly, MinScore = minScore, MaxFuzzyComparisons = maxComparisons }, progress, cancellationToken);
         var match = pair.Match;
         var o = match.Old.Index;
         var n = match.New.Index;
 
         IReadOnlyList<FunctionRow> rows;
-        if (v is "pairs" or "changed" or "hunts")
+        // The hunts view lists queries, not pairs.
+        if (v == "hunts") rows = [];
+        else if (v is "pairs" or "changed")
             rows = match.Pairs.Where(p => tier == 0 || p.Tier == tier).Where(p => v == "pairs" || !Identical(match, p))
                 .OrderBy(p => match.Old.Functions[p.Old].Start).Select(p => Pair(match, p)).ToList();
         else if (v == "unmatched") rows = Unmatched(match).ToList();
@@ -276,7 +291,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             foreach (var h in set.Hunts) head.Append($"  {h.Id} ({h.Table}) {h.Title}\n{string.Join('\n', h.Kql.Split('\n').Select(l => "    " + l))}\n");
             foreach (var note in set.Notes) head.Append("Note: ").Append(note).Append('\n');
         }
-        head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
+        if (v != "hunts") head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
         return new NativeView(record, head.ToString(), [.. rows.Skip(offset).Take(Math.Max(0, limit))], rows.Count, v is "pairs" or "changed" or "hunts" ? "pair" : "function", false);
     }
 
@@ -319,7 +334,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         else if (pair.Old.Pe?.Coff.TimeDateStamp is not { } stamp) notes.Add("The old build is not a PE image, so no crash query was written.");
         else
         {
-            var crash = KqlHunts.WriteCrash(Path.GetFileName(pair.Old.FilePath), stamp, ranges.Select(r => (r.Start, r.End)));
+            var starts = pair.OldIndex.Functions.Select(f => f.Start).ToHashSet();
+            var crash = KqlHunts.WriteCrash(Path.GetFileName(pair.Old.FilePath), stamp, ranges.Select(r => (r.Start, r.End)), starts);
             hunts.AddRange(crash.Hunts);
             notes.AddRange(crash.Notes);
             if (crash.Hunts.Count > 0)

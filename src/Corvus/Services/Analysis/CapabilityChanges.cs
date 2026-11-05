@@ -108,6 +108,8 @@ public static class CapabilityChanges
         // Malcontent behaviours run only with the pack installed.
         var (behaviours, behaviourText) = MalcontentChanges.Between(inspection.BuildFile(old), inspection.BuildFile(@new), ct);
         if (behaviourText == null) return (rows, text);
+        // A comparison that did not run is a note, as the survey's own are.
+        if (behaviours.Count == 0 && behaviourText.Contains(" not compared: ", StringComparison.Ordinal)) behaviourText = "Note: " + behaviourText;
         return (rows == null && behaviours.Count == 0 ? null : [.. rows ?? [], .. behaviours], text + behaviourText);
     }
 

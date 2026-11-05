@@ -164,10 +164,11 @@ public static class KqlHunts
     /// <summary>
     /// One Microsoft Sentinel Event table query for Application Error events (event 1000) in <paramref name="module"/> with
     /// <paramref name="timeDateStamp"/> whose faulting offset lies in a half-open RVA range. No ranges give no query.
+    /// Ranges whose gap holds none of <paramref name="functionStarts"/> and is shorter than <see cref="MaxPaddingGap"/> share a clause.
     /// </summary>
-    public static HuntSet WriteCrash(string module, uint timeDateStamp, IEnumerable<(uint Start, uint End)> ranges)
+    public static HuntSet WriteCrash(string module, uint timeDateStamp, IEnumerable<(uint Start, uint End)> ranges, IReadOnlyCollection<uint>? functionStarts = null)
     {
-        var sorted = ranges.Where(r => r.End > r.Start).Distinct().OrderBy(r => r.Start).ToList();
+        var sorted = Merge(ranges.Where(r => r.End > r.Start).Distinct().OrderBy(r => r.Start), functionStarts ?? []);
         if (sorted.Count == 0 || string.IsNullOrWhiteSpace(module)) return new HuntSet([], ["No function range is known, so no crash query was written."]);
         var notes = new List<string>();
         if (sorted.Count > MaxCrashRanges)
@@ -195,6 +196,35 @@ public static class KqlHunts
         var problems = KqlCheck.Diagnostics(hunt.Kql);
         if (problems.Count > 0) return new HuntSet([], [.. notes, $"Query {hunt.Id} was dropped: {problems[0]}"]);
         return new HuntSet([hunt], notes);
+    }
+
+    /// <summary>Longest gap between two changed functions taken for alignment padding, in bytes.</summary>
+    public const uint MaxPaddingGap = 16;
+
+    // A gap with no function start that is shorter than the alignment is
+    // padding, so a fault there is in neither function and the clause may
+    // cover it.
+    private static List<(uint Start, uint End)> Merge(IEnumerable<(uint Start, uint End)> sorted, IReadOnlyCollection<uint> starts)
+    {
+        var ordered = starts.Order().ToArray();
+        var merged = new List<(uint Start, uint End)>();
+        foreach (var r in sorted)
+        {
+            if (merged.Count > 0 && merged[^1] is var last && r.Start >= last.End && r.Start - last.End < MaxPaddingGap && !StartsIn(ordered, last.End, r.Start))
+                merged[^1] = (last.Start, Math.Max(last.End, r.End));
+            else if (merged.Count > 0 && r.Start < merged[^1].End)
+                merged[^1] = (merged[^1].Start, Math.Max(merged[^1].End, r.End));
+            else merged.Add(r);
+        }
+        return merged;
+    }
+
+    // Whether a function starts in [from, to).
+    private static bool StartsIn(uint[] starts, uint from, uint to)
+    {
+        int i = Array.BinarySearch(starts, from);
+        if (i < 0) i = ~i;
+        return i < starts.Length && starts[i] < to;
     }
 
     private static string UnqueriedReason(string kind) => kind switch
