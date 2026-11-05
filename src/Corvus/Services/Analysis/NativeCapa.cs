@@ -255,14 +255,23 @@ internal sealed partial class NativeCapa : IWorkerOps
     private static CapaReport Waiting(CapaRun run, string path)
     {
         var seconds = (DateTime.UtcNow - run.Started).TotalSeconds;
-        var minutes = Math.Max(1, (int)Math.Ceiling(run.Expected.Seconds / 60));
         var call = $"survey_features path={path} category=capa";
         var window = run.Rule?.Window ?? ServerOptions.StallWindow();
         return new(Running, null, false, null, [],
         [
-            $"capa running {seconds:0} s, about {minutes} min ({run.Expected.Basis}); it ends on completion, exit, cancel or after {window.TotalSeconds:0} s without progress",
+            RunningText(seconds, run.Expected, window),
             $"next: {call} waitSeconds=60 waits for the end; {call} cancel=true stops it",
         ]);
+    }
+
+    /// <summary>The progress line of a running capa: the estimate only while the run is inside it, else elapsed time alone, and the exact end rule.</summary>
+    internal static string RunningText(double seconds, OpenEstimate.Estimate expected, TimeSpan window)
+    {
+        var minutes = Math.Max(1, (int)Math.Ceiling(expected.Seconds / 60));
+        var estimate = seconds < expected.Seconds
+            ? $"about {minutes} min expected ({expected.Basis})"
+            : $"past the {minutes} min expected ({expected.Basis}), no estimate";
+        return $"capa running {seconds:0} s, {estimate}; it ends on completion, exit, cancel, or after {window.TotalSeconds:0.###} s with no output and under 1% of a core, so it keeps running while it uses CPU";
     }
 
     /// <summary>Queues the end of a run once; none while a caller still waits and gets the result, none after a cancel call.</summary>

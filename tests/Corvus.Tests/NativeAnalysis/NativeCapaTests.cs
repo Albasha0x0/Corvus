@@ -448,6 +448,34 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(2, _runs);
     }
 
+    // The run is inside its estimate, so the line carries it.
+    [Fact]
+    public void A_run_inside_its_estimate_shows_the_estimate_and_the_exact_end_rule()
+    {
+        var text = NativeCapa.RunningText(30, new OpenEstimate.Estimate(120, true), TimeSpan.FromSeconds(600));
+        Assert.Contains("about 2 min expected (earlier opens)", text);
+        Assert.Contains("after 600 s with no output and under 1% of a core", text);
+        Assert.Contains("keeps running while it uses CPU", text);
+    }
+
+    // A run past its estimate stood at "about 1 min" for 14 minutes in a field report.
+    [Fact]
+    public void A_run_past_its_estimate_drops_the_estimate_and_reports_elapsed_time()
+    {
+        var text = NativeCapa.RunningText(833, new OpenEstimate.Estimate(60, false), TimeSpan.FromSeconds(600));
+        Assert.Contains("capa running 833 s, past the 1 min expected (default rate), no estimate", text);
+        Assert.DoesNotContain("about 1 min", text);
+    }
+
+    // A stalled engine ends with the same rule the running line states.
+    [Fact]
+    public void A_stalled_run_names_the_window_without_output_and_idle_core_it_ended_on()
+    {
+        var read = NativeCapa.Read(Stalled(), "capa 10.0.0", tested: true, TimeSpan.FromSeconds(600));
+        Assert.Equal("unknown", read.State);
+        Assert.Contains("no output for 600 s and under 1% of a core", read.Notes[0]);
+    }
+
     private static ExternalTools.RunResult Stalled() => new(null, [], "", false, false, null) { StalledAt = 1234 };
 
     [Fact]
