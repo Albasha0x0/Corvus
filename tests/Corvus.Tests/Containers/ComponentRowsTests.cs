@@ -130,6 +130,69 @@ public sealed class ComponentRowsTests : IDisposable
         Assert.False(File.Exists(output));
     }
 
+    private async Task<string> Note(string path, string output, bool overwrite = false)
+    {
+        var tools = new InspectionTools(new InspectionService(_workspace), _workspace);
+        return await tools.SummarizeFile(path: path, componentsPath: output, overwrite: overwrite);
+    }
+
+    [Fact]
+    public async Task An_image_with_no_component_is_reported_as_a_warning_with_the_unknown_rule()
+    {
+        var note = await Note(Write("plain.so", Image("nothing here")), _dir.File("rows.jsonl"));
+        Assert.Contains("Warning: no component rows written", note);
+        Assert.Contains("unknown, not absent", note);
+    }
+
+    [Fact]
+    public async Task A_version_past_the_column_limit_is_cut_and_gets_no_CPE_name()
+    {
+        var rows = await Rows(Write("tool.so", Image("OpenSSL 3." + new string('1', 5000))));
+        var row = Assert.Single(rows);
+        var version = row.GetProperty("Version").GetString()!;
+        Assert.Equal(ComponentRows.MaxFieldChars, version.Length);
+        Assert.EndsWith(ComponentRows.Cut, version);
+        Assert.True(row.GetProperty("Evidence").GetString()!.Length <= ComponentRows.MaxFieldChars);
+        Assert.Equal("", row.GetProperty("Cpe").GetString());
+    }
+
+    [Fact]
+    public async Task A_folder_names_the_files_that_are_not_images()
+    {
+        var folder = Path.Combine(_dir.Path, "app");
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "a.so"), Image("OpenSSL 3.0.13"));
+        File.WriteAllText(Path.Combine(folder, "notes.txt"), "text");
+        File.WriteAllBytes(Path.Combine(folder, "pack.zip"), [0x50, 0x4B, 3, 4]);
+        var note = await Note(folder, _dir.File("rows.jsonl"));
+        Assert.Contains("2 files are not native or managed images and were not read", note);
+    }
+
+    [Fact]
+    public void A_reader_fault_on_one_image_is_a_note_and_the_walk_continues()
+    {
+        var folder = Path.Combine(_dir.Path, "app");
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "a.so"), Image("OpenSSL 3.0.13"));
+        File.WriteAllBytes(Path.Combine(folder, "b.so"), Image("inflate 1.2.13"));
+        var (lines, images, notes) = ComponentRows.OfFolder(folder, DateTimeOffset.UtcNow,
+            _ => throw new InvalidDataException("bad header"), CancellationToken.None);
+        Assert.Empty(lines);
+        Assert.Equal(2, images);
+        Assert.Equal(2, notes.Count(n => n.Contains("not read, so its components are unknown (bad header)")));
+    }
+
+    [Fact]
+    public async Task An_existing_output_file_is_refused_unless_overwrite_is_set()
+    {
+        var image = Write("tool.so", Image("OpenSSL 3.0.13"));
+        var output = _dir.File("rows.jsonl");
+        File.WriteAllText(output, "keep");
+        await Assert.ThrowsAnyAsync<Exception>(() => Note(image, output));
+        Assert.Equal("keep", File.ReadAllText(output));
+        Assert.Contains("1 component rows", await Note(image, output, overwrite: true));
+    }
+
     [Theory]
     [InlineData("Mbed TLS", "3.4.0", "cpe:2.3:a:trustedfirmware:mbed_tls:3.4.0:*:*:*:*:*:*:*")]
     [InlineData("wolfSSL", "5.6.0", "cpe:2.3:a:wolfssl:wolfssl:5.6.0:*:*:*:*:*:*:*")]
