@@ -49,7 +49,7 @@ public sealed class HuntsViewTests : IDisposable
     public void A_URL_found_only_as_a_string_reads_the_connections_of_the_file()
     {
         var set = Hunts(Program());
-        var hunt = Assert.Single(set.Hunts, h => h.Kql.Contains("named.example.com", StringComparison.Ordinal));
+        var hunt = Assert.Single(set.Hunts, h => !h.HuntingOnly && h.Kql.Contains("named.example.com", StringComparison.Ordinal));
         Assert.Contains("InitiatingProcessSHA1 ==", hunt.Kql, StringComparison.Ordinal);
         Assert.DoesNotContain(set.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
     }
@@ -89,7 +89,7 @@ public sealed class HuntsViewTests : IDisposable
         var hunts = root["hunts"]!.AsArray();
         var rules = root["detectionRules"]!.AsArray();
         Assert.NotEmpty(hunts);
-        Assert.Equal(hunts.Count, rules.Count);
+        Assert.Equal(hunts.Count(h => !((string?)h!["id"])!.EndsWith("-lookups", StringComparison.Ordinal)), rules.Count);
         foreach (var rule in rules)
         {
             Assert.False(string.IsNullOrEmpty((string?)rule!["id"]));

@@ -75,21 +75,21 @@ public sealed class UpdateHuntsTests
     public async Task Only_the_added_library_pipe_and_URL_give_queries_scoped_to_the_new_SHA1()
     {
         var (record, text, sha1) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
-        var facts = record.Hunts!.Where(h => h.Table != "Event").ToList();
+        var facts = record.Hunts!.Where(h => h.Table != "Event" && !h.HuntingOnly).ToList();
         Assert.Contains(facts, h => h.Facts[0] == "dll_name:added-lib.dll");
         Assert.Contains(facts, h => h.Facts[0].StartsWith("named_pipe:", StringComparison.Ordinal) && h.Kql.Contains("added-pipe", StringComparison.Ordinal));
         Assert.Contains(facts, h => h.Facts.Contains("url:http://added.example.net/update") && h.Facts.Contains("domain:added.example.net"));
         Assert.Equal(3, facts.Count);
         Assert.All(facts, h => Assert.Contains($"InitiatingProcessSHA1 == '{sha1}'", h.Kql, StringComparison.Ordinal));
         Assert.DoesNotContain(record.Hunts!, h => h.Kql.Contains("shared-pipe", StringComparison.Ordinal) || h.Kql.Contains("shared-lib", StringComparison.Ordinal));
-        Assert.Contains("4 hunting queries.", text, StringComparison.Ordinal);
+        Assert.Contains("5 hunting queries.", text, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task An_added_URL_found_only_as_a_string_gets_a_query_scoped_to_the_new_build()
     {
         var (record, _, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
-        var network = Assert.Single(record.Hunts!, h => h.Kql.Contains("added.example.net", StringComparison.Ordinal));
+        var network = Assert.Single(record.Hunts!, h => !h.HuntingOnly && h.Kql.Contains("added.example.net", StringComparison.Ordinal));
         Assert.Contains("InitiatingProcessSHA1 ==", network.Kql, StringComparison.Ordinal);
         Assert.DoesNotContain(record.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
     }
@@ -129,7 +129,7 @@ public sealed class UpdateHuntsTests
         const string sha1 = "0123456789abcdef0123456789abcdef01234567";
         var kept = new HuntFact(HuntKind.Url, "https://kept.example.net/a", "reference");
         var set = UpdateHunts.Added([kept], [kept, new(HuntKind.Url, "https://added.example.net/b", "reference")], sha1);
-        var hunt = Assert.Single(set.Hunts);
+        var hunt = Assert.Single(set.Hunts, h => !h.HuntingOnly);
         Assert.Equal("DeviceNetworkEvents", hunt.Table);
         Assert.Contains("added.example.net", hunt.Kql, StringComparison.Ordinal);
         Assert.Contains($"| where InitiatingProcessSHA1 == '{sha1}'", hunt.Kql, StringComparison.Ordinal);

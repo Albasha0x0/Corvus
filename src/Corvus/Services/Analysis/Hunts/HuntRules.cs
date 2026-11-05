@@ -10,8 +10,8 @@ public static class HuntRules
     /// <summary>The ISO 8601 run interval of every rule: once a day.</summary>
     public const string Frequency = "P1D";
 
-    /// <summary>The hunts that become detection rules: every query except a signer query, which matches every file the publisher signs.</summary>
-    public static IReadOnlyList<Hunt> Rules(HuntSet set) => [.. set.Hunts.Where(h => h.Table != "DeviceFileCertificateInfo")];
+    /// <summary>The hunts that become detection rules: every query except a signer query, which matches every file the publisher signs, and a <see cref="Hunt.HuntingOnly"/> query.</summary>
+    public static IReadOnlyList<Hunt> Rules(HuntSet set) => [.. set.Hunts.Where(h => h.Table != "DeviceFileCertificateInfo" && !h.HuntingOnly)];
 
     /// <summary>The detectionRule body of <paramref name="hunt"/>: id, names, query, schedule, status disabled and an alert template that maps the columns its query returns.</summary>
     public static JsonObject Rule(Hunt hunt)
@@ -53,7 +53,7 @@ public static class HuntRules
     {
         var rules = Rules(set);
         var notes = set.Notes.ToList();
-        if (rules.Count < set.Hunts.Count) notes.Add("Signer queries are hunting queries only: they match every file the publisher signs, so no detection rule is written for them.");
+        if (rules.Count < set.Hunts.Count) notes.Add("Signer and DNS or TLS name queries are hunting queries only: they match every file the publisher signs or name no file, so no detection rule is written for them.");
         var root = new JsonObject
         {
             ["hunts"] = new JsonArray([.. set.Hunts.Select(h => (JsonNode)new JsonObject

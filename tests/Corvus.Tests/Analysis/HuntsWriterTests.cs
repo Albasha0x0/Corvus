@@ -45,8 +45,8 @@ public sealed class HuntsWriterTests
     [InlineData(HuntKind.Signer, "DeviceFileCertificateInfo")]
     [InlineData(HuntKind.OriginalFileName, "DeviceProcessEvents")]
     [InlineData(HuntKind.DllName, "DeviceImageLoadEvents")]
-    [InlineData(HuntKind.Domain, "DeviceNetworkEvents")]
-    [InlineData(HuntKind.Url, "DeviceNetworkEvents")]
+    [InlineData(HuntKind.Domain, "DeviceNetworkEvents", "DeviceNetworkEvents")]
+    [InlineData(HuntKind.Url, "DeviceNetworkEvents", "DeviceNetworkEvents")]
     [InlineData(HuntKind.Ipv4, "DeviceNetworkEvents")]
     [InlineData(HuntKind.Ipv6, "DeviceNetworkEvents")]
     [InlineData(HuntKind.NamedPipe, "DeviceEvents")]
@@ -63,7 +63,7 @@ public sealed class HuntsWriterTests
     public void Every_query_parses_with_zero_diagnostics()
     {
         var set = KqlHunts.Write(OneOfEach());
-        Assert.Equal(11, set.Hunts.Count);
+        Assert.Equal(12, set.Hunts.Count);
         Assert.All(set.Hunts, h => Assert.Empty(Parse(h.Kql).GetDiagnostics().Select(d => d.Message)));
         Assert.Equal(set.Hunts.Count, set.Hunts.Select(h => h.Id).Distinct().Count());
     }
@@ -85,7 +85,7 @@ public sealed class HuntsWriterTests
     {
         const string value = "x' or 1 == 1 | take 1 //";
         var set = KqlHunts.Write([new(HuntKind.Domain, value, "decoded")]);
-        var code = Parse(Assert.Single(set.Hunts).Kql);
+        var code = Parse(Assert.Single(set.Hunts, h => !h.HuntingOnly).Kql);
         Assert.Empty(code.GetDiagnostics());
         Assert.Single(code.Syntax.GetDescendants<FilterOperator>());
         Assert.Contains(code.Syntax.GetDescendants<LiteralExpression>(), l => (l.LiteralValue as string) == value);
@@ -95,7 +95,7 @@ public sealed class HuntsWriterTests
     public void A_control_character_is_written_as_an_escape()
     {
         var set = KqlHunts.Write([new(HuntKind.Domain, "a\nb\u0001.example.com", "decoded")]);
-        var hunt = Assert.Single(set.Hunts);
+        var hunt = Assert.Single(set.Hunts, h => !h.HuntingOnly);
         Assert.DoesNotContain("'a\nb", hunt.Kql);
         Assert.Contains(@"'a\nb\u0001.example.com'", hunt.Kql);
         Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
@@ -137,7 +137,7 @@ public sealed class HuntsWriterTests
     public void The_same_fact_twice_keeps_the_stronger_evidence_and_one_query_set()
     {
         var set = KqlHunts.Write([new(HuntKind.Domain, "c2.example.net", "reference"), new(HuntKind.Domain, "c2.example.net", "decoded")]);
-        Assert.Equal("decoded", Assert.Single(set.Hunts).Evidence);
+        Assert.Equal("decoded", Assert.Single(set.Hunts, h => !h.HuntingOnly).Evidence);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class HuntsWriterTests
     public void Every_query_projects_the_columns_a_detection_rule_needs()
     {
         var set = KqlHunts.Write(OneOfEach());
-        Assert.All(set.Hunts, h =>
+        Assert.All(set.Hunts.Where(h => !h.HuntingOnly), h =>
         {
             var columns = Parse(h.Kql).ResultType is TableSymbol t ? t.Columns.Select(c => c.Name).ToList() : [];
             Assert.Contains("Timestamp", columns);
@@ -184,7 +184,7 @@ public sealed class HuntsWriterTests
         var set = KqlHunts.Write([.. OneOfEach(), new(HuntKind.Mutex, "m", "reference")]);
         var root = JsonNode.Parse(HuntRules.Write(set))!;
         Assert.Equal(set.Hunts.Count, root["hunts"]!.AsArray().Count);
-        Assert.Equal(set.Hunts.Count - 1, root["detectionRules"]!.AsArray().Count);
+        Assert.Equal(set.Hunts.Count(h => !h.HuntingOnly) - 1, root["detectionRules"]!.AsArray().Count);
         Assert.Contains(root["notes"]!.AsArray(), n => ((string?)n)!.Contains("mutex", StringComparison.Ordinal));
     }
 
@@ -325,7 +325,7 @@ public sealed class HuntsWriterTests
         var root = JsonNode.Parse(HuntRules.Write(set))!;
         Assert.Contains(root["hunts"]!.AsArray(), h => (string?)h!["table"] == "DeviceFileCertificateInfo");
         Assert.DoesNotContain(root["detectionRules"]!.AsArray(), r => ((string?)r!["queryCondition"]!["queryText"])!.StartsWith("DeviceFileCertificateInfo", StringComparison.Ordinal));
-        Assert.Single(root["notes"]!.AsArray(), n => ((string?)n)!.Contains("Signer queries", StringComparison.Ordinal));
+        Assert.Single(root["notes"]!.AsArray(), n => ((string?)n)!.Contains("Signer and DNS or TLS name queries", StringComparison.Ordinal));
     }
 
     // Field test 15g: the hunts array had no severity.
@@ -357,9 +357,9 @@ public sealed class HuntsWriterTests
     {
         var set = KqlHunts.Write([new(HuntKind.Domain, "C2.Example.NET", "reference"), new(HuntKind.Domain, "c2.example.net", "decoded"),
             new(HuntKind.OriginalFileName, "Tool.EXE", "decoded"), new(HuntKind.OriginalFileName, "tool.exe", "decoded")]);
-        Assert.Equal(2, set.Hunts.Count);
-        Assert.Equal("domain:C2.Example.NET", set.Hunts.Single(h => h.Table == "DeviceNetworkEvents").Facts[0]);
-        Assert.Equal("decoded", set.Hunts.Single(h => h.Table == "DeviceNetworkEvents").Evidence);
+        Assert.Equal(3, set.Hunts.Count);
+        Assert.Equal("domain:C2.Example.NET", set.Hunts.Single(h => h.Table == "DeviceNetworkEvents" && !h.HuntingOnly).Facts[0]);
+        Assert.Equal("decoded", set.Hunts.Single(h => h.Table == "DeviceNetworkEvents" && !h.HuntingOnly).Evidence);
     }
 
     // Field test 12c: one query per library name.
@@ -399,6 +399,18 @@ public sealed class HuntsWriterTests
 
     // Field test 14: an archive has no process or image-load events.
     [Fact]
+    public void A_host_query_also_reads_the_DNS_and_TLS_names_and_gets_no_rule()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Domain, "app.example.net", "string")]);
+        var hunt = Assert.Single(set.Hunts, h => h.HuntingOnly);
+        Assert.Contains("'DnsConnectionInspected', 'SslConnectionInspected'", hunt.Kql, StringComparison.Ordinal);
+        Assert.DoesNotContain("InitiatingProcessSHA1", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+        Assert.DoesNotContain(hunt, HuntRules.Rules(set));
+        Assert.Contains(set.Notes, n => n.Contains("RemoteUrl is empty on some connections", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_host_found_only_as_a_string_reads_the_connections_of_its_file()
     {
         var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Ipv4, "1.1.1.1", "string")]).Hunts, h => h.Table == "DeviceNetworkEvents");
@@ -419,14 +431,14 @@ public sealed class HuntsWriterTests
     public void A_url_query_matches_the_host_because_RemoteUrl_can_omit_the_path()
     {
         var set = KqlHunts.Write([new(HuntKind.Url, "https://app.example.net/a/b", "reference")]);
-        Assert.Contains("RemoteUrl has 'app.example.net'", Assert.Single(set.Hunts).Kql, StringComparison.Ordinal);
+        Assert.Contains("RemoteUrl has 'app.example.net'", Assert.Single(set.Hunts, h => !h.HuntingOnly).Kql, StringComparison.Ordinal);
         Assert.Contains(set.Notes, n => n.Contains("match the host", StringComparison.Ordinal));
     }
 
     [Fact]
     public void A_url_and_its_host_share_one_query_that_names_both_facts()
     {
-        var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Domain, "app.example.net", "reference"), new(HuntKind.Url, "https://app.example.net/a", "reference")]).Hunts);
+        var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Domain, "app.example.net", "reference"), new(HuntKind.Url, "https://app.example.net/a", "reference")]).Hunts, h => !h.HuntingOnly);
         Assert.Equal(["domain:app.example.net", "url:https://app.example.net/a"], hunt.Facts);
     }
 
@@ -437,7 +449,8 @@ public sealed class HuntsWriterTests
     public void A_registry_query_reads_the_path_below_the_hive(string value, string path)
     {
         var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.RegistryKey, value, "string")]).Hunts, h => h.Table == "DeviceRegistryEvents");
-        Assert.Contains(KqlHunts.Literal("\\" + path), hunt.Kql, StringComparison.Ordinal);
+        // A delete leaves RegistryKey empty and keeps the key in the previous column.
+        Assert.Contains($"PreviousRegistryKey endswith {KqlHunts.Literal("\\" + path)}", hunt.Kql, StringComparison.Ordinal);
         Assert.Contains($"InitiatingProcessSHA1 == '{Sha1}'", hunt.Kql, StringComparison.Ordinal);
         Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
     }

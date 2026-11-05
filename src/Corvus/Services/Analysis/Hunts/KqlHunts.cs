@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace Corvus.Services.Analysis.Hunts;
 
@@ -13,6 +14,10 @@ public sealed record Hunt(string Id, string Title, string Table, string Kql, IRe
 {
     /// <summary>The alert severity a rule built from the query carries: informational, low, medium or high.</summary>
     public string Severity { get; init; } = "informational";
+
+    /// <summary>True for a query that gets no detection rule, since its rows name no file.</summary>
+    [JsonIgnore]
+    public bool HuntingOnly { get; init; }
 }
 
 /// <summary>The queries written for a fact list, and the notes naming each fact that got none.</summary>
@@ -75,6 +80,8 @@ public static class KqlHunts
     public const int MaxLibraryListChars = 4_000;
 
     private const string Base = "Timestamp, DeviceId, DeviceName, ReportId";
+
+    private const string EmptyUrlNote = "RemoteUrl is empty on some connections, so no result does not show no connection; the DNS and TLS name queries read rows that name no process.";
 
     /// <summary>A KQL single-quoted string literal of <paramref name="value"/>: quote and backslash escaped, control characters written as escapes.</summary>
     public static string Literal(string value)
@@ -175,6 +182,8 @@ public static class KqlHunts
                 notes.Add("Named pipe queries read ActionType NamedPipeEvent and AdditionalFields.PipeName; no Learn page lists them, so no result does not show the pipe is absent.");
             if (group.Key == HuntKind.Url && written > 0)
                 notes.Add("URL queries match the host, since RemoteUrl can omit the path.");
+            if (group.Key is HuntKind.Domain or HuntKind.Url && written > 0 && !notes.Contains(EmptyUrlNote))
+                notes.Add(EmptyUrlNote);
             if (group.Key == HuntKind.FilePath && written > 0)
                 notes.Add("DeviceFileEvents does not record every write, so no result does not show the file was not written.");
             if (skippedWeak > 0)
@@ -371,14 +380,15 @@ public static class KqlHunts
                         $"| project {Base}, FileName, FolderPath, ProcessVersionInfoOriginalFileName, SHA1"),
                 ];
             case HuntKind.Domain:
-                return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {Short(value)}{byThis}", $"RemoteUrl has {Literal(value)}")];
+                return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {Short(value)}{byThis}", $"RemoteUrl has {Literal(value)}"), Lookups(kind, value, evidence, value)];
             case HuntKind.Url:
                 var host = Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
                 var filter = host != null ? $"RemoteUrl has {Literal(host)}" : $"RemoteUrl =~ {Literal(value)}";
                 if (uri != null && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
                     && IPAddress.TryParse(uri.Host.Trim('[', ']'), out var urlIp) && IsRoutable(urlIp))
                     filter += $" or RemoteIP == {Literal(urlIp.ToString())}";
-                return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {Short(host ?? value)}{byThis}", filter)];
+                var connections = Network(kind, value, evidence, tag, only, netFile, $"Connections to {Short(host ?? value)}{byThis}", filter);
+                return host != null ? [connections, Lookups(kind, value, evidence, host)] : [connections];
             case HuntKind.Ipv4 or HuntKind.Ipv6:
                 if (!IPAddress.TryParse(value, out var ip)) { unqueried++; return []; }
                 return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {ip}{byThis}", $"RemoteIP == {Literal(ip.ToString())}")];
@@ -418,8 +428,9 @@ public static class KqlHunts
                 [
                     Make(kind, value, evidence, tag, sha1, $"Changes to registry key {Short(subkey)} by this file", "DeviceRegistryEvents", "low",
                         "DeviceRegistryEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
-                        $"| where RegistryKey endswith {Literal("\\" + subkey)}",
-                        $"| project {Base}, ActionType, RegistryKey, RegistryValueName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
+                        // A delete keeps the key in PreviousRegistryKey and leaves RegistryKey empty.
+                        $"| where RegistryKey endswith {Literal("\\" + subkey)} or PreviousRegistryKey endswith {Literal("\\" + subkey)}",
+                        $"| project {Base}, ActionType, RegistryKey, RegistryValueName, PreviousRegistryKey, PreviousRegistryValueName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
                 ];
             default:
                 return [];
@@ -498,6 +509,14 @@ public static class KqlHunts
         Make(kind, value, evidence, tag, file, title, "DeviceNetworkEvents", "low",
             "DeviceNetworkEvents", only, $"| where {filter}",
             $"| project {Base}, RemoteUrl, RemoteIP, RemotePort, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1");
+
+    // DNS and TLS rows hold the name in AdditionalFields and name no process,
+    // so the query cannot be limited to one file.
+    private static Hunt Lookups(string kind, string value, string evidence, string host) =>
+        Make(kind, value, evidence, "-lookups", null, $"DNS and TLS names {Short(host)} on any device", "DeviceNetworkEvents", "low",
+            "DeviceNetworkEvents", "| where ActionType in ('DnsConnectionInspected', 'SslConnectionInspected')",
+            $"| where AdditionalFields has {Literal(host)}",
+            $"| project {Base}, ActionType, AdditionalFields") with { HuntingOnly = true };
 
     // The CN of a distinguished name, else the value.
     private static string SignerName(string value)
