@@ -209,6 +209,20 @@ public sealed class HuntsWriterTests
         Assert.Empty(KqlCheck.Diagnostics(hunt.Kql));
     }
 
+    // Regression: ids hashed only kind and value, so two files' library
+    // queries shared an id while filtering on different SHA-1 values.
+    [Fact]
+    public void Queries_filtered_on_a_file_get_an_id_per_file()
+    {
+        static Hunt Dll(HuntSet set) => set.Hunts.Single(h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        static Hunt Signer(HuntSet set) => set.Hunts.Single(h => h.Table == "DeviceFileCertificateInfo");
+        var other = new string('b', 40);
+        var a = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "decoded"), new(HuntKind.DllName, "version.dll", "reference"), new(HuntKind.Signer, "CN=Example", "decoded")]);
+        var b = KqlHunts.Write([new(HuntKind.Sha1, other, "decoded"), new(HuntKind.DllName, "version.dll", "reference"), new(HuntKind.Signer, "CN=Example", "decoded")]);
+        Assert.NotEqual(Dll(a).Id, Dll(b).Id);
+        Assert.Equal(Signer(a).Id, Signer(b).Id);
+    }
+
     [Fact]
     public void A_path_seen_only_as_a_string_reads_writes_by_this_file_alone()
     {

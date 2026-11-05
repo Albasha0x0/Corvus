@@ -229,9 +229,12 @@ public static class KqlHunts
 
     private static bool IsSha1(string value) => value.Length == 40 && value.All(char.IsAsciiHexDigit);
 
-    private static string Id(string kind, string value, string suffix)
+    // A query filtered on one file's SHA-1 hashes it too, so two files'
+    // queries for one value get distinct ids.
+    private static string Id(string kind, string value, string suffix, string? file = null)
     {
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(kind + "\0" + value)))[..8];
+        var key = file == null ? kind + "\0" + value : kind + "\0" + value + "\0" + file;
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..8];
         return $"{kind.Replace('_', '-')}-{hash}{suffix}";
     }
 
@@ -257,8 +260,8 @@ public static class KqlHunts
         return clean.Length > 60 ? clean[..57] + "..." : clean;
     }
 
-    private static Hunt Make(string kind, string value, string evidence, string suffix, string title, string table, string severity, params string?[] lines) =>
-        new(Id(kind, value, suffix), title, table, string.Join('\n', lines.Where(l => l != null)), [$"{kind}:{value}"], evidence) { Severity = severity };
+    private static Hunt Make(string kind, string value, string evidence, string suffix, string? file, string title, string table, string severity, params string?[] lines) =>
+        new(Id(kind, value, suffix, file), title, table, string.Join('\n', lines.Where(l => l != null)), [$"{kind}:{value}"], evidence) { Severity = severity };
 
     private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, bool scoped, ref int unqueried)
     {
@@ -272,13 +275,13 @@ public static class KqlHunts
                 var hash = Literal(value);
                 return
                 [
-                    Make(kind, value, evidence, "-files", $"Files with SHA-1 {Short(value)}", "DeviceFileEvents", "medium",
+                    Make(kind, value, evidence, "-files", null, $"Files with SHA-1 {Short(value)}", "DeviceFileEvents", "medium",
                         "DeviceFileEvents", $"| where SHA1 == {hash}",
                         $"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName"),
-                    Make(kind, value, evidence, "-processes", $"Processes started from SHA-1 {Short(value)}", "DeviceProcessEvents", "medium",
+                    Make(kind, value, evidence, "-processes", null, $"Processes started from SHA-1 {Short(value)}", "DeviceProcessEvents", "medium",
                         "DeviceProcessEvents", $"| where SHA1 == {hash}",
                         $"| project {Base}, FileName, FolderPath, ProcessCommandLine, SHA1, InitiatingProcessFileName"),
-                    Make(kind, value, evidence, "-images", $"Image loads of SHA-1 {Short(value)}", "DeviceImageLoadEvents", "medium",
+                    Make(kind, value, evidence, "-images", null, $"Image loads of SHA-1 {Short(value)}", "DeviceImageLoadEvents", "medium",
                         "DeviceImageLoadEvents", $"| where SHA1 == {hash}",
                         $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName"),
                 ];
@@ -286,14 +289,14 @@ public static class KqlHunts
                 var name = SignerName(value);
                 return
                 [
-                    Make(kind, value, evidence, "", $"Files signed by {Short(name)}", "DeviceFileCertificateInfo", "low",
+                    Make(kind, value, evidence, "", null, $"Files signed by {Short(name)}", "DeviceFileCertificateInfo", "low",
                         "DeviceFileCertificateInfo", $"| where Signer has {Literal(name)}",
                         "| project Timestamp, DeviceId, DeviceName, ReportId, SHA1, Signer, Issuer, IsTrusted"),
                 ];
             case HuntKind.OriginalFileName:
                 return
                 [
-                    Make(kind, value, evidence, "", $"Copies of {Short(value)} under another name", "DeviceProcessEvents", "medium",
+                    Make(kind, value, evidence, "", null, $"Copies of {Short(value)} under another name", "DeviceProcessEvents", "medium",
                         "DeviceProcessEvents",
                         $"| where ProcessVersionInfoOriginalFileName =~ {Literal(value)} and FileName !~ {Literal(value)}",
                         $"| project {Base}, FileName, FolderPath, ProcessVersionInfoOriginalFileName, SHA1"),
@@ -302,7 +305,7 @@ public static class KqlHunts
                 if (sha1 == null) { unqueried++; return []; }
                 return
                 [
-                    Make(kind, value, evidence, tag, $"{Short(value)} loaded from the folder of the file", "DeviceImageLoadEvents", "medium",
+                    Make(kind, value, evidence, tag, sha1, $"{Short(value)} loaded from the folder of the file", "DeviceImageLoadEvents", "medium",
                         "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
                         $"| where FileName =~ {Literal(value)}",
                         "| where isnotempty(InitiatingProcessFolderPath)",
@@ -314,23 +317,23 @@ public static class KqlHunts
                         $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath"),
                 ];
             case HuntKind.Domain:
-                return [Network(kind, value, evidence, tag, only, $"Connections to {Short(value)}", $"RemoteUrl has {Literal(value)}")];
+                return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {Short(value)}", $"RemoteUrl has {Literal(value)}")];
             case HuntKind.Url:
                 var host = Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
                 var filter = $"RemoteUrl =~ {Literal(value)}" + (host != null ? $" or RemoteUrl =~ {Literal(host)}" : "");
                 if (uri != null && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
                     && IPAddress.TryParse(uri.Host.Trim('[', ']'), out var urlIp) && IsRoutable(urlIp))
                     filter += $" or RemoteIP == {Literal(urlIp.ToString())}";
-                return [Network(kind, value, evidence, tag, only, $"Connections to {Short(value)}", filter)];
+                return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {Short(value)}", filter)];
             case HuntKind.Ipv4 or HuntKind.Ipv6:
                 if (!IPAddress.TryParse(value, out var ip)) { unqueried++; return []; }
-                return [Network(kind, value, evidence, tag, only, $"Connections to {ip}", $"RemoteIP == {Literal(ip.ToString())}")];
+                return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {ip}", $"RemoteIP == {Literal(ip.ToString())}")];
             case HuntKind.NamedPipe:
                 var pipe = PipeName(value);
                 if (pipe.Length == 0) { unqueried++; return []; }
                 return
                 [
-                    Make(kind, value, evidence, tag, $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
+                    Make(kind, value, evidence, tag, scoped ? sha1 : null, $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
                         "DeviceEvents", "| where ActionType == 'NamedPipeEvent'", only,
                         "| extend PipeName = tostring(parse_json(AdditionalFields).PipeName)",
                         $"| where PipeName endswith {Literal("\\" + pipe)}",
@@ -349,7 +352,7 @@ public static class KqlHunts
                     rooted ? $"| where (FolderPath =~ {Literal(folder)} or FolderPath =~ {Literal(value)}) and FileName =~ {Literal(leaf)}" : $"| where FileName =~ {Literal(leaf)}"];
                 if (byFile) lines.Add($"| where InitiatingProcessSHA1 == {Literal(sha1!)}");
                 lines.Add($"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName");
-                return [Make(kind, value, evidence, tag, byFile ? $"Writes of {Short(leaf)} by this file" : $"Writes of {Short(leaf)}", "DeviceFileEvents", "low", [.. lines])];
+                return [Make(kind, value, evidence, tag, byFile ? sha1 : null, byFile ? $"Writes of {Short(leaf)} by this file" : $"Writes of {Short(leaf)}", "DeviceFileEvents", "low", [.. lines])];
             default:
                 return [];
         }
@@ -360,8 +363,8 @@ public static class KqlHunts
     private static string FolderOf(string path, string name) =>
         $"tolower(iff({path} endswith strcat('\\\\', {name}), substring({path}, 0, strlen({path}) - strlen({name}) - 1), trim_end(@'\\\\', {path})))";
 
-    private static Hunt Network(string kind, string value, string evidence, string tag, string? only, string title, string filter) =>
-        Make(kind, value, evidence, tag, title, "DeviceNetworkEvents", "low",
+    private static Hunt Network(string kind, string value, string evidence, string tag, string? only, string? file, string title, string filter) =>
+        Make(kind, value, evidence, tag, file, title, "DeviceNetworkEvents", "low",
             "DeviceNetworkEvents", only, $"| where {filter}",
             $"| project {Base}, RemoteUrl, RemoteIP, RemotePort, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1");
 
