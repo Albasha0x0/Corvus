@@ -101,10 +101,13 @@ public static class KqlHunts
 
     /// <summary>
     /// One query per fact and table. Network kinds need evidence of <see cref="IndicatorEvidence.Reference"/> or stronger.
-    /// A fact with no query, and a query that fails the check, is named in the notes.
+    /// A fact with no query, and a query that fails the check, is named in the notes. With <paramref name="scopeSha1"/>
+    /// every query is limited to the file with that SHA-1 as the initiating process, and a malformed SHA-1 throws.
     /// </summary>
-    public static HuntSet Write(IEnumerable<HuntFact> facts)
+    public static HuntSet Write(IEnumerable<HuntFact> facts, string? scopeSha1 = null)
     {
+        if (scopeSha1 != null && !IsSha1(scopeSha1)) throw new ArgumentException("The scope is not 40 hex digits.", nameof(scopeSha1));
+        scopeSha1 = scopeSha1?.ToLowerInvariant();
         var notes = new List<string>();
         var merged = new Dictionary<(string Kind, string Value), string>();
         foreach (var f in facts)
@@ -115,7 +118,8 @@ public static class KqlHunts
             merged[key] = merged.TryGetValue(key, out var seen) ? IndicatorEvidence.Stronger(seen, f.Evidence) : f.Evidence;
         }
         var ordered = merged.OrderBy(m => HuntKind.All.ToList().IndexOf(m.Key.Kind)).ThenBy(m => m.Key.Value, StringComparer.Ordinal).ToList();
-        string? sha1 = ordered.FirstOrDefault(m => m.Key.Kind == HuntKind.Sha1 && IsSha1(m.Key.Value)).Key.Value;
+        string? sha1 = scopeSha1 ?? ordered.FirstOrDefault(m => m.Key.Kind == HuntKind.Sha1 && IsSha1(m.Key.Value)).Key.Value;
+        bool scoped = scopeSha1 != null;
         var hunts = new List<Hunt>();
         foreach (var group in ordered.GroupBy(m => m.Key.Kind))
         {
@@ -132,7 +136,7 @@ public static class KqlHunts
                 if (IsNetwork(kind) && Rank(evidence) < Rank(IndicatorEvidence.Reference)) { skippedWeak++; continue; }
                 if (written >= MaxPerKind) { over++; continue; }
                 if (IsNetwork(kind) && !Routable(kind, value)) { local++; continue; }
-                var made = Queries(kind, value, evidence, sha1, ref unqueried);
+                var made = Queries(kind, value, evidence, sha1, scoped, ref unqueried);
                 foreach (var h in made)
                 {
                     var problems = KqlCheck.Diagnostics(h.Kql);
@@ -151,6 +155,45 @@ public static class KqlHunts
             if (over > 0) notes.Add($"{over} {group.Key} fact(s) past the first {MaxPerKind} have no query.");
         }
         return new HuntSet(hunts, notes);
+    }
+
+    /// <summary>Range clauses in one crash query; the rest are counted in a note.</summary>
+    public const int MaxCrashRanges = 200;
+
+    /// <summary>
+    /// One Microsoft Sentinel Event table query for Application Error events (event 1000) in <paramref name="module"/> with
+    /// <paramref name="timeDateStamp"/> whose faulting offset lies in a half-open RVA range. No ranges give no query.
+    /// </summary>
+    public static HuntSet WriteCrash(string module, uint timeDateStamp, IEnumerable<(uint Start, uint End)> ranges)
+    {
+        var sorted = ranges.Where(r => r.End > r.Start).Distinct().OrderBy(r => r.Start).ToList();
+        if (sorted.Count == 0 || string.IsNullOrWhiteSpace(module)) return new HuntSet([], ["No function range is known, so no crash query was written."]);
+        var notes = new List<string>();
+        if (sorted.Count > MaxCrashRanges)
+            notes.Add($"{sorted.Count - MaxCrashRanges} changed range(s) past the first {MaxCrashRanges} have no clause in the crash query.");
+        // Offsets are compared as 16-digit lower case hex text, which orders like the numbers.
+        static string Hex(uint v) => Literal(v.ToString("x16", CultureInfo.InvariantCulture));
+        var clauses = sorted.Take(MaxCrashRanges).Select(r => $"(strcmp(Offset, {Hex(r.Start)}) >= 0 and strcmp(Offset, {Hex(r.End)}) < 0)").ToList();
+        static string Field(string name) => $"extract({Literal($"Name=\"{name}\">([^<]*)<")}, 1, EventData)";
+        var stamp = timeDateStamp.ToString("x8", CultureInfo.InvariantCulture);
+        var lines = new List<string>
+        {
+            "Event",
+            "| where EventLog =~ 'Application' and Source =~ 'Application Error' and EventID == 1000",
+            $"| extend AppName = {Field("AppName")}",
+            $"| extend ModuleName = {Field("ModuleName")}",
+            $"| extend ModuleTimeStamp = {Field("ModuleTimeStamp")}",
+            $"| extend FaultingOffset = {Field("FaultingOffset")}",
+            $"| where ModuleName =~ {Literal(module)} and ModuleTimeStamp =~ {Literal(stamp)}",
+            "| extend Offset = substring(strcat('0000000000000000', tolower(FaultingOffset)), strlen(FaultingOffset), 16)",
+            "| where " + string.Join("\n    or ", clauses),
+            "| project TimeGenerated, Computer, AppName, ModuleName, ModuleTimeStamp, FaultingOffset",
+        };
+        var hunt = new Hunt(Id("crash", $"{module}\0{stamp}", ""), $"Crashes in changed code of {Short(module)}", "Event", string.Join('\n', lines),
+            [$"crash:{module}:{stamp}"], IndicatorEvidence.Decoded);
+        var problems = KqlCheck.Diagnostics(hunt.Kql);
+        if (problems.Count > 0) return new HuntSet([], [.. notes, $"Query {hunt.Id} was dropped: {problems[0]}"]);
+        return new HuntSet([hunt], notes);
     }
 
     private static string UnqueriedReason(string kind) => kind switch
@@ -213,11 +256,14 @@ public static class KqlHunts
         return clean.Length > 60 ? clean[..57] + "..." : clean;
     }
 
-    private static Hunt Make(string kind, string value, string evidence, string suffix, string title, string table, string severity, params string[] lines) =>
-        new(Id(kind, value, suffix), title, table, string.Join('\n', lines), [$"{kind}:{value}"], evidence) { Severity = severity };
+    private static Hunt Make(string kind, string value, string evidence, string suffix, string title, string table, string severity, params string?[] lines) =>
+        new(Id(kind, value, suffix), title, table, string.Join('\n', lines.Where(l => l != null)), [$"{kind}:{value}"], evidence) { Severity = severity };
 
-    private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, ref int unqueried)
+    private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, bool scoped, ref int unqueried)
     {
+        // A query limited to one build gets its own id and a filter on the initiating file.
+        var tag = scoped ? "-new" : "";
+        var only = scoped ? $"| where InitiatingProcessSHA1 == {Literal(sha1!)}" : null;
         switch (kind)
         {
             case HuntKind.Sha1:
@@ -255,7 +301,7 @@ public static class KqlHunts
                 if (sha1 == null) { unqueried++; return []; }
                 return
                 [
-                    Make(kind, value, evidence, "", $"{Short(value)} loaded from the folder of the file", "DeviceImageLoadEvents", "medium",
+                    Make(kind, value, evidence, tag, $"{Short(value)} loaded from the folder of the file", "DeviceImageLoadEvents", "medium",
                         "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
                         $"| where FileName =~ {Literal(value)}",
                         "| where isnotempty(InitiatingProcessFolderPath)",
@@ -265,24 +311,24 @@ public static class KqlHunts
                         $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath"),
                 ];
             case HuntKind.Domain:
-                return [Network(kind, value, evidence, $"Connections to {Short(value)}", $"RemoteUrl has {Literal(value)}")];
+                return [Network(kind, value, evidence, tag, only, $"Connections to {Short(value)}", $"RemoteUrl has {Literal(value)}")];
             case HuntKind.Url:
                 var host = Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
                 var filter = $"RemoteUrl =~ {Literal(value)}" + (host != null ? $" or RemoteUrl =~ {Literal(host)}" : "");
                 if (uri != null && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
                     && IPAddress.TryParse(uri.Host.Trim('[', ']'), out var urlIp) && IsRoutable(urlIp))
                     filter += $" or RemoteIP == {Literal(urlIp.ToString())}";
-                return [Network(kind, value, evidence, $"Connections to {Short(value)}", filter)];
+                return [Network(kind, value, evidence, tag, only, $"Connections to {Short(value)}", filter)];
             case HuntKind.Ipv4 or HuntKind.Ipv6:
                 if (!IPAddress.TryParse(value, out var ip)) { unqueried++; return []; }
-                return [Network(kind, value, evidence, $"Connections to {ip}", $"RemoteIP == {Literal(ip.ToString())}")];
+                return [Network(kind, value, evidence, tag, only, $"Connections to {ip}",$"RemoteIP == {Literal(ip.ToString())}")];
             case HuntKind.NamedPipe:
                 var pipe = PipeName(value);
                 if (pipe.Length == 0) { unqueried++; return []; }
                 return
                 [
-                    Make(kind, value, evidence, "", $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
-                        "DeviceEvents", "| where ActionType == 'NamedPipeEvent'",
+                    Make(kind, value, evidence, tag, $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
+                        "DeviceEvents", "| where ActionType == 'NamedPipeEvent'", only,
                         "| extend PipeName = tostring(parse_json(AdditionalFields).PipeName)",
                         $"| where PipeName endswith {Literal("\\" + pipe)}",
                         $"| project {Base}, FileName, PipeName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
@@ -294,13 +340,13 @@ public static class KqlHunts
                 var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
                 // A path seen only as a string is not shown to be written, so
                 // the query reads writes by this file alone.
-                bool scoped = Rank(evidence) < Rank(IndicatorEvidence.Reference);
-                if (scoped && sha1 == null) { unqueried++; return []; }
+                bool byFile = scoped || Rank(evidence) < Rank(IndicatorEvidence.Reference);
+                if (byFile && sha1 == null) { unqueried++; return []; }
                 List<string> lines = ["DeviceFileEvents",
                     rooted ? $"| where (FolderPath =~ {Literal(folder)} or FolderPath =~ {Literal(value)}) and FileName =~ {Literal(leaf)}" : $"| where FileName =~ {Literal(leaf)}"];
-                if (scoped) lines.Add($"| where InitiatingProcessSHA1 == {Literal(sha1!)}");
+                if (byFile) lines.Add($"| where InitiatingProcessSHA1 == {Literal(sha1!)}");
                 lines.Add($"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName");
-                return [Make(kind, value, evidence, "", scoped ? $"Writes of {Short(leaf)} by this file" : $"Writes of {Short(leaf)}", "DeviceFileEvents", "low", [.. lines])];
+                return [Make(kind, value, evidence, tag, byFile ? $"Writes of {Short(leaf)} by this file" : $"Writes of {Short(leaf)}", "DeviceFileEvents", "low", [.. lines])];
             default:
                 return [];
         }
@@ -311,9 +357,9 @@ public static class KqlHunts
     private static string FolderOf(string path, string name) =>
         $"tolower(iff({path} endswith strcat('\\\\', {name}), substring({path}, 0, strlen({path}) - strlen({name}) - 1), trim_end(@'\\\\', {path})))";
 
-    private static Hunt Network(string kind, string value, string evidence, string title, string filter) =>
-        Make(kind, value, evidence, "", title, "DeviceNetworkEvents", "low",
-            "DeviceNetworkEvents", $"| where {filter}",
+    private static Hunt Network(string kind, string value, string evidence, string tag, string? only, string title, string filter) =>
+        Make(kind, value, evidence, tag, title, "DeviceNetworkEvents", "low",
+            "DeviceNetworkEvents", only, $"| where {filter}",
             $"| project {Base}, RemoteUrl, RemoteIP, RemotePort, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1");
 
     // The CN of a distinguished name, else the value.

@@ -9,7 +9,7 @@ public static class KqlCheck
         { "where", "project", "extend", "and", "or", "not", "in", "has", "contains", "startswith", "endswith", "by", "take", "true", "false" };
 
     private static readonly HashSet<string> Functions = new(StringComparer.Ordinal)
-        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end" };
+        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end", "extract", "strcmp" };
 
     /// <summary>The problems of <paramref name="kql"/> against the columns of its first table; empty when none.</summary>
     public static IReadOnlyList<string> Diagnostics(string kql)

@@ -318,6 +318,47 @@
       "description": "File version of the new build (version resource); absent when it has none.",
       "type": "string"
     },
+    "hunts": {
+      "description": "hunts: queries for facts only the new build has, and a crash query for changed functions.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string"
+          },
+          "kql": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "table",
+          "kql",
+          "facts",
+          "evidence"
+        ]
+      }
+    },
     "limit": {
       "type": "integer"
     },

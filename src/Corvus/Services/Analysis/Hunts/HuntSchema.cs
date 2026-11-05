@@ -1,6 +1,6 @@
 namespace Corvus.Services.Analysis.Hunts;
 
-/// <summary>The advanced hunting columns the queries may name, from the column lists of the Defender XDR reference pages.</summary>
+/// <summary>The columns the queries may name, from the Defender XDR advanced hunting and Azure Monitor Logs reference pages.</summary>
 public static class HuntSchema
 {
     // Columns every device table lists, then the process columns of the initiating process.
@@ -51,6 +51,11 @@ public static class HuntSchema
             "SignerHash:string,Issuer:string,IssuerHash:string,CertificateSerialNumber:string,CrlDistributionPointUrls:string," +
             "CertificateCreationTime:datetime,CertificateExpirationTime:datetime,CertificateCountersignatureTime:datetime," +
             "IsTrusted:bool,IsRootSignerMicrosoft:bool,ReportId:long",
+        // Microsoft Sentinel table, from the Azure Monitor Logs reference page of Event.
+        ["Event"] =
+            "AzureDeploymentID:string,Computer:string,EventCategory:int,EventData:string,EventID:int,EventLevel:int,EventLevelName:string," +
+            "EventLog:string,ManagementGroupName:string,Message:string,ParameterXml:string,RenderedDescription:string,_ResourceId:string," +
+            "Role:string,Source:string,SourceSystem:string,_SubscriptionId:string,TimeGenerated:datetime,Type:string,UserName:string",
     };
 
     /// <summary>The table names, ordinal.</summary>

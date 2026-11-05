@@ -18,12 +18,13 @@ public class CatalogAuditTests
     // and 450 for the simplified parameter and the capa summary field; then
     // by 150 and 450 for the coverage left-out list, .pyc and dump fields;
     // then by 100 for the huntsPath parameter and the hunts view; then
-    // by 100 for the componentsPath parameter.
+    // by 100 for the componentsPath parameter; then by 300 for the
+    // hunts field of compare_native_images.
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
     private const int MaxModelFacingBytes = 150_700;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 296_700;
+    private const int MaxToolsListBytes = 297_000;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()
