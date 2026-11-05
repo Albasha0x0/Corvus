@@ -38,6 +38,7 @@ None.
 - **Native:** slot calls through a loaded object are listed as unresolved. [89bf5db4](https://github.com/Albasha0x0/Corvus/commit/89bf5db4)
 - **Native:** the YARA-X next step is kept, and `server_status` lists YARA-X. [bf2fddd9](https://github.com/Albasha0x0/Corvus/commit/bf2fddd9)
 - **Native:** a running capa analysis states its real end rule. [af122b2c](https://github.com/Albasha0x0/Corvus/commit/af122b2c)
+- **Native:** `verify_native_imports` binds the shared assemblies an image's manifest names before the search order. [074fe145](https://github.com/Albasha0x0/Corvus/commit/074fe145f)
 - **Engines:** the engine cache cap counts everything on disk and evicts least recently used entries. [e4016868](https://github.com/Albasha0x0/Corvus/commit/e4016868)
 - **Engines:** the Ghidra decompiler is named by its path in the install. [d7039c58](https://github.com/Albasha0x0/Corvus/commit/d7039c58)
 - **Dumps:** `open_minidump` writes at most `limit` modules (default 50); `decompile_native` labels partial analysis. [105bfee7](https://github.com/Albasha0x0/Corvus/commit/105bfee7)
