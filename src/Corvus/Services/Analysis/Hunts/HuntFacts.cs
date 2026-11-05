@@ -69,7 +69,10 @@ public static partial class HuntFacts
             foreach (var module in pe.Imports.Select(i => i.Module).Distinct(StringComparer.OrdinalIgnoreCase))
                 if (SideLoadable(module)) facts.Add(new(HuntKind.DllName, module, IndicatorEvidence.Reference));
         }
-        catch (ToolError ex) { notes.Add($"The version resource and imports were not read: {ex.Message}"); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            notes.Add($"The version resource and imports are unknown, the image did not parse: {ex.Message}");
+        }
         facts.AddRange(Strings(image, notes, ct));
         return (facts, notes);
     }
@@ -101,16 +104,18 @@ public static partial class HuntFacts
 
     private static IEnumerable<string> Runs(byte[] image, CancellationToken ct)
     {
-        foreach (var step in new[] { 1, 2 })
+        // Wide strings are read at both parities of the file offset.
+        foreach (var (step, start) in new[] { (1, 0), (2, 0), (2, 1) })
         {
             var run = new StringBuilder();
-            for (int i = 0; i + step <= image.Length; i += step)
+            for (int i = start; i + step <= image.Length; i += step)
             {
                 if ((i & 0xFFFFF) == 0) ct.ThrowIfCancellationRequested();
                 bool text = image[i] is >= 0x20 and < 0x7F && (step == 1 || image[i + 1] == 0);
                 if (text && run.Length < 2_048) { run.Append((char)image[i]); continue; }
                 if (run.Length >= 5) yield return run.ToString();
                 run.Clear();
+                if (text) run.Append((char)image[i]);
             }
             if (run.Length >= 5) yield return run.ToString();
         }

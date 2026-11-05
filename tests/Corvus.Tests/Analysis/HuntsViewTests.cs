@@ -94,4 +94,27 @@ public sealed class HuntsViewTests : IDisposable
         Assert.Equal(ErrorCode.Conflict, refused.Code);
         await tools.SummarizeFile(path: path, huntsPath: file, overwrite: true);
     }
+
+    [Fact]
+    public void A_file_that_is_not_a_PE_image_gives_a_note_and_keeps_the_SHA1_hunts()
+    {
+        var path = _dir.File("data.bin");
+        File.WriteAllBytes(path, "plain data, no image"u8.ToArray());
+        var set = Hunts(path);
+        Assert.Contains(set.Notes, n => n.Contains("PE images only", StringComparison.Ordinal));
+        Assert.Contains(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_truncated_PE_image_reports_unknown_headers_and_keeps_the_SHA1_hunts()
+    {
+        var path = _dir.File("cut.exe");
+        var bytes = new byte[256];
+        bytes[0] = (byte)'M';
+        bytes[1] = (byte)'Z';
+        bytes[0x3C] = 0xF0;
+        File.WriteAllBytes(path, bytes);
+        var set = Hunts(path);
+        Assert.Contains(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal));
+    }
 }
