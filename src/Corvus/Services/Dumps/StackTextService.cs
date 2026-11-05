@@ -94,10 +94,10 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             var f = parsed.Frames[i];
             if (f.Kind != "native") continue;
             var module = ModuleOf(f, bases, parsed);
-            var native = module == null ? null : FindImage(natives, module, f.BuildId);
+            var known = module == null ? null : Described(f, module, parsed);
+            var native = module == null ? null : FindImage(natives, module, f.BuildId, known?.TimeDateStamp);
             if (module != null && native == null)
             {
-                var known = parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
                 var e = missing.GetValueOrDefault(module);
                 missing[module] = (known?.Version ?? e.Version, known?.TimeDateStamp ?? e.Stamp, e.Frames + 1);
             }
@@ -132,6 +132,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         }
         if (parsed.Frames.Count == 0)
             notes.Add(parsed.Unrecognized > 0 ? "No stack frame was recognized: see unrecognizedSample, or pass format to pick one." : "The text is empty.");
+        notes.AddRange(parsed.Notes);
         if (natives.Count == 0 && parsed.Frames.Any(f => f.Kind == "native"))
             notes.Add("No native image is loaded: load the crashed program's binaries (load_assembly) to name the native frames.");
 
@@ -228,15 +229,31 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
     /// <summary>A text's build id may be cut short (tombstones print a prefix on some versions).</summary>
     private static bool SameBuildId(string? ours, string theirs) => ours != null && (ours.StartsWith(theirs, StringComparison.OrdinalIgnoreCase) || theirs.StartsWith(ours, StringComparison.OrdinalIgnoreCase));
 
-    private static LoadedNative? FindImage(List<LoadedNative> natives, string module, string? buildId = null) =>
-        (buildId != null ? natives.FirstOrDefault(n => SameBuildId(n.Image.BuildId, buildId)) : null)
-        ?? natives.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(module, StringComparison.OrdinalIgnoreCase))
-        ?? natives.FirstOrDefault(n => SameModule(Path.GetFileName(n.FilePath), module));
+    /// <summary>The image of the module: by build id, then by name, preferring the one with the text's time stamp when several share the name.</summary>
+    private static LoadedNative? FindImage(List<LoadedNative> natives, string module, string? buildId = null, uint? stamp = null)
+    {
+        if (buildId != null && natives.FirstOrDefault(n => SameBuildId(n.Image.BuildId, buildId)) is { } byId) return byId;
+        var named = natives.Where(n => Path.GetFileName(n.FilePath).Equals(module, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (named.Count == 0) named = natives.Where(n => SameModule(Path.GetFileName(n.FilePath), module)).ToList();
+        return stamp is { } want ? named.FirstOrDefault(n => n.Pe?.Coff.TimeDateStamp == want) ?? named.FirstOrDefault() : named.FirstOrDefault();
+    }
+
+    /// <summary>The module's version and time stamp: the frame's own event, else the text's module list.</summary>
+    private static TextModule? Described(TextFrame f, string module, ParsedStackText parsed) =>
+        f.Described ?? parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
+
+    /// <summary>A module name from the text made safe to place in a call: separators, quotes, angle brackets and control characters become underscores.</summary>
+    private static string Safe(string name) =>
+        string.Create(name.Length, name, (span, src) =>
+        {
+            for (int i = 0; i < src.Length; i++) span[i] = src[i] is '\\' or '/' or '"' or '\'' or '<' or '>' or '`' || char.IsControl(src[i]) ? '_' : src[i];
+        });
 
     /// <summary>The module a native frame is in: named by the text, else the module whose range (or nearest base below) holds its address.</summary>
     private static string? ModuleOf(TextFrame f, Dictionary<string, ulong> bases, ParsedStackText parsed)
     {
         if (f.Module != null) return f.Module;
+        if (f.Outside) return null;
         if (f.Address is not { } a) return null;
         var sized = parsed.Modules.FirstOrDefault(m => m.Base is { } b && m.Size is { } s && a >= b && a - b < s);
         if (sized != null) return sized.Name;
@@ -252,12 +269,14 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         SymbolizedFrame Row(string? resolved, string? source, string check, string? detail, string? next, ulong? shownRva = null) =>
             new(index, f.Line, f.Raw, "native", module, (shownRva ?? rva) is { } r ? $"0x{r:X}" : null, address, resolved, source, native?.Id, null, null, null, null, f.Segment, check, detail, next);
 
-        var textModule = module == null ? null : parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
+        var textModule = module == null ? null : Described(f, module, parsed);
+        if (f.Outside)
+            return Row(null, null, "unknown", f.Address is { } outside ? $"the fault is outside any loaded module: 0x{outside:X} is an address, not an offset" : "the fault is outside any loaded module", null);
         if (module == null)
             return Row(null, null, "unknown", "no module for this address", "pass moduleBases (name=0xBASE) or the crash's module list");
         if (native == null)
             return Row(null, null, "unknown", "module not loaded",
-                $"load_assembly {module}" + (textModule?.Version is { } v ? $" (version {v})" : "") + (textModule?.TimeDateStamp is { } ts ? $" (time stamp 0x{ts:X8})" : "")
+                $"load_assembly {Safe(module)}" + (textModule?.Version is { } v ? $" (version {Safe(v)})" : "") + (textModule?.TimeDateStamp is { } ts ? $" (time stamp 0x{ts:X8})" : "")
                 + (f.BuildId is { } id ? $" (BuildId {id})" : ""));
 
         var index0 = await Index(native, ct);
@@ -278,31 +297,46 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
                 inside ? $"function starts at 0x{start:X}, offset 0x{f.SymbolOffset ?? 0:X}" : $"{f.Symbol}+0x{f.SymbolOffset:X} is past the end of {f.Symbol} here (size 0x{function.End - function.Start:X}): the text is from another build",
                 $"decompile_native image={native.Id} address=0x{rva:X}");
         }
+        if (rva == null && f.OffsetUnreadable)
+            return Row(null, null, "unknown", $"the fault offset of {module} in the text is unreadable", null);
         if (rva == null)
-            return Row(null, null, "unknown", $"no load address for {module}", $"pass moduleBases={module}=0x<base>");
+            return Row(null, null, "unknown", $"no load address for {module}", $"pass moduleBases={Safe(module)}=0x<base>");
+        uint? stamp = native.Pe?.Coff.TimeDateStamp;
         if (rva >= size)
-            return Row(null, null, "mismatch", $"{BuildLabel(textModule?.TimeDateStamp, native.Pe?.Coff.TimeDateStamp, module)}: offset 0x{rva:X} is past the end of {native.Id} (size 0x{size:X})", null);
+        {
+            bool sameStamp = textModule?.TimeDateStamp is { } w && w == stamp;
+            return Row(null, null, sameStamp ? "unknown" : "mismatch",
+                sameStamp ? $"offset 0x{rva:X} is past the end of {native.Id} (size 0x{size:X}) although the time stamps agree"
+                    : $"{BuildLabel(textModule?.TimeDateStamp, stamp, module)}: offset 0x{rva:X} is past the end of {native.Id} (size 0x{size:X})",
+                sameStamp ? null : LoadBuild(module, textModule, f));
+        }
 
-        var (name, src) = Name(native, index0, (uint)rva.Value);
+        // A data section is checked first: its offsets are no function in any build.
+        var section = native.Image.Sections.FirstOrDefault(s => s.Contains((uint)rva.Value));
+        bool nonCode = section is { IsExecutable: false };
+        var (name, src) = nonCode ? (null, "none") : Name(native, index0, (uint)rva.Value);
         string check = "unknown";
         string? detail = null;
-        uint? stamp = native.Pe?.Coff.TimeDateStamp;
+        bool otherBuild = false;
         if (f.BuildId is { } wantId)
         {
             bool same = SameBuildId(native.Image.BuildId, wantId);
             check = native.Image.BuildId == null ? "unknown" : same ? "match" : "mismatch";
+            otherBuild = check == "mismatch";
             detail = native.Image.BuildId == null ? $"{native.Id} has no build id to compare with {wantId}"
                 : same ? null : $"the text's {module} has BuildId {wantId}, the loaded image {native.Image.BuildId}";
         }
         else if (textModule?.TimeDateStamp is { } want && stamp is { } have)
         {
             check = want == have ? "match" : "mismatch";
+            otherBuild = want != have;
             detail = want == have ? "same build" : $"different build: the text's {module} has time stamp 0x{want:X8}, the loaded image 0x{have:X8}";
         }
         else if (textModule?.Version is { } version && FileVersion(native) is { } fileVersion)
         {
             bool same = Normalize(fileVersion) == Normalize(version);
             check = same ? "unknown" : "mismatch";
+            otherBuild = !same;
             detail = same ? "same file version (no time stamp to compare)" : $"the text's {module} is version {version}, the loaded image {fileVersion}";
         }
         else if (f.Symbol != null && name != null)
@@ -311,18 +345,28 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             check = agree ? "match" : "unknown";
             detail = agree ? null : $"the text names it {f.Symbol}; here it is {name} (another naming source, or another build)";
         }
-        else if (native.Image.Sections.FirstOrDefault(s => s.Contains((uint)rva.Value)) is { IsExecutable: false } section)
+        else if (nonCode)
         {
             check = "mismatch";
-            detail = $"0x{rva:X} is in {section.Name}, not code: another build";
+            detail = $"0x{rva:X} is in {section!.Name}, not code: another build";
         }
         // Without both time stamps the build is unknown; the label is never left out.
         if (f.BuildId == null && !(textModule?.TimeDateStamp != null && stamp != null))
             detail = BuildLabel(textModule?.TimeDateStamp, stamp, module) + (detail == null ? "" : "; " + detail);
         // The function start goes in the detail: the output schema is at its size ceiling.
-        if (index0?.FunctionAt((uint)rva.Value) is { } fn && fn.Start <= rva)
+        if (nonCode && !(detail?.Contains("not code", StringComparison.Ordinal) ?? false))
+            detail = (detail == null ? "" : detail + "; ") + $"0x{rva:X} is in {section!.Name}, not code";
+        else if (!nonCode && index0?.FunctionAt((uint)rva.Value) is { } fn && fn.Start <= rva)
             detail = (detail == null ? "" : detail + "; ") + $"function starts at 0x{fn.Start:X}, offset 0x{rva - fn.Start:X}";
-        return Row(name, src, check, detail, $"decompile_native image={native.Id} address=0x{rva:X}");
+        string? next = nonCode ? null : (otherBuild ? LoadBuild(module, textModule, f) : null) ?? $"decompile_native image={native.Id} address=0x{rva:X}";
+        return Row(name, src, check, detail, next);
+    }
+
+    /// <summary>The call that loads the build the text names, by time stamp, build id or version; null when the text names none.</summary>
+    private static string? LoadBuild(string module, TextModule? text, TextFrame f)
+    {
+        var what = text?.TimeDateStamp is { } ts ? $"time stamp 0x{ts:X8}" : f.BuildId is { } id ? $"BuildId {id}" : text?.Version is { } v ? $"version {Safe(v)}" : null;
+        return what == null ? null : $"load_assembly the build of {Safe(module)} with {what}";
     }
 
     private static string BuildLabel(uint? want, uint? have, string module) =>

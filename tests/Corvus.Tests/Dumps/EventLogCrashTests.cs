@@ -160,13 +160,157 @@ public sealed class EventLogCrashTests : IDisposable
     }
 
     [Fact]
-    public async Task A_second_event_is_counted_not_merged_into_the_first()
+    public async Task Each_event_of_a_text_is_resolved()
     {
         _ws.LoadAny(Build("synth.dll", 0x11223344));
-        var result = await Run(EventData("11223344") + "\n" + EventData("55667788").Replace("0000000000001085", "0000000000000005"));
-        var f = Assert.Single(result.Items);
+        string Event(string offset) => Description("11223344").Replace("0000000000001085", offset);
+        var text = await Run(Event("0000000000001085") + "\n\n" + Event("0000000000001005") + "\n\n" + Event("0000000000001020"));
+        Assert.Equal(["Big+0x5", "Crash+0x5", "Outer"], text.Items.Select(i => i.Resolved));
+        Assert.Equal(0, text.UnrecognizedLines);
+        var xml = await Run(EventData("11223344") + "\n" + EventData("11223344").Replace("0000000000001085", "0000000000001005"));
+        Assert.Equal(["Big+0x5", "Crash+0x5"], xml.Items.Select(i => i.Resolved));
+        Assert.Equal(0, xml.UnrecognizedLines);
+    }
+
+    [Fact]
+    public async Task Events_past_the_limit_are_counted_in_a_note()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var one = Description("11223344");
+        var result = await Run(string.Join("\n\n", Enumerable.Repeat(one, StackTextFormats.MaxEvents + 3)));
+        Assert.Equal(StackTextFormats.MaxEvents, result.Frames);
+        Assert.Contains(result.Notes, n => n.StartsWith("3 further events", StringComparison.Ordinal));
+    }
+
+    // Field test 5: the x86 event resolved against the x64 image of the same name.
+    [Fact]
+    public async Task The_image_with_the_events_time_stamp_is_preferred_among_images_of_one_name()
+    {
+        Directory.CreateDirectory(_dir.File("x64"));
+        Directory.CreateDirectory(_dir.File("x86"));
+        _ws.LoadAny(Build(Path.Combine("x64", "synth.dll"), 0x11223344));
+        _ws.LoadAny(Build(Path.Combine("x86", "synth.dll"), 0x55667788));
+        var second = _ws.Read(() => _ws.Natives.Last().Id);
+        var f = Assert.Single((await Run(Description("55667788"))).Items);
+        Assert.Equal(second, f.Image);
+        Assert.Equal("match", f.BuildCheck);
+    }
+
+    // Field test 6: single quotes, spaces and JSON or CSV escaped quotes were not read.
+    [Theory]
+    [InlineData("<Data Name='{0}'>{1}</Data>")]
+    [InlineData("<Data  Name = \"{0}\" >{1}</Data >")]
+    [InlineData("<Data Name=\\\"{0}\\\">{1}</Data>")]
+    [InlineData("<Data Name=\"\"{0}\"\">{1}</Data>")]
+    public async Task EventData_quoting_variants_are_read(string item)
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var data = new[] { ("AppName", "app.exe"), ("ModuleName", "synth.dll"), ("ModuleVersion", "1.2.3.4"), ("ModuleTimeStamp", "11223344"), ("ExceptionCode", "c0000005"), ("FaultingOffset", "0000000000001085") };
+        var f = Assert.Single((await Run("<EventData>" + string.Concat(data.Select(d => string.Format(item, d.Item1, d.Item2))) + "</EventData>")).Items);
         Assert.Equal("Big+0x5", f.Resolved);
-        Assert.True(result.UnrecognizedLines > 0);
+        Assert.Equal("match", f.BuildCheck);
+    }
+
+    // Field test 7: a data offset with a matching time stamp was named as the nearest function.
+    [Fact]
+    public async Task A_fault_offset_in_a_data_section_names_no_function()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var f = Assert.Single((await Run(Description("11223344").Replace("0000000000001085", "0000000000002010"))).Items);
+        Assert.Null(f.Resolved);
+        Assert.Contains(".rdata, not code", f.BuildDetail);
+        Assert.Equal("match", f.BuildCheck);
+    }
+
+    // Field test 8: a fault outside any module has the module name unknown and an address.
+    [Fact]
+    public async Task A_fault_outside_any_module_is_reported_as_an_address()
+    {
+        var text = """
+            Faulting application name: app.exe, version: 1.0.0.0, time stamp: 0x65000000
+            Faulting module name: unknown, version: 0.0.0.0, time stamp: 0x00000000
+            Exception code: 0xc0000005
+            Fault offset: 0x000001e5a3b01000
+            """;
+        var result = await Run(text);
+        var f = Assert.Single(result.Items);
+        Assert.Contains("outside any loaded module", f.BuildDetail);
+        Assert.Contains("address, not an offset", f.BuildDetail);
+        Assert.Equal("0x1E5A3B01000", f.Address);
+        Assert.DoesNotContain("unknown", f.NextStep ?? "");
+        Assert.Empty(result.ModulesMissing);
+    }
+
+    // Field test 16a: a matching stamp with an offset past the image read "mismatch" and "same build".
+    [Fact]
+    public async Task An_offset_past_the_image_with_the_same_time_stamp_is_not_called_a_mismatch()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var f = Assert.Single((await Run(Description("11223344").Replace("0000000000001085", "000000007FFF0000"))).Items);
+        Assert.Equal("unknown", f.BuildCheck);
+        Assert.Contains("past the end", f.BuildDetail);
+        Assert.DoesNotContain("same build", f.BuildDetail);
+    }
+
+    // Field test 16b: a different-build row sent the reader to decompile the loaded image.
+    [Fact]
+    public async Task A_different_build_row_points_at_the_build_to_load()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var f = Assert.Single((await Run(Description("55667788"))).Items);
+        Assert.Equal("mismatch", f.BuildCheck);
+        Assert.StartsWith("load_assembly", f.NextStep);
+        Assert.Contains("0x55667788", f.NextStep);
+    }
+
+    // Field test 16c: module names went unchanged into the next step.
+    [Fact]
+    public async Task A_module_name_is_made_safe_in_the_next_step()
+    {
+        var result = await Run(Description("11223344").Replace("synth.dll", "..\\a\"<b>'.dll"));
+        var next = Assert.Single(result.Items).NextStep!;
+        Assert.DoesNotContain("<", next);
+        Assert.DoesNotContain("\"", next);
+        Assert.DoesNotContain("\\", next);
+        Assert.DoesNotContain("'", next);
+    }
+
+    // Field test 16d: an overflowing offset was accepted silently.
+    [Fact]
+    public async Task An_unreadable_fault_offset_is_noted()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var result = await Run(Description("11223344").Replace("0x0000000000001085", "0xFFFFFFFFFFFFFFFFFFFF"));
+        Assert.Contains(result.Notes, n => n.Contains("unreadable", StringComparison.Ordinal));
+        Assert.Contains("unreadable", Assert.Single(result.Items).BuildDetail);
+    }
+
+    // Field test 16e: a module line without version and time stamp dropped the event.
+    [Fact]
+    public async Task A_module_line_without_version_and_time_stamp_is_read()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var text = "Faulting application name: app.exe\nFaulting module name: synth.dll\nException code: 0xc0000005\nFault offset: 0x1085";
+        var f = Assert.Single((await Run(text)).Items);
+        Assert.Equal("Big+0x5", f.Resolved);
+        Assert.StartsWith("unknown build", f.BuildDetail);
+    }
+
+    // Field test 16f: the remaining lines of event 1000 were counted as unrecognized.
+    [Fact]
+    public async Task The_other_lines_of_an_event_are_recognized()
+    {
+        var text = Description("11223344") + """
+
+            Faulting process id: 0x10624
+            Faulting application start time: 0x1DD6D07B4AA7AB7
+            Faulting application path: C:\App\app.exe
+            Faulting module path: C:\App\synth.dll
+            Report Id: bb338ecc-efe7-412d-8b93-cca184977544
+            Faulting package full name:
+            Faulting package-relative application ID:
+            """;
+        Assert.Equal(0, (await Run(text)).UnrecognizedLines);
     }
 
     [Fact]
