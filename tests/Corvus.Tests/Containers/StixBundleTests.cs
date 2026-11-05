@@ -96,7 +96,7 @@ public sealed class StixBundleTests : IDisposable
         var objects = Objects(Bundle(path));
         Assert.Equal(InspectionService.MaxNetworkValues, objects.Count(o => o.GetProperty("type").GetString() is "url" or "domain-name"));
         Assert.Contains($"past the first {InspectionService.MaxNetworkValues:N0} are not listed",
-            objects.Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("description").GetString());
+            objects.Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("x_corvus_notes").GetString());
         // Without stixPath the summary keeps its first ten values.
         Assert.Equal(10, new InspectionService(_workspace).Summarize(null, path, default).Assemblies[0].Values.Top.Count);
     }
@@ -148,7 +148,7 @@ public sealed class StixBundleTests : IDisposable
         Assert.Equal("pcap: DNS query", domain.GetProperty("x_corvus_locations")[0].GetString());
         var ja4 = objects.Single(o => o.GetProperty("type").GetString() == "x-tls-fingerprint" && o.GetProperty("algorithm").GetString() == "JA4");
         Assert.Equal("t12d0103h2_0f2cb44170f4_4298e3b3ed58", ja4.GetProperty("value").GetString());
-        Assert.DoesNotContain("not checked", objects.Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("description").GetString());
+        Assert.DoesNotContain("not checked", objects.Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("x_corvus_notes").GetString());
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public sealed class StixBundleTests : IDisposable
         File.WriteAllBytes(path, ContainerFixtures.Zip(("Named.dll", app)));
         var bytes = Bundle(path);
         Assert.DoesNotContain(Objects(bytes), o => o.GetProperty("type").GetString() == "url");
-        Assert.Contains("found only as strings are not exported", Objects(bytes).Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("description").GetString());
+        Assert.Contains("found only as strings are not exported", Objects(bytes).Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("x_corvus_notes").GetString());
     }
 
     [Fact]

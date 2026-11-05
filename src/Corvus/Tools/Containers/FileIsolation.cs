@@ -601,7 +601,7 @@ public static class FileWork
         if (summary.Views.GetValueOrDefault("hunts")?.Detail is not Services.Analysis.Hunts.HuntSet set)
             throw new ToolError(ErrorCode.NotFound, "No hunting queries were written: the input is not a file the hunts view reads (a loaded assembly or a folder has no hunts view).", "call summarize_file path=<a file> huntsPath=<file>");
         var full = SafeFile.WriteAllBytes(huntsPath, Services.Analysis.Hunts.HuntRules.Write(set), overwrite);
-        return $"{set.Hunts.Count} hunting queries and {Services.Analysis.Hunts.HuntRules.Rules(set).Count} detection rules (disabled) written to {full}.";
+        return Services.Analysis.Hunts.HuntRules.Written(set, full);
     }
 
     /// <summary>

@@ -399,6 +399,15 @@ public sealed class HuntsWriterTests
 
     // Field test 14: an archive has no process or image-load events.
     [Fact]
+    public void The_written_note_counts_queries_and_rules_apart()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Domain, "app.example.net", "string")]);
+        var rules = HuntRules.Rules(set).Count;
+        Assert.True(rules < set.Hunts.Count);
+        Assert.Equal($"{set.Hunts.Count} hunting queries and {rules} detection rules (disabled) written to a.json.", HuntRules.Written(set, "a.json"));
+    }
+
+    [Fact]
     public void A_host_query_also_reads_the_DNS_and_TLS_names_and_gets_no_rule()
     {
         var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Domain, "app.example.net", "string")]);

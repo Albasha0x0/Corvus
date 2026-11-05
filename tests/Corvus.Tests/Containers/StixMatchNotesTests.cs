@@ -111,8 +111,10 @@ public sealed class StixMatchNotesTests : IDisposable
     {
         var bytes = Write(Summary(), Report("not checked"));
         Assert.Empty(Objects(bytes, "note"));
-        var description = Objects(bytes, "malware-analysis").Single().GetProperty("description").GetString();
-        Assert.Contains("capa not run or unknown: not checked, capa is not set up.", description);
+        var analysis = Objects(bytes, "malware-analysis").Single();
+        Assert.Contains("capa not run or unknown: not checked, capa is not set up.", analysis.GetProperty("x_corvus_notes").GetString());
+        // STIX 2.1 section 4.11 lists no description on this object.
+        Assert.False(analysis.TryGetProperty("description", out _));
     }
 
     [Fact]
@@ -121,7 +123,7 @@ public sealed class StixMatchNotesTests : IDisposable
         var many = Enumerable.Range(0, StixBundle.MaxNotes + 5).Select(i => new StixBundle.Match("yara", $"rule_{i:D4}", null, null, [])).ToList();
         var bytes = Write(Summary(), null, many, available: false);
         Assert.Equal(StixBundle.MaxNotes, Objects(bytes, "note").Count);
-        Assert.Contains("5 of 1,005", Objects(bytes, "malware-analysis").Single().GetProperty("description").GetString());
+        Assert.Contains("5 of 1,005", Objects(bytes, "malware-analysis").Single().GetProperty("x_corvus_notes").GetString());
     }
 
     [Fact]

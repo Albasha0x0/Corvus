@@ -154,7 +154,8 @@ public static class StixBundle
             w.WriteString("product", "corvus");
             w.WriteString("version", toolVersion);
             w.WriteString("analysis_ended", stamp);
-            w.WriteString("description", string.Join(" ", notes.Prepend("summarize_file read the file statically; no verdict is given.")));
+            // STIX 2.1 section 4.11 gives malware-analysis no description property.
+            w.WriteString("x_corvus_notes", string.Join(" ", notes.Prepend("summarize_file read the file statically; no verdict is given.")));
             w.WriteString("sample_ref", sample.Id);
             // The schema needs analysis_sco_refs or result; with nothing found, result says no verdict was reached.
             if (found.Count > 0)

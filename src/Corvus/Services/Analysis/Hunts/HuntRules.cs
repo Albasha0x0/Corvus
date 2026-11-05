@@ -48,6 +48,10 @@ public static class HuntRules
             ["files"] = new JsonArray(new JsonObject { ["sha1Column"] = "SHA1" }),
         };
 
+    /// <summary>The note naming how many queries and rules <see cref="Write"/> saved to a path.</summary>
+    public static string Written(HuntSet set, string path) =>
+        $"{set.Hunts.Count} hunting queries and {Rules(set).Count} detection rules (disabled) written to {path}.";
+
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
     public static byte[] Write(HuntSet set)
     {

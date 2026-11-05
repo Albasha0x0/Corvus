@@ -213,8 +213,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         if (huntsFile != null && result.Record.Hunts is { } written)
         {
-            var full = SafeFile.WriteAllBytes(huntsFile, HuntRules.Write(new HuntSet(written, result.Record.Notes)), overwrite);
-            var note = $"{written.Count} hunting queries and detection rules (disabled) written to {full}.";
+            var set = new HuntSet(written, result.Record.Notes);
+            var full = SafeFile.WriteAllBytes(huntsFile, HuntRules.Write(set), overwrite);
+            var note = HuntRules.Written(set, full);
             result = result with { Record = result.Record with { Notes = [.. result.Record.Notes, note] }, Head = result.Head + "Note: " + note + "\n" };
         }
         return ToolOutput.List(result.Rows, offset, limit, result.Total,
@@ -341,7 +342,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             if (crash.Hunts.Count > 0)
             {
                 notes.Add($"The crash query matches the module name {Path.GetFileName(pair.Old.FilePath)}, the old build's file name; use the name the program loads it under if that differs.");
-                notes.Add("The crash query reads the Event table, which holds rows only where the workspace collects the Application log; no rows is unknown, not absent.");
+                notes.Add("The crash query reads the Event table of a workspace that collects the Application log; advanced hunting without such a workspace rejects the table, and no rows or a rejected table is unknown, not absent.");
             }
         }
         return new HuntSet(hunts, notes);
