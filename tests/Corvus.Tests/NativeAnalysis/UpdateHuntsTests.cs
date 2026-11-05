@@ -135,6 +135,35 @@ public sealed class UpdateHuntsTests
     }
 
     [Fact]
+    public async Task The_crash_module_name_is_named_as_the_old_build_file_name()
+    {
+        var (record, _, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
+        Assert.Contains(record.Notes, n => n.Contains("old build's file name", StringComparison.Ordinal) && n.Contains("old.dll", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_fact_in_both_builds_with_different_case_is_not_added()
+    {
+        const string sha1 = "0123456789abcdef0123456789abcdef01234567";
+        var set = UpdateHunts.Added([new(HuntKind.Url, "https://Kept.Example.net/A", "reference")], [new(HuntKind.Url, "https://kept.example.net/A", "reference")], sha1);
+        Assert.Empty(set.Hunts);
+    }
+
+    [Fact]
+    public void A_malformed_scope_SHA1_is_refused()
+    {
+        Assert.Throws<ArgumentException>(() => UpdateHunts.Added([], [new(HuntKind.Url, "https://a.example.net/", "reference")], "not-a-sha1'; drop"));
+    }
+
+    [Fact]
+    public void The_crash_query_skips_events_with_no_faulting_offset()
+    {
+        var set = KqlHunts.WriteCrash("host.dll", OldStamp, [(0u, 0x10u)]);
+        Assert.Contains("isnotempty(FaultingOffset)", Assert.Single(set.Hunts).Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(set.Hunts[0].Kql).GetDiagnostics().Select(d => d.Message));
+    }
+
+    [Fact]
     public void More_ranges_than_the_cap_are_counted_in_a_note()
     {
         var ranges = Enumerable.Range(0, KqlHunts.MaxCrashRanges + 5).Select(i => ((uint)(i * 0x20), (uint)(i * 0x20 + 0x10)));

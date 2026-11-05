@@ -184,7 +184,7 @@ public static class KqlHunts
             $"| extend ModuleName = {Field("ModuleName")}",
             $"| extend ModuleTimeStamp = {Field("ModuleTimeStamp")}",
             $"| extend FaultingOffset = {Field("FaultingOffset")}",
-            $"| where ModuleName =~ {Literal(module)} and ModuleTimeStamp =~ {Literal(stamp)}",
+            $"| where ModuleName =~ {Literal(module)} and ModuleTimeStamp =~ {Literal(stamp)} and isnotempty(FaultingOffset)",
             "| extend Offset = substring(strcat('0000000000000000', tolower(FaultingOffset)), strlen(FaultingOffset), 16)",
             "| where " + string.Join("\n    or ", clauses),
             "| project TimeGenerated, Computer, AppName, ModuleName, ModuleTimeStamp, FaultingOffset",
@@ -321,7 +321,7 @@ public static class KqlHunts
                 return [Network(kind, value, evidence, tag, only, $"Connections to {Short(value)}", filter)];
             case HuntKind.Ipv4 or HuntKind.Ipv6:
                 if (!IPAddress.TryParse(value, out var ip)) { unqueried++; return []; }
-                return [Network(kind, value, evidence, tag, only, $"Connections to {ip}",$"RemoteIP == {Literal(ip.ToString())}")];
+                return [Network(kind, value, evidence, tag, only, $"Connections to {ip}", $"RemoteIP == {Literal(ip.ToString())}")];
             case HuntKind.NamedPipe:
                 var pipe = PipeName(value);
                 if (pipe.Length == 0) { unqueried++; return []; }
