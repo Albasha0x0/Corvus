@@ -186,7 +186,7 @@ internal sealed class FileOps : IWorkerOps
 public static class FileWork
 {
     public sealed record SummarizeArgs(string Path, string View, string? Table, string[]? Columns, long Offset, int? Limit, string? SbomPath = null,
-        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null, string? HuntsPath = null);
+        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null, string? HuntsPath = null, string? ComponentsPath = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
@@ -502,11 +502,12 @@ public static class FileWork
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
     {
         using var _ = ContainerPassword.Enter(a.Password);
-        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script });
+        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null || a.ComponentsPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script });
         var record = ContainerText.Summary(summary, a.View);
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite, a.View == "dependencies")] };
         if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };
         if (a.HuntsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteHunts(summary, a.HuntsPath, a.Overwrite)] };
+        if (a.ComponentsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteComponents(inspection, summary, a.ComponentsPath, a.Overwrite, ct)] };
         if (a.View == "layers" && graph != null)
         {
             var facts = graph.Build(summary.File.Path, (int)Math.Min(a.Offset, int.MaxValue), a.Limit ?? Services.Mobile.AppGraph.DefaultLimit, ct);
@@ -538,6 +539,32 @@ public static class FileWork
             throw new ToolError(ErrorCode.NotFound, "No hunting queries were written: the input is not a file the hunts view reads (a loaded assembly or a folder has no hunts view).", "call summarize_file path=<a file> huntsPath=<file>");
         var full = SafeFile.WriteAllBytes(huntsPath, Services.Analysis.Hunts.HuntRules.Write(set), overwrite);
         return $"{set.Hunts.Count} hunting queries and detection rules (disabled) written to {full}.";
+    }
+
+    /// <summary>
+    /// Writes the components of the summarized file, or of each image in a folder, as JSON lines to <paramref name="componentsPath"/>
+    /// (an existing file is refused unless <paramref name="overwrite"/>); returns the note naming it, or a warning when no component was read.
+    /// </summary>
+    public static string WriteComponents(InspectionService inspection, InspectionService.FileSummary summary, string componentsPath, bool overwrite, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var lines = new List<string>();
+        var notes = new List<string>();
+        int images = 1;
+        if (summary.File.Type == "folder")
+            (lines, images, notes) = Services.Analysis.Dependencies.ComponentRows.OfFolder(summary.File.Path, now,
+                file => inspection.Summarize(null, file, ct, new FileViewOptions { Sbom = true }), ct);
+        else
+        {
+            lines.AddRange(Services.Analysis.Dependencies.ComponentRows.OfSummary(summary, Path.GetFileName(summary.File.Path), now));
+            if (!summary.Container.StartsWith("none", StringComparison.Ordinal))
+                notes.Add($"container: rows carry the hashes of {Path.GetFileName(summary.File.Path)}, not of the images inside it");
+        }
+        var tail = notes.Count == 0 ? "" : " " + string.Join("; ", notes) + ".";
+        if (lines.Count == 0)
+            return $"Warning: no component rows written, no component was read from {images} image(s); a part the readers cannot read is unknown, not absent.{tail}";
+        var full = SafeFile.WriteAllBytes(componentsPath, Services.Analysis.Dependencies.ComponentRows.Encode(lines), overwrite);
+        return $"{lines.Count} component rows from {images} image(s) written to {full}.{tail}";
     }
 
     /// <summary>Writes the summary as a STIX 2.1 bundle to <paramref name="stixPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>

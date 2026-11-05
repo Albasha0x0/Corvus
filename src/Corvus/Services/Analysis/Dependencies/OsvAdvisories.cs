@@ -11,7 +11,12 @@ public sealed record DependencyAdvisory(
 /// <summary>The advisory check of an inventory; Note names what was not checked.</summary>
 public sealed record DependencyAdvisories(
     string State, string? Checker, int Checked, int NotChecked,
-    IReadOnlyList<DependencyAdvisory> Findings, string? Note);
+    IReadOnlyList<DependencyAdvisory> Findings, string? Note)
+{
+    /// <summary>Why a component, by Ref, was not matched; a component absent from it was.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyDictionary<string, string> Unmatched { get; init; } = new Dictionary<string, string>();
+}
 
 /// <summary>Matches components against OSV records in a local folder.</summary>
 internal static class OsvAdvisories
@@ -26,20 +31,25 @@ internal static class OsvAdvisories
     /// <summary>The advisories of <paramref name="components"/>; "partial" when any was not matched.</summary>
     internal static DependencyAdvisories Check(IReadOnlyList<DependencyComponent> components, CancellationToken ct)
     {
+        var candidates = components
+            .Where(c => c.Purl != null && c.Version != null && VersionOrder.Osv(c.Ecosystem) != null).ToList();
+        int without = components.Count - candidates.Count;
+        var unmatched = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var c in components.Except(candidates))
+            unmatched[c.Ref] = VersionOrder.Osv(c.Ecosystem) == null
+                ? c.Ecosystem == "native" ? "no advisory source covers C libraries" : $"no advisory source covers {c.Ecosystem} components"
+                : "no package URL or version";
         if (Native.Providers.ExternalTools.ReadVariable(DatabaseVariable) is not { Length: > 0 } root)
-            return NotChecked(null, components.Count,
+            return NotChecked(components, unmatched,
                 $"advisories not checked: set {DatabaseVariable} to a folder of OSV exports, " +
                 "one folder per ecosystem holding all.zip");
         if (!Directory.Exists(root))
-            return NotChecked(null, components.Count,
+            return NotChecked(components, unmatched,
                 $"advisories not checked: {DatabaseVariable} names a folder that does not exist");
 
         var problems = new List<string>();
         var findings = new List<DependencyAdvisory>();
         int matched = 0;
-        var candidates = components
-            .Where(c => c.Purl != null && c.Version != null && VersionOrder.Osv(c.Ecosystem) != null).ToList();
-        int without = components.Count - candidates.Count;
         var read = new List<string>();
         foreach (var group in candidates.GroupBy(c => VersionOrder.Osv(c.Ecosystem)!))
         {
@@ -48,8 +58,9 @@ internal static class OsvAdvisories
             var scan = Open(root, ecosystem, wanted, ct);
             if (scan == null || scan.Error != null)
             {
-                problems.Add($"{group.Count()} {ecosystem} components not checked: " +
-                    (scan?.Error ?? $"no {ecosystem} database under {DatabaseVariable}"));
+                var why = scan?.Error ?? $"no {ecosystem} database under {DatabaseVariable}";
+                problems.Add($"{group.Count()} {ecosystem} components not checked: " + why);
+                foreach (var c in group) unmatched[c.Ref] = why;
                 continue;
             }
             int unordered = 0;
@@ -68,7 +79,11 @@ internal static class OsvAdvisories
                         record.Summary, record.Severity, fixedIn));
                 }
                 if (ordered) matched++;
-                else unordered++;
+                else
+                {
+                    unordered++;
+                    unmatched[c.Ref] = "a version could not be ordered";
+                }
             }
             read.Add(ecosystem);
             if (unordered > 0)
@@ -83,9 +98,9 @@ internal static class OsvAdvisories
                 "or in an ecosystem OSV does not cover, were not checked");
         var note = notes.Count == 0 ? null : string.Join("; ", notes);
         if (matched == 0)
-            return NotChecked(null, components.Count, "advisories not checked: " + (note ?? "no component to match"));
+            return NotChecked(components, unmatched, "advisories not checked: " + (note ?? "no component to match"));
         var state = problems.Count == 0 && without == 0 ? "checked" : "partial";
-        return new DependencyAdvisories(state, "in process", matched, components.Count - matched, findings, note);
+        return new DependencyAdvisories(state, "in process", matched, components.Count - matched, findings, note) { Unmatched = unmatched };
     }
 
     private static string Key(string ecosystem, string name) => ecosystem switch
@@ -164,6 +179,10 @@ internal static class OsvAdvisories
         return buffer.ToArray();
     }
 
-    private static DependencyAdvisories NotChecked(string? checker, int notChecked, string note) =>
-        new("not checked", checker, 0, notChecked, [], note);
+    // A component with no reason of its own takes the overall note.
+    private static DependencyAdvisories NotChecked(IReadOnlyList<DependencyComponent> components, Dictionary<string, string> reasons, string note) =>
+        new("not checked", null, 0, components.Count, [], note)
+        {
+            Unmatched = components.ToDictionary(c => c.Ref, c => reasons.GetValueOrDefault(c.Ref) ?? note, StringComparer.Ordinal),
+        };
 }

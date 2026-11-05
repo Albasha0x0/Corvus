@@ -46,6 +46,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Write hunting queries and disabled rules here, JSON.")] string? huntsPath = null,
+        [Description("Write component rows here, JSON lines.")] string? componentsPath = null,
         [Description("Overwrite these files.")] bool overwrite = false,
         [Description("Password to decrypt with; only it is tried.")] string? password = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -57,13 +58,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                     $"drop {refused.Parameter}=, or pass one of those views");
             if (script != null && name != "assets") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=assets.", "pass view=assets with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
-            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null, Stix = stixPath != null, Hunts = huntsPath != null, Script = script };
+            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null || componentsPath != null, Stix = stixPath != null, Hunts = huntsPath != null, Script = script };
             var native = NativeNamed(assembly, path);
             FileSummaryRecord record;
             // A file the workspace has not loaded is read where a crashing reader cannot end the server.
             if (assembly == null && path != null && native == null)
             {
-                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath);
+                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath);
                 record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
                 Coverage(record);
                 return ToolOutput.Report(ContainerText.Summary(record), record);
@@ -81,6 +82,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite, name == "dependencies")] };
             if (stixPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteStix(summary, stixPath, overwrite)] };
             if (huntsPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteHunts(summary, huntsPath, overwrite)] };
+            if (componentsPath != null)
+                record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteComponents(inspection, summary, componentsPath, overwrite, cancellationToken)] };
             if (name == "layers" && graph != null)
             {
                 var facts = await Task.Run(() => graph.Build(summary.File.Path, (int)Math.Min(offset, int.MaxValue), limit ?? Services.Mobile.AppGraph.DefaultLimit, cancellationToken), cancellationToken);
