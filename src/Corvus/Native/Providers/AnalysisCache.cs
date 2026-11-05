@@ -112,10 +112,11 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
         catch (LockedError locked) { throw locked.Entry.Conflict; }
         try
         {
+            var fresh = !Directory.EnumerateFiles(Path.Combine(dir, "input")).Any();
             var copy = Io(dir, () => EnsureCopy(source, Path.Combine(dir, "input"), sha, ShortKeys ? ShortNameLength : 100));
             try { File.WriteAllText(Path.Combine(dir, OwnerFile), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* only names the owner in another process's conflict */ }
-            EvictSoon();
+            EvictSoon(fresh);
             return new CacheEntry(dir, copy, sha, source, lockFile);
         }
         catch
@@ -130,6 +131,7 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
         public long LastRun;
         public int Evicted;
         public string? LastError;
+        public IReadOnlyList<string> InUse = [];
     }
 
     /// <summary>Per root: the IDA and Ghidra providers share one.</summary>
@@ -143,14 +145,15 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
     /// <summary>Whether an acquire starts an eviction pass (tests turn it off to run one themselves).</summary>
     internal bool AutoEvict { get; init; } = true;
 
-    private void EvictSoon()
+    private void EvictSoon(bool written)
     {
         if (!AutoEvict) return;
         var stat = Stat;
         var now = Environment.TickCount64;
         var last = Interlocked.Read(ref stat.LastRun);
-        if (last != 0 && now - last < EvictInterval.TotalMilliseconds) return;
-        if (Interlocked.CompareExchange(ref stat.LastRun, now, last) != last) return;
+        // A new copy grows the cache, so it always checks the cap; reuse is throttled.
+        if (!written && (last != 0 && now - last < EvictInterval.TotalMilliseconds || Interlocked.CompareExchange(ref stat.LastRun, now, last) != last)) return;
+        Interlocked.Exchange(ref stat.LastRun, now);
         _ = Task.Run(() => Evict());
     }
 
@@ -161,7 +164,7 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
     private static bool IsEntry(DirectoryInfo dir) =>
         File.Exists(Path.Combine(dir.FullName, KeyFile)) || (dir.Name.Length is 16 or 32 or 64 && dir.Name.All(Uri.IsHexDigit));
 
-    /// <summary>Deletes unlocked entries past <see cref="MaxAge"/>, then LRU beyond <see cref="MaxBytes"/>, and abandoned snapshots; returns the count.</summary>
+    /// <summary>Deletes unlocked entries past <see cref="MaxAge"/>, then LRU beyond <see cref="MaxBytes"/>, and abandoned snapshots; returns the count. Files outside entries (helper and snapshot folders) count toward the cap but are never evicted; entries in use are skipped and named in <see cref="AnalysisCacheStatus.InUse"/>.</summary>
     public int Evict()
     {
         FolderTally.Forget(Root);
@@ -184,14 +187,16 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
                     else if (IsEntry(dir)) entries.Add((dir, LastUse(dir), Size(dir)));
                 }
             }
-            long total = entries.Sum(e => e.Bytes);
+            long total = Math.Max(Size(new DirectoryInfo(Root)), entries.Sum(e => e.Bytes));
+            var inUse = new List<string>();
             foreach (var (dir, used, bytes) in entries.OrderBy(e => e.Used))
             {
                 if (now - used <= MaxAge && total <= MaxBytes) break;
-                if (!TryDeleteEntry(dir)) continue;
+                if (!TryDeleteEntry(dir)) { inUse.Add(dir.FullName); continue; }
                 total -= bytes;
                 evicted++;
             }
+            stat.InUse = inUse;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -243,7 +248,7 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
         return whole;
     }
 
-    /// <summary>What the cache holds and how it is bounded, with this process's evictions.</summary>
+    /// <summary>Entry count, and bytes of everything on disk under the root (helper and snapshot folders included), with the cap and this process's evictions.</summary>
     public AnalysisCacheStatus Status()
     {
         var (entries, bytes) = FolderTally.Of(Root, () =>
@@ -253,15 +258,18 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
             try
             {
                 if (Directory.Exists(Root))
+                {
+                    bytes = Size(new DirectoryInfo(Root));
                     foreach (var provider in new DirectoryInfo(Root).EnumerateDirectories())
                         foreach (var dir in provider.EnumerateDirectories())
-                            if (dir.Name != "snapshots" && IsEntry(dir)) { entries++; bytes += Size(dir); }
+                            if (dir.Name != "snapshots" && IsEntry(dir)) entries++;
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             return (entries, bytes);
         });
         var stat = Stat;
-        return new AnalysisCacheStatus(Root, entries, bytes, MaxBytes, MaxAge, Volatile.Read(ref stat.Evicted), stat.LastError);
+        return new AnalysisCacheStatus(Root, entries, bytes, MaxBytes, MaxAge, Volatile.Read(ref stat.Evicted), stat.LastError) { InUse = stat.InUse };
     }
 
     public static string HashFile(string path)
@@ -487,7 +495,11 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
 }
 
 /// <summary>Entries and bytes on disk, the bounds, and the entries this process evicted.</summary>
-public sealed record AnalysisCacheStatus(string Root, int Entries, long Bytes, long MaxBytes, TimeSpan MaxAge, int Evicted, string? LastError);
+public sealed record AnalysisCacheStatus(string Root, int Entries, long Bytes, long MaxBytes, TimeSpan MaxAge, int Evicted, string? LastError)
+{
+    /// <summary>Entries the last pass kept because a session holds them; empty when none.</summary>
+    public IReadOnlyList<string> InUse { get; init; } = [];
+}
 
 /// <summary>An entry locked by another session or process (<see cref="OwnerPid"/> when it recorded itself), and the conflict to report.</summary>
 public sealed record LockedEntry(string Directory, int? OwnerPid, ToolError Conflict);

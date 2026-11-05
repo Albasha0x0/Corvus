@@ -88,7 +88,7 @@ internal sealed class CachesStatus : IStatusSection
             yield return new("indexState", IndexStates(code, workspace));
         if (engines?.CacheStatus() is { } db)
             yield return new("engineDatabases", $"{StatusPaths.Short(db.Root)}: {Core.FolderTally.Text(db.Entries, db.Bytes, ResultsStatus.Megabytes)} of {db.MaxBytes >> 20} MB, unused entries kept {db.MaxAge.TotalDays:0} days; " +
-                $"this session {db.Evicted} evicted" + (db.LastError != null ? $"; last problem: {db.LastError}" : ""),
+                $"this session {db.Evicted} evicted" + (db.InUse.Count > 0 ? $", {db.InUse.Count} over the cap kept in use" : "") + (db.LastError != null ? $"; last problem: {db.LastError}" : ""),
                 $"{Native.Providers.AnalysisCache.RootVariable}, {Native.Providers.AnalysisCache.MaxMegabytesVariable}, _DAYS");
         if (code != null)
         {
