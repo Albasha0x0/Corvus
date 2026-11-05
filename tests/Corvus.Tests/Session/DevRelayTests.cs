@@ -27,6 +27,28 @@ public sealed class DevRelayInitializeTests() : DevRelayTests("2025-11-25")
         Assert.Equal(["--load", "x.dll"], RelayCli.WithoutRelayPrefix(["--load", "x.dll"]));
     }
 
+    // Regression: a client that probes server/discover before its handshake
+    // left 2026-07-28 metadata the relay sent on its edit check; the server
+    // refused it, so the edit count was unknown and every swap waited.
+    [Fact]
+    public async Task Per_request_metadata_in_a_handshake_session_does_not_hold_a_swap()
+    {
+        var probe = new JsonRpcRequest
+        {
+            Method = RequestMethods.ToolsCall,
+            Params = new JsonObject
+            {
+                ["name"] = "echo",
+                ["arguments"] = new JsonObject { ["text"] = "probe" },
+                ["_meta"] = new JsonObject { ["io.modelcontextprotocol/protocolVersion"] = "2026-07-28", ["io.modelcontextprotocol/clientCapabilities"] = new JsonObject() },
+            },
+        };
+        await Assert.ThrowsAnyAsync<McpException>(() => Client.SendRequestAsync(probe));
+        PublishBuild("B");
+        await Until(() => Notifications.Count == 3, "the swap");
+        Assert.StartsWith("[relay] now serving build B", await Call("echo", new() { ["text"] = "hi" }));
+    }
+
     [Fact]
     public void Staging_skips_the_marker_and_renamed_aside_files()
     {
@@ -459,6 +481,8 @@ internal sealed class FakeMcpServer : ChildProcess
     public string? ClientName { get; private set; }
     public bool Initialized { get; private set; }
     public bool Discovered { get; private set; }
+
+    private string? _negotiated;
     public bool Ready => Initialized || Discovered;
     public int Listens => _listens.Count;
     private readonly ConcurrentDictionary<string, JsonNode> _listens = new();
@@ -554,6 +578,12 @@ internal sealed class FakeMcpServer : ChildProcess
             Fail(id, $"'{method}' must include _meta/io.modelcontextprotocol/protocolVersion and clientCapabilities.");
             return;
         }
+        // As the SDK: a handshake session refuses a request that names another version.
+        if (id != null && _negotiated != null && meta?["io.modelcontextprotocol/protocolVersion"]?.GetValue<string>() is { } named && named != _negotiated)
+        {
+            Fail(id, $"The negotiated protocol version cannot change within a session. The session negotiated '{_negotiated}', but a request specified '{named}'.");
+            return;
+        }
         switch (method)
         {
             case null:
@@ -566,6 +596,7 @@ internal sealed class FakeMcpServer : ChildProcess
                     return;
                 }
                 ClientName = p?["clientInfo"]?["name"]?.GetValue<string>();
+                _negotiated = p?["protocolVersion"]?.GetValue<string>();
                 Reply(id, new JsonObject
                 {
                     ["protocolVersion"] = p?["protocolVersion"]?.DeepClone(),
