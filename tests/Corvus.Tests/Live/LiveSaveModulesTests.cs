@@ -89,7 +89,7 @@ public class LiveSaveModulesTests
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "findstr.exe");
+            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "cmd.exe");
             Assert.True(text.Contains("code differs"), text);
             Assert.Contains("code ranges differing from the file", text);
         }
@@ -110,8 +110,8 @@ public class LiveSaveModulesTests
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "findstr.exe");
-            Assert.Contains("code same", text);
+            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "cmd.exe");
+            Assert.True(text.Contains("code same"), text);
             Assert.DoesNotContain("code ranges differing", text);
         }
         finally
@@ -139,8 +139,8 @@ public class LiveSaveModulesTests
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "findstr.exe");
-            Assert.Contains("code same", text);
+            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "cmd.exe");
+            Assert.True(text.Contains("code same"), $"exited={child.HasExited} | {text}");
             Assert.Contains($"0x{entry:X} stop s1 restored", text);
             Assert.Contains($"0x{entry + 0x40:X} coverage cov1.4 restored", text);
             Assert.Contains("2 session hook(s) restored", text);
@@ -166,7 +166,7 @@ public class LiveSaveModulesTests
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "findstr.exe");
+            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "cmd.exe");
             Assert.Contains($"0x{entry:X} stop s1 not restored", text);
             Assert.Contains("the image holds 1 session hook(s) not restored", text);
             Assert.Contains("code differs", text);
@@ -190,7 +190,7 @@ public class LiveSaveModulesTests
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "findstr.exe");
+            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "cmd.exe");
             Assert.Contains("hook records are unknown", text);
             Assert.Contains($"0x{entry:X} stop s1 not restored", text);
         }
@@ -214,7 +214,7 @@ public class LiveSaveModulesTests
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "findstr.exe");
+            var text = await tools.LiveSession("save_modules", session: "live-1", outputPath: dir, modules: "cmd.exe");
             Assert.Matches(@"64 of \d+ differing ranges listed \(limit 64\)", text);
         }
         finally
@@ -237,33 +237,23 @@ public class LiveSaveModulesTests
     private static (LiveSessionService Service, LiveSessionTools Tools, ScriptedLiveBackend Backend) OpenScripted(System.Diagnostics.Process child)
     {
         var workspace = new AssemblyWorkspace();
-        var backend = new ScriptedLiveBackend("findstr.exe", (ulong)child.MainModule!.BaseAddress, (uint)child.MainModule.ModuleMemorySize) { ProcessId = child.Id };
+        var backend = new ScriptedLiveBackend("cmd.exe", (ulong)child.MainModule!.BaseAddress, (uint)child.MainModule.ModuleMemorySize) { ProcessId = child.Id };
         var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, new MinidumpService());
         tools.LiveSession("attach", program: child.Id.ToString()).GetAwaiter().GetResult();
         return (service, tools, backend);
     }
 
-    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static System.Diagnostics.Process StartChild()
     {
-        var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
-            { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
-        // Loader worker threads wait before the entry point runs, so only the
-        // main thread waiting on input, seen twice, is past the entry point a
-        // test rewrites.
-        int waits = 0;
-        for (int i = 0; i < 200 && waits < 2; i++)
-        {
-            Thread.Sleep(50);
-            try
-            {
-                child.Refresh();
-                var main = child.Threads.Cast<System.Diagnostics.ProcessThread>().MinBy(t => t.StartTime);
-                waits = child.MainModule != null && main?.ThreadState == System.Diagnostics.ThreadState.Wait ? waits + 1 : 0;
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { waits = 0; }
-        }
+        var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /q /k echo ready")
+            { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        // Wait for the ready line, then suspend every thread: the tests rewrite
+        // code the child may still run (entry+0x40 is the stack cookie check
+        // in cmd.exe), and a suspended child stays readable until it is killed.
+        var ready = Task.Run(() => { while (child.StandardOutput.ReadLine() is { } line) if (line.Trim() == "ready") return true; return false; });
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(30)) && ready.Result, "the child did not print its ready line");
+        NativeMethods.Suspend(child);
         return child;
     }
 
@@ -272,7 +262,7 @@ public class LiveSaveModulesTests
         var workspace = new AssemblyWorkspace();
         var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options()))
         {
-            Backend = new ScriptedLiveBackend("findstr.exe", 0x10000, 0x1000) { ProcessId = child.Id },
+            Backend = new ScriptedLiveBackend("cmd.exe", 0x10000, 0x1000) { ProcessId = child.Id },
         };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, new MinidumpService());
         tools.LiveSession("attach", program: child.Id.ToString()).GetAwaiter().GetResult();
@@ -283,6 +273,28 @@ public class LiveSaveModulesTests
     {
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
         private static extern nint VirtualAllocEx(nint process, nint address, nuint size, uint type, uint protect);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern nint OpenThread(uint access, bool inherit, int threadId);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint SuspendThread(nint thread);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(nint handle);
+
+        public static void Suspend(System.Diagnostics.Process p)
+        {
+            p.Refresh();
+            foreach (System.Diagnostics.ProcessThread t in p.Threads)
+            {
+                // THREAD_SUSPEND_RESUME
+                var h = OpenThread(0x0002, false, t.Id);
+                if (h == 0) continue;
+                Assert.NotEqual(uint.MaxValue, SuspendThread(h));
+                CloseHandle(h);
+            }
+        }
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool VirtualProtectEx(nint process, nint address, nuint size, uint protect, out uint old);
