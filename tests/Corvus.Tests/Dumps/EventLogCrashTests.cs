@@ -169,4 +169,15 @@ public sealed class EventLogCrashTests : IDisposable
         Assert.True(result.UnrecognizedLines > 0);
     }
 
+    [Fact]
+    public async Task Function_lookup_names_why_a_name_has_no_range()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var native = _ws.Read(() => _ws.Natives.Single());
+        var index = await _code.Index(native, null, default);
+        var lookup = FunctionRanges.Lookup(native, index, ["Big", "Missing"]);
+        Assert.Equal("found", lookup[0].Status);
+        Assert.Equal("absent", lookup[1].Status);
+        Assert.Null(lookup[1].Range);
+    }
 }
