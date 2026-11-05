@@ -302,7 +302,7 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here and the metadata state of each .NET image.</summary>
-    /// <remarks>With <paramref name="outputPath"/>, the selected images go once to that new or empty folder, returned as Folder, rebuilt as <paramref name="rebuild"/> says (default: all listed modules); the rows are every listed module then every other written image, whatever <paramref name="offset"/> and <paramref name="limit"/> say, and Total counts them; a core file refuses it.</remarks>
+    /// <remarks>With <paramref name="outputPath"/>, the selected images go once to that new or empty folder, returned as Folder, rebuilt as <paramref name="rebuild"/> says (default: all listed modules); at most <paramref name="limit"/> images are written, the rows are the listed modules then every other written image, and Total counts the images selected before the limit; a core file refuses it.</remarks>
     public (string Id, IReadOnlyList<CheckedModule> Rows, int Total, string? Folder) Modules(string path, string? imageDirectories, int offset, int limit, string? outputPath = null, CancellationToken ct = default, ModuleOptions? rebuild = null)
     {
         using var s = Open(path, imageDirectories);
@@ -322,10 +322,11 @@ public sealed partial class MinidumpService
             var codeRows = SaveCodeRegions(d, codeRoot, ct);
             return (s.Id, codeRows, codeRows.Count, codeRoot);
         }
-        // A writing call reports every module in one order, so no page is cut here.
+        // A writing call keeps every listed module in its rows unless limit cuts the targets.
         var page = outputPath != null ? d.Modules.ToList() : d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
         List<(RebuiltModule Module, WrittenModule Written)>? saved = null;
         string? folder = null;
+        var selectedTotal = 0;
         var pdbs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (outputPath != null)
         {
@@ -336,6 +337,14 @@ public sealed partial class MinidumpService
             var targets = ModuleRebuild.Select(d, save.Module, ct);
             if (targets.Count == 0)
                 throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.", "pass modules as a listed file name, a 0x address, all or unlisted");
+            selectedTotal = targets.Count;
+            // Limit bounds the images written; offset is refused for a writing call.
+            var cap = Math.Clamp(limit, 1, MaxListLimit);
+            if (targets.Count > cap)
+            {
+                targets = [.. targets.Take(cap)];
+                page = [.. page.Where(m => targets.Any(t => t.Base == m.Base))];
+            }
             var options = RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
             var rebuilt = targets.Select(t => ModuleRebuild.Rebuild(d, t, options, ct)).ToList();
             var written = ModuleWriter.WriteAll(rebuilt, root);
@@ -374,7 +383,7 @@ public sealed partial class MinidumpService
         if (pdbs.Count > 0)
             for (int i = 0; i < rows.Count; i++)
                 if (rows[i].ImageFile is { } f && pdbs.TryGetValue(f, out var pdb)) rows[i] = rows[i] with { Pdb = pdb };
-        return (s.Id, rows, saved != null ? rows.Count : d.Modules.Count, folder);
+        return (s.Id, rows, saved != null ? Math.Max(rows.Count, selectedTotal) : d.Modules.Count, folder);
     }
 
     // Reads the module's own headers, so no file is needed. Empty when no

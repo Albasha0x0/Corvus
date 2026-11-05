@@ -30,7 +30,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("Fetch a matching DAC (symbol server; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
-        [Description("view=modules: new or empty image folder.")] string? outputPath = null,
+        [Description("view=modules: new or empty image folder; writes at most limit images.")] string? outputPath = null,
         [Description("File name, 0x address, all or unlisted; outputPath also code.")] string? modules = null,
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,
@@ -85,7 +85,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
         if (r.Groups is { } grouped) return Rows(r.Id!, v, grouped, offset, limit, r.Total, GroupLine, "change group", r.Notes);
         if (r.Changes is { } changed) return Rows(r.Id!, v, changed, offset, limit, r.Total, ChangeLine, "changed range", r.Notes);
-        if (r.Modules is { } written && saving) return Written(r.Id!, v, written, r.Notes);
+        if (r.Modules is { } written && saving) return Written(r.Id!, v, written, r.Notes, r.Total);
         if (r.Modules is { } listed) return Rows(r.Id!, v, listed, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
         if (r.Unbacked is { } unbacked) return Rows(r.Id!, v, unbacked, offset, limit, r.Total, DumpText.Memory, "region", r.Notes);
@@ -112,7 +112,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     // its budget is kept whole under one id. The report carries no total: a
     // total makes the fitter keep the rows under a first id and the cut text
     // under a second.
-    private static string Written(string id, string view, IReadOnlyList<MinidumpService.CheckedModule> rows, IReadOnlyList<string>? notes)
+    private static string Written(string id, string view, IReadOnlyList<MinidumpService.CheckedModule> rows, IReadOnlyList<string>? notes, int selected)
     {
         // A code row without a file only names why no region was written.
         bool IsReason(MinidumpService.CheckedModule r) => r.Format == "code" && r.ImageFile == null;
@@ -125,7 +125,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             foreach (var n in notes) sb.Append($"Note: {n}\n");
         if (written.Count > 0)
         {
-            var of = skipped.Count > 0 ? $" of {modules.Count}" : "";
+            var of = selected > written.Count ? $" of {selected}" : skipped.Count > 0 ? $" of {modules.Count}" : "";
             sb.Append($"{written.Count} written module{(written.Count == 1 ? "" : "s")}{of}:\n");
             foreach (var r in written) sb.Append(DumpText.Module(r)).Append('\n');
         }

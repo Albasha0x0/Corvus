@@ -39,6 +39,29 @@ public sealed class OpenMinidumpSaveTests : IDisposable
     }
 
     [Fact]
+    public async Task Limit_bounds_the_images_written_and_the_text_names_how_many_of_how_many()
+    {
+        var file = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, [0x90, 0xC3])], ImageBase: Base));
+        var mapped = RebuildFixtures.Mapped(file);
+        var b = new MinidumpBuilder { ProcessorArchitecture = 9 };
+        for (int i = 0; i < 4; i++)
+        {
+            var at = Base + (ulong)i * 0x100000;
+            b.Modules.Add(new MinidumpBuilder.Module(at, (uint)mapped.Length, 0, $@"Z:\app\m{i}.dll"));
+            b.Memory.Add((at, mapped));
+        }
+        var dump = _dir.File("many.dmp");
+        File.WriteAllBytes(dump, b.Build());
+        var folder = _dir.File("limited");
+
+        using var service = new MinidumpService();
+        var text = await new MinidumpTools(service).OpenMinidump(dump, "modules", limit: 2, outputPath: folder);
+
+        Assert.Equal(2, Directory.GetFiles(folder, "*.dll").Length);
+        Assert.Contains("2 written modules of 4", text);
+    }
+
+    [Fact]
     public async Task An_unlisted_image_gets_a_row_with_its_checks_and_a_text_line()
     {
         var file = RebuildFixtures.Pe(new PeSpec(true, [new SectionSpec(".text", 0x60000020, [0x90, 0xC3])], ImageBase: Base));
@@ -104,7 +127,7 @@ public sealed class OpenMinidumpSaveTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
 
         var first = await server.Client.CallToolAsync("open_minidump",
-            new Dictionary<string, object?> { ["path"] = dump, ["view"] = "modules", ["outputPath"] = _dir.File("one-id") });
+            new Dictionary<string, object?> { ["path"] = dump, ["view"] = "modules", ["limit"] = 100, ["outputPath"] = _dir.File("one-id") });
         var id = first.StructuredContent!.Value.GetProperty("resultId").GetString()!;
         var firstText = string.Concat(first.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(t => t.Text));
         var text = new System.Text.StringBuilder();

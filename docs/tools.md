@@ -2715,7 +2715,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `downloadDac` | boolean |  |  | Fetch a matching DAC (symbol server; refused under CORVUS_OFFLINE=1). |
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
 | `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
-| `outputPath` | string |  |  | view=modules: new or empty image folder. |
+| `outputPath` | string |  |  | view=modules: new or empty image folder; writes at most limit images. |
 | `modules` | string |  |  | File name, 0x address, all or unlisted; outputPath also code. |
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |

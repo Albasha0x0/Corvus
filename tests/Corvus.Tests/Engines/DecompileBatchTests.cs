@@ -20,7 +20,7 @@ public sealed class DecompileBatchTests : IDisposable
         _dir.Dispose();
     }
 
-    private async Task<(NativeAnalysisTools Tools, BatchProvider Provider, LoadedNative Native, uint First, uint Second)> Setup(BatchProvider? other = null)
+    internal async Task<(NativeAnalysisTools Tools, BatchProvider Provider, LoadedNative Native, uint First, uint Second)> Setup(BatchProvider? other = null)
     {
         var options = new ServerOptions { BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
@@ -180,6 +180,7 @@ public sealed class DecompileBatchTests : IDisposable
         public HashSet<uint> Failing { get; } = [];
         public HashSet<uint> Slow { get; } = [];
         public int Decompiles;
+        public bool Complete { get; set; } = true;
         public TimeSpan? LastTimeout;
         public string Id => id;
         public string DisplayName => "fake engine";
@@ -196,6 +197,7 @@ public sealed class DecompileBatchTests : IDisposable
     private sealed class BatchSession(BatchProvider provider) : INativeDecompilerSession
     {
         public string ProviderId => provider.Id;
+        public bool AnalysisComplete => provider.Complete;
         public string ImagePath => "";
         public string Sha256 => "";
         public NativeArch Arch => NativeArch.X64;

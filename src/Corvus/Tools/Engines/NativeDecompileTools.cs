@@ -144,6 +144,10 @@ public sealed partial class NativeAnalysisTools
         }
         var session = await DecompilerSession(native!, choice.Engine, progress, cancellationToken);
         EngineReport.Answered(choice, engines, session);
+        // An unfinished analysis can leave callers, callees and types out of the answer.
+        if (session is { AnalysisComplete: false })
+            ToolOutput.Coverage("partial", $"the {NativeEngineService.DisplayName(session.ProviderId)} analysis is partial; reanalyze_native completes it",
+                Limitations.Id(Limitation.AnalysisPartial));
         var pushed = await Push(native!, session, batch ? null : rva, cancellationToken);
         if (pcode)
         {
