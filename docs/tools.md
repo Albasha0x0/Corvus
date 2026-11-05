@@ -569,6 +569,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
 | `huntsPath` | string |  |  | Write hunting queries and disabled rules here, JSON. |
+| `componentsPath` | string |  |  | Write component rows here, JSON lines. |
 | `overwrite` | boolean |  |  | Overwrite these files. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |
 
