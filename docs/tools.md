@@ -1888,7 +1888,7 @@ Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatche
 |---|---|---|---|---|
 | `oldImage` | string |  |  | Old build: image id or path. |
 | `newImage` | string |  |  | New build: image id or path. |
-| `view` | string |  | `pairs` | changed: code differs; ambiguous: candidates; hunts: added-fact queries; wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
+| `view` | string |  | `pairs` | changed: code differs; ambiguous: candidates; hunts: added-fact queries; wasm: interface. Values: pairs, changed, unmatched, ambiguous, interface, hunts. |
 | `tier` | integer |  | `0` | Only tier 1 (name, bytes) .. 5 (fuzzy); 0 all. |
 | `codeOnly` | boolean |  |  | Match by code, not names. |
 | `minScore` | number |  | `0.7` | Least fuzzy score (0-1). |

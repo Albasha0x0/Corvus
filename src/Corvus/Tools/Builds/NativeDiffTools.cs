@@ -24,6 +24,9 @@ namespace Corvus.Tools;
 public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null,
     Services.Analysis.InspectionService? inspection = null)
 {
+    /// <summary>The views compare_native_images takes; the argument contract offers the same list.</summary>
+    public static readonly string[] Views = ["pairs", "changed", "unmatched", "ambiguous", "interface", "hunts"];
+
     private const long MaxFuzzyCap = 1_000_000_000;
 
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
@@ -197,8 +200,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                 { Evidence = ev, Changes = page });
         if (!string.IsNullOrWhiteSpace(engine)) return await CompareEngineMemory(oldImage, newImage, engine, offset, limit, cancellationToken);
         var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
-        if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous" or "interface" or "hunts"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched, ambiguous, interface or hunts");
+        if (!Views.Contains(v))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use " + string.Join(", ", Views));
         offset = Math.Max(0, offset);
         var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         return ToolOutput.List(result.Rows, offset, limit, result.Total,
