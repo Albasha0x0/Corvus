@@ -45,7 +45,7 @@ public sealed partial class MinidumpService
     }
 
     public sealed record DumpBucket(
-        [property: Description("Exception code | module!function | next frames; hang | top frames; clr | exception type | managed frames.")] string Signature,
+        [property: Description("Exception code | module!function | next frames, then | managed Type.Method+IL_0xN when a runtime raised it; hang | top frames; clr | exception type | managed frames.")] string Signature,
         [property: Description("exception, clr_exception or no_exception.")] string Kind,
         int Count, string FirstTime, string LastTime,
         [property: Description("Faulting module versions: dumps per version.")] IReadOnlyDictionary<string, int> ModuleVersions,
@@ -59,7 +59,7 @@ public sealed partial class MinidumpService
         string Folder, DumpCounts Dumps, IReadOnlyList<DumpBucket> Items, int Offset, int Total, IReadOnlyList<FailedDump> Failed, IReadOnlyList<string> Notes);
 
     /// <summary>One dump's signature parts (cached between calls).</summary>
-    internal sealed record DumpSignature(string Kind, string Key, string? Version, string? Offset, DateTime Time);
+    internal sealed record DumpSignature(string Kind, string Key, string? Version, string? Offset, DateTime Time, bool ManagedUnread = false);
 
     private sealed record CacheEntry(string Path, long Size, long Ticks, DumpSignature? Signature, string? Failure);
 
@@ -157,6 +157,9 @@ public sealed partial class MinidumpService
                     ids.Take(5).ToList(), ids[0]);
             })
             .OrderByDescending(b => b.Count).ThenByDescending(b => b.LastTime, StringComparer.Ordinal).ThenBy(b => b.Signature, StringComparer.Ordinal).ToList();
+        int unread = results.Values.Count(r => r.Signature is { ManagedUnread: true });
+        if (unread > 0)
+            notes.Add($"{unread} dumps host a .NET runtime but their managed frames were not read (no matching DAC): their signatures hold native frames only. Next: bucket_minidumps with imageDirectories naming the runtime folder.");
         if (files.Count == 0) notes.Add($"No file in {root} matches {string.Join(";", patterns)}{(recursive ? "" : " (recursive=false)")}.");
         var page = buckets.Skip(offset).Take(limit).ToList();
         return new DumpBuckets(root, new DumpCounts(seen, parsed, cached, failed.Count, limited) { Pending = pending }, page, offset, buckets.Count, failed.Take(100).ToList(), notes);
@@ -170,7 +173,7 @@ public sealed partial class MinidumpService
     {
         var images = workspace?.Read(() => string.Join(",", workspace.Natives.Select(n => $"{Path.GetFileName(n.FilePath)}:{n.Pe?.Coff.TimeDateStamp:X}").Order(StringComparer.Ordinal))) ?? "";
         // Bump the leading number when signatures change, so older cache entries are read again.
-        return Hash($"3|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
+        return Hash($"4|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
     }
 
     private static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16].ToLowerInvariant();
@@ -207,7 +210,7 @@ public sealed partial class MinidumpService
         }
     }
 
-    /// <summary>A dump's signature by function names, so rebases do not split a bucket: code | fault frame | next frames,
+    /// <summary>A dump's signature by function names, so rebases do not split a bucket: code | fault frame | next frames (| managed first frame when a runtime raised it),
     /// clr | exception type | managed frames, or hang | first thread's frames.</summary>
     internal async Task<DumpSignature> Signature(string path, string? imageDirectories, int topFrames, IReadOnlyList<string> skip, bool managed, CancellationToken ct)
     {
@@ -226,8 +229,15 @@ public sealed partial class MinidumpService
                 frames.Add((Label(at, e.Address), at.Module?.FileVersion, Offset(at, e.Address)));
             }
             var fault = frames[0];
-            return new DumpSignature("exception", $"{code} | {fault.Label} | {string.Join(" > ", frames.Skip(1).Take(topFrames).Select(f => f.Label))}",
-                fault.Version, fault.Offset, d.Time);
+            string key = $"{code} | {fault.Label} | {string.Join(" > ", frames.Skip(1).Take(topFrames).Select(f => f.Label))}";
+            bool unread = false;
+            if (managed && e.Code != ExceptionCodes.ClrException && ClrDecoder.RuntimeModule(d) != null)
+            {
+                // Native frames alone do not tell crashes apart when a runtime raised them.
+                if (await FirstManagedFrame(s, e.ThreadId, ct) is { } top) key += $" | managed {top}";
+                else unread = true;
+            }
+            return new DumpSignature("exception", key, fault.Version, fault.Offset, d.Time, unread);
         }
         // The runtime's own dump writer records no exception stream; use the exception in flight.
         if (managed && ClrDecoder.RuntimeModule(d) != null && await ManagedSignature(s, null, topFrames, ct) is { } inFlight) return inFlight;
@@ -236,6 +246,26 @@ public sealed partial class MinidumpService
         var context = d.ReadContext(first.Context) ?? throw new ToolError(ErrorCode.MalformedInput, "the first thread has no readable context.");
         var hang = await SignatureFrames(s, first, context, skip, ct);
         return new DumpSignature("no_exception", $"hang | {string.Join(" > ", hang.Take(Math.Max(1, topFrames)).Select(f => f.Label))}", null, null, d.Time);
+    }
+
+    /// <summary>Reads the first managed frame of a thread as Ns.Type.Method+IL_0xN; null when the frames were not decoded.</summary>
+    internal Func<Session, uint, CancellationToken, Task<string?>>? ManagedFrameReader { get; set; }
+
+    private async Task<string?> FirstManagedFrame(Session s, uint threadId, CancellationToken ct)
+    {
+        if (ManagedFrameReader is { } reader) return await reader(s, threadId, ct);
+        try
+        {
+            var decoder = await Decoder(s, new DacRequest(), ct);
+            if (decoder is not { Loaded: true }) return null;
+            ManagedFrame? top;
+            using (AssemblyWorkspace.Lock(decoder.Gate))
+                top = decoder.Frames(threadId, BucketWalkFrames).FirstOrDefault(f => f.IsMethod);
+            if (top == null) return null;
+            string where = top.IlOffset is { } il ? $"+IL_0x{il:X}" : top.MethodStart is { } start && top.Ip >= start ? $"+0x{top.Ip - start:X}" : "";
+            return MethodOnly(top.Name) + where;
+        }
+        catch (ToolError) { return null; }
     }
 
     private async Task<DumpSignature?> ManagedSignature(Session s, uint? threadId, int topFrames, CancellationToken ct)

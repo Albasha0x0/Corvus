@@ -173,4 +173,45 @@ public sealed class DumpBucketTests : IDisposable
         Assert.True(r.Dumps.Pending > 0);
         Assert.Contains(r.Notes, n => n.Contains("raise budgetSeconds (up to 3000)", StringComparison.Ordinal));
     }
+
+    private static MinidumpBuilder WithRuntime(uint code)
+    {
+        var d = SyntheticCrash.Builder(code: code);
+        d.Modules.Add(new MinidumpBuilder.Module(0x7FFA_0000_0000, 0x10000, 0, @"Z:\app\coreclr.dll"));
+        return d;
+    }
+
+    [Fact]
+    public async Task Native_crashes_from_a_runtime_split_on_the_first_managed_frame()
+    {
+        Write("a.dmp", WithRuntime(0x80131623));
+        Write("b.dmp", WithRuntime(0x80131623));
+        Write("c.dmp", WithRuntime(0x80131623));
+        _service.ManagedFrameReader = (s, _, _) =>
+            Task.FromResult<string?>(Path.GetFileName(s.Dump.Path) == "c.dmp" ? "App.Worker.Run+IL_0x1A" : "App.Main.Start+IL_0x04");
+
+        var r = await Run();
+
+        Assert.Equal(2, r.Total);
+        Assert.Contains(r.Items, b => b.Count == 2 && b.Signature.EndsWith("| managed App.Main.Start+IL_0x04", StringComparison.Ordinal));
+        Assert.Contains(r.Items, b => b.Count == 1 && b.Signature.EndsWith("| managed App.Worker.Run+IL_0x1A", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Unread_managed_frames_are_named_and_the_native_signature_stays()
+    {
+        Write("a.dmp", WithRuntime(0x80131623));
+        _service.ManagedFrameReader = (_, _, _) => Task.FromResult<string?>(null);
+
+        var r = await Run();
+
+        Assert.Equal("0x80131623 | synth!Crash | synth!Outer > synth!Big", Assert.Single(r.Items).Signature);
+        Assert.Contains(r.Notes, n => n.Contains("managed frames were not read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Known_runtime_exception_codes_are_named()
+    {
+        Assert.Equal("COR_E_FAILFAST", Corvus.Native.Dump.ExceptionCodes.Name(0x80131623));
+    }
 }
