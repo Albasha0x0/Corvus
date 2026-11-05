@@ -100,7 +100,7 @@ public static class KqlHunts
     }
 
     /// <summary>
-    /// One query per fact and table. Network kinds need evidence of <see cref="IndicatorEvidence.Reference"/> or stronger.
+    /// One query per fact and table. Unscoped network kinds need evidence of <see cref="IndicatorEvidence.Reference"/> or stronger.
     /// A fact with no query, and a query that fails the check, is named in the notes. With <paramref name="scopeSha1"/>
     /// every query is limited to the file with that SHA-1 as the initiating process, and a malformed SHA-1 throws.
     /// </summary>
@@ -133,7 +133,8 @@ public static class KqlHunts
             foreach (var ((kind, value), evidence) in group)
             {
                 if (value.Length > MaxValueChars) { tooLong++; continue; }
-                if (IsNetwork(kind) && Rank(evidence) < Rank(IndicatorEvidence.Reference)) { skippedWeak++; continue; }
+                // A query limited to one build stays narrow, so a string is enough.
+                if (IsNetwork(kind) && !scoped && Rank(evidence) < Rank(IndicatorEvidence.Reference)) { skippedWeak++; continue; }
                 if (written >= MaxPerKind) { over++; continue; }
                 if (IsNetwork(kind) && !Routable(kind, value)) { local++; continue; }
                 var made = Queries(kind, value, evidence, sha1, scoped, ref unqueried);

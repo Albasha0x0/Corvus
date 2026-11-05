@@ -72,24 +72,28 @@ public sealed class UpdateHuntsTests
     }
 
     [Fact]
-    public async Task Only_the_added_library_and_pipe_give_queries_scoped_to_the_new_SHA1()
+    public async Task Only_the_added_library_pipe_and_URL_give_queries_scoped_to_the_new_SHA1()
     {
         var (record, text, sha1) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
         var facts = record.Hunts!.Where(h => h.Table != "Event").ToList();
         Assert.Contains(facts, h => h.Facts[0] == "dll_name:added-lib.dll");
         Assert.Contains(facts, h => h.Facts[0].StartsWith("named_pipe:", StringComparison.Ordinal) && h.Kql.Contains("added-pipe", StringComparison.Ordinal));
-        Assert.Equal(2, facts.Count);
+        Assert.Contains(facts, h => h.Facts[0] == "url:http://added.example.net/update");
+        Assert.Contains(facts, h => h.Facts[0] == "domain:added.example.net");
+        Assert.Equal(4, facts.Count);
         Assert.All(facts, h => Assert.Contains($"InitiatingProcessSHA1 == '{sha1}'", h.Kql, StringComparison.Ordinal));
         Assert.DoesNotContain(record.Hunts!, h => h.Kql.Contains("shared-pipe", StringComparison.Ordinal) || h.Kql.Contains("shared-lib", StringComparison.Ordinal));
-        Assert.Contains("3 hunting queries.", text, StringComparison.Ordinal);
+        Assert.Contains("5 hunting queries.", text, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task An_added_URL_found_only_as_a_string_is_named_without_a_query()
+    public async Task An_added_URL_found_only_as_a_string_gets_a_query_scoped_to_the_new_build()
     {
         var (record, _, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
-        Assert.DoesNotContain(record.Hunts!, h => h.Kql.Contains("added.example.net", StringComparison.Ordinal));
-        Assert.Contains(record.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
+        var network = record.Hunts!.Where(h => h.Kql.Contains("added.example.net", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, network.Count);
+        Assert.All(network, h => Assert.Contains("InitiatingProcessSHA1 ==", h.Kql, StringComparison.Ordinal));
+        Assert.DoesNotContain(record.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
     }
 
     [Fact]

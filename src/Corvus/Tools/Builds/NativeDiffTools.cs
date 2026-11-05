@@ -320,9 +320,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             hunts.AddRange(crash.Hunts);
             notes.AddRange(crash.Notes);
             if (crash.Hunts.Count > 0)
+            {
                 notes.Add($"The crash query matches the module name {Path.GetFileName(pair.Old.FilePath)}, the old build's file name; use the name the program loads it under if that differs.");
-            if (crash.Hunts.Count > 0)
-                notes.Add("The crash query reads the Event table of a Microsoft Sentinel workspace that collects the Application log, and the Data names of event 1000 in EventData; no Learn page shows that layout, so no result does not show the code did not fault.");
+                notes.Add("The crash query reads the Event table, which holds rows only where the workspace collects the Application log; no rows is unknown, not absent.");
+            }
         }
         return new HuntSet(hunts, notes);
     }
