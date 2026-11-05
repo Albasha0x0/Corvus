@@ -347,6 +347,18 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public void Retransmitted_connects_are_one_entry_per_local_port()
+    {
+        var d = new ActivityDecoder(7, new DeviceMap([]), null);
+        var at = DateTime.UtcNow;
+        var loopback = BitConverter.ToInt32([127, 0, 0, 1]);
+        Assert.Equal("tcp 127.0.0.1:8080 connect retried", d.Network(at, 16, loopback, 0x901F, -11057)!.Name);
+        Assert.Null(d.Network(at, 16, loopback, 0x901F, -11057));
+        Assert.NotNull(d.Network(at, 16, loopback, 0x901F, -8753));
+        Assert.Equal("tcp [::1]:443 connect retried", d.Network(at, 32, System.Net.IPAddress.IPv6Loopback.GetAddressBytes(), 0xBB01, 1)!.Name);
+    }
+
+    [Fact]
     public void Endpoints_files_and_started_programs_are_decoded_from_the_provider_fields()
     {
         var d = new ActivityDecoder(7, new DeviceMap([(@"\Device\HarddiskVolume2", "C:")]), null);

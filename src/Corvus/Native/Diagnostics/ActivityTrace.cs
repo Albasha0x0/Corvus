@@ -180,7 +180,7 @@ public sealed class EventTraceSource : IActivityTraceSource
                 };
             }
             if (e.ProviderGuid == KernelNetwork)
-                return e.PayloadByName("PID") is { } pid && Convert.ToInt32(pid) == d.ProcessId ? d.Network(at, id, e.PayloadByName("daddr"), e.PayloadByName("dport")) : null;
+                return e.PayloadByName("PID") is { } pid && Convert.ToInt32(pid) == d.ProcessId ? d.Network(at, id, e.PayloadByName("daddr"), e.PayloadByName("dport"), e.PayloadByName("sport")) : null;
             if (e.ProviderGuid == KernelProcess && id == 1 && e.PayloadByName("ParentProcessID") is { } parent && Convert.ToInt32(parent) == d.ProcessId)
                 return d.ProcessStart(at, Convert.ToInt32(e.PayloadByName("ProcessID") ?? 0), e.EventData());
             return null;
@@ -196,6 +196,7 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
     private const int FileDirectoryFile = 0x1;
     private readonly Dictionary<ulong, string> _keys = [];
     private readonly HashSet<string> _datagrams = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _retried = new(StringComparer.Ordinal);
 
     public int ProcessId => processId;
 
@@ -233,12 +234,21 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
         return new(at, "registry", RegistryName(key, userSid) + "\\" + (string.IsNullOrEmpty(valueName) ? "(Default)" : valueName));
     }
 
-    /// <summary>TCP connects and accepts each time; UDP sends and receives once per endpoint.</summary>
-    public ActivityEntry? Network(DateTime at, int eventId, object? address, object? port)
+    /// <summary>
+    /// TCP connects and accepts each time; UDP sends and receives once per endpoint; a connect that is
+    /// retransmitted without an answer (refused, timed out, unreachable) once per local port.
+    /// </summary>
+    public ActivityEntry? Network(DateTime at, int eventId, object? address, object? port, object? localPort = null)
     {
-        var protocol = eventId switch { 12 or 15 or 28 or 31 => "tcp", 42 or 43 or 58 or 59 => "udp", _ => null };
+        var protocol = eventId switch { 12 or 15 or 16 or 28 or 31 or 32 => "tcp", 42 or 43 or 58 or 59 => "udp", _ => null };
         if (protocol == null || Endpoint(address, port) is not { } endpoint) return null;
         var name = protocol + " " + endpoint;
+        if (eventId is 16 or 32)
+        {
+            // The provider carries no error code for these; the entry says what is known.
+            if (_retried.Count >= MaxKeys) _retried.Clear();
+            return localPort == null || !_retried.Add(name + "<" + Convert.ToInt64(localPort)) ? null : new(at, "network", name + " connect retried");
+        }
         return protocol == "udp" && !_datagrams.Add(name) ? null : new(at, "network", name);
     }
 

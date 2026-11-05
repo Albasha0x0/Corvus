@@ -103,4 +103,59 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("stop-out.txt", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["category"] = "file", ["match"] = "stop-out" }));
         Assert.Contains(": 0 entries, 0 names", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["match"] = ".pdb" }));
     }
+
+    private const string RefusedSource = """
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <winsock2.h>
+        #include <ws2tcpip.h>
+        #pragma comment(lib, "ws2_32.lib")
+        int main(int argc, char** argv)
+        {
+            WSADATA wsa;
+            WSAStartup(MAKEWORD(2, 2), &wsa);
+            for (int i = 0; i < 3; i++)
+            {
+                SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                struct sockaddr_in a = {0};
+                a.sin_family = AF_INET;
+                a.sin_port = htons((unsigned short)atoi(argv[1]));
+                inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+                int r = connect(s, (struct sockaddr*)&a, sizeof(a));
+                printf("%d %d\n", r, WSAGetLastError());
+                closesocket(s);
+            }
+            return 0;
+        }
+        """;
+
+    [FridaFact(elevated: true)]
+    public async Task The_trace_lists_connects_refused_by_a_closed_port()
+    {
+        var exe = LiveFridaRealTests.Build(_dir, "refused", RefusedSource);
+        int port;
+        using (var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
+        {
+            probe.Start();
+            port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+        }
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions
+        {
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
+        });
+
+        await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { port.ToString() } });
+        await Call(server, "live_timeline", new() { ["session"] = "live-1", ["action"] = "start" });
+        await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        string list = "";
+        for (int i = 0; i < 300 && !list.Contains("complete"); i++)
+        {
+            await Task.Delay(100);
+            list = await Call(server, "live_timeline", new() { ["action"] = "list" });
+        }
+        Assert.Contains("complete", list);
+
+        var network = await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["category"] = "network" });
+        Assert.Matches(@"network\s+tcp 127\.0\.0\.1:" + port + @" connect retried", network);
+    }
 }
