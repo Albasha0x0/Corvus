@@ -13,7 +13,7 @@ public static class NxpkArchive
 {
     /// <summary>The container kind reported for an NXPK archive.</summary>
     public const string Kind = "nxpk archive";
-    private const int HeaderSize = 24, EntrySize = 28, MaxDamagedNotes = 5, MaxRefusedNotes = 5;
+    private const int HeaderSize = 24, EntrySize = 28, MaxDamagedNotes = 5, MaxRefusedNotes = 5, MaxSamples = 4;
     private const long MaxNameTable = 256L << 20;
 
     /// <summary>The magic, a count of 1 to 4,000,000 and an index offset past the header.</summary>
@@ -21,11 +21,11 @@ public static class NxpkArchive
         b.Length >= HeaderSize && FirmwareSignatures.Holds(b, long.MaxValue, "NXPK archive");
 
     /// <summary>Lists the index entries by signature with offset, sizes and compression, and extracts the decoded entries within <paramref name="limits"/> (all with <paramref name="allFiles"/>, else those whose content is identified).</summary>
-    public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
-        Open(new MemoryStream(data, writable: false), name, allFiles, limits, ct);
+    public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct, string? location = null) =>
+        Open(new MemoryStream(data, writable: false), name, allFiles, limits, ct, location);
 
-    /// <summary>Reads the archive from a seekable stream; only the index and the extracted entries are held in memory.</summary>
-    public static ContainerContents Open(Stream s, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
+    /// <summary>Reads the archive from a seekable stream; only the index and the extracted entries are held in memory. With <paramref name="location"/>, a missing Zstandard dictionary is searched for in the executables of that file's folder.</summary>
+    public static ContainerContents Open(Stream s, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct, string? location = null)
     {
         long length = s.Length;
         var notes = new List<string>();
@@ -39,7 +39,7 @@ public static class NxpkArchive
         var items = new List<ExtractedItem>();
         long total = 0;
         int undecoded = 0, skipped = 0, damaged = 0;
-        var dictionaries = new SortedDictionary<uint, int>();
+        var dictionaries = new SortedDictionary<uint, List<Pending>>();
         bool stopped = false;
         uint count = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
         uint index = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(20));
@@ -80,7 +80,12 @@ public static class NxpkArchive
             // Bound the stored bytes too: they are read whole and must fit an array.
             if (original > limits.MaxItemBytes || stored > limits.MaxItemBytes || stored > int.MaxValue) { skipped++; continue; }
             var packed = Range(s, offset, (int)stored);
-            if (kind == "zstd" && DictionaryId(packed) is { } dict and not 0) { dictionaries[dict] = dictionaries.GetValueOrDefault(dict) + 1; continue; }
+            if (kind == "zstd" && DictionaryId(packed) is { } dict and not 0)
+            {
+                if (!dictionaries.TryGetValue(dict, out var waiting)) dictionaries[dict] = waiting = [];
+                waiting.Add(new Pending(sign, label, named, offset, stored, original, BinaryPrimitives.ReadUInt32LittleEndian(e[16..]), BinaryPrimitives.ReadUInt32LittleEndian(e[20..])));
+                continue;
+            }
             byte[] content;
             try { content = Decode(packed, kind, original); }
             catch (InvalidDataException ex)
@@ -90,9 +95,34 @@ public static class NxpkArchive
             }
             if (!allFiles && Blob.Identify(content) == "data") continue;
             total += content.Length;
-            items.Add(named
-                ? new ExtractedItem(Blob.SafeRelativePath(label, $"{sign:x8}"), content, $"NXPK entry ({kind})") { Member = true }
-                : new ExtractedItem($"{sign:x8}.bin", content, $"NXPK entry ({kind})"));
+            items.Add(Item(sign, label, named, content, kind));
+        }
+        if (dictionaries.Count > 0 && location is { Length: > 0 } && Path.GetDirectoryName(Path.GetFullPath(location)) is { } folder)
+        {
+            foreach (var (id, waiting) in dictionaries.ToList())
+            {
+                var samples = waiting.Take(MaxSamples).Select(w => new ZstdSample(Range(s, w.Offset, (int)w.Stored), w.Original, w.CrcA, w.CrcB)).ToList();
+                var found = ZstdDictionaryLocator.Find(folder, id, samples, notes, ct);
+                if (found is null) continue;
+                notes.Add($"Zstandard dictionary {id} read from {Path.GetFileName(found.File)} at offset 0x{found.Offset:X}, {found.Bytes.Length:N0} bytes; {waiting.Count:N0} entr(ies) decoded with it.");
+                dictionaries.Remove(id);
+                foreach (var w in waiting)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (stopped) break;
+                    if (items.Count >= limits.MaxItems || total + w.Original > limits.MaxTotalBytes) { stopped = true; break; }
+                    byte[] content;
+                    try { content = ZstdDictionaryLocator.Decode(found.Bytes, Range(s, w.Offset, (int)w.Stored), w.Original); }
+                    catch (InvalidDataException ex)
+                    {
+                        if (++damaged <= MaxDamagedNotes) notes.Add($"{w.Sign:x8}: damaged ({ex.Message})");
+                        continue;
+                    }
+                    if (!allFiles && Blob.Identify(content) == "data") continue;
+                    total += content.Length;
+                    items.Add(Item(w.Sign, w.Label, w.Named, content, "zstd"));
+                }
+            }
         }
         notes.Insert(0, $"NXPK archive, {count:N0} entr(ies), index at 0x{index:X}" +
                         (kinds.Count > 0 ? " (" + string.Join(", ", kinds.OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => $"{k.Value:N0} {k.Key}")) + ")" : "") + ".");
@@ -102,12 +132,18 @@ public static class NxpkArchive
         if (refused > MaxRefusedNotes) notes.Add($"{refused - MaxRefusedNotes:N0} more unsafe names not listed.");
         if (outside > 0) notes.Add($"{outside:N0} entr(ies) lie outside the file.");
         if (damaged > MaxDamagedNotes) notes.Add($"{damaged - MaxDamagedNotes:N0} more damaged entr(ies) not named.");
-        if (dictionaries.Count > 0) notes.Add($"{dictionaries.Values.Sum():N0} zstd entr(ies) need a trained dictionary the archive does not hold (ids {string.Join(", ", dictionaries.Take(8).Select(d => $"{d.Key} x{d.Value:N0}"))}); listed, not extracted.");
+        if (dictionaries.Count > 0) notes.Add($"{dictionaries.Values.Sum(w => w.Count):N0} zstd entr(ies) need a trained dictionary the archive does not hold (ids {string.Join(", ", dictionaries.Take(8).Select(d => $"{d.Key} x{d.Value.Count:N0}"))}); listed, not extracted.");
         if (undecoded > 0) notes.Add($"{undecoded:N0} entr(ies) use an unknown compression; listed, not extracted.");
         if (skipped > 0) notes.Add($"{skipped:N0} entr(ies) are over the per-item limit of {limits.MaxItemBytes:N0} bytes; not extracted.");
         if (stopped) notes.Add("Stopped: the extraction limit was reached.");
         return new ContainerContents(Kind, items, notes) { Entries = entries, Names = hasTable ? issues : null };
     }
+
+    private readonly record struct Pending(uint Sign, string Label, bool Named, uint Offset, uint Stored, uint Original, uint CrcA, uint CrcB);
+
+    private static ExtractedItem Item(uint sign, string label, bool named, byte[] content, string kind) => named
+        ? new ExtractedItem(Blob.SafeRelativePath(label, $"{sign:x8}"), content, $"NXPK entry ({kind})") { Member = true }
+        : new ExtractedItem($"{sign:x8}.bin", content, $"NXPK entry ({kind})");
 
     private static List<string> NoTable(out bool hasTable)
     {

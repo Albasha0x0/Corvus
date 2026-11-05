@@ -111,7 +111,7 @@ public static class Containers
         if (kind == "webdata") return WebPlayerData.Open(data, name, location, allFiles, limits, ct);
         if (kind == "godotpck") return GodotPack.Open(data, 0, name, allFiles, limits, ct);
         if (kind == "jimage") return JImage.JImageFile.Open(data, name, allFiles, limits, ct);
-        if (kind == "nxpk archive") return NxpkArchive.Open(data, name, allFiles, limits, ct);
+        if (kind == "nxpk archive") return NxpkArchive.Open(data, name, allFiles, limits, ct, location);
         if (kind == "rpa archive") return Archives.RpaArchive.Open(data, name, allFiles, limits, ct);
         if (kind == "vpk archive") return Archives.VpkArchive.Open(data, name, allFiles, limits, ct);
         if (kind == "bsa archive") return Archives.BsaArchive.Open(data, name, allFiles, limits, ct);
