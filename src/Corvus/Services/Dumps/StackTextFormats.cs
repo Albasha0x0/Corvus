@@ -180,6 +180,7 @@ internal static class StackTextFormats
         var result = new ParsedStackText();
         var state = new State();
         int number = 0;
+        if (allowed.Contains("eventlog")) text = EventText(text, result, state);
         foreach (var raw in text.Split('\n'))
         {
             number++;
@@ -202,6 +203,39 @@ internal static class StackTextFormats
         }
         Finish(result, state);
         return result;
+    }
+
+    // Application Error EventData names, from the event 1000 XML shown at
+    // https://learn.microsoft.com/en-us/answers/questions/868473
+    private static readonly Dictionary<string, string> EventDataFields = new(StringComparer.Ordinal)
+    {
+        ["AppName"] = "ev:application", ["AppVersion"] = "ev:application:version", ["AppTimeStamp"] = "ev:application:timestamp",
+        ["ModuleName"] = "ev:module", ["ModuleVersion"] = "ev:module:version", ["ModuleTimeStamp"] = "ev:module:timestamp",
+        ["ExceptionCode"] = "ev:Exception code", ["FaultingOffset"] = "ev:Fault offset",
+    };
+
+    private static readonly Regex EventDataItem = R(@"<Data Name=""(?<k>[A-Za-z]+)"">(?<v>[^<]*)</Data>");
+    private static readonly Regex XmlTag = R(@"</?[A-Za-z][^>]*>");
+    private static readonly Regex DescriptionLabel = R(@"[ \t]+(?<label>(?:Faulting (?:application|module) name|Exception code|Fault offset|Faulting process id|Faulting module path|Faulting application path): )");
+
+    /// <summary>Reads EventData Data elements into fields and splits a description flattened to one line.</summary>
+    private static string EventText(string text, ParsedStackText into, State s)
+    {
+        var items = EventDataItem.Matches(text);
+        int read = 0;
+        foreach (Match m in items)
+        {
+            if (!EventDataFields.TryGetValue(m.Groups["k"].Value, out var key)) continue;
+            var v = m.Groups["v"].Value.Trim();
+            s.Fields[key] = key.EndsWith(":timestamp", StringComparison.Ordinal) && v.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? v[2..] : v;
+            read++;
+        }
+        if (items.Count > 0)
+        {
+            into.Formats["eventlog"] = into.Formats.GetValueOrDefault("eventlog") + read;
+            text = XmlTag.Replace(EventDataItem.Replace(text, ""), "");
+        }
+        return DescriptionLabel.Replace(text, "\n${label}");
     }
 
     private static bool Add(ParsedStackText into, TextFrame frame)

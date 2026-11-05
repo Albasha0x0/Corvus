@@ -256,7 +256,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         if (module == null)
             return Row(null, null, "unknown", "no module for this address", "pass moduleBases (name=0xBASE) or the crash's module list");
         if (native == null)
-            return Row(null, null, "unknown", "the module is not loaded",
+            return Row(null, null, "unknown", "module not loaded",
                 $"load_assembly {module}" + (textModule?.Version is { } v ? $" (version {v})" : "") + (textModule?.TimeDateStamp is { } ts ? $" (time stamp 0x{ts:X8})" : "")
                 + (f.BuildId is { } id ? $" (BuildId {id})" : ""));
 
@@ -297,7 +297,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         else if (textModule?.TimeDateStamp is { } want && stamp is { } have)
         {
             check = want == have ? "match" : "mismatch";
-            detail = want == have ? null : $"the text's {module} has time stamp 0x{want:X8}, the loaded image 0x{have:X8}";
+            detail = want == have ? "same build" : $"different build: the text's {module} has time stamp 0x{want:X8}, the loaded image 0x{have:X8}";
         }
         else if (textModule?.Version is { } version && FileVersion(native) is { } fileVersion)
         {
@@ -316,6 +316,9 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             check = "mismatch";
             detail = $"0x{rva:X} is in {section.Name}, not code: another build";
         }
+        // The function start goes in the detail: the output schema is at its size ceiling.
+        if (index0?.FunctionAt((uint)rva.Value) is { } fn && fn.Start <= rva && textModule != null && name != null)
+            detail = (detail == null ? "" : detail + "; ") + $"function starts at 0x{fn.Start:X}, offset 0x{rva - fn.Start:X}";
         return Row(name, src, check, detail, $"decompile_native image={native.Id} address=0x{rva:X}");
     }
 
