@@ -132,7 +132,12 @@ public sealed partial class NativeTools
     private static void PackerLines(StringBuilder sb, INativeImage image, ReadOnlySpan<byte> file)
     {
         foreach (var p in PackerDetection.Detect(image, file))
-            sb.AppendLine(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}" : $"Packed: {p.Name} ({p.Kind}): {p.Evidence}");
+            sb.AppendLine(p.Kind switch
+            {
+                "suspicious" => $"Possibly packed: {p.Evidence}",
+                "SDK stub" => $"SDK stub: {p.Name}: {p.Evidence}",
+                _ => $"Packed: {p.Name} ({p.Kind}): {p.Evidence}",
+            });
     }
 
     /// <summary>Script runtimes the image embeds, with the calls that register native functions for scripts.</summary>

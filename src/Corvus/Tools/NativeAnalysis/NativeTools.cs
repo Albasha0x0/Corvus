@@ -155,7 +155,11 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                       (pe.BoundImports.Count > 0 ? $"; {Plural(pe.BoundImports.Count, "bound module")}" : "") + " (list_imports)");
         sb.AppendLine($"Exports: {Plural(pe.Exports.Count, "entry")}" +
                       (pe.ExportDirectory is { } ed ? $" (name {ed.DllName ?? "none"}, {Plural(pe.Exports.Count(e => e.ForwardedTo != null), "forwarder")})" : "") + " (list_exports)");
-        if (pe.RuntimeFunctions.Count > 0) sb.AppendLine($"Exception directory: {Plural(pe.RuntimeFunctions.Count, "function range")}");
+        if (pe.RuntimeFunctions.Count > 0)
+            sb.AppendLine($"Exception directory: {Plural(pe.RuntimeFunctions.Count, "function range")}" +
+                          (PeDirectoryFacts.ExceptionSectionIfNotPdata(pe) is { } holder ? $", in section {holder} (not .pdata)" : ""));
+        if (PeDirectoryFacts.FindOrphanReloc(pe) is { } orphan)
+            sb.AppendLine($"Relocations: section {orphan.Section} (rva 0x{orphan.Rva:X}) holds {Plural((int)Math.Min(orphan.Entries, int.MaxValue), "entry")}, but the base relocation directory does not point at it");
         GoLine(sb, pe);
         if (pe.TlsCallbackRvas.Count > 0)
             sb.AppendLine($"TLS callbacks (run before the entry point): {string.Join(", ", pe.TlsCallbackRvas.Take(16).Select(r => NativeAddress.Va(pe, r)))}");

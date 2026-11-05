@@ -4,7 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Native;
 
-/// <summary>A packer or protector a file shows signs of: its name, packer / protector / suspicious, and what shows it.</summary>
+/// <summary>A packer or protector a file shows signs of: its name, packing tool / hardening tool / SDK stub / suspicious, and what shows it.</summary>
 public sealed record PackerFinding(string Name, string Kind, string Evidence)
 {
     /// <summary>The rule id: packer/packing-tool or packer/hardening-tool for a named tool, one id per heuristic.</summary>
@@ -68,7 +68,8 @@ public static class PackerDetection
             var rule = group.First().Rule;
             result.Add(new PackerFinding(rule.Name, rule.Kind, $"section names {string.Join(", ", group.Select(x => x.Name).Distinct())}"));
         }
-        if (image.Format == ImageFormat.Pe && ProtectorSdk(image) is { } sdk && result.All(r => r.Name != sdk.Name)) result.Add(sdk);
+        if (image.Format == ImageFormat.Pe && ProtectorSdk(image) is { } sdk && result.All(r => r.Name != sdk.Name))
+            result.Add(IsStub(image, out var stub) ? sdk with { Kind = "SDK stub", Evidence = $"{sdk.Evidence}; {stub}" } : sdk);
         if (result.Count == 0) result.AddRange(Heuristics(image));
         return result;
     }
@@ -94,6 +95,28 @@ public static class PackerDetection
         if (custom > 0) parts.Add($"{custom} CustomVM*");
         if (checks > 0) parts.Add($"{checks} SECheck*");
         return new PackerFinding(SdkVendor, "hardening tool", $"SDK exports {string.Join(", ", parts)}");
+    }
+
+    // Executable bytes at most this large, below StubEntropy, are a stub, not protected code.
+    private const uint StubCodeBytes = 0x1000;
+    private const double StubEntropy = 6.0;
+
+    private static bool IsStub(INativeImage image, out string detail)
+    {
+        detail = "";
+        long code = 0;
+        double peak = 0;
+        var buffer = new byte[1 << 16];
+        foreach (var s in image.Sections.Where(s => s.IsExecutable))
+        {
+            uint size = (uint)image.FileBackedLength(s.Rva, Math.Min(s.RawSize, s.MappedSize));
+            code += size;
+            if (code > StubCodeBytes) return false;
+            if (size > 0) peak = Math.Max(peak, Entropy(image, s.Rva, size, buffer));
+        }
+        if (peak >= StubEntropy) return false;
+        detail = $"{code:N0} bytes of code, entropy {peak:0.00}";
+        return true;
     }
 
     private static PackerFinding? Upx(INativeImage image, ReadOnlySpan<byte> file)

@@ -10,7 +10,9 @@ public static class PeDescribe
         var on = new List<string>();
         var off = new List<string>();
         void M(string name, bool value) => (value ? on : off).Add(name);
-        M("ASLR", m.Aslr); M("high-entropy VA", m.HighEntropyVa); M("DEP", m.Dep); M("CFG", m.ControlFlowGuard); M("SafeSEH", m.SafeSeh);
+        M("ASLR", m.Aslr); M("high-entropy VA", m.HighEntropyVa); M("DEP", m.Dep); M("CFG", m.ControlFlowGuard);
+        // SafeSEH is an x86 table; 64-bit images unwind through the exception directory.
+        if (!pe.Is64Bit) M("SafeSEH", m.SafeSeh);
         M("GS cookie", m.GsCookie); M("CET", m.CetCompatible); M("XFG", m.Xfg); M("EH continuation", m.EhContinuation); M("force integrity", m.ForceIntegrity);
         if (!m.GsCookie && pe.CodeSecurityCookieRva != null)
         {

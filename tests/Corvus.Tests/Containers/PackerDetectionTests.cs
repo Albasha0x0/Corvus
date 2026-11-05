@@ -82,10 +82,13 @@ public sealed class PackerDetectionTests
 
     private static byte[] ExportingDll(params string[] exports) => ExportingDllWith(null, exports);
 
-    private static byte[] ExportingDllWith(string? extraSection, params string[] exports)
+    private static byte[] ExportingDllWith(string? extraSection, params string[] exports) =>
+        ExportingDllCode(Enumerable.Repeat((byte)0x90, 0x400).ToArray(), extraSection, exports);
+
+    private static byte[] ExportingDllCode(byte[] code, string? extraSection, params string[] exports)
     {
         var b = new PeBuilder();
-        var text = b.Add(".text", Enumerable.Repeat((byte)0x90, 0x400).ToArray(), 0x60000020);
+        var text = b.Add(".text", code, 0x60000020);
         b.EntryPoint = text.Rva;
         if (extraSection != null) b.Add(extraSection, new byte[0x200], 0x60000020);
         uint table = 0, tableSize = 0;
@@ -121,15 +124,42 @@ public sealed class PackerDetectionTests
     public void A_protector_sdk_module_is_named_from_its_export_sets()
     {
         var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDll("VMStart", "VMEnd", "CustomVM00", "CustomVM01", "SECheckDebugger")));
-        Assert.Equal(("Themida", "hardening tool", "SDK exports VMStart, VMEnd, 2 CustomVM*, 1 SECheck*"), (found.Name, found.Kind, found.Evidence));
+        Assert.Equal(("Themida", "SDK stub"), (found.Name, found.Kind));
+        Assert.StartsWith("SDK exports VMStart, VMEnd, 2 CustomVM*, 1 SECheck*; 1,024 bytes of code, entropy 0.00", found.Evidence);
         Assert.Equal("packer/hardening-tool", found.Rule);
+    }
+
+    [Fact]
+    public void Sdk_exports_over_large_code_stay_a_hardening_tool()
+    {
+        var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDllCode(Noise(0x4000), null, "VMStart", "VMEnd", "SECheckDebugger")));
+        Assert.Equal("hardening tool", found.Kind);
+    }
+
+    [Fact]
+    public void Sdk_exports_over_small_high_entropy_code_stay_a_hardening_tool()
+    {
+        var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDllCode(Noise(0x400), null, "VMStart", "VMEnd", "SECheckDebugger")));
+        Assert.Equal("hardening tool", found.Kind);
+    }
+
+    [Fact]
+    public async Task Get_pe_info_names_a_protector_sdk_stub()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("sdk.dll");
+        File.WriteAllBytes(path, ExportingDll("VMStart", "VMEnd", "SECheckDebugger"));
+        using var h = new NativeToolHarness(backgroundIndexing: false);
+        var text = await h.Native.GetPeInfo(path);
+        Assert.Contains("SDK stub: Themida: SDK exports", text);
+        Assert.DoesNotContain("Packed: Themida", text);
     }
 
     [Fact]
     public void Two_export_groups_name_a_protector_sdk_module()
     {
         var found = Assert.Single(PackerDetection.OfFile("sdk.dll", ExportingDll("CustomVM1", "SECheckDebugger")));
-        Assert.Equal("SDK exports 1 CustomVM*, 1 SECheck*", found.Evidence);
+        Assert.StartsWith("SDK exports 1 CustomVM*, 1 SECheck*", found.Evidence);
     }
 
     [Fact]
