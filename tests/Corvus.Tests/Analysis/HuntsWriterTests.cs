@@ -199,6 +199,17 @@ public sealed class HuntsWriterTests
     }
 
     [Fact]
+    public void The_library_query_leaves_out_loads_from_the_system_folders()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "decoded"), new(HuntKind.DllName, "CRYPT32.dll", "reference")])
+            .Hunts.Single(h => h.Table == "DeviceImageLoadEvents" && h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        Assert.Contains(@"DllDir endswith @'\windows\system32'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains(@"DllDir endswith @'\windows\syswow64'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+        Assert.Empty(KqlCheck.Diagnostics(hunt.Kql));
+    }
+
+    [Fact]
     public void A_path_seen_only_as_a_string_reads_writes_by_this_file_alone()
     {
         var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "decoded"), new(HuntKind.FilePath, @"C:\Windows\System32\cmd.exe", "string"),

@@ -309,6 +309,8 @@ public static class KqlHunts
                         $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
                         $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
                         "| where DllDir == LoaderDir",
+                        // A program in the system folder loads its DLLs from there by design.
+                        "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
                         $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath"),
                 ];
             case HuntKind.Domain:
