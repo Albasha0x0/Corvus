@@ -13,7 +13,7 @@ public static class HuntRules
     /// <summary>The hunts that become detection rules: every query except a signer query, which matches every file the publisher signs.</summary>
     public static IReadOnlyList<Hunt> Rules(HuntSet set) => [.. set.Hunts.Where(h => h.Table != "DeviceFileCertificateInfo")];
 
-    /// <summary>The detectionRule body of <paramref name="hunt"/>: id, names, query, schedule, status disabled and an alert template that maps the SHA1 column to a file.</summary>
+    /// <summary>The detectionRule body of <paramref name="hunt"/>: id, names, query, schedule, status disabled and an alert template that maps the columns its query returns.</summary>
     public static JsonObject Rule(Hunt hunt)
     {
         var description = "Created from " + string.Join(", ", hunt.Facts.Select(f => f.Length > 200 ? f[..200] : f)) + ".";
@@ -33,14 +33,20 @@ public static class HuntRules
                     ["title"] = hunt.Title,
                     ["description"] = description,
                     ["severity"] = hunt.Severity,
-                    ["entityMappings"] = new JsonObject
-                    {
-                        ["files"] = new JsonArray(new JsonObject { ["sha1Column"] = "SHA1" }),
-                    },
+                    ["entityMappings"] = Mappings(hunt),
                 },
             },
         };
     }
+
+    // An Event table query returns Computer and no file hash.
+    private static JsonObject Mappings(Hunt hunt) => hunt.Table == "Event"
+        ? new JsonObject { ["hosts"] = new JsonArray(new JsonObject { ["nameColumn"] = "Computer" }) }
+        : new JsonObject
+        {
+            ["hosts"] = new JsonArray(new JsonObject { ["deviceIdColumn"] = "DeviceId", ["nameColumn"] = "DeviceName" }),
+            ["files"] = new JsonArray(new JsonObject { ["sha1Column"] = "SHA1" }),
+        };
 
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
     public static byte[] Write(HuntSet set)

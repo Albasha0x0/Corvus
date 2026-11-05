@@ -29,6 +29,9 @@ public static partial class Values
     // NonBacktracking matches 1 MB texts in linear time, so no match timeout; lookaround patterns are bounded generated regexes.
     private static Regex R(string pattern) => new(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
+    /// <summary>Punctuation of the surrounding text that a value matched in a sentence ends with.</summary>
+    internal static readonly char[] TrailingPunctuation = ['.', ',', ';', ':', ')', ']', '\''];
+
     private static readonly Regex Url = R(@"\b(?:https?|ftps?|wss?|tcp|udp)://[^\s""'<>\\^`{|}]+");
     private static readonly Regex Email = R(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b");
     [GeneratedRegex(@"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.])", RegexOptions.CultureInvariant)]
@@ -209,13 +212,16 @@ public static partial class Values
         }
     }
 
+    // A Windows file name or registry key rarely holds a colon and space, so text after one is the message around it.
+    private static string BeforeMessage(string path) => path.IndexOf(": ", StringComparison.Ordinal) is var at and > 0 ? path[..at] : path;
+
     private static void FromText(Builder b, string text, Location where, IReadOnlyList<string> passedTo)
     {
         if (text.Length > 1024 * 1024) text = text[..(1024 * 1024)];
         var hosts = new List<string>();
         foreach (var url in Matches(Url, text))
         {
-            var clean = url.TrimEnd('.', ',', ';', ')', ']', '\'');
+            var clean = url.TrimEnd(TrailingPunctuation);
             if (!Uri.TryCreate(clean, UriKind.Absolute, out var uri) || BenignHosts.Contains(uri.Host)) continue;
             b.Add("url", clean, where, passedTo);
             hosts.Add(uri.Host);
@@ -248,13 +254,15 @@ public static partial class Values
                 && candidate.Any(char.IsAsciiHexDigit))
                 b.Add("ipv6", v6.ToString(), where, passedTo);
         foreach (var pipe in Matches(Pipe, text))
-            b.Add("named_pipe", pipe, where, passedTo);
-        foreach (var path in Matches(WindowsPath, text).Concat(Matches(UncPath(), text)).Concat(Matches(UnixPath(), text)))
+            b.Add("named_pipe", pipe.TrimEnd(TrailingPunctuation), where, passedTo);
+        foreach (var path in Matches(WindowsPath, text).Concat(Matches(UncPath(), text)))
+            b.Add("file_path", BeforeMessage(path), where, passedTo);
+        foreach (var path in Matches(UnixPath(), text))
             b.Add("file_path", path, where, passedTo);
         foreach (var key in Matches(Registry(), text))
-            b.Add("registry_key", key, where, passedTo);
+            b.Add("registry_key", BeforeMessage(key), where, passedTo);
         if (RelativeRegistry.IsMatch(text.Trim()) || passedTo.Any(a => a.StartsWith("Microsoft.Win32.RegistryKey::", StringComparison.Ordinal) && a.Contains("SubKey")))
-            if (text.Contains('\\') && text.Length < 512) b.Add("registry_key", text.Trim(), where, passedTo);
+            if (text.Contains('\\') && text.Length < 512) b.Add("registry_key", BeforeMessage(text.Trim()), where, passedTo);
     }
 
     /// <summary>Mutex names, user agents, crypto keys and KDF passwords, recognized by consuming APIs.</summary>

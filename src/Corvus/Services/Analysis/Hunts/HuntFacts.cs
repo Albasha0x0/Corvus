@@ -25,6 +25,9 @@ public static partial class HuntFacts
     [GeneratedRegex(@"\\\\\.\\pipe\\[^\s\\<>|]+(?:\\[^\s\\<>|]+)*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Pipe();
 
+    [GeneratedRegex(@"^(?:(?:HKEY_[A-Z_]+|HKLM|HKCU|HKCR|HKU|SOFTWARE|Software)\\|(?:SYSTEM|System)\\CurrentControlSet\\)[^""]+$", RegexOptions.CultureInvariant)]
+    private static partial Regex RegistryPath();
+
     [GeneratedRegex(@"^[A-Za-z0-9_\-][A-Za-z0-9_.\-]{0,63}\.dll$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BareDll();
 
@@ -58,7 +61,7 @@ public static partial class HuntFacts
                 notes.Add($"{a.Path}: {a.Values.Top.Count} of {a.Values.Total} extracted values were read for pipes, files and mutexes; extract_strings lists all.");
             foreach (var v in a.Values.Top)
             {
-                var kind = v.Type switch { "named_pipe" => HuntKind.NamedPipe, "file_path" => HuntKind.FilePath, "mutex" => HuntKind.Mutex, _ => null };
+                var kind = v.Type switch { "named_pipe" => HuntKind.NamedPipe, "file_path" => HuntKind.FilePath, "registry_key" => HuntKind.RegistryKey, "mutex" => HuntKind.Mutex, _ => null };
                 if (kind != null) facts.Add(new(kind, v.Value, IndicatorList.AssemblyEvidence(v)));
             }
         }
@@ -90,6 +93,9 @@ public static partial class HuntFacts
         if (compressed > 0) notes.Add(CompressedNote(compressed));
         return (facts, notes);
     }
+
+    /// <summary>False for a note on the signer alone; every other note names facts that were not read.</summary>
+    public static bool LimitsFacts(string note) => !note.StartsWith("The signer is unknown", StringComparison.Ordinal);
 
     /// <summary>True for a PE or ELF image, the files whose process and image-load events the SHA-1 queries read.</summary>
     public static bool IsExecutable(FileInput input) =>
@@ -124,13 +130,13 @@ public static partial class HuntFacts
     // A pipe path written inside quotes ends before the closing quote.
     private static string Unquoted(string run, Match m) =>
         m.Index > 0 && run[m.Index - 1] is '"' or '\'' && m.Value.IndexOf(run[m.Index - 1], StringComparison.Ordinal) is var q and > 0
-            ? m.Value[..q] : m.Value;
+            ? m.Value[..q] : m.Value.TrimEnd(Values.TrailingPunctuation);
 
     private static bool SideLoadable(string name) =>
         BareDll().IsMatch(name) && !KnownDlls.Contains(name) && !name.StartsWith("api-ms-", StringComparison.OrdinalIgnoreCase)
         && !name.StartsWith("ext-ms-", StringComparison.OrdinalIgnoreCase);
 
-    // Pipe paths, library names without a folder and file paths among the printable ASCII and UTF-16 runs.
+    // Pipe paths, registry keys, library names without a folder and file paths among the printable ASCII and UTF-16 runs.
     private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, ref int compressed, List<string> notes, CancellationToken ct)
     {
         var found = new Dictionary<(string, string), HuntFact>();
@@ -144,12 +150,13 @@ public static partial class HuntFacts
         {
             if (InHot(hot, offset)) { inHot++; continue; }
             foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, Unquoted(run, m));
+            if (RegistryPath().IsMatch(run)) Add(HuntKind.RegistryKey, run);
             if (BareDll().IsMatch(run) && SideLoadable(run)) Add(HuntKind.DllName, run);
             // A debug path names the build machine, not a file the program writes.
             else if (WindowsFile().IsMatch(run) && !run.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) Add(HuntKind.FilePath, run);
         }
         compressed += inHot;
-        if (capped > 0) notes.Add($"{capped:N0} pipe, library and file strings past {MaxPerKind} per kind were not read.");
+        if (capped > 0) notes.Add($"{capped:N0} pipe, registry, library and file strings past {MaxPerKind} per kind were not read.");
         return found.Values;
     }
 

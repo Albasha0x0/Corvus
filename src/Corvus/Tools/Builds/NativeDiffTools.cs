@@ -311,7 +311,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var (newFacts, newNotes) = Read(pair.New);
         notes.AddRange(oldNotes.Select(n => "old: " + n));
         notes.AddRange(newNotes.Select(n => "new: " + n));
-        notes.AddRange(UpdateHunts.PartialReads(oldNotes.Count > 0, newNotes.Count > 0));
+        notes.AddRange(UpdateHunts.PartialReads(oldNotes.Any(HuntFacts.LimitsFacts), newNotes.Any(HuntFacts.LimitsFacts)));
         var hunts = new List<Hunt>();
         var newSha1 = newFacts.FirstOrDefault(f => f.Kind == HuntKind.Sha1)?.Value;
         if (newSha1 == null) notes.Add("The SHA-1 of the new build is unknown, so no fact query was written.");

@@ -40,6 +40,8 @@ public static class HuntSchema
         ["DeviceImageLoadEvents"] = $"{Device},{FileColumns},{Initiating},{Elevation}",
         ["DeviceNetworkEvents"] = $"{Device},{Initiating},{Elevation},AdditionalFields:string," +
             "RemoteIP:string,RemotePort:int,RemoteUrl:string,LocalIP:string,LocalPort:int,Protocol:string,LocalIPType:string,RemoteIPType:string,LogonID:long",
+        ["DeviceRegistryEvents"] = $"{Device},{Initiating},{Elevation},RegistryKey:string,RegistryValueType:string,RegistryValueName:string," +
+            "RegistryValueData:string,PreviousRegistryKey:string,PreviousRegistryValueName:string,PreviousRegistryValueData:string",
         ["DeviceEvents"] = $"{Device},{FileColumns},{Initiating},AdditionalFields:string," +
             "AccountDomain:string,AccountName:string,AccountSid:string,RemoteUrl:string,RemoteDeviceName:string,ProcessId:long," +
             "ProcessCommandLine:string,ProcessCreationTime:datetime,ProcessTokenElevation:string,LogonId:long,RegistryKey:string," +

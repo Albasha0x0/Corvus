@@ -10,7 +10,7 @@ public static class UpdateHunts
     public const int MaxNamedImports = 20;
 
     private static readonly HashSet<string> Kinds = new(StringComparer.Ordinal)
-        { HuntKind.Domain, HuntKind.Url, HuntKind.Ipv4, HuntKind.Ipv6, HuntKind.NamedPipe, HuntKind.FilePath, HuntKind.DllName };
+        { HuntKind.Domain, HuntKind.Url, HuntKind.Ipv4, HuntKind.Ipv6, HuntKind.NamedPipe, HuntKind.FilePath, HuntKind.RegistryKey, HuntKind.DllName };
 
     /// <summary>
     /// Queries limited to <paramref name="newSha1"/> for the hosts, URLs, addresses, pipes, files and library names

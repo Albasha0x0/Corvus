@@ -46,11 +46,12 @@ public sealed class HuntsViewTests : IDisposable
     }
 
     [Fact]
-    public void A_URL_found_only_as_a_string_gets_no_network_query()
+    public void A_URL_found_only_as_a_string_reads_the_connections_of_the_file()
     {
         var set = Hunts(Program());
-        Assert.DoesNotContain(set.Hunts, h => h.Kql.Contains("named.example.com", StringComparison.Ordinal));
-        Assert.Contains(set.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
+        var hunt = Assert.Single(set.Hunts, h => h.Kql.Contains("named.example.com", StringComparison.Ordinal));
+        Assert.Contains("InitiatingProcessSHA1 ==", hunt.Kql, StringComparison.Ordinal);
+        Assert.DoesNotContain(set.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
     }
 
     [Fact]

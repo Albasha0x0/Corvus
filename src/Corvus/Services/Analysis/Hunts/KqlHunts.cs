@@ -51,12 +51,15 @@ public static class HuntKind
     /// <summary>A path of a file the program writes.</summary>
     public const string FilePath = "file_path";
 
+    /// <summary>A registry key path, with or without its hive.</summary>
+    public const string RegistryKey = "registry_key";
+
     /// <summary>A mutex name; Defender XDR has no action type for it.</summary>
     public const string Mutex = "mutex";
 
     /// <summary>Every kind, in the order the queries are written.</summary>
     public static readonly IReadOnlyList<string> All =
-        [Sha1, Signer, OriginalFileName, DllName, Domain, Url, Ipv4, Ipv6, NamedPipe, FilePath, Mutex];
+        [Sha1, Signer, OriginalFileName, DllName, Domain, Url, Ipv4, Ipv6, NamedPipe, FilePath, RegistryKey, Mutex];
 }
 
 /// <summary>Writes Defender XDR advanced hunting queries from a plain fact list; every query passes <see cref="KqlCheck"/> before it is returned.</summary>
@@ -103,7 +106,8 @@ public static class KqlHunts
     }
 
     /// <summary>
-    /// One query per fact and table. Unscoped network kinds need evidence of <see cref="IndicatorEvidence.Reference"/> or stronger.
+    /// One query per fact and table; facts that read the same rows share a query. A network fact weaker than
+    /// <see cref="IndicatorEvidence.Reference"/> reads this file's connections alone, and without a known executable file it gets no query.
     /// A fact with no query, and a query that fails the check, is named in the notes. With <paramref name="scopeSha1"/>
     /// every query is limited to the file with that SHA-1 as the initiating process, and a malformed SHA-1 throws.
     /// A file that is not <paramref name="executable"/> gets the file event query of its SHA-1 only.
@@ -151,8 +155,8 @@ public static class KqlHunts
             foreach (var ((kind, value), evidence) in group.Where(_ => group.Key != HuntKind.DllName))
             {
                 if (value.Length > MaxValueChars) { tooLong++; continue; }
-                // A query limited to one build stays narrow, so a string is enough.
-                if (IsNetwork(kind) && !scoped && Rank(evidence) < Rank(IndicatorEvidence.Reference)) { skippedWeak++; continue; }
+                // A string is not shown to be contacted, and only an executable file starts a process to filter on.
+                if (IsNetwork(kind) && !scoped && Rank(evidence) < Rank(IndicatorEvidence.Reference) && (sha1 == null || !executable)) { skippedWeak++; continue; }
                 if (written >= MaxPerKind) { over++; continue; }
                 if (IsNetwork(kind) && !Routable(kind, value)) { local++; continue; }
                 var made = Queries(kind, value, evidence, sha1, scoped, executable, ref unqueried);
@@ -169,11 +173,21 @@ public static class KqlHunts
             if (local > 0) notes.Add($"{local} {group.Key} fact(s) name a loopback, unspecified, private or link-local address and have no network query.");
             if (group.Key == HuntKind.NamedPipe && written > 0)
                 notes.Add("Named pipe queries read ActionType NamedPipeEvent and AdditionalFields.PipeName; no Learn page lists them, so no result does not show the pipe is absent.");
+            if (group.Key == HuntKind.Url && written > 0)
+                notes.Add("URL queries match the host, since RemoteUrl can omit the path.");
+            if (group.Key == HuntKind.FilePath && written > 0)
+                notes.Add("DeviceFileEvents does not record every write, so no result does not show the file was not written.");
             if (skippedWeak > 0)
                 notes.Add($"{skippedWeak} {group.Key} fact(s) found only as strings have no network query; view=indicators lists them with their evidence.");
             if (over > 0) notes.Add($"{over} {group.Key} fact(s) past the first {MaxPerKind} have no query.");
         }
-        return new HuntSet(hunts, notes);
+        // A URL and its host read the same rows.
+        var unique = hunts.GroupBy(h => h.Kql).Select(g => g.First() with
+        {
+            Facts = [.. g.SelectMany(h => h.Facts).Distinct()],
+            Evidence = g.Select(h => h.Evidence).Aggregate(IndicatorEvidence.Stronger),
+        }).ToList();
+        return new HuntSet(unique, notes);
     }
 
     /// <summary>Range clauses in one crash query; the rest are counted in a note.</summary>
@@ -315,7 +329,12 @@ public static class KqlHunts
     {
         // A query limited to one build gets its own id and a filter on the initiating file.
         var tag = scoped ? "-new" : "";
-        var only = scoped ? $"| where InitiatingProcessSHA1 == {Literal(sha1!)}" : null;
+        // A network string is not shown to be contacted, so the query reads
+        // connections of this file alone.
+        bool netByFile = IsNetwork(kind) && (scoped || Rank(evidence) < Rank(IndicatorEvidence.Reference));
+        var only = netByFile ? $"| where InitiatingProcessSHA1 == {Literal(sha1!)}" : null;
+        var netFile = netByFile ? sha1 : null;
+        var byThis = netByFile ? " by this file" : "";
         switch (kind)
         {
             case HuntKind.Sha1:
@@ -352,17 +371,17 @@ public static class KqlHunts
                         $"| project {Base}, FileName, FolderPath, ProcessVersionInfoOriginalFileName, SHA1"),
                 ];
             case HuntKind.Domain:
-                return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {Short(value)}", $"RemoteUrl has {Literal(value)}")];
+                return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {Short(value)}{byThis}", $"RemoteUrl has {Literal(value)}")];
             case HuntKind.Url:
                 var host = Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
-                var filter = $"RemoteUrl =~ {Literal(value)}" + (host != null ? $" or RemoteUrl =~ {Literal(host)}" : "");
+                var filter = host != null ? $"RemoteUrl has {Literal(host)}" : $"RemoteUrl =~ {Literal(value)}";
                 if (uri != null && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
                     && IPAddress.TryParse(uri.Host.Trim('[', ']'), out var urlIp) && IsRoutable(urlIp))
                     filter += $" or RemoteIP == {Literal(urlIp.ToString())}";
-                return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {Short(value)}", filter)];
+                return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {Short(host ?? value)}{byThis}", filter)];
             case HuntKind.Ipv4 or HuntKind.Ipv6:
                 if (!IPAddress.TryParse(value, out var ip)) { unqueried++; return []; }
-                return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {ip}", $"RemoteIP == {Literal(ip.ToString())}")];
+                return [Network(kind, value, evidence, tag, only, netFile, $"Connections to {ip}{byThis}", $"RemoteIP == {Literal(ip.ToString())}")];
             case HuntKind.NamedPipe:
                 var pipe = PipeName(value);
                 if (pipe.Length == 0) { unqueried++; return []; }
@@ -392,9 +411,31 @@ public static class KqlHunts
                 if (byFile) lines.Add($"| where InitiatingProcessSHA1 == {Literal(sha1!)}");
                 lines.Add($"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName");
                 return [Make(kind, value, evidence, tag, byFile ? sha1 : null, byFile ? $"Writes of {Short(leaf)} by this file" : $"Writes of {Short(leaf)}", "DeviceFileEvents", "low", [.. lines])];
+            case HuntKind.RegistryKey:
+                var subkey = SubKey(value);
+                if (subkey.Length == 0 || sha1 == null) { unqueried++; return []; }
+                return
+                [
+                    Make(kind, value, evidence, tag, sha1, $"Changes to registry key {Short(subkey)} by this file", "DeviceRegistryEvents", "low",
+                        "DeviceRegistryEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
+                        $"| where RegistryKey endswith {Literal("\\" + subkey)}",
+                        $"| project {Base}, ActionType, RegistryKey, RegistryValueName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
+                ];
             default:
                 return [];
         }
+    }
+
+    // RegistryKey spells the hive out and holds the user's SID under
+    // HKEY_CURRENT_USER, so the query matches the path below the hive.
+    private static string SubKey(string value)
+    {
+        var path = value.Trim('\\');
+        int slash = path.IndexOf('\\');
+        bool hive = path.StartsWith("HKEY_", StringComparison.OrdinalIgnoreCase)
+            || (slash > 0 ? path[..slash] : path).ToUpperInvariant() is "HKLM" or "HKCU" or "HKCR" or "HKU";
+        if (!hive) return path;
+        return slash > 0 ? path[(slash + 1)..] : "";
     }
 
     // One query per list of names; a list past the character cap goes to the next query.

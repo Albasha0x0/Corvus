@@ -78,21 +78,19 @@ public sealed class UpdateHuntsTests
         var facts = record.Hunts!.Where(h => h.Table != "Event").ToList();
         Assert.Contains(facts, h => h.Facts[0] == "dll_name:added-lib.dll");
         Assert.Contains(facts, h => h.Facts[0].StartsWith("named_pipe:", StringComparison.Ordinal) && h.Kql.Contains("added-pipe", StringComparison.Ordinal));
-        Assert.Contains(facts, h => h.Facts[0] == "url:http://added.example.net/update");
-        Assert.Contains(facts, h => h.Facts[0] == "domain:added.example.net");
-        Assert.Equal(4, facts.Count);
+        Assert.Contains(facts, h => h.Facts.Contains("url:http://added.example.net/update") && h.Facts.Contains("domain:added.example.net"));
+        Assert.Equal(3, facts.Count);
         Assert.All(facts, h => Assert.Contains($"InitiatingProcessSHA1 == '{sha1}'", h.Kql, StringComparison.Ordinal));
         Assert.DoesNotContain(record.Hunts!, h => h.Kql.Contains("shared-pipe", StringComparison.Ordinal) || h.Kql.Contains("shared-lib", StringComparison.Ordinal));
-        Assert.Contains("5 hunting queries.", text, StringComparison.Ordinal);
+        Assert.Contains("4 hunting queries.", text, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task An_added_URL_found_only_as_a_string_gets_a_query_scoped_to_the_new_build()
     {
         var (record, _, _) = await Compare(Image(false, OldStamp), Image(true, OldStamp + 1));
-        var network = record.Hunts!.Where(h => h.Kql.Contains("added.example.net", StringComparison.Ordinal)).ToList();
-        Assert.Equal(2, network.Count);
-        Assert.All(network, h => Assert.Contains("InitiatingProcessSHA1 ==", h.Kql, StringComparison.Ordinal));
+        var network = Assert.Single(record.Hunts!, h => h.Kql.Contains("added.example.net", StringComparison.Ordinal));
+        Assert.Contains("InitiatingProcessSHA1 ==", network.Kql, StringComparison.Ordinal);
         Assert.DoesNotContain(record.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
     }
 

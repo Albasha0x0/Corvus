@@ -54,7 +54,7 @@ public sealed class HuntsWriterTests
     public void Each_fact_kind_gives_queries_on_the_expected_tables(string kind, params string[] tables)
     {
         var set = KqlHunts.Write(OneOfEach());
-        var hunts = set.Hunts.Where(h => h.Facts[0].StartsWith(kind + ":", StringComparison.Ordinal)).ToList();
+        var hunts = set.Hunts.Where(h => h.Facts.Any(f => f.StartsWith(kind + ":", StringComparison.Ordinal))).ToList();
         Assert.Equal(tables.Order(StringComparer.Ordinal), hunts.Select(h => h.Table).Order(StringComparer.Ordinal));
         Assert.All(hunts, h => Assert.StartsWith(h.Table + "\n", h.Kql, StringComparison.Ordinal));
     }
@@ -63,7 +63,7 @@ public sealed class HuntsWriterTests
     public void Every_query_parses_with_zero_diagnostics()
     {
         var set = KqlHunts.Write(OneOfEach());
-        Assert.Equal(12, set.Hunts.Count);
+        Assert.Equal(11, set.Hunts.Count);
         Assert.All(set.Hunts, h => Assert.Empty(Parse(h.Kql).GetDiagnostics().Select(d => d.Message)));
         Assert.Equal(set.Hunts.Count, set.Hunts.Select(h => h.Id).Distinct().Count());
     }
@@ -398,6 +398,102 @@ public sealed class HuntsWriterTests
     }
 
     // Field test 14: an archive has no process or image-load events.
+    [Fact]
+    public void A_host_found_only_as_a_string_reads_the_connections_of_its_file()
+    {
+        var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Ipv4, "1.1.1.1", "string")]).Hunts, h => h.Table == "DeviceNetworkEvents");
+        Assert.Contains($"InitiatingProcessSHA1 == '{Sha1}'", hunt.Kql, StringComparison.Ordinal);
+        Assert.EndsWith("by this file", hunt.Title, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+    }
+
+    [Fact]
+    public void A_host_string_in_a_file_that_is_not_executable_gives_no_network_query()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Domain, "text.example.net", "string")], null, false);
+        Assert.DoesNotContain(set.Hunts, h => h.Table == "DeviceNetworkEvents");
+        Assert.Contains(set.Notes, n => n.Contains("found only as strings", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_url_query_matches_the_host_because_RemoteUrl_can_omit_the_path()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Url, "https://app.example.net/a/b", "reference")]);
+        Assert.Contains("RemoteUrl has 'app.example.net'", Assert.Single(set.Hunts).Kql, StringComparison.Ordinal);
+        Assert.Contains(set.Notes, n => n.Contains("match the host", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_url_and_its_host_share_one_query_that_names_both_facts()
+    {
+        var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Domain, "app.example.net", "reference"), new(HuntKind.Url, "https://app.example.net/a", "reference")]).Hunts);
+        Assert.Equal(["domain:app.example.net", "url:https://app.example.net/a"], hunt.Facts);
+    }
+
+    [Theory]
+    [InlineData(@"HKCU\Software\Vendor\App", @"Software\Vendor\App")]
+    [InlineData(@"HKEY_LOCAL_MACHINE\SOFTWARE\Vendor", @"SOFTWARE\Vendor")]
+    [InlineData(@"Software\Vendor\App", @"Software\Vendor\App")]
+    public void A_registry_query_reads_the_path_below_the_hive(string value, string path)
+    {
+        var hunt = Assert.Single(KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.RegistryKey, value, "string")]).Hunts, h => h.Table == "DeviceRegistryEvents");
+        Assert.Contains(KqlHunts.Literal("\\" + path), hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains($"InitiatingProcessSHA1 == '{Sha1}'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+    }
+
+    [Fact]
+    public void A_hive_alone_gives_no_registry_query()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.RegistryKey, "HKLM", "string")]);
+        Assert.DoesNotContain(set.Hunts, h => h.Table == "DeviceRegistryEvents");
+    }
+
+    [Fact]
+    public void A_file_query_notes_that_no_result_does_not_show_no_write()
+    {
+        var set = KqlHunts.Write([new(HuntKind.FilePath, @"C:\ProgramData\a.txt", "reference")]);
+        Assert.Contains(set.Notes, n => n.Contains("does not record every write", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_rule_maps_the_device_and_file_columns_its_query_returns()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed")]).Hunts[0];
+        var map = HuntRules.Rule(hunt)["detectionAction"]!["alertTemplate"]!["entityMappings"]!;
+        Assert.Equal("DeviceId", (string?)map["hosts"]![0]!["deviceIdColumn"]);
+        Assert.Equal("DeviceName", (string?)map["hosts"]![0]!["nameColumn"]);
+        Assert.Equal("SHA1", (string?)map["files"]![0]!["sha1Column"]);
+    }
+
+    [Fact]
+    public void A_crash_rule_maps_the_computer_and_no_file()
+    {
+        var hunt = Assert.Single(KqlHunts.WriteCrash("host.dll", 0x12345678, [(0x10u, 0x20u)]).Hunts);
+        var map = HuntRules.Rule(hunt)["detectionAction"]!["alertTemplate"]!["entityMappings"]!;
+        Assert.Equal("Computer", (string?)map["hosts"]![0]!["nameColumn"]);
+        Assert.Null(map["files"]);
+    }
+
+    [Fact]
+    public void A_signer_note_does_not_mark_the_facts_partial()
+    {
+        Assert.False(HuntFacts.LimitsFacts("The signer is unknown: the file has no embedded signature, and catalog signatures are not read."));
+        Assert.True(HuntFacts.LimitsFacts("The version resource and imports are unknown, the image did not parse: bad."));
+    }
+
+    [Theory]
+    [InlineData(@"pipe \\.\pipe\demo-pipe: ready", "named_pipe", @"\\.\pipe\demo-pipe")]
+    [InlineData(@"C:\ProgramData\demo.txt: ok", "file_path", @"C:\ProgramData\demo.txt")]
+    [InlineData("fetch https://example.net/demo:", "url", "https://example.net/demo")]
+    [InlineData(@"Cannot open HKLM\\Software\\Vendor\\App: access denied", "registry_key", @"HKLM\\Software\\Vendor\\App")]
+    [InlineData(@"Software\\Vendor\\App: ok", "registry_key", @"Software\\Vendor\\App")]
+    public void A_value_in_a_message_keeps_none_of_the_message(string text, string type, string value)
+    {
+        var found = Values.FromFields([(text, "field")], out _, default);
+        Assert.Equal(value, Assert.Single(found, v => v.Type == type).Value);
+    }
+
     [Fact]
     public void A_file_that_is_not_executable_gets_the_file_event_query_only()
     {
