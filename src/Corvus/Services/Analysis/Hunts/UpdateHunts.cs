@@ -24,6 +24,15 @@ public static class UpdateHunts
         return KqlHunts.Write(added, newSha1);
     }
 
+    /// <summary>Notes for a build whose facts were read in part: an unread fact may be listed as added or missing from the new build.</summary>
+    public static IReadOnlyList<string> PartialReads(bool oldPartial, bool newPartial)
+    {
+        var notes = new List<string>();
+        if (oldPartial) notes.Add("The old build's facts are partial, so a fact listed as added may also be in the old build.");
+        if (newPartial) notes.Add("The new build's facts are partial, so an added fact may be unlisted; no added fact does not show none was added.");
+        return notes;
+    }
+
     /// <summary>One note naming the functions the new build imports and the old one does not; empty when none.</summary>
     public static IReadOnlyList<string> AddedImports(IEnumerable<NativeImport> oldImports, IEnumerable<NativeImport> newImports)
     {

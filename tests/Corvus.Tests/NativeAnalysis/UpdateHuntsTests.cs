@@ -156,6 +156,14 @@ public sealed class UpdateHuntsTests
     }
 
     [Fact]
+    public void A_partial_read_of_either_build_is_named()
+    {
+        Assert.Empty(UpdateHunts.PartialReads(false, false));
+        Assert.Contains("old build's facts are partial", Assert.Single(UpdateHunts.PartialReads(true, false)), StringComparison.Ordinal);
+        Assert.Contains("new build's facts are partial", Assert.Single(UpdateHunts.PartialReads(false, true)), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_crash_query_skips_events_with_no_faulting_offset()
     {
         var set = KqlHunts.WriteCrash("host.dll", OldStamp, [(0u, 0x10u)]);
