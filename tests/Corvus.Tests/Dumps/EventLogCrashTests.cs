@@ -126,4 +126,27 @@ public sealed class EventLogCrashTests : IDisposable
         Assert.Equal(new FunctionRange("synth.dll", 0x11223344, "Big", 0x1080, 0x10A4), ranges[0]);
         Assert.Equal(new FunctionRange("synth.dll", 0x11223344, "Crash", 0x1000, 0x100D), ranges[1]);
     }
+
+    [Fact]
+    public async Task A_missing_module_time_stamp_is_labelled_an_unknown_build()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var xml = EventData("11223344").Replace("<Data Name=\"ModuleTimeStamp\">11223344</Data>", "");
+        var f = Assert.Single((await Run(xml)).Items);
+        Assert.Equal("Big+0x5", f.Resolved);
+        Assert.StartsWith("unknown build", f.BuildDetail);
+    }
+
+    [Fact]
+    public async Task An_offset_past_the_image_names_the_build_and_both_stamps()
+    {
+        _ws.LoadAny(Build("synth.dll", 0x11223344));
+        var text = Description("55667788").Replace("0000000000001085", "000000007FFF0000");
+        var f = Assert.Single((await Run(text)).Items);
+        Assert.Equal("mismatch", f.BuildCheck);
+        Assert.StartsWith("different build", f.BuildDetail);
+        Assert.Contains("0x55667788", f.BuildDetail);
+        Assert.Contains("0x11223344", f.BuildDetail);
+    }
+
 }

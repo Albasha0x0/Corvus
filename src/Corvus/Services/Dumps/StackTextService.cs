@@ -275,13 +275,13 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
                 return Row(named, source, "unknown", "the function's extent is not known here", $"decompile_native image={native.Id} address=0x{rva:X}");
             bool inside = rva < function.End && index0.FunctionAt((uint)rva.Value)?.Start == start;
             return Row(named, source, inside ? "match" : "mismatch",
-                inside ? null : $"{f.Symbol}+0x{f.SymbolOffset:X} is past the end of {f.Symbol} here (size 0x{function.End - function.Start:X}): the text is from another build",
+                inside ? $"function starts at 0x{start:X}, offset 0x{f.SymbolOffset ?? 0:X}" : $"{f.Symbol}+0x{f.SymbolOffset:X} is past the end of {f.Symbol} here (size 0x{function.End - function.Start:X}): the text is from another build",
                 $"decompile_native image={native.Id} address=0x{rva:X}");
         }
         if (rva == null)
             return Row(null, null, "unknown", $"no load address for {module}", $"pass moduleBases={module}=0x<base>");
         if (rva >= size)
-            return Row(null, null, "mismatch", $"offset 0x{rva:X} is past the end of {native.Id} (size 0x{size:X}): another build", null);
+            return Row(null, null, "mismatch", $"{BuildLabel(textModule?.TimeDateStamp, native.Pe?.Coff.TimeDateStamp, module)}: offset 0x{rva:X} is past the end of {native.Id} (size 0x{size:X})", null);
 
         var (name, src) = Name(native, index0, (uint)rva.Value);
         string check = "unknown";
@@ -316,11 +316,24 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             check = "mismatch";
             detail = $"0x{rva:X} is in {section.Name}, not code: another build";
         }
+        // Without both time stamps the build is unknown; the label is never left out.
+        if (f.BuildId == null && !(textModule?.TimeDateStamp != null && stamp != null))
+            detail = BuildLabel(textModule?.TimeDateStamp, stamp, module) + (detail == null ? "" : "; " + detail);
         // The function start goes in the detail: the output schema is at its size ceiling.
-        if (index0?.FunctionAt((uint)rva.Value) is { } fn && fn.Start <= rva && textModule != null && name != null)
+        if (index0?.FunctionAt((uint)rva.Value) is { } fn && fn.Start <= rva)
             detail = (detail == null ? "" : detail + "; ") + $"function starts at 0x{fn.Start:X}, offset 0x{rva - fn.Start:X}";
         return Row(name, src, check, detail, $"decompile_native image={native.Id} address=0x{rva:X}");
     }
+
+    private static string BuildLabel(uint? want, uint? have, string module) =>
+        (want, have) switch
+        {
+            ({ } w, { } h) when w == h => $"same build (time stamp 0x{w:X8})",
+            ({ } w, { } h) => $"different build: the text's {module} has time stamp 0x{w:X8}, the loaded image 0x{h:X8}",
+            (null, { } h) => $"unknown build: the text has no time stamp for {module}, the loaded image has 0x{h:X8}",
+            ({ } w, null) => $"unknown build: the loaded image has no PE time stamp, the text's {module} has 0x{w:X8}",
+            _ => $"unknown build: neither the text nor the loaded image has a time stamp for {module}",
+        };
 
     private static string? FileVersion(LoadedNative native) => native.Pe?.VersionInfo is not { } info ? null
         : info.Fixed is { FileVersion: var v and not 0 } ? $"{v >> 48}.{(v >> 32) & 0xFFFF}.{(v >> 16) & 0xFFFF}.{v & 0xFFFF}" : info.Get("FileVersion");
