@@ -167,7 +167,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
                  "Unfiltered: the largest packages.")]
     public Task<string> ListDexClasses(
         [Description(CodeDescription)] string path,
-        [Description("Only classes whose name contains or matches (* ?) this.")] string? query = null,
+        [Description("Only classes whose name contains or matches (* ?) this.")] string? filter = null,
         [Description("Only this package and its subpackages.")] string? package = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most classes.")] int limit = 100,
@@ -175,9 +175,9 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var args = new FileWork.DexClassesArgs(path, query, package, offset, ClampLimit(limit), mapping);
+        var args = new FileWork.DexClassesArgs(path, filter, package, offset, ClampLimit(limit), mapping);
         var r = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexClasses, args, path,
-            () => dex.ListClasses(path, query, package, offset, ClampLimit(limit), cancellationToken, mapping), cancellationToken);
+            () => dex.ListClasses(path, filter, package, offset, ClampLimit(limit), cancellationToken, mapping), cancellationToken);
         static string Row(DexClassRow c) => $"{c.Descriptor}{(c.Original != null ? " = " + c.Original : "")}  [{string.Join("; ", new[]
         {
             c.Access.Length > 0 ? c.Access : null,
@@ -196,7 +196,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(CodeDescription)] string path,
         [Description("Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner.")] string @class,
         [Description("all (default), fields or methods.")] string? members = null,
-        [Description("Only members whose name contains this.")] string? query = null,
+        [Description("Only members whose name contains this.")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most members.")] int limit = 150,
         [Description(MappingDescription)] string? mapping = null,
@@ -211,7 +211,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         };
         var c = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexClass, new FileWork.DexClassArgs(path, @class, mapping), path,
             () => dex.GetClass(path, @class, cancellationToken, mapping), cancellationToken);
-        bool Wanted(string name) => query is not { Length: > 0 } q || name.Contains(q, StringComparison.OrdinalIgnoreCase);
+        bool Wanted(string name) => filter is not { Length: > 0 } q || name.Contains(q, StringComparison.OrdinalIgnoreCase);
         static IReadOnlyList<T>? Some<T>(IReadOnlyList<T> list) => list.Count > 0 ? list : null;
         var all = (fields ? c.Fields.Where(f => Wanted(f.Name)).Select(f => new DexMember("field", f.Id, f.Access, $"{DexFile.JavaName(f.Type)} {f.Name}", f.Value, null, null,
                        f.GenericSignature, Some(f.Annotations), null) { Original = f.Original }) : [])

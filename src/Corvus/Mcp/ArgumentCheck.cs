@@ -100,10 +100,10 @@ public static class ArgumentCheck
         }
     }
 
-    /// <summary>Binds query and filter to the one the tool declares.</summary>
+    /// <summary>Binds query and pattern to filter, and filter to query, where the tool declares only the canonical one.</summary>
     private static void ApplyFilterAlias(List<string> declared, IDictionary<string, JsonElement> arguments)
     {
-        foreach (var (alias, canonical) in new[] { ("query", "filter"), ("filter", "query") })
+        foreach (var (alias, canonical) in new[] { ("query", "filter"), ("pattern", "filter"), ("filter", "query") })
         {
             if (declared.Contains(alias) || !declared.Contains(canonical)) continue;
             BindAlias(arguments, alias, canonical);

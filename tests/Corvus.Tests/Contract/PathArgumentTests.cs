@@ -153,7 +153,7 @@ public class PathArgumentTests
         // Paths on a device or inside an archive or project.
         "pull_android_file.remotePath", "get_android_resource.name", "load_assembly.program", "live_break.at",
         // Search text, filters and patterns.
-        "search_container.query", "inspect_process.yara", "open_minidump.yara", "list_assemblies.filter", "compare_folders.exclude", "bucket_minidumps.pattern", "symbolize_stack_text.text",
+        "search_container.query", "inspect_process.yara", "open_minidump.yara", "list_assemblies.filter", "compare_folders.exclude", "bucket_minidumps.filter", "symbolize_stack_text.text",
         // Note anchors name a loaded file by id or by the path it was loaded from.
         "record_note.anchor", "list_notes.anchor",
         // Choices of a mode.

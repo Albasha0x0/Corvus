@@ -50,7 +50,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
     public Task<string> BucketMinidumps(
         [Description("Folder of .dmp or core files.")] string folder,
         [Description("Search subfolders.")] bool recursive = false,
-        [Description("File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*).")] string? pattern = null,
+        [Description("File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*).")] string? filter = null,
         [Description("Signature frames after the faulting one.")] int topFrames = 3,
         [Description("More frames to skip, ;-separated: module or module!function, * wildcards.")] string? skipModules = null,
         [Description("Add the faulting module version to the signature.")] bool splitByVersion = false,
@@ -65,7 +65,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, S
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress =>
         Task.Run(async () =>
         {
-            var args = new FileWork.BucketArgs(folder, recursive, pattern, topFrames, skipModules, splitByVersion,
+            var args = new FileWork.BucketArgs(folder, recursive, filter, topFrames, skipModules, splitByVersion,
                 !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), maxDumps, imageDirectories, offset, limit, budgetSeconds);
             var bucketed = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpBuckets, args, folder ?? "",
                 () => FileWork.BucketsOf(dumps, args,

@@ -47,14 +47,14 @@ public sealed class DeviceTools(DeviceService devices)
     [Description("Packages installed on a device (pm list packages -f -U -i): name, APK path, uid and installer.")]
     public Task<string> ListAndroidPackages(
         [Description(SerialDescription)] string? serial = null,
-        [Description("Only package names containing this.")] string? query = null,
+        [Description("Only package names containing this.")] string? filter = null,
         [Description("Android user id (default: current).")] int? user = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most packages.")] int limit = 150,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        var r = devices.Packages(serial, query, user, offset, ToolSupport.ClampLimit(limit), cancellationToken);
+        var r = devices.Packages(serial, filter, user, offset, ToolSupport.ClampLimit(limit), cancellationToken);
         return ToolOutput.List(r.Items, r.Offset, ToolSupport.ClampLimit(limit), r.Total,
             p => $"{p.Package}  {p.Path}{(p.Uid is { } u ? $"  uid {u}" : "")}{(p.Installer != null ? $"  installer {p.Installer}" : "")}",
             rows => r with { Items = rows }, "package", $"{r.Serial}\n");

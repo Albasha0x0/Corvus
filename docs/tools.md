@@ -2426,7 +2426,7 @@ Classes defined in the DEX code of an Android package: descriptor, DEX file, acc
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An Android package, .dex or jar with classes*.dex. |
-| `query` | string |  |  | Only classes whose name contains or matches (* ?) this. |
+| `filter` | string |  |  | Only classes whose name contains or matches (* ?) this. |
 | `package` | string |  |  | Only this package and its subpackages. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Most classes. |
@@ -2446,7 +2446,7 @@ One DEX class: superclass, interfaces, signature, inner classes, Kotlin @Metadat
 | `path` | string | yes |  | An Android package, .dex or jar with classes*.dex. |
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
 | `members` | string |  |  | all (default), fields or methods. |
-| `query` | string |  |  | Only members whose name contains this. |
+| `filter` | string |  |  | Only members whose name contains this. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `150` | Most members. |
 | `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
@@ -2595,7 +2595,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `serial` | string |  |  | Device serial; omit if one device. |
-| `query` | string |  |  | Only package names containing this. |
+| `filter` | string |  |  | Only package names containing this. |
 | `user` | integer |  |  | Android user id (default: current). |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `150` | Most packages. |
@@ -2829,7 +2829,7 @@ Group a folder of minidumps by crash signature (exception code, faulting functio
 |---|---|---|---|---|
 | `folder` | string | yes |  | Folder of .dmp or core files. |
 | `recursive` | boolean |  |  | Search subfolders. |
-| `pattern` | string |  |  | File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*). |
+| `filter` | string |  |  | File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*). |
 | `topFrames` | integer |  | `3` | Signature frames after the faulting one. |
 | `skipModules` | string |  |  | More frames to skip, ;-separated: module or module!function, * wildcards. |
 | `splitByVersion` | boolean |  |  | Add the faulting module version to the signature. |
