@@ -71,6 +71,40 @@ public sealed class LiveSaveModulesRealTests(ITestOutputHelper output) : LiveToo
         Ended(pid);
     }
 
+    [LiveTargetFact("win-x64")]
+    public async Task Modules_saved_with_coverage_a_watch_and_a_stop_point_hold_the_original_code()
+    {
+        var target = LiveTarget.WinX64;
+        var exe = target.Build(_dir, "orders", LivePrograms.Orders);
+        await using var server = await Server();
+
+        var pid = await Spawn(server, exe, "live-1", "400", "20", "1");
+        Assert.Contains("counting", await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["hitLimit"] = 1 }));
+        await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Discount" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine" });
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Contains("stopped at", stop);
+
+        var saved = _dir.File("saved");
+        var report = await Ok(server, "live_session", new()
+        {
+            ["action"] = "save_modules", ["session"] = "live-1", ["outputPath"] = saved, ["modules"] = target.Exe("orders"), ["base"] = "preferred",
+        });
+        Assert.Matches(@"orders\.exe: .*code same", report);
+        Assert.Contains(" coverage ", report);
+        Assert.Contains("+watch ", report);
+        Assert.Contains("+stop ", report);
+        Assert.DoesNotContain("not restored", report);
+        var image = File.ReadAllBytes(Directory.GetFiles(saved).Single(f => f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)));
+        Assert.Empty(CodeDifferences(image, File.ReadAllBytes(exe)));
+
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        await UntilExited(server, "live-1");
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
     private async Task<string> Functions(InProcessServer server, string path)
     {
         var rows = new List<string>();

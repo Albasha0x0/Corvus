@@ -714,6 +714,8 @@ def handle(state, op, args):
         return state.require().watch(args["id"], args["address"], args["args"], int(args["perSecond"]))
     if op == "unwatch":
         return state.require().unwatch(args["id"])
+    if op == "hooks":
+        return {"hooks": state.require().hooks()}
     if op == "defer_module":
         return state.require().defer_module(args["name"])
     if op == "undefer_module":

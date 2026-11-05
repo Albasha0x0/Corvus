@@ -42,7 +42,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("Code against the local file: same, differs, partial or unknown.")] public string? CodeState { get; init; }
         [Description("Differing bytes and pages, or why unknown.")] public string? CodeDetail { get; init; }
         [Description("Differing code: section, RVA, length.")] public IReadOnlyList<string>? CodeRanges { get; init; }
-        [Description("Session stop points and watches in the module: address, id.")] public IReadOnlyList<string>? SessionPatches { get; init; }
+        [Description("Session hooks in the module: address, kind (stop, watch, coverage), id, restored or not restored.")] public IReadOnlyList<string>? SessionPatches { get; init; }
+        [Description("How many session hooks the image holds unrestored and how many rows were cut.")] public string? SessionPatchNote { get; init; }
+        [Description("How many differing ranges were cut from CodeRanges.")] public string? CodeRangeNote { get; init; }
     }
 
     /// <summary>The image folder save_modules wrote and its modules.</summary>
@@ -214,7 +216,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "snapshot":
                     return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
                 case "save_modules":
-                    return SaveModules(live.Get(RequireSession(session)), outputPath, modules, layout, imports, @base, symbols, cancellationToken);
+                    return await SaveModules(live.Get(RequireSession(session)), outputPath, modules, layout, imports, @base, symbols, cancellationToken);
                 case "ipc":
                     var recorded = live.Get(RequireSession(session));
                     return Ipc(recorded, await live.IpcAsync(recorded, cancellationToken).ConfigureAwait(false));
@@ -323,7 +325,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
     }
 
-    private string SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, string? symbols, CancellationToken ct)
+    // Hook rows in the text; sessionPatches holds up to LiveSessionHooks.MaxRows.
+    private const int TextRows = 10;
+
+    private async Task<string> SaveModules(Services.LiveSession s, string? outputPath, string? modules, string? layout, string? imports, string? @base, string? symbols, CancellationToken ct)
     {
         LiveSessionService.Live(s);
         if (s.ScriptRuntime is { } runtime) throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a {runtime.Kind} session: save_modules rebuilds native modules.", $"live_session action=attach program={s.ProcessId} opens a process session");
@@ -335,6 +340,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <program>-modules");
         using var process = Native.Live.LiveProcess.Attach(s.ProcessId, ct);
+        // Reads see the code as it was before the session placed its hooks.
+        var (hooks, hooksReason) = await LiveSessionHooks.ReadAsync(s, ct).ConfigureAwait(false);
+        var memory = LiveSessionHooks.Restoring(process, hooks ?? []);
         if (save.Module.Equals("code", StringComparison.OrdinalIgnoreCase))
         {
             var regions = MinidumpService.SaveCodeRegions(process, root, ct);
@@ -344,19 +352,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 codeText.AppendLine($"  {r.Name}: {r.ImageFile ?? $"not written, {r.ImageReason}"}{(r.ImageFile != null ? $" ({r.LocalDetail})" : "")}");
             return ToolOutput.With(codeText.ToString(), new LiveSessionReport("save_modules", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Saved = new LiveSavedModules(root, codeRows) });
         }
-        var targets = Native.Dump.Rebuild.ModuleRebuild.Select(process, save.Module, ct);
+        var targets = Native.Dump.Rebuild.ModuleRebuild.Select(memory, save.Module, ct);
         if (targets.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No module matches '{save.Module}'.", "pass modules as a listed file name, a 0x address, all, unlisted or code");
         var options = Native.Dump.Rebuild.RebuildOptions.Default with { Layout = save.Layout, Imports = save.Imports, Base = save.Base };
-        var rebuilt = targets.Select(t => Native.Dump.Rebuild.ModuleRebuild.Rebuild(process, t, options, ct)).ToList();
+        var rebuilt = targets.Select(t => Native.Dump.Rebuild.ModuleRebuild.Rebuild(memory, t, options, ct)).ToList();
         var written = Native.Dump.Rebuild.ModuleWriter.WriteAll(rebuilt, root);
         // Same image folders as inspect_process: the program's own folder.
         var directories = MinidumpService.Directories(null, process.ImagePath ?? "");
         var withSymbols = MinidumpService.SaveSymbols(rebuilt, written, root, save.Symbols,
             directories.Count == 0 ? null : string.Join(Path.PathSeparator, directories), ct);
         rebuilt = [.. withSymbols.Select(x => x.Module)];
-        var checkedModules = dumps?.SessionFor(s.Id, process, directories);
-        var patches = s.StopPoints.Values.Select(p => (p.Address, p.Id)).Concat(s.Watches.Values.Select(w => (w.Address, w.Id))).Where(p => p.Address != 0).ToList();
+        var checkedModules = dumps?.SessionFor(s.Id, memory, directories);
         var rows = new List<LiveSavedModule>();
         var text = new StringBuilder();
         for (int i = 0; i < rebuilt.Count; i++)
@@ -366,23 +373,54 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             var listed = process.Modules.FirstOrDefault(m => m.Base == r.Target.Base);
             MinidumpService.CheckedModule? code = listed != null && checkedModules != null ? MinidumpService.Checked(checkedModules, listed) : null;
             var ranges = r.Disk?.Differences.Where(d => d.Code).Select(d => $"{d.Section} {d.Start} +{d.Length}").ToList();
-            var sites = patches.Where(p => p.Address >= r.Target.Base && p.Address - r.Target.Base < r.Target.Size).Select(p => $"0x{p.Address:X} {p.Id}").ToList();
+            var sites = SessionSites(s, hooks, hooksReason, r.Target.Base, r.Target.Size);
+            var patchNote = SessionPatchNote(sites, hooksReason);
+            var rangeNote = r.Disk is { } d && d.Ranges > d.Differences.Count ? $"{d.Differences.Count} of {d.Ranges:N0} differing ranges listed (limit {Native.Dump.Rebuild.DiskCompare.MaxRanges})" : null;
             row = row with
             {
                 CodeState = code?.CodeState ?? "unknown",
                 CodeDetail = code?.CodeDetail ?? (listed == null ? "the module is not in the module list" : "this server has no dump reader"),
                 CodeRanges = ranges is { Count: > 0 } ? ranges : null,
-                SessionPatches = sites.Count > 0 ? sites : null,
+                SessionPatches = sites.Count > 0 ? [.. sites.Take(LiveSessionHooks.MaxRows).Select(x => x.Row)] : null,
+                SessionPatchNote = patchNote,
+                CodeRangeNote = rangeNote,
             };
             rows.Add(row);
             var worst = r.Checks.FirstOrDefault(c => c.State == "failed") ?? r.Checks.FirstOrDefault(c => c.State == "partial");
             var codeNote = row.CodeState is "differs" or "partial" or "unknown" ? $"{row.CodeState}: {row.CodeDetail}" : row.CodeState;
             text.AppendLine($"  {row.Name}: {row.File ?? $"not written, {row.Reason}"} ({row.Captured}% read{(worst != null ? $"; {worst.Name} {worst.State}: {worst.Detail}" : "")}; code {codeNote})");
-            if (sites.Count > 0) text.AppendLine($"    session patch sites: {string.Join(", ", sites)}");
+            if (sites.Count > 0) text.AppendLine($"    session hooks: {string.Join(", ", sites.Take(TextRows).Select(x => x.Row))}{(sites.Count > TextRows ? $" (and {sites.Count - TextRows:N0} more in sessionPatches)" : "")}");
+            if (patchNote != null) text.AppendLine($"    {patchNote}");
             if (ranges is { Count: > 0 }) text.AppendLine($"    code ranges differing from the file: {string.Join(", ", ranges)}");
+            if (rangeNote != null) text.AppendLine($"    {rangeNote}");
         }
         text.Insert(0, $"{s.Id}: {rows.Count(r => r.File != null)} of {rows.Count} module(s) of process {s.ProcessId} written to {root}; the program keeps running\n");
         return ToolOutput.With(text.ToString(), new LiveSessionReport("save_modules", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Saved = new LiveSavedModules(root, rows) });
+    }
+
+    // Hooks inside one module; with no worker answer, the stop points and watches the session knows, each unrestored.
+    private static List<(string Row, bool Restored)> SessionSites(Services.LiveSession s, List<LiveSessionHook>? hooks, string? reason, ulong moduleBase, ulong size)
+    {
+        bool Inside(ulong a) => a >= moduleBase && a - moduleBase < size;
+        if (hooks != null)
+            return [.. hooks.Where(h => Inside(h.Address)).OrderBy(h => h.Kind == "coverage").ThenBy(h => h.Address)
+                .Select(h => ($"0x{h.Address:X} {h.Kind} {string.Join(',', h.Ids)} {(h.Restorable ? "restored" : "not restored")}", h.Restorable))];
+        var known = new List<(ulong Address, string Kind, string Id)>();
+        lock (s.StopPoints) known.AddRange(s.StopPoints.Values.Select(p => (p.Address, "stop", p.Id)));
+        lock (s.Watches) known.AddRange(s.Watches.Values.Select(w => (w.Address, "watch", w.Id)));
+        return [.. known.Where(k => k.Address != 0 && Inside(k.Address)).OrderBy(k => k.Address)
+            .Select(k => ($"0x{k.Address:X} {k.Kind} {k.Id} not restored", false))];
+    }
+
+    private static string? SessionPatchNote(List<(string Row, bool Restored)> sites, string? reason)
+    {
+        if (sites.Count == 0 && reason == null) return null;
+        var parts = new List<string>();
+        int unrestored = sites.Count(x => !x.Restored);
+        if (reason != null) parts.Add($"the session's hook records are unknown ({reason})");
+        if (unrestored > 0) parts.Add($"the image holds {unrestored:N0} session hook(s) not restored");
+        if (sites.Count > LiveSessionHooks.MaxRows) parts.Add($"{LiveSessionHooks.MaxRows} of {sites.Count:N0} hooks listed (limit {LiveSessionHooks.MaxRows})");
+        return parts.Count == 0 ? $"{sites.Count:N0} session hook(s) restored from their original bytes" : string.Join("; ", parts);
     }
 
     /// <summary>Local processes by name (then id), those whose name contains <paramref name="filter"/> when given.</summary>

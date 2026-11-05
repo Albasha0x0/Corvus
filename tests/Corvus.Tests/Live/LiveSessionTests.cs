@@ -33,6 +33,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public int ProcessId { get; init; } = Pid;
     /// <summary>Bytes the program holds, by address.</summary>
     public readonly Dictionary<ulong, byte[]> Memory = [];
+    /// <summary>The answer to a hooks request; null answers it as an unknown op.</summary>
+    public JsonNode? HooksReply { get; set; }
     private readonly Dictionary<string, ulong> _points = [];
     private bool _suspended;
     /// <summary>Held threads, one entry per stop waiting for its resume.</summary>
@@ -170,6 +172,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 if (args["bare"] is { } bare && (bool)bare) lock (Bare) Bare.Add((string)args["id"]!);
                 if (args["limit"] is { } limit) lock (Limits) Limits[(string)args["id"]!] = (int)limit;
                 return true;
+            case "hooks": return HooksReply;
             case "set_many" when !Batches: return null;
             case "set_many":
                 // Each point counts as a set, as one request each did.

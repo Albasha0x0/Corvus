@@ -601,7 +601,7 @@ function writeCode(p, bytes) {
 
 // Where to hook p and how to undo it: p itself, or for mapped-view code the stub its detour jumps to.
 function hookAt(p) {
-  if (!inMappedView(p)) return { at: p, undo() {} };
+  if (!inMappedView(p)) return { at: p, undo() {}, original: readOriginal(p) };
   if (Process.arch !== 'x64' && Process.arch !== 'ia32') throw new Error('code in a mapped file view is hooked on x86 and x64 only');
   // A copy-on-write page of a shared view stops seeing the owner's writes, so the .NET W^X code heap would run stale
   // code; a file view (a single-file bundle) is never rewritten.
@@ -625,13 +625,42 @@ function hookAt(p) {
   jump[0] = 0xE9;
   new DataView(jump.buffer).setInt32(1, stub.sub(p.add(JMP_BYTES)).toInt32(), true);
   writeCode(p, Array.from(jump));
-  return { at: stub, undo() { writeCode(p, Array.from(new Uint8Array(original))); } };
+  return { at: stub, original: new Uint8Array(original), undo() { writeCode(p, Array.from(new Uint8Array(original))); } };
+}
+
+// Bytes at each hooked address from before its first hook, with the ids that hold it.
+const originals = new Map();
+const ORIGINAL_BYTES = 32;
+
+// The code a hook may rewrite, or null where it cannot be read.
+function readOriginal(p) {
+  try {
+    const b = p.readByteArray(ORIGINAL_BYTES);
+    return b === null ? null : new Uint8Array(b);
+  } catch (e) {
+    return null;
+  }
+}
+
+function keepOriginal(id, p, bytes) {
+  const key = p.toString();
+  const e = originals.get(key);
+  if (e === undefined) originals.set(key, { bytes, ids: new Set([id]) });
+  else e.ids.add(id);
+}
+
+function releaseOriginals(id) {
+  for (const [key, e] of originals) {
+    e.ids.delete(id);
+    if (e.ids.size === 0) originals.delete(key);
+  }
 }
 
 // A second watch or stop point of one id adds a hook: the method's code after the runtime compiles it again.
 function watch(id, address, args, perSecond) {
   const w = watches[id] || { id, rows: [], skipped: 0, tokens: perSecond, last: Date.now(), undo() {} };
   const hook = hookAt(ptr(address));
+  keepOriginal(id, ptr(address), hook.original);
   const listener = Interceptor.attach(hook.at, {
     onEnter(a) {
       const now = Date.now();
@@ -688,6 +717,7 @@ rpc.exports = {
   // A bare point with a hit limit is counted rather than held (countsIn).
   set(id, address, bare, limit) {
     const p = ptr(address), hook = hookAt(p);
+    keepOriginal(id, p, hook.original);
     const counted = bare === true && limit > 0;
     // A probe: onEnter takes the stack top for a return address, which past a function's start is wrong.
     const listener = Interceptor.attach(hook.at, counted
@@ -701,6 +731,7 @@ rpc.exports = {
     if (!points[id]) return false;
     points[id].detach();
     delete points[id];
+    releaseOriginals(id);
     return true;
   },
   watch(id, address, args, perSecond) {
@@ -728,7 +759,27 @@ rpc.exports = {
     w.undo();
     flush(w);
     delete watches[id];
+    releaseOriginals(id);
     return true;
+  },
+  // The changed span of the code under each live hook, original bytes as hex; null where they were unreadable.
+  hooks() {
+    const rows = [];
+    for (const [key, e] of originals) {
+      const row = { address: key, ids: [...e.ids], offset: 0, original: null };
+      // Unreadable code now is listed with no original, so it reads as not restored.
+      const now = e.bytes === null ? null : readOriginal(ptr(key));
+      if (now !== null) {
+        let first = -1, last = -1;
+        for (let i = 0; i < Math.min(now.length, e.bytes.length); i++)
+          if (now[i] !== e.bytes[i]) { if (first < 0) first = i; last = i; }
+        if (first < 0) continue;
+        row.offset = first;
+        row.original = Array.from(e.bytes.subarray(first, last + 1), b => (b < 16 ? '0' : '') + b.toString(16)).join('');
+      }
+      rows.push(row);
+    }
+    return rows;
   },
   // ART dumps Java stacks on SIGQUIT to its Signal Catcher thread; sent to the process, it could reach a Frida thread,
   // which does not block it, and end the program.

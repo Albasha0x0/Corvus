@@ -162,11 +162,19 @@
                 }
               },
               "sessionPatches": {
-                "description": "Session stop points and watches in the module: address, id.",
+                "description": "Session hooks in the module: address, kind (stop, watch, coverage), id, restored or not restored.",
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
+              },
+              "sessionPatchNote": {
+                "description": "How many session hooks the image holds unrestored and how many rows were cut.",
+                "type": "string"
+              },
+              "codeRangeNote": {
+                "description": "How many differing ranges were cut from CodeRanges.",
+                "type": "string"
               }
             },
             "required": [
