@@ -68,6 +68,9 @@ public static class KqlHunts
     /// <summary>The longest fact value a query carries, in characters.</summary>
     public const int MaxValueChars = 1_000;
 
+    /// <summary>The longest library name list of one query, in characters; more names go to further queries.</summary>
+    public const int MaxLibraryListChars = 4_000;
+
     private const string Base = "Timestamp, DeviceId, DeviceName, ReportId";
 
     /// <summary>A KQL single-quoted string literal of <paramref name="value"/>: quote and backslash escaped, control characters written as escapes.</summary>
@@ -103,17 +106,19 @@ public static class KqlHunts
     /// One query per fact and table. Unscoped network kinds need evidence of <see cref="IndicatorEvidence.Reference"/> or stronger.
     /// A fact with no query, and a query that fails the check, is named in the notes. With <paramref name="scopeSha1"/>
     /// every query is limited to the file with that SHA-1 as the initiating process, and a malformed SHA-1 throws.
+    /// A file that is not <paramref name="executable"/> gets the file event query of its SHA-1 only.
     /// </summary>
-    public static HuntSet Write(IEnumerable<HuntFact> facts, string? scopeSha1 = null)
+    public static HuntSet Write(IEnumerable<HuntFact> facts, string? scopeSha1 = null, bool executable = true)
     {
         if (scopeSha1 != null && !IsSha1(scopeSha1)) throw new ArgumentException("The scope is not 40 hex digits.", nameof(scopeSha1));
         scopeSha1 = scopeSha1?.ToLowerInvariant();
         var notes = new List<string>();
-        var merged = new Dictionary<(string Kind, string Value), string>();
+        var merged = new Dictionary<(string Kind, string Value), string>(new FactKeyComparer());
         foreach (var f in facts)
         {
             if (string.IsNullOrWhiteSpace(f.Value)) continue;
             var clean = CleanText(f.Value).Trim();
+            // The first spelling is kept.
             var key = (f.Kind, f.Kind == HuntKind.Sha1 ? clean.ToLowerInvariant() : clean);
             merged[key] = merged.TryGetValue(key, out var seen) ? IndicatorEvidence.Stronger(seen, f.Evidence) : f.Evidence;
         }
@@ -130,14 +135,27 @@ public static class KqlHunts
                 continue;
             }
             int skippedWeak = 0, written = 0, over = 0, tooLong = 0, unqueried = 0, local = 0;
-            foreach (var ((kind, value), evidence) in group)
+            if (group.Key == HuntKind.DllName)
+            {
+                var libraries = group.Where(m => m.Key.Value.Length <= MaxValueChars).ToList();
+                tooLong = group.Count() - libraries.Count;
+                if (libraries.Count > 0 && sha1 == null) unqueried = libraries.Count;
+                else
+                    foreach (var h in LibraryQueries(libraries, sha1, scoped, ref over))
+                    {
+                        var problems = KqlCheck.Diagnostics(h.Kql);
+                        if (problems.Count > 0) notes.Add($"Query {h.Id} was dropped: {problems[0]}");
+                        else hunts.Add(h);
+                    }
+            }
+            foreach (var ((kind, value), evidence) in group.Where(_ => group.Key != HuntKind.DllName))
             {
                 if (value.Length > MaxValueChars) { tooLong++; continue; }
                 // A query limited to one build stays narrow, so a string is enough.
                 if (IsNetwork(kind) && !scoped && Rank(evidence) < Rank(IndicatorEvidence.Reference)) { skippedWeak++; continue; }
                 if (written >= MaxPerKind) { over++; continue; }
                 if (IsNetwork(kind) && !Routable(kind, value)) { local++; continue; }
-                var made = Queries(kind, value, evidence, sha1, scoped, ref unqueried);
+                var made = Queries(kind, value, evidence, sha1, scoped, executable, ref unqueried);
                 foreach (var h in made)
                 {
                     var problems = KqlCheck.Diagnostics(h.Kql);
@@ -232,7 +250,7 @@ public static class KqlHunts
         HuntKind.Sha1 => "the value is not 40 hex digits",
         HuntKind.DllName => "they need the SHA-1 of the loading file",
         HuntKind.Ipv4 or HuntKind.Ipv6 => "the value is not an address",
-        HuntKind.NamedPipe => "the pipe name is empty",
+        HuntKind.NamedPipe => "the pipe name is empty, or it is only a string and the file SHA-1 is unknown",
         HuntKind.FilePath => "the path names no file, or it is only a string and the file SHA-1 is unknown",
         _ => "no query applies",
     };
@@ -293,7 +311,7 @@ public static class KqlHunts
     private static Hunt Make(string kind, string value, string evidence, string suffix, string? file, string title, string table, string severity, params string?[] lines) =>
         new(Id(kind, value, suffix, file), title, table, string.Join('\n', lines.Where(l => l != null)), [$"{kind}:{value}"], evidence) { Severity = severity };
 
-    private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, bool scoped, ref int unqueried)
+    private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, bool scoped, bool executable, ref int unqueried)
     {
         // A query limited to one build gets its own id and a filter on the initiating file.
         var tag = scoped ? "-new" : "";
@@ -303,11 +321,13 @@ public static class KqlHunts
             case HuntKind.Sha1:
                 if (!IsSha1(value)) { unqueried++; return []; }
                 var hash = Literal(value);
+                var files = Make(kind, value, evidence, "-files", null, $"Files with SHA-1 {Short(value)}", "DeviceFileEvents", "medium",
+                    "DeviceFileEvents", $"| where SHA1 == {hash}",
+                    $"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName");
+                if (!executable) return [files];
                 return
                 [
-                    Make(kind, value, evidence, "-files", null, $"Files with SHA-1 {Short(value)}", "DeviceFileEvents", "medium",
-                        "DeviceFileEvents", $"| where SHA1 == {hash}",
-                        $"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName"),
+                    files,
                     Make(kind, value, evidence, "-processes", null, $"Processes started from SHA-1 {Short(value)}", "DeviceProcessEvents", "medium",
                         "DeviceProcessEvents", $"| where SHA1 == {hash}",
                         $"| project {Base}, FileName, FolderPath, ProcessCommandLine, SHA1, InitiatingProcessFileName"),
@@ -331,21 +351,6 @@ public static class KqlHunts
                         $"| where ProcessVersionInfoOriginalFileName =~ {Literal(value)} and FileName !~ {Literal(value)}",
                         $"| project {Base}, FileName, FolderPath, ProcessVersionInfoOriginalFileName, SHA1"),
                 ];
-            case HuntKind.DllName:
-                if (sha1 == null) { unqueried++; return []; }
-                return
-                [
-                    Make(kind, value, evidence, tag, sha1, $"{Short(value)} loaded from the folder of the file", "DeviceImageLoadEvents", "medium",
-                        "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
-                        $"| where FileName =~ {Literal(value)}",
-                        "| where isnotempty(InitiatingProcessFolderPath)",
-                        $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
-                        $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
-                        "| where DllDir == LoaderDir",
-                        // A program in the system folder loads its DLLs from there by design.
-                        "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
-                        $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath"),
-                ];
             case HuntKind.Domain:
                 return [Network(kind, value, evidence, tag, only, scoped ? sha1 : null, $"Connections to {Short(value)}", $"RemoteUrl has {Literal(value)}")];
             case HuntKind.Url:
@@ -361,10 +366,14 @@ public static class KqlHunts
             case HuntKind.NamedPipe:
                 var pipe = PipeName(value);
                 if (pipe.Length == 0) { unqueried++; return []; }
+                // A pipe seen only as a string is not shown to be opened, so
+                // the query reads opens by this file alone.
+                bool pipeByFile = scoped || Rank(evidence) < Rank(IndicatorEvidence.Reference);
+                if (pipeByFile && sha1 == null) { unqueried++; return []; }
                 return
                 [
-                    Make(kind, value, evidence, tag, scoped ? sha1 : null, $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
-                        "DeviceEvents", "| where ActionType == 'NamedPipeEvent'", only,
+                    Make(kind, value, evidence, tag, pipeByFile ? sha1 : null, pipeByFile ? $"Opens of named pipe {Short(pipe)} by this file" : $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
+                        "DeviceEvents", "| where ActionType == 'NamedPipeEvent'", pipeByFile ? $"| where InitiatingProcessSHA1 == {Literal(sha1!)}" : null,
                         "| extend PipeName = tostring(parse_json(AdditionalFields).PipeName)",
                         $"| where PipeName endswith {Literal("\\" + pipe)}",
                         $"| project {Base}, FileName, PipeName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
@@ -386,6 +395,57 @@ public static class KqlHunts
             default:
                 return [];
         }
+    }
+
+    // One query per list of names; a list past the character cap goes to the next query.
+    private static List<Hunt> LibraryQueries(List<KeyValuePair<(string Kind, string Value), string>> libraries, string? sha1, bool scoped, ref int over)
+    {
+        var hunts = new List<Hunt>();
+        if (sha1 == null || libraries.Count == 0) return hunts;
+        var names = libraries.OrderBy(l => l.Key.Value.ToLowerInvariant(), StringComparer.Ordinal).ToList();
+        var chunks = new List<List<KeyValuePair<(string Kind, string Value), string>>> { new() };
+        int chars = 0;
+        foreach (var n in names)
+        {
+            int size = Literal(n.Key.Value).Length + 2;
+            if (chars + size > MaxLibraryListChars && chunks[^1].Count > 0) { chunks.Add([]); chars = 0; }
+            chunks[^1].Add(n);
+            chars += size;
+        }
+        foreach (var chunk in chunks)
+        {
+            if (hunts.Count >= MaxPerKind) { over += chunk.Count; continue; }
+            var values = chunk.Select(c => c.Key.Value).ToList();
+            var key = string.Join('\n', values.Select(v => v.ToLowerInvariant()));
+            var evidence = chunk.Select(c => c.Value).Aggregate(IndicatorEvidence.Stronger);
+            var title = values.Count == 1 ? $"{Short(values[0])} loaded from the folder of the file" : $"{values.Count} libraries loaded from the folder of the file";
+            hunts.Add(new Hunt(Id("dll_name", key, scoped ? "-new" : "", sha1), title, "DeviceImageLoadEvents", string.Join('\n',
+            [
+                "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
+                $"| where FileName in~ ({string.Join(", ", values.Select(Literal))})",
+                "| where isnotempty(InitiatingProcessFolderPath)",
+                $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
+                $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
+                "| where DllDir == LoaderDir",
+                // A program in the system folder loads its DLLs from there by design.
+                "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
+                $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath",
+            ]), [.. values.Select(v => $"{HuntKind.DllName}:{v}")], evidence) { Severity = "medium" });
+        }
+        return hunts;
+    }
+
+    // Names are compared as Windows compares them, except where a case change is a different value.
+    private sealed class FactKeyComparer : IEqualityComparer<(string Kind, string Value)>
+    {
+        private static bool Folds(string kind) =>
+            kind is HuntKind.DllName or HuntKind.OriginalFileName or HuntKind.Domain or HuntKind.NamedPipe or HuntKind.FilePath;
+
+        public bool Equals((string Kind, string Value) a, (string Kind, string Value) b) =>
+            a.Kind == b.Kind && string.Equals(a.Value, b.Value, Folds(a.Kind) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+        public int GetHashCode((string Kind, string Value) k) =>
+            HashCode.Combine(k.Kind, Folds(k.Kind) ? StringComparer.OrdinalIgnoreCase.GetHashCode(k.Value) : StringComparer.Ordinal.GetHashCode(k.Value));
     }
 
     // Learn names a folder, telemetry often holds the full path: either form

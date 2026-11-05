@@ -10,6 +10,9 @@ public static class HuntRules
     /// <summary>The ISO 8601 run interval of every rule: once a day.</summary>
     public const string Frequency = "P1D";
 
+    /// <summary>The hunts that become detection rules: every query except a signer query, which matches every file the publisher signs.</summary>
+    public static IReadOnlyList<Hunt> Rules(HuntSet set) => [.. set.Hunts.Where(h => h.Table != "DeviceFileCertificateInfo")];
+
     /// <summary>The detectionRule body of <paramref name="hunt"/>: id, names, query, schedule, status disabled and an alert template that maps the SHA1 column to a file.</summary>
     public static JsonObject Rule(Hunt hunt)
     {
@@ -42,6 +45,9 @@ public static class HuntRules
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
     public static byte[] Write(HuntSet set)
     {
+        var rules = Rules(set);
+        var notes = set.Notes.ToList();
+        if (rules.Count < set.Hunts.Count) notes.Add("Signer queries are hunting queries only: they match every file the publisher signs, so no detection rule is written for them.");
         var root = new JsonObject
         {
             ["hunts"] = new JsonArray([.. set.Hunts.Select(h => (JsonNode)new JsonObject
@@ -52,9 +58,10 @@ public static class HuntRules
                 ["kql"] = h.Kql,
                 ["facts"] = new JsonArray([.. h.Facts.Select(f => (JsonNode)JsonValue.Create(f)!)]),
                 ["evidence"] = h.Evidence,
+                ["severity"] = h.Severity,
             })]),
-            ["detectionRules"] = new JsonArray([.. set.Hunts.Select(h => (JsonNode)Rule(h))]),
-            ["notes"] = new JsonArray([.. set.Notes.Select(n => (JsonNode)JsonValue.Create(n)!)]),
+            ["detectionRules"] = new JsonArray([.. rules.Select(h => (JsonNode)Rule(h))]),
+            ["notes"] = new JsonArray([.. notes.Select(n => (JsonNode)JsonValue.Create(n)!)]),
         };
         return Encoding.UTF8.GetBytes(root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }

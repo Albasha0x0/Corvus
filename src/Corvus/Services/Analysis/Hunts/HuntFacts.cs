@@ -22,13 +22,13 @@ public static partial class HuntFacts
         "mscoree.dll",
     };
 
-    [GeneratedRegex(@"\\\\\.\\pipe\\[^\s\\""'<>|]+(?:\\[^\s\\""'<>|]+)*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\\\\\.\\pipe\\[^\s\\<>|]+(?:\\[^\s\\<>|]+)*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Pipe();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_.\-]{1,64}\.dll$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[A-Za-z0-9_\-][A-Za-z0-9_.\-]{0,63}\.dll$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BareDll();
 
-    [GeneratedRegex(@"^[A-Za-z]:\\[^\s""'<>|*?]+\.[A-Za-z0-9]{1,5}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[A-Za-z]:\\[^\s""<>|*?]+\.[A-Za-z0-9]{1,5}$", RegexOptions.CultureInvariant)]
     private static partial Regex WindowsFile();
 
     /// <summary>The facts of <paramref name="summary"/> and the notes naming what was not read; the strings of an image over the file-input size limit are not scanned.</summary>
@@ -36,11 +36,22 @@ public static partial class HuntFacts
     {
         var facts = new List<HuntFact>();
         var notes = new List<string>();
-        if (summary.File.Sha1.Length > 0) facts.Add(new(HuntKind.Sha1, summary.File.Sha1, IndicatorEvidence.Decoded));
+        bool pe = input.Head.Length >= 2 && input.Head[0] == 'M' && input.Head[1] == 'Z';
+        // Regions are read once, from the bytes the strings come from.
+        var hot = input.Streamed || !IsExecutable(input) ? null : HighEntropyWindows(input.Image, ct);
+        int compressed = 0;
+        if (summary.File.Sha1.Length > 0) facts.Add(new(HuntKind.Sha1, summary.File.Sha1, IndicatorEvidence.Computed));
         if (summary.File.Certificate is { Present: true, Signer: { Length: > 0 } signer })
-            facts.Add(new(HuntKind.Signer, signer, IndicatorEvidence.Decoded));
+            facts.Add(new(HuntKind.Signer, signer, IndicatorEvidence.Computed));
+        else if (summary.File.Certificate is { Present: true })
+            notes.Add("The signer is unknown: the embedded certificate names none.");
+        else if (pe)
+            notes.Add("The signer is unknown: the file has no embedded signature, and catalog signatures are not read.");
         foreach (var i in IndicatorList.Of(summary).Indicators.Where(i => i.Type is "url" or "domain" or "ipv4" or "ipv6"))
+        {
+            if (hot != null && i.Sources.All(src => src == "native") && StringOffset(i.FirstLocation) is { } at && InHot(hot, at)) { compressed++; continue; }
             facts.Add(new(i.Type, i.Value, i.Evidence));
+        }
         foreach (var a in summary.Assemblies)
         {
             if (a.Values.Total > a.Values.Top.Count)
@@ -51,9 +62,11 @@ public static partial class HuntFacts
                 if (kind != null) facts.Add(new(kind, v.Value, IndicatorList.AssemblyEvidence(v)));
             }
         }
-        if (input.Head.Length < 2 || input.Head[0] != 'M' || input.Head[1] != 'Z')
+        if (!pe)
         {
             notes.Add("The version resource, imports and strings are read for PE images only.");
+            if (compressed > 0) notes.Add(CompressedNote(compressed));
+            if (!IsExecutable(input)) notes.Add("The file is not an executable image: unpack_container lists its entries to hunt each one.");
             return (facts, notes);
         }
         if (input.Streamed)
@@ -64,60 +77,94 @@ public static partial class HuntFacts
         var image = input.Image;
         try
         {
-            var pe = PeFile.FromBytes(image, input.Path);
-            if (pe.VersionInfo?.Get("OriginalFilename") is { Length: > 0 } original) facts.Add(new(HuntKind.OriginalFileName, original, IndicatorEvidence.Decoded));
-            foreach (var module in pe.Imports.Select(i => i.Module).Distinct(StringComparer.OrdinalIgnoreCase))
+            var file = PeFile.FromBytes(image, input.Path);
+            if (file.VersionInfo?.Get("OriginalFilename") is { Length: > 0 } original) facts.Add(new(HuntKind.OriginalFileName, original, IndicatorEvidence.Decoded));
+            foreach (var module in file.Imports.Select(i => i.Module).Distinct(StringComparer.OrdinalIgnoreCase))
                 if (SideLoadable(module)) facts.Add(new(HuntKind.DllName, module, IndicatorEvidence.Reference));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             notes.Add($"The version resource and imports are unknown, the image did not parse: {ex.Message}");
         }
-        facts.AddRange(Strings(image, notes, ct));
+        facts.AddRange(Strings(image, hot!, ref compressed, notes, ct));
+        if (compressed > 0) notes.Add(CompressedNote(compressed));
         return (facts, notes);
     }
+
+    /// <summary>True for a PE or ELF image, the files whose process and image-load events the SHA-1 queries read.</summary>
+    public static bool IsExecutable(FileInput input) =>
+        input.Head.Length >= 2 && input.Head[0] == 'M' && input.Head[1] == 'Z' || Corvus.Native.NativeImageLoader.Detect(input.Head) == Corvus.Native.NativeFileKind.Elf;
+
+    // Strings inside data this compressed are noise, not names the program uses.
+    private const int WindowBytes = 4_096;
+
+    private static string CompressedNote(int count) =>
+        $"{count:N0} string fact(s) lie in compressed or high-entropy regions (entropy {Corvus.Native.PackerDetection.HighEntropy} or more per {WindowBytes}-byte window) and have no query.";
+
+    private static bool[] HighEntropyWindows(byte[] image, CancellationToken ct)
+    {
+        var hot = new bool[(image.Length + WindowBytes - 1) / WindowBytes];
+        for (int w = 0; w < hot.Length; w++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var span = image.AsSpan(w * WindowBytes, Math.Min(WindowBytes, image.Length - w * WindowBytes));
+            hot[w] = span.Length == WindowBytes && Blob.Entropy(span) >= Corvus.Native.PackerDetection.HighEntropy;
+        }
+        return hot;
+    }
+
+    private static bool InHot(bool[] hot, long offset) => offset / WindowBytes < hot.Length && hot[offset / WindowBytes];
+
+    [GeneratedRegex(@"file offset 0x([0-9a-f]+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OffsetText();
+
+    private static long? StringOffset(string location) =>
+        OffsetText().Match(location) is { Success: true } m && long.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.HexNumber, null, out var at) ? at : null;
 
     private static bool SideLoadable(string name) =>
         BareDll().IsMatch(name) && !KnownDlls.Contains(name) && !name.StartsWith("api-ms-", StringComparison.OrdinalIgnoreCase)
         && !name.StartsWith("ext-ms-", StringComparison.OrdinalIgnoreCase);
 
     // Pipe paths, library names without a folder and file paths among the printable ASCII and UTF-16 runs.
-    private static IEnumerable<HuntFact> Strings(byte[] image, List<string> notes, CancellationToken ct)
+    private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, ref int compressed, List<string> notes, CancellationToken ct)
     {
         var found = new Dictionary<(string, string), HuntFact>();
-        int capped = 0;
+        int capped = 0, inHot = 0;
         void Add(string kind, string value)
         {
             if (found.Count(f => f.Key.Item1 == kind) >= MaxPerKind) { capped++; return; }
             found.TryAdd((kind, value), new(kind, value, IndicatorEvidence.String));
         }
-        foreach (var run in Runs(image, ct))
+        foreach (var (run, offset) in Runs(image, ct))
         {
+            if (InHot(hot, offset)) { inHot++; continue; }
             foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, m.Value);
             if (BareDll().IsMatch(run) && SideLoadable(run)) Add(HuntKind.DllName, run);
             // A debug path names the build machine, not a file the program writes.
             else if (WindowsFile().IsMatch(run) && !run.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) Add(HuntKind.FilePath, run);
         }
+        compressed += inHot;
         if (capped > 0) notes.Add($"{capped:N0} pipe, library and file strings past {MaxPerKind} per kind were not read.");
         return found.Values;
     }
 
-    private static IEnumerable<string> Runs(byte[] image, CancellationToken ct)
+    private static IEnumerable<(string Text, int Offset)> Runs(byte[] image, CancellationToken ct)
     {
         // Wide strings are read at both parities of the file offset.
         foreach (var (step, start) in new[] { (1, 0), (2, 0), (2, 1) })
         {
             var run = new StringBuilder();
+            int begin = 0;
             for (int i = start; i + step <= image.Length; i += step)
             {
                 if ((i & 0xFFFFF) == 0) ct.ThrowIfCancellationRequested();
                 bool text = image[i] is >= 0x20 and < 0x7F && (step == 1 || image[i + 1] == 0);
-                if (text && run.Length < 2_048) { run.Append((char)image[i]); continue; }
-                if (run.Length >= 5) yield return run.ToString();
+                if (text && run.Length < 2_048) { if (run.Length == 0) begin = i; run.Append((char)image[i]); continue; }
+                if (run.Length >= 5) yield return (run.ToString(), begin);
                 run.Clear();
-                if (text) run.Append((char)image[i]);
+                if (text) { begin = i; run.Append((char)image[i]); }
             }
-            if (run.Length >= 5) yield return run.ToString();
+            if (run.Length >= 5) yield return (run.ToString(), begin);
         }
     }
 }

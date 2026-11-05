@@ -18,13 +18,16 @@ public static class IndicatorEvidence
     /// <summary>Text recovered by decoding or peeling a layer of the file.</summary>
     public const string Decoded = "decoded";
 
+    /// <summary>A value measured or read from the file itself, such as its hash or signer.</summary>
+    public const string Computed = "computed";
+
     /// <summary>A name or fingerprint seen in captured network traffic.</summary>
     public const string Traffic = "traffic";
 
     /// <summary>The classes, weakest first.</summary>
-    public static readonly string[] Classes = [String, Reference, Decoded, Traffic];
+    public static readonly string[] Classes = [String, Reference, Decoded, Computed, Traffic];
 
-    private static readonly int[] Scores = [15, 50, 70, 85];
+    private static readonly int[] Scores = [15, 50, 70, 80, 85];
 
     // An unknown class ranks with the weakest.
     private static int Rank(string evidence) => Math.Max(0, Array.IndexOf(Classes, evidence));

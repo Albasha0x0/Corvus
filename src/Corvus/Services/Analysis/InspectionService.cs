@@ -20,6 +20,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     private const int MaxSummaryEmbeddedAssemblies = 10;
     private const int TopValues = 10;
 
+    // A view that writes queries or findings reads more of the typed values.
+    private const int MaxNetworkViewValues = 200;
+
     /// <summary>summarize_file streams a file above this size (<see cref="FileInput.StreamAbove"/>; lower in tests).</summary>
     public long StreamAbove { get; init; } = FileInput.StreamAbove;
 
@@ -1101,7 +1104,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             if (input.Options.Hunts || input.Options.View == "hunts")
             {
                 var (huntFacts, factNotes) = Hunts.HuntFacts.Of(s, input, ct);
-                var set = Hunts.KqlHunts.Write(huntFacts);
+                var set = Hunts.KqlHunts.Write(huntFacts, null, Hunts.HuntFacts.IsExecutable(input));
                 views["hunts"] = new FileView(new Hunts.HuntSet(set.Hunts, [.. factNotes, .. set.Notes]), [$"{set.Hunts.Count:N0} hunting queries."]);
             }
             if (input.Options.View != "indicators") return s;
@@ -1355,7 +1358,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }).ToList();
         var values = Values.Find(scan, contents, out int encodedDropped, ct);
         if (encodedDropped > 0) notes.Add($"{encodedDropped:N0} encoded values past the first {Values.MaxEncoded} are not counted");
-        var valueSummary = new ValueSummary(values.Count, values.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.Count()), values.Take(TopValues).ToList());
+        var valueSummary = new ValueSummary(values.Count, values.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.Count()), values.Take(network ? MaxNetworkViewValues : TopValues).ToList());
         var entryPoints = EntryPoints.Find(module, image);
         var health = IlHealth.Assess(image, ct);
         if (health.Invalid > 0) notes.Add(health.Describe());

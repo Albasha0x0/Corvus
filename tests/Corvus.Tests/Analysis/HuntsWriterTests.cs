@@ -184,7 +184,7 @@ public sealed class HuntsWriterTests
         var set = KqlHunts.Write([.. OneOfEach(), new(HuntKind.Mutex, "m", "reference")]);
         var root = JsonNode.Parse(HuntRules.Write(set))!;
         Assert.Equal(set.Hunts.Count, root["hunts"]!.AsArray().Count);
-        Assert.Equal(set.Hunts.Count, root["detectionRules"]!.AsArray().Count);
+        Assert.Equal(set.Hunts.Count - 1, root["detectionRules"]!.AsArray().Count);
         Assert.Contains(root["notes"]!.AsArray(), n => ((string?)n)!.Contains("mutex", StringComparison.Ordinal));
     }
 
@@ -290,7 +290,7 @@ public sealed class HuntsWriterTests
     [Fact]
     public void A_pipe_query_carries_a_note_that_its_names_are_unconfirmed()
     {
-        var set = KqlHunts.Write([new(HuntKind.NamedPipe, @"\.\pipe\svc", "string")]);
+        var set = KqlHunts.Write([new(HuntKind.NamedPipe, @"\.\pipe\svc", "reference")]);
         Assert.Contains(set.Notes, n => n.Contains("does not show the pipe is absent", StringComparison.Ordinal));
     }
 
@@ -315,5 +315,93 @@ public sealed class HuntsWriterTests
     public void A_query_with_an_unbalanced_parenthesis_fails_the_check()
     {
         Assert.NotEmpty(KqlCheck.Diagnostics("DeviceFileEvents\n| where (SHA1 == 'a'"));
+    }
+
+    // Field test 11a: a signer query matches much of any fleet.
+    [Fact]
+    public void A_signer_query_stays_a_hunting_query_and_gets_no_detection_rule()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Signer, "CN=Example Publisher", "computed")]);
+        var root = JsonNode.Parse(HuntRules.Write(set))!;
+        Assert.Contains(root["hunts"]!.AsArray(), h => (string?)h!["table"] == "DeviceFileCertificateInfo");
+        Assert.DoesNotContain(root["detectionRules"]!.AsArray(), r => ((string?)r!["queryCondition"]!["queryText"])!.StartsWith("DeviceFileCertificateInfo", StringComparison.Ordinal));
+        Assert.Single(root["notes"]!.AsArray(), n => ((string?)n)!.Contains("Signer queries", StringComparison.Ordinal));
+    }
+
+    // Field test 15g: the hunts array had no severity.
+    [Fact]
+    public void Each_hunt_of_the_file_carries_its_severity()
+    {
+        var root = JsonNode.Parse(HuntRules.Write(KqlHunts.Write(OneOfEach())))!;
+        Assert.All(root["hunts"]!.AsArray(), h => Assert.Contains((string?)h!["severity"], new[] { "informational", "low", "medium", "high" }));
+    }
+
+    // Field test 11b: a pipe seen only as a string was not limited to the file.
+    [Fact]
+    public void A_pipe_seen_only_as_a_string_reads_opens_by_this_file_alone()
+    {
+        var pipe = new HuntFact(HuntKind.NamedPipe, @"\\.\pipe\svc-pipe", "string");
+        var hunt = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), pipe]).Hunts.Single(h => h.Table == "DeviceEvents");
+        Assert.Contains($"InitiatingProcessSHA1 == '{Sha1}'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+        var open = KqlHunts.Write([new(HuntKind.NamedPipe, @"\\.\pipe\svc-pipe", "reference")]).Hunts.Single();
+        Assert.DoesNotContain("InitiatingProcessSHA1 ==", open.Kql, StringComparison.Ordinal);
+        var none = KqlHunts.Write([pipe]);
+        Assert.Empty(none.Hunts);
+        Assert.Contains(none.Notes, n => n.Contains("file SHA-1 is unknown", StringComparison.Ordinal));
+    }
+
+    // Field test 12b: VERSION.dll and version.dll made two hunts.
+    [Fact]
+    public void Facts_that_differ_only_in_case_merge_and_keep_the_first_spelling()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Domain, "C2.Example.NET", "reference"), new(HuntKind.Domain, "c2.example.net", "decoded"),
+            new(HuntKind.OriginalFileName, "Tool.EXE", "decoded"), new(HuntKind.OriginalFileName, "tool.exe", "decoded")]);
+        Assert.Equal(2, set.Hunts.Count);
+        Assert.Equal("domain:C2.Example.NET", set.Hunts.Single(h => h.Table == "DeviceNetworkEvents").Facts[0]);
+        Assert.Equal("decoded", set.Hunts.Single(h => h.Table == "DeviceNetworkEvents").Evidence);
+    }
+
+    // Field test 12c: one query per library name.
+    [Fact]
+    public void Library_names_share_one_query_with_a_case_insensitive_list()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.DllName, "VERSION.dll", "reference"), new(HuntKind.DllName, "version.dll", "reference"),
+            new(HuntKind.DllName, "helper.dll", "reference")]);
+        var hunt = set.Hunts.Single(h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        Assert.Equal(["dll_name:helper.dll", "dll_name:VERSION.dll"], hunt.Facts);
+        Assert.Contains("| where FileName in~ ('helper.dll', 'VERSION.dll')", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+        Assert.Empty(KqlCheck.Diagnostics(hunt.Kql));
+    }
+
+    [Fact]
+    public void A_library_list_past_the_character_cap_splits_into_queries()
+    {
+        var names = Enumerable.Range(0, 400).Select(i => new HuntFact(HuntKind.DllName, $"library-{i:D4}-{new string('x', 40)}.dll", "reference"));
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), .. names]);
+        var libraries = set.Hunts.Where(h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal)).ToList();
+        Assert.True(libraries.Count > 1);
+        Assert.Equal(400, libraries.Sum(h => h.Facts.Count));
+        Assert.All(libraries, h => Assert.Empty(KqlCheck.Diagnostics(h.Kql)));
+        Assert.Equal(libraries.Count, libraries.Select(h => h.Id).Distinct().Count());
+    }
+
+    [Fact]
+    public void The_library_query_id_hashes_the_sorted_names_and_the_file()
+    {
+        static string Id(string sha1, params string[] names) =>
+            KqlHunts.Write([new(HuntKind.Sha1, sha1, "computed"), .. names.Select(n => new HuntFact(HuntKind.DllName, n, "reference"))]).Hunts.Single(h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal)).Id;
+        Assert.Equal(Id(Sha1, "a.dll", "B.dll"), Id(Sha1, "b.dll", "A.DLL"));
+        Assert.NotEqual(Id(Sha1, "a.dll", "b.dll"), Id(Sha1, "a.dll"));
+        Assert.NotEqual(Id(Sha1, "a.dll"), Id(new string('b', 40), "a.dll"));
+    }
+
+    // Field test 14: an archive has no process or image-load events.
+    [Fact]
+    public void A_file_that_is_not_executable_gets_the_file_event_query_only()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed")], null, executable: false);
+        Assert.Equal("DeviceFileEvents", Assert.Single(set.Hunts).Table);
     }
 }
