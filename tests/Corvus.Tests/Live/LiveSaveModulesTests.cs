@@ -13,6 +13,8 @@ public class LiveSaveModulesTests
         // The session holds a running system program; the scripted backend only names it.
         using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        // A process just created has no module list until its loader runs.
+        await WaitForModules(child);
         var workspace = new AssemblyWorkspace();
         var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options()))
         {
@@ -242,6 +244,18 @@ public class LiveSaveModulesTests
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, new MinidumpService());
         tools.LiveSession("attach", program: child.Id.ToString()).GetAwaiter().GetResult();
         return (service, tools, backend);
+    }
+
+    private static async Task WaitForModules(System.Diagnostics.Process child)
+    {
+        for (int i = 0; i < 200; i++)
+        {
+            child.Refresh();
+            try { if (child.Modules.Count > 1) return; }
+            catch (System.ComponentModel.Win32Exception) { }
+            await Task.Delay(50);
+        }
+        Assert.Fail($"process {child.Id} listed no modules within 10 s");
     }
 
     private static System.Diagnostics.Process StartChild()
