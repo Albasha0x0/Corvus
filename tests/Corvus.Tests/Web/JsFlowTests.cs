@@ -105,7 +105,8 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
     // into the view's uncancelled time, as a thread-pool timer fires late on
     // a busy 2-core runner (release.yml, v2.10.0). A view that ends before
     // the cancel is retried with half the delay, down to 1/64; the thread
-    // ends before its source is disposed.
+    // ends before its source is disposed. The bundle keeps a repeat call
+    // longer than the 100 ms a macOS runner adds to a cancel (ci.yml, dd332664c).
     [Theory]
     [InlineData("flow", "sinks")]
     [InlineData("secrets", null)]
@@ -113,7 +114,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
     public async Task A_view_cancelled_during_the_walk_of_a_large_bundle_stops(string view, string? query)
     {
         var js = _dir.File("large.js");
-        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 20_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
+        File.WriteAllText(js, string.Concat(Enumerable.Range(0, 100_000).Select(i => $"function f{i}(a) {{ return g{i}(a); }}\n")));
         var tools = new Corvus.Tools.WebTools(new OutputPager(new ServerOptions()));
         // An answer of no match is a finished view.
         async Task Uncancelled() { try { await tools.AnalyzeJs(js, view, query: query); } catch (ToolError) { } }
