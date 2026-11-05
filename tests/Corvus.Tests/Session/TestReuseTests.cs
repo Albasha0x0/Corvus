@@ -727,6 +727,22 @@ public class TestReuseTests
         }
     }
 
+    // Regression: a push from a linked worktree passed GIT_DIR to the run, and
+    // git init in a test's folder set core.bare in the repository that pushed.
+    [Fact]
+    public void A_run_started_with_a_git_directory_set_drops_it()
+    {
+        var script = Path.Combine(DocsTests.RepoRoot(), "test.ps1");
+        var lines = Run($$"""
+            {{NoInheritedSettings}}
+            $env:GIT_DIR = Join-Path ([IO.Path]::GetTempPath()) 'no-such-repository'
+            & '{{script}}' -Status | Out-Null
+            'left=' + [bool]$env:GIT_DIR
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Equal("left=False", lines[^1]);
+    }
+
     // Regression (133c09a9): the child inherits settings other tests set, and those tests delete the folders they name.
     private const string NoInheritedSettings = "Get-ChildItem env:CORVUS_* | Remove-Item";
 

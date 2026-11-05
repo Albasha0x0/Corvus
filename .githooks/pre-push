@@ -3,6 +3,8 @@
 # A clone with a publish/ folder also rebuilds it in the background, so a development relay serves the pushed code.
 # Enabled per clone: git config core.hooksPath .githooks
 root=$(git rev-parse --show-toplevel)
+# The runs started here outlive the push: they must not inherit this repository's GIT_DIR.
+unset $(git rev-parse --local-env-vars)
 while read -r local_ref local_sha remote_ref remote_sha; do
     # A push of another branch, or one that deletes main (an all-zero sha), starts no run.
     if [ "$remote_ref" = "refs/heads/main" ] && [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then

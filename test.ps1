@@ -55,6 +55,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# A hook in a linked worktree passes GIT_DIR on: git in a test's own folder would rewrite the pushing repository.
+git rev-parse --local-env-vars | ForEach-Object { Remove-Item "env:$_" -ErrorAction SilentlyContinue }
 $runClock = [Diagnostics.Stopwatch]::StartNew(); $buildSeconds = 0.0
 $root = $PSScriptRoot
 $tests = Join-Path $root 'tests/Corvus.Tests'
