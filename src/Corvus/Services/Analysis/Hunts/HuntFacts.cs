@@ -150,7 +150,7 @@ public static partial class HuntFacts
         {
             if (InHot(hot, offset)) { inHot++; continue; }
             foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, Unquoted(run, m));
-            if (RegistryPath().IsMatch(run)) Add(HuntKind.RegistryKey, run);
+            if (RegistryPath().IsMatch(run)) Add(HuntKind.RegistryKey, Values.BeforeMessage(run));
             if (BareDll().IsMatch(run) && SideLoadable(run)) Add(HuntKind.DllName, run);
             // A debug path names the build machine, not a file the program writes.
             else if (WindowsFile().IsMatch(run) && !run.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) Add(HuntKind.FilePath, run);

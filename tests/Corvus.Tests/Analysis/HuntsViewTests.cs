@@ -55,6 +55,23 @@ public sealed class HuntsViewTests : IDisposable
     }
 
     [Fact]
+    public void A_key_message_and_a_drive_path_near_a_registry_call_give_only_the_key()
+    {
+        var bytes = InspectionTests.Compile("Keys", """
+            public static class Keys
+            {
+                public static string Message() => @"Software\Vendor\App: ok";
+                public static object Open() => Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Vendor\App");
+                public static object Path() => Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"C:\Data\run.ps1");
+            }
+            """);
+        var path = _dir.File("Keys.dll");
+        File.WriteAllBytes(path, bytes);
+        var hunt = Assert.Single(Hunts(path).Hunts, h => h.Table == "DeviceRegistryEvents");
+        Assert.Equal([@"registry_key:Software\Vendor\App"], hunt.Facts);
+    }
+
+    [Fact]
     public void Every_query_of_the_view_passes_the_check()
     {
         Assert.All(Hunts(Program()).Hunts, h => Assert.Empty(KqlCheck.Diagnostics(h.Kql)));

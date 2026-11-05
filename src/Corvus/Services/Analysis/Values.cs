@@ -213,7 +213,7 @@ public static partial class Values
     }
 
     // A Windows file name or registry key rarely holds a colon and space, so text after one is the message around it.
-    private static string BeforeMessage(string path) => path.IndexOf(": ", StringComparison.Ordinal) is var at and > 0 ? path[..at] : path;
+    internal static string BeforeMessage(string path) => path.IndexOf(": ", StringComparison.Ordinal) is var at and > 0 ? path[..at] : path;
 
     private static void FromText(Builder b, string text, Location where, IReadOnlyList<string> passedTo)
     {
@@ -262,7 +262,7 @@ public static partial class Values
         foreach (var key in Matches(Registry(), text))
             b.Add("registry_key", BeforeMessage(key), where, passedTo);
         if (RelativeRegistry.IsMatch(text.Trim()) || passedTo.Any(a => a.StartsWith("Microsoft.Win32.RegistryKey::", StringComparison.Ordinal) && a.Contains("SubKey")))
-            if (text.Contains('\\') && text.Length < 512) b.Add("registry_key", BeforeMessage(text.Trim()), where, passedTo);
+            if (text.Contains('\\') && !text.Contains(":\\", StringComparison.Ordinal) && text.Length < 512) b.Add("registry_key", BeforeMessage(text.Trim()), where, passedTo);
     }
 
     /// <summary>Mutex names, user agents, crypto keys and KDF passwords, recognized by consuming APIs.</summary>
