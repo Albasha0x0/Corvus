@@ -7,6 +7,7 @@ using Corvus.Tools;
 namespace Corvus.Tests;
 
 /// <summary>The error and the server_status row when the YARA-X library is missing.</summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class YaraUnavailableTests : IDisposable
 {
     private readonly TempDir _dir = new();
