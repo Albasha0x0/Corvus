@@ -129,6 +129,14 @@ public sealed class HuntsViewTests : IDisposable
         Assert.Contains(@"endswith '\\evil\'pipe\\sub'", hunt.Kql, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_quoted_pipe_path_ends_at_its_closing_quote()
+    {
+        var set = Hunts(Image("quoted.exe", Text(@"connect ""\\.\pipe\status"" now")));
+        var hunt = Assert.Single(set.Hunts, h => h.Table == "DeviceEvents");
+        Assert.Contains(@"endswith '\\status'", hunt.Kql, StringComparison.Ordinal);
+    }
+
     // Field test 10: a path with an apostrophe was dropped.
     [Fact]
     public void A_file_path_with_an_apostrophe_is_kept()

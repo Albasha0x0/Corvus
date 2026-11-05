@@ -121,6 +121,11 @@ public static partial class HuntFacts
     private static long? StringOffset(string location) =>
         OffsetText().Match(location) is { Success: true } m && long.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.HexNumber, null, out var at) ? at : null;
 
+    // A pipe path written inside quotes ends before the closing quote.
+    private static string Unquoted(string run, Match m) =>
+        m.Index > 0 && run[m.Index - 1] is '"' or '\'' && m.Value.IndexOf(run[m.Index - 1], StringComparison.Ordinal) is var q and > 0
+            ? m.Value[..q] : m.Value;
+
     private static bool SideLoadable(string name) =>
         BareDll().IsMatch(name) && !KnownDlls.Contains(name) && !name.StartsWith("api-ms-", StringComparison.OrdinalIgnoreCase)
         && !name.StartsWith("ext-ms-", StringComparison.OrdinalIgnoreCase);
@@ -138,7 +143,7 @@ public static partial class HuntFacts
         foreach (var (run, offset) in Runs(image, ct))
         {
             if (InHot(hot, offset)) { inHot++; continue; }
-            foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, m.Value);
+            foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, Unquoted(run, m));
             if (BareDll().IsMatch(run) && SideLoadable(run)) Add(HuntKind.DllName, run);
             // A debug path names the build machine, not a file the program writes.
             else if (WindowsFile().IsMatch(run) && !run.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) Add(HuntKind.FilePath, run);
