@@ -69,4 +69,13 @@ public sealed class RarPasswordTests
         Assert.Empty(Rar5Streams.Names(new MemoryStream(rar)));
         Assert.Contains(Open(rar, Secret).Notes, n => n.Contains("stream records unknown"));
     }
+
+    [Fact]
+    public void Rar5_header_bytes_with_an_oversized_data_area_end_the_name_scan()
+    {
+        // Regression for the 2026-11-05 quick-set failure: random header bytes read as a huge data size.
+        byte[] header = [1, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
+        byte[] rar = [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00, 0, 0, 0, 0, (byte)header.Length, .. header];
+        Assert.Empty(Rar5Streams.Names(new MemoryStream(rar)));
+    }
 }

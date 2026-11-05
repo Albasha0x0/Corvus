@@ -54,6 +54,8 @@ internal static class Rar5Streams
                 else if (name == "STM" && StreamName(header, (int)Math.Max(0, header.Length - extra)) is { } stream) names.Add(file + stream);
             }
             if (type == 5) break;
+            // A data size past the end ends the scan; Position beyond int range throws on a MemoryStream.
+            if (data > s.Length - s.Position) break;
             s.Position += data;
         }
         return names;
