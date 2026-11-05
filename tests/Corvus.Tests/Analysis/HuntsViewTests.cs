@@ -105,6 +105,141 @@ public sealed class HuntsViewTests : IDisposable
         Assert.Contains(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal));
     }
 
+    // A header that fails to parse still gets its strings read.
+    private string Image(string name, byte[] body)
+    {
+        var bytes = new byte[256 + body.Length];
+        bytes[0] = (byte)'M';
+        bytes[1] = (byte)'Z';
+        bytes[0x3C] = 0xF0;
+        body.CopyTo(bytes, 256);
+        var path = _dir.File(name);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    private static byte[] Text(params string[] strings) => System.Text.Encoding.ASCII.GetBytes(string.Join('\0', strings) + "\0");
+
+    // Field test 10: quotes are legal in a pipe name.
+    [Fact]
+    public void A_pipe_name_with_a_quote_is_kept_whole()
+    {
+        var set = Hunts(Image("pipe.exe", Text(@"\\.\pipe\evil'pipe\sub")));
+        var hunt = Assert.Single(set.Hunts, h => h.Table == "DeviceEvents");
+        Assert.Contains(@"endswith '\\evil\'pipe\\sub'", hunt.Kql, StringComparison.Ordinal);
+    }
+
+    // Field test 10: a path with an apostrophe was dropped.
+    [Fact]
+    public void A_file_path_with_an_apostrophe_is_kept()
+    {
+        var set = Hunts(Image("path.exe", Text(@"C:\Users\Public\o'brien\drop.exe")));
+        Assert.Single(set.Hunts, h => h.Table == "DeviceFileEvents" && h.Facts[0].StartsWith("file_path:", StringComparison.Ordinal));
+    }
+
+    // Field test 12a: the stem of ".ni.dll" is empty.
+    [Fact]
+    public void A_library_name_with_a_leading_dot_is_not_a_library()
+    {
+        var set = Hunts(Image("dots.exe", Text(".ni.dll", "plugin.dll")));
+        var hunt = Assert.Single(set.Hunts, h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        Assert.Equal(["dll_name:plugin.dll"], hunt.Facts);
+    }
+
+    // Field test 13: a catalog signature is not read.
+    [Fact]
+    public void A_PE_image_without_an_embedded_signature_gives_a_signer_note()
+    {
+        var set = Hunts(Image("unsigned.exe", Text("nothing")));
+        Assert.Contains(set.Notes, n => n.Contains("signer is unknown", StringComparison.Ordinal) && n.Contains("catalog", StringComparison.Ordinal));
+    }
+
+    // Field test 14: a zip has no process or image-load events.
+    [Fact]
+    public void A_zip_gets_the_file_event_query_and_a_note_pointing_at_its_entries()
+    {
+        var path = _dir.File("pack.zip");
+        using (var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
+            using (var w = new StreamWriter(zip.CreateEntry("a.txt").Open())) w.Write("hello");
+        var set = Hunts(path);
+        Assert.Equal("DeviceFileEvents", Assert.Single(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal)).Table);
+        Assert.DoesNotContain(set.Hunts, h => h.Table is "DeviceProcessEvents" or "DeviceImageLoadEvents");
+        Assert.Contains(set.Notes, n => n.Contains("unpack_container", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_PE_image_keeps_the_process_and_image_load_queries_of_its_hash()
+    {
+        var tables = Hunts(Program()).Hunts.Where(h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal)).Select(h => h.Table).ToList();
+        Assert.Contains("DeviceProcessEvents", tables);
+        Assert.Contains("DeviceImageLoadEvents", tables);
+    }
+
+    // Field test 20: a name read from compressed bytes is noise.
+    [Fact]
+    public void A_string_inside_a_high_entropy_region_gives_no_hunt_and_one_note()
+    {
+        var body = new byte[16_384];
+        new Random(7).NextBytes(body);
+        var hidden = Text(@"\\.\pipe\hidden-pipe");
+        hidden.CopyTo(body, 5_000);
+        var plain = Text(@"\\.\pipe\plain-pipe");
+        var set = Hunts(Image("packed.exe", [.. plain, .. new byte[4_096], .. body]));
+        Assert.DoesNotContain(set.Hunts, h => h.Kql.Contains("hidden-pipe", StringComparison.Ordinal));
+        Assert.Contains(set.Hunts, h => h.Kql.Contains("plain-pipe", StringComparison.Ordinal));
+        Assert.Single(set.Notes, n => n.Contains("high-entropy", StringComparison.Ordinal));
+    }
+
+    // Field test 15f: a hash is computed, not decoded.
+    [Fact]
+    public void The_file_hash_carries_the_computed_evidence_class()
+    {
+        Assert.All(Hunts(Program()).Hunts.Where(h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal)), h => Assert.Equal(IndicatorEvidence.Computed, h.Evidence));
+    }
+
+    // Field test 15e: only 10 extracted values were read.
+    [Fact]
+    public void A_program_with_many_pipe_names_is_read_past_ten_values()
+    {
+        var lines = string.Join('\n', Enumerable.Range(0, 30).Select(i => $"public static string P{i}() => @\"\\\\.\\pipe\\many-{i:D2}\";"));
+        var path = _dir.File("Many.dll");
+        File.WriteAllBytes(path, InspectionTests.Compile("Many", "public static class Many {\n" + lines + "\n}"));
+        var set = Hunts(path);
+        Assert.Contains(set.Hunts, h => h.Kql.Contains("many-29", StringComparison.Ordinal));
+        Assert.DoesNotContain(set.Notes, n => n.Contains("extracted values were read", StringComparison.Ordinal));
+    }
+
+    // Field test 15d: the views list left hunts out.
+    [Fact]
+    public void The_overview_lists_the_hunts_view_for_a_file()
+    {
+        var summary = new InspectionService(_ws).Summarize(null, Program(), default, new FileViewOptions("overview"));
+        Assert.Contains("hunts", Corvus.Tools.ContainerText.Summary(summary, "overview").Views);
+    }
+
+    // Field test 15a: a query inside a table cell showed its line breaks as \n.
+    [Fact]
+    public void A_query_prints_as_an_indented_block_with_real_line_breaks()
+    {
+        var summary = new InspectionService(_ws).Summarize(null, Program(), default, new FileViewOptions("hunts"));
+        var text = Corvus.Tools.ContainerText.Summary(Corvus.Tools.ContainerText.Summary(summary, "hunts"));
+        Assert.Contains("\n    DeviceFileEvents\n    | where SHA1 == '", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\n", text, StringComparison.Ordinal);
+    }
+
+    // Field test 15b: view=hunts refused offset.
+    [Fact]
+    public async Task The_hunts_view_pages_with_offset_and_limit()
+    {
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
+        var path = Program();
+        var first = await tools.SummarizeFile(path: path, view: "hunts", limit: 2);
+        Assert.Contains("[More: offset=2]", first, StringComparison.Ordinal);
+        var next = await tools.SummarizeFile(path: path, view: "hunts", offset: 2, limit: 2);
+        Assert.Contains("(showing 3-4)", next, StringComparison.Ordinal);
+        Assert.DoesNotContain(first.Split('\n').First(l => l.TrimStart().StartsWith("sha1-", StringComparison.Ordinal)), next.Split('\n'));
+    }
+
     [Fact]
     public void A_truncated_PE_image_reports_unknown_headers_and_keeps_the_SHA1_hunts()
     {

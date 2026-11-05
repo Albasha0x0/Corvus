@@ -566,7 +566,7 @@ public static class FileWork
     {
         using var _ = ContainerPassword.Enter(a.Password);
         var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null || a.ComponentsPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script });
-        var record = ContainerText.Summary(summary, a.View);
+        var record = ContainerText.Summary(summary, a.View, a.Offset, a.Limit);
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite, a.View == "dependencies")] };
         if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };
         if (a.HuntsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteHunts(summary, a.HuntsPath, a.Overwrite)] };
@@ -601,7 +601,7 @@ public static class FileWork
         if (summary.Views.GetValueOrDefault("hunts")?.Detail is not Services.Analysis.Hunts.HuntSet set)
             throw new ToolError(ErrorCode.NotFound, "No hunting queries were written: the input is not a file the hunts view reads (a loaded assembly or a folder has no hunts view).", "call summarize_file path=<a file> huntsPath=<file>");
         var full = SafeFile.WriteAllBytes(huntsPath, Services.Analysis.Hunts.HuntRules.Write(set), overwrite);
-        return $"{set.Hunts.Count} hunting queries and detection rules (disabled) written to {full}.";
+        return $"{set.Hunts.Count} hunting queries and {Services.Analysis.Hunts.HuntRules.Rules(set).Count} detection rules (disabled) written to {full}.";
     }
 
     /// <summary>

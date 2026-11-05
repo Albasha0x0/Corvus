@@ -167,9 +167,16 @@ internal static class ContainerText
 
     /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies in ordinal order, all; reserved names are listed once.</summary>
     public static IReadOnlyList<string> ViewsOf(InspectionService.FileSummary s, bool triage) =>
-        ["overview", .. s.Assemblies.Count > 0 ? ["managed"] : Array.Empty<string>(), .. s.Views.Keys.Union(triage ? ["native"] : []).Where(v => v is not ("overview" or "managed" or "all")).Order(StringComparer.Ordinal), "all"];
+        ["overview", .. s.Assemblies.Count > 0 ? ["managed"] : Array.Empty<string>(),
+            .. s.Views.Keys.Union(triage ? ["native"] : []).Union(ReadsHunts(s) ? ["hunts"] : []).Where(v => v is not ("overview" or "managed" or "all")).Order(StringComparer.Ordinal), "all"];
 
-    public static FileSummaryRecord Summary(InspectionService.FileSummary s, string view)
+    // Every file has a hash to hunt for; a loaded assembly or a folder is not read by path.
+    private static bool ReadsHunts(InspectionService.FileSummary s) => s.File.Type != "folder" && s.Container != "none (loaded assembly)";
+
+    /// <summary>Hunting queries shown per page when no limit is given.</summary>
+    public const int HuntPage = 10;
+
+    public static FileSummaryRecord Summary(InspectionService.FileSummary s, string view, long offset = 0, int? limit = null)
     {
         var views = ViewsOf(s, s.Triage != null);
         var name = view.Trim().ToLowerInvariant();
@@ -180,7 +187,7 @@ internal static class ContainerText
             Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
             Capa = name is "overview" or "indicators" ? CapaOf(s) : null,
         };
-        if (name != "overview") return record with { Detail = Detail(s, name), Notes = s.Notes.Count > 0 ? s.Notes : null };
+        if (name != "overview") return record with { Detail = name == "hunts" ? PageHunts(Detail(s, name), offset, limit) : Detail(s, name), Notes = s.Notes.Count > 0 ? s.Notes : null };
         var main = s.Assemblies.FirstOrDefault();
         // The signature line already says who signed the file.
         var shown = s.Highlights.Where(h => !h.StartsWith("The file is Authenticode-signed by", StringComparison.Ordinal)).ToList();
@@ -229,6 +236,34 @@ internal static class ContainerText
         return all;
     }
 
+    // The queries of a page, with the total and the cursor of the next page; the notes stay whole.
+    private static JsonObject PageHunts(JsonObject detail, long offset, int? limit)
+    {
+        if (detail["hunts"] is not JsonArray all) return detail;
+        int skip = (int)Math.Clamp(offset, 0, all.Count), take = Math.Max(0, limit ?? HuntPage);
+        var page = new JsonArray([.. all.Skip(skip).Take(take).Select(h => h?.DeepClone())]);
+        var paged = new JsonObject { ["total"] = all.Count, ["offset"] = skip, ["hunts"] = page };
+        if (skip + page.Count < all.Count) paged["nextOffset"] = skip + page.Count;
+        if (detail["notes"] is { } notes) paged["notes"] = notes.DeepClone();
+        return paged;
+    }
+
+    // Each query as an indented block, so it pastes as written.
+    private static void HuntsText(StringBuilder sb, JsonObject detail)
+    {
+        int total = (int?)detail["total"] ?? 0, offset = (int?)detail["offset"] ?? 0;
+        var hunts = detail["hunts"] as JsonArray ?? [];
+        var shown = hunts.Count > 0 ? $" (showing {offset + 1}-{offset + hunts.Count})" : offset > 0 ? $" (none from offset {offset})" : "";
+        sb.Append($"{total} hunting {OutputPager.Noun(total, "query")}{shown}:\n");
+        foreach (var h in hunts.OfType<JsonObject>())
+        {
+            sb.Append($"  {h["id"]} ({h["table"]}, {h["severity"]}, {h["evidence"]}) {Escape((string?)h["title"] ?? "")}\n");
+            foreach (var line in ((string?)h["kql"] ?? "").Split('\n')) sb.Append("    ").Append(line).Append('\n');
+        }
+        foreach (var n in detail["notes"] as JsonArray ?? []) sb.Append("Note: ").Append(Escape((string?)n ?? "")).Append('\n');
+        sb.Append(detail["nextOffset"] is { } next ? OutputPager.More((int)next) : OutputPager.End(total, "query")).Append('\n');
+    }
+
     private static string? SignatureLine(CertificateInfo c) =>
         !c.Present ? null
         : c.Problem != null ? $"unreadable: {c.Problem}"
@@ -268,7 +303,8 @@ internal static class ContainerText
         else
         {
             sb.Append($"; view {r.View}\n");
-            if (r.Detail is { } detail) sb.Append(RecordText.Render(detail, null));
+            if (r.Detail is { } detail && r.View == "hunts") HuntsText(sb, detail);
+            else if (r.Detail is { } other) sb.Append(RecordText.Render(other, null));
             if (CapaLine(r.Capa) is { } capa) sb.Append(Escape(capa)).Append('\n');
         }
         sb.Append("Views: ").Append(string.Join(", ", r.Views)).Append('\n');

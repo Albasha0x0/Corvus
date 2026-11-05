@@ -20,7 +20,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     // The views that read each paging parameter; any other view refuses it.
     private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri", "esp32"];
     private static readonly string[] ColumnViews = ["sqlite", "sqlite-recover"];
-    private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "assets", "leveldb", "qlog", "certificate", "model"];
+    private static readonly string[] LimitViews = [.. TableViews, "hunts", "protobuf", "layers", "assets", "leveldb", "qlog", "certificate", "model"];
     private static readonly string[] OffsetViews = [.. LimitViews, "script", "python", "xbf"];
 
     /// <summary>The first paging parameter passed that <paramref name="view"/> does not read, with the views that do; null when all apply.</summary>
@@ -87,7 +87,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken, options), cancellationToken);
                 summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
             }
-            record = ContainerText.Summary(summary, name);
+            record = ContainerText.Summary(summary, name, offset, limit);
             if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite, name == "dependencies")] };
             if (stixPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteStix(summary, stixPath, overwrite)] };
             if (huntsPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteHunts(summary, huntsPath, overwrite)] };
