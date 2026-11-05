@@ -74,8 +74,15 @@ public static class KqlHunts
     public static string Literal(string value)
     {
         var sb = new StringBuilder("'");
-        foreach (var c in value)
+        for (int i = 0; i < value.Length; i++)
         {
+            var c = value[i];
+            if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+            {
+                sb.Append(c).Append(value[++i]);
+                continue;
+            }
+            if (char.IsSurrogate(c)) { sb.Append("\\ufffd"); continue; }
             switch (c)
             {
                 case '\\': sb.Append("\\\\"); break;
@@ -103,7 +110,8 @@ public static class KqlHunts
         foreach (var f in facts)
         {
             if (string.IsNullOrWhiteSpace(f.Value)) continue;
-            var key = (f.Kind, f.Kind == HuntKind.Sha1 ? f.Value.Trim().ToLowerInvariant() : f.Value.Trim());
+            var clean = CleanText(f.Value).Trim();
+            var key = (f.Kind, f.Kind == HuntKind.Sha1 ? clean.ToLowerInvariant() : clean);
             merged[key] = merged.TryGetValue(key, out var seen) ? IndicatorEvidence.Stronger(seen, f.Evidence) : f.Evidence;
         }
         var ordered = merged.OrderBy(m => HuntKind.All.ToList().IndexOf(m.Key.Kind)).ThenBy(m => m.Key.Value, StringComparer.Ordinal).ToList();
@@ -117,13 +125,14 @@ public static class KqlHunts
                 notes.Add($"{group.Count()} mutex name(s) have no query: Defender XDR documents no mutex action type.");
                 continue;
             }
-            int skippedWeak = 0, written = 0, over = 0;
+            int skippedWeak = 0, written = 0, over = 0, tooLong = 0, unqueried = 0, local = 0;
             foreach (var ((kind, value), evidence) in group)
             {
-                if (value.Length > MaxValueChars) { notes.Add($"A {kind} fact of {value.Length:N0} characters has no query: values are limited to {MaxValueChars:N0}."); continue; }
+                if (value.Length > MaxValueChars) { tooLong++; continue; }
                 if (IsNetwork(kind) && Rank(evidence) < Rank(IndicatorEvidence.Reference)) { skippedWeak++; continue; }
                 if (written >= MaxPerKind) { over++; continue; }
-                var made = Queries(kind, value, evidence, sha1, notes);
+                if (IsNetwork(kind) && !Routable(kind, value)) { local++; continue; }
+                var made = Queries(kind, value, evidence, sha1, ref unqueried);
                 foreach (var h in made)
                 {
                     var problems = KqlCheck.Diagnostics(h.Kql);
@@ -132,11 +141,42 @@ public static class KqlHunts
                 }
                 if (made.Count > 0) written++;
             }
+            if (tooLong > 0) notes.Add($"{tooLong} {group.Key} fact(s) over {MaxValueChars:N0} characters have no query.");
+            if (unqueried > 0) notes.Add($"{unqueried} {group.Key} fact(s) have no query: {UnqueriedReason(group.Key)}.");
+            if (local > 0) notes.Add($"{local} {group.Key} fact(s) name a loopback, unspecified, private or link-local address and have no network query.");
+            if (group.Key == HuntKind.NamedPipe && written > 0)
+                notes.Add("Named pipe queries read ActionType NamedPipeEvent and AdditionalFields.PipeName; no Learn page lists them, so no result does not show the pipe is absent.");
             if (skippedWeak > 0)
                 notes.Add($"{skippedWeak} {group.Key} fact(s) found only as strings have no network query; view=indicators lists them with their evidence.");
             if (over > 0) notes.Add($"{over} {group.Key} fact(s) past the first {MaxPerKind} have no query.");
         }
         return new HuntSet(hunts, notes);
+    }
+
+    private static string UnqueriedReason(string kind) => kind switch
+    {
+        HuntKind.Sha1 => "the value is not 40 hex digits",
+        HuntKind.DllName => "they need the SHA-1 of the loading file",
+        HuntKind.Ipv4 or HuntKind.Ipv6 => "the value is not an address",
+        HuntKind.NamedPipe => "the pipe name is empty",
+        HuntKind.FilePath => "the path names no file",
+        _ => "no query applies",
+    };
+
+    private static bool Routable(string kind, string value) =>
+        kind is not (HuntKind.Ipv4 or HuntKind.Ipv6) || !IPAddress.TryParse(value, out var ip) || IsRoutable(ip);
+
+    // Loopback, unspecified, private and link-local addresses match local traffic of every device.
+    private static bool IsRoutable(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any)) return false;
+        if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return false;
+        var b = ip.GetAddressBytes();
+        if (b.Length == 4)
+            return !(b[0] is 10 or 0 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168
+                || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127);
+        return (b[0] & 0xFE) != 0xFC;
     }
 
     private static int Rank(string evidence) => Math.Max(0, Array.IndexOf(IndicatorEvidence.Classes, evidence));
@@ -151,22 +191,37 @@ public static class KqlHunts
         return $"{kind.Replace('_', '-')}-{hash}{suffix}";
     }
 
+    // Unpaired surrogates become U+FFFD so the JSON writer accepts the text.
+    private static string CleanText(string value)
+    {
+        StringBuilder? sb = null;
+        for (int i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            bool pair = char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]);
+            if (pair) { sb?.Append(c).Append(value[i + 1]); i++; continue; }
+            if (char.IsSurrogate(c)) { sb ??= new StringBuilder(value[..i]); sb.Append('\ufffd'); continue; }
+            sb?.Append(c);
+        }
+        return sb?.ToString() ?? value;
+    }
+
     // A value in a title is cut and stripped of control characters.
     private static string Short(string value)
     {
-        var clean = new string([.. value.Select(c => char.IsControl(c) ? ' ' : c)]);
+        var clean = new string([.. CleanText(value).Select(c => char.IsControl(c) ? ' ' : c)]);
         return clean.Length > 60 ? clean[..57] + "..." : clean;
     }
 
     private static Hunt Make(string kind, string value, string evidence, string suffix, string title, string table, string severity, params string[] lines) =>
         new(Id(kind, value, suffix), title, table, string.Join('\n', lines), [$"{kind}:{value}"], evidence) { Severity = severity };
 
-    private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, List<string> notes)
+    private static List<Hunt> Queries(string kind, string value, string evidence, string? sha1, ref int unqueried)
     {
         switch (kind)
         {
             case HuntKind.Sha1:
-                if (!IsSha1(value)) { notes.Add($"A sha1 fact is not 40 hex digits and has no query: {Short(value)}."); return []; }
+                if (!IsSha1(value)) { unqueried++; return []; }
                 var hash = Literal(value);
                 return
                 [
@@ -197,13 +252,16 @@ public static class KqlHunts
                         $"| project {Base}, FileName, FolderPath, ProcessVersionInfoOriginalFileName, SHA1"),
                 ];
             case HuntKind.DllName:
-                if (sha1 == null) { notes.Add($"The DLL name {Short(value)} has no query: it needs the SHA-1 of the loading file."); return []; }
+                if (sha1 == null) { unqueried++; return []; }
                 return
                 [
                     Make(kind, value, evidence, "", $"{Short(value)} loaded from the folder of the file", "DeviceImageLoadEvents", "medium",
                         "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
                         $"| where FileName =~ {Literal(value)}",
-                        "| where tolower(FolderPath) startswith tolower(replace_string(InitiatingProcessFolderPath, InitiatingProcessFileName, ''))",
+                        "| where isnotempty(InitiatingProcessFolderPath)",
+                        "| extend LoaderDir = tolower(replace_string(InitiatingProcessFolderPath, InitiatingProcessFileName, ''))",
+                        "| extend DllDir = tolower(replace_string(FolderPath, FileName, ''))",
+                        "| where DllDir == LoaderDir",
                         $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath"),
                 ];
             case HuntKind.Domain:
@@ -211,13 +269,16 @@ public static class KqlHunts
             case HuntKind.Url:
                 var host = Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.HostNameType == UriHostNameType.Dns ? uri.Host : null;
                 var filter = $"RemoteUrl =~ {Literal(value)}" + (host != null ? $" or RemoteUrl =~ {Literal(host)}" : "");
+                if (uri != null && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
+                    && IPAddress.TryParse(uri.Host.Trim('[', ']'), out var urlIp) && IsRoutable(urlIp))
+                    filter += $" or RemoteIP == {Literal(urlIp.ToString())}";
                 return [Network(kind, value, evidence, $"Connections to {Short(value)}", filter)];
             case HuntKind.Ipv4 or HuntKind.Ipv6:
-                if (!IPAddress.TryParse(value, out var ip)) { notes.Add($"An address fact has no query: {Short(value)} is not an address."); return []; }
+                if (!IPAddress.TryParse(value, out var ip)) { unqueried++; return []; }
                 return [Network(kind, value, evidence, $"Connections to {ip}", $"RemoteIP == {Literal(ip.ToString())}")];
             case HuntKind.NamedPipe:
                 var pipe = PipeName(value);
-                if (pipe.Length == 0) { notes.Add("A named pipe fact has no query: the pipe name is empty."); return []; }
+                if (pipe.Length == 0) { unqueried++; return []; }
                 return
                 [
                     Make(kind, value, evidence, "", $"Opens of named pipe {Short(pipe)}", "DeviceEvents", "low",
@@ -228,12 +289,13 @@ public static class KqlHunts
                 ];
             case HuntKind.FilePath:
                 var leaf = value[(value.LastIndexOfAny(['\\', '/']) + 1)..];
-                if (leaf.Length == 0) { notes.Add($"A file path fact has no query: {Short(value)} names no file."); return []; }
+                if (leaf.Length == 0) { unqueried++; return []; }
+                var folder = value[..Math.Max(0, value.Length - leaf.Length - 1)];
                 var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
                 return
                 [
                     Make(kind, value, evidence, "", $"Writes of {Short(leaf)}", "DeviceFileEvents", "low",
-                        "DeviceFileEvents", rooted ? $"| where FolderPath =~ {Literal(value)}" : $"| where FileName =~ {Literal(leaf)}",
+                        "DeviceFileEvents", rooted ? $"| where (FolderPath =~ {Literal(folder)} or FolderPath =~ {Literal(value)}) and FileName =~ {Literal(leaf)}" : $"| where FileName =~ {Literal(leaf)}",
                         $"| project {Base}, ActionType, FileName, FolderPath, SHA1, InitiatingProcessFileName"),
                 ];
             default:

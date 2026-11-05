@@ -185,6 +185,85 @@ public sealed class HuntsWriterTests
         var root = JsonNode.Parse(HuntRules.Write(set))!;
         Assert.Equal(set.Hunts.Count, root["hunts"]!.AsArray().Count);
         Assert.Equal(set.Hunts.Count, root["detectionRules"]!.AsArray().Count);
-        Assert.Single(root["notes"]!.AsArray());
+        Assert.Contains(root["notes"]!.AsArray(), n => ((string?)n)!.Contains("mutex", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_library_query_compares_the_folder_of_the_library_with_the_folder_of_the_loader()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "decoded"), new(HuntKind.DllName, "helper.dll", "reference")])
+            .Hunts.Single(h => h.Table == "DeviceImageLoadEvents" && h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        Assert.Contains("| where DllDir == LoaderDir", hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains("isnotempty(InitiatingProcessFolderPath)", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+    }
+
+    [Fact]
+    public void A_file_path_query_matches_the_folder_and_the_file_name_separately()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.FilePath, @"C:\Users\Public\drop.bin", "string")]).Hunts.Single();
+        Assert.Contains(@"FolderPath =~ 'C:\\Users\\Public'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains(@"FolderPath =~ 'C:\\Users\\Public\\drop.bin'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Contains("FileName =~ 'drop.bin'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("0.0.0.0")]
+    [InlineData("10.1.2.3")]
+    [InlineData("192.168.0.9")]
+    [InlineData("169.254.1.1")]
+    [InlineData("::1")]
+    public void A_local_address_gives_a_note_and_no_network_query(string address)
+    {
+        var set = KqlHunts.Write([new(address.Contains(':') ? HuntKind.Ipv6 : HuntKind.Ipv4, address, "reference")]);
+        Assert.Empty(set.Hunts);
+        Assert.Contains(set.Notes, n => n.Contains("loopback", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_URL_with_a_public_address_host_also_queries_the_remote_address()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.Url, "http://192.0.2.9/x", "reference")]).Hunts.Single();
+        Assert.Contains("RemoteIP == '192.0.2.9'", hunt.Kql, StringComparison.Ordinal);
+        Assert.Empty(Parse(hunt.Kql).GetDiagnostics());
+    }
+
+    [Fact]
+    public void A_URL_with_a_private_address_host_adds_no_remote_address_clause()
+    {
+        var hunt = KqlHunts.Write([new(HuntKind.Url, "http://10.1.2.3/x", "reference")]).Hunts.Single();
+        Assert.DoesNotContain("RemoteIP", hunt.Kql.Split('\n')[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_pipe_query_carries_a_note_that_its_names_are_unconfirmed()
+    {
+        var set = KqlHunts.Write([new(HuntKind.NamedPipe, @"\.\pipe\svc", "string")]);
+        Assert.Contains(set.Notes, n => n.Contains("does not show the pipe is absent", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_unpaired_surrogate_is_replaced_and_the_hunt_file_still_writes()
+    {
+        var set = KqlHunts.Write([new(HuntKind.FilePath, @"C:\a\x" + "\ud800y.bin", "string"), new(HuntKind.NamedPipe, "p\udc00q", "string")]);
+        Assert.NotEmpty(set.Hunts);
+        Assert.NotEmpty(HuntRules.Write(set));
+        Assert.All(set.Hunts, h => Assert.DoesNotContain(h.Kql, c => char.IsSurrogate(c)));
+    }
+
+    [Fact]
+    public void Many_bad_hashes_give_one_note()
+    {
+        var set = KqlHunts.Write([.. Enumerable.Range(0, 30).Select(i => new HuntFact(HuntKind.Sha1, "bad" + i, "decoded"))]);
+        Assert.Single(set.Notes);
+        Assert.Contains("30 sha1 fact(s)", set.Notes[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_query_with_an_unbalanced_parenthesis_fails_the_check()
+    {
+        Assert.NotEmpty(KqlCheck.Diagnostics("DeviceFileEvents\n| where (SHA1 == 'a'"));
     }
 }
