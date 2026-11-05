@@ -45,7 +45,7 @@ public sealed partial class MinidumpService
     }
 
     public sealed record DumpBucket(
-        [property: Description("Exception code | module!function | next frames, then | managed Type.Method+IL_0xN when a runtime raised it; hang | top frames; clr | exception type | managed frames.")] string Signature,
+        [property: Description("Exception code | module!function | next frames [| managed frame]; hang | top frames; clr | exception type | managed frames.")] string Signature,
         [property: Description("exception, clr_exception or no_exception.")] string Kind,
         int Count, string FirstTime, string LastTime,
         [property: Description("Faulting module versions: dumps per version.")] IReadOnlyDictionary<string, int> ModuleVersions,

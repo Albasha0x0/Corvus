@@ -45,7 +45,7 @@
         "type": "object",
         "properties": {
           "signature": {
-            "description": "Exception code | module!function | next frames, then | managed Type.Method+IL_0xN when a runtime raised it; hang | top frames; clr | exception type | managed frames.",
+            "description": "Exception code | module!function | next frames [| managed frame]; hang | top frames; clr | exception type | managed frames.",
             "type": "string"
           },
           "kind": {

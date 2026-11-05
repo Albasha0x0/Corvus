@@ -178,7 +178,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     internal static Capability RuleScannerCapability() => Native.Providers.Worker.Yara.YaraX.Locate() != null
         ? new("YARA-X", true, Native.Providers.Worker.Yara.YaraX.Version, null)
         : new("YARA-X", false, "not found",
-            $"set {Native.Providers.Worker.Yara.YaraX.LibraryVariable} or build with -p:YaraXRuntimes");
+            $"set {Native.Providers.Worker.Yara.YaraX.LibraryVariable}");
 
     private const string Pending = "its check is still running; call server_status again";
 

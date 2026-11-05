@@ -30,7 +30,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("Fetch a matching DAC (symbol server; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
-        [Description("view=modules: new or empty image folder; writes at most limit images.")] string? outputPath = null,
+        [Description("view=modules: new or empty image folder; limit caps the images.")] string? outputPath = null,
         [Description("File name, 0x address, all or unlisted; outputPath also code.")] string? modules = null,
         [Description("outputPath: file or mapped.")] string? layout = null,
         [Description("outputPath: restore or keep.")] string? imports = null,

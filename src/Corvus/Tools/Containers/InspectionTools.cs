@@ -43,7 +43,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("assets: assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
-        [Description("Write dependencies here, CycloneDX 1.6; with no component, view=indicators keeps its result and warns.")] string? sbomPath = null,
+        [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Overwrite either file.")] bool overwrite = false,
         [Description("Password to decrypt with; only it is tried.")] string? password = null,

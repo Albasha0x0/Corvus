@@ -19,7 +19,7 @@ internal sealed class PythonFileView : IFileSummaryView
 
     public sealed record Bytecode(string PythonVersion, int Magic, string Filename, int CodeObjects,
         [property: Description("Qualified names of the functions, classes and comprehensions, to 200.")] IReadOnlyList<string> Functions,
-        [property: Description("Modules the code imports; null when unknown because the opcode table is likely remapped.")] IReadOnlyList<string>? Imports, long Offset, long? Next,
+        [property: Description("Modules the code imports; null when opcodes are likely remapped.")] IReadOnlyList<string>? Imports, long Offset, long? Next,
         [property: Description("dis output from offset, as the file's own Python version prints it.")] string Disassembly, bool Complete,
         [property: Description("The source from CORVUS_PY_DECOMPILER, from the same offset.")] string? Source, long? SourceNext,
         [property: Description("The program that wrote the source.")] string? Decompiler, IReadOnlyList<string>? Notes)
@@ -27,13 +27,13 @@ internal sealed class PythonFileView : IFileSummaryView
         [Description("Code objects held as encoded constants (marshal, zlib, base64), outermost first; unpack_container extracts each as a .pyc.")]
         public IReadOnlyList<Layer>? Layers { get; init; }
 
-        [Description("stock, or non-stock when the magic is none a CPython release wrote; PythonVersion is then unknown.")]
+        [Description("stock, or non-stock (no CPython release wrote the magic; version unknown).")]
         public string MagicStatus { get; init; } = "stock";
 
-        [Description("The closest stock version of a non-stock magic; the disassembly reads with it.")]
+        [Description("Closest stock version of a non-stock magic; disassembly uses it.")]
         public string? NearestVersion { get; init; }
 
-        [Description("stock, or likely remapped when many opcodes are undefined for the version; names and imports are then unreliable.")]
+        [Description("stock, or likely remapped (many opcodes undefined; names and imports unreliable).")]
         public string OpcodeTable { get; init; } = "stock";
     }
 

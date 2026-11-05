@@ -566,7 +566,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `script` | string |  |  | assets: assets of this script class. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  |  | Max rows. |
-| `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6; with no component, view=indicators keeps its result and warns. |
+| `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
 | `overwrite` | boolean |  |  | Overwrite either file. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |
@@ -2715,7 +2715,7 @@ Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its
 | `downloadDac` | boolean |  |  | Fetch a matching DAC (symbol server; refused under CORVUS_OFFLINE=1). |
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
 | `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
-| `outputPath` | string |  |  | view=modules: new or empty image folder; writes at most limit images. |
+| `outputPath` | string |  |  | view=modules: new or empty image folder; limit caps the images. |
 | `modules` | string |  |  | File name, 0x address, all or unlisted; outputPath also code. |
 | `layout` | string |  |  | outputPath: file or mapped. |
 | `imports` | string |  |  | outputPath: restore or keep. |
@@ -2999,7 +2999,7 @@ Collect code coverage in a session: which functions ran and how often; diff comp
 | `other` | string |  |  | diff: second run. |
 | `match` | string |  |  | Names containing this; start: module!part for another module. |
 | `hitLimit` | integer |  | `100` | start: stops per function before it is cleared. |
-| `show` | string |  | `ran` | report: ran, missed, all or unplaced (left out, with reasons). Values: ran, missed, all. |
+| `show` | string |  | `ran` | report: ran, missed, all or unplaced. Values: ran, missed, all. |
 | `format` | string |  | `text` | report: text, or dot (call graph; offset counts characters). Values: text, dot. |
 | `offset` | integer |  |  | Rows to skip. |
 | `limit` | integer |  | `100` | Max rows. |

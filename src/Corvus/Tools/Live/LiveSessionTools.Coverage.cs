@@ -26,13 +26,13 @@ public sealed partial class LiveSessionTools
 
     public sealed record LiveCoverageSummary(string Run, string Session, string Image, string Sha256,
         [property: Description("recording, complete, ended or saved (kept by an earlier server).")] string State,
-        [Description("Functions counted; same as placed.")] int Points, int Ran, int HitLimit)
+        [Description("Functions counted (placed).")] int Points, int Ran, int HitLimit)
     {
         [Description("Functions counted: ran plus not run.")]
         public int Placed { get; init; }
-        [Description("Functions left out of every count; list them with report show=unplaced.")]
+        [Description("Functions left out of the counts (show=unplaced).")]
         public int Unplaced { get; init; }
-        [Description("Why functions were left out, with counts.")]
+        [Description("Reasons for left-out functions, with counts.")]
         public IReadOnlyList<LiveCoverageReason>? Reasons { get; init; }
         [Description("Runtime never read: unseen methods are unknown.")]
         public bool Unread { get; init; }
@@ -42,7 +42,7 @@ public sealed partial class LiveSessionTools
         [property: Description("Absent with format=dot.")] int? Total, IReadOnlyList<LiveCoverageSummary> Runs)
     {
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
-        [Description("show=unplaced: a page of the functions left out, with reasons.")]
+        [Description("show=unplaced: left-out functions with reasons.")]
         public IReadOnlyList<LiveCoverageLeftOut>? LeftOut { get; init; }
         [Description("format=dot: a page of the call graph (Graphviz DOT).")]
         public string? Code { get; init; }
@@ -66,7 +66,7 @@ public sealed partial class LiveSessionTools
         [Description("diff: second run.")] string? other = null,
         [Description("Names containing this; start: module!part for another module.")] string? match = null,
         [Description("start: stops per function before it is cleared.")] int hitLimit = 100,
-        [Description("report: ran, missed, all or unplaced (left out, with reasons).")] string show = "ran",
+        [Description("report: ran, missed, all or unplaced.")] string show = "ran",
         [Description("report: text, or dot (call graph; offset counts characters).")] string format = "text",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,

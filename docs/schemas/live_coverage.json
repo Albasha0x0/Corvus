@@ -21,7 +21,7 @@
           "type": "string"
         },
         "points": {
-          "description": "Functions counted; same as placed.",
+          "description": "Functions counted (placed).",
           "type": "integer"
         },
         "ran": {
@@ -35,11 +35,11 @@
           "type": "integer"
         },
         "unplaced": {
-          "description": "Functions left out of every count; list them with report show=unplaced.",
+          "description": "Functions left out of the counts (show=unplaced).",
           "type": "integer"
         },
         "reasons": {
-          "description": "Why functions were left out, with counts.",
+          "description": "Reasons for left-out functions, with counts.",
           "type": "array",
           "items": {
             "type": "object",
@@ -130,7 +130,7 @@
             "type": "string"
           },
           "points": {
-            "description": "Functions counted; same as placed.",
+            "description": "Functions counted (placed).",
             "type": "integer"
           },
           "ran": {
@@ -144,11 +144,11 @@
             "type": "integer"
           },
           "unplaced": {
-            "description": "Functions left out of every count; list them with report show=unplaced.",
+            "description": "Functions left out of the counts (show=unplaced).",
             "type": "integer"
           },
           "reasons": {
-            "description": "Why functions were left out, with counts.",
+            "description": "Reasons for left-out functions, with counts.",
             "$ref": "#/properties/run/properties/reasons"
           },
           "unread": {
@@ -195,7 +195,7 @@
       }
     },
     "leftOut": {
-      "description": "show=unplaced: a page of the functions left out, with reasons.",
+      "description": "show=unplaced: left-out functions with reasons.",
       "type": "array",
       "items": {
         "type": "object",
@@ -253,7 +253,7 @@
               "type": "string"
             },
             "points": {
-              "description": "Functions counted; same as placed.",
+              "description": "Functions counted (placed).",
               "type": "integer"
             },
             "ran": {
@@ -267,11 +267,11 @@
               "type": "integer"
             },
             "unplaced": {
-              "description": "Functions left out of every count; list them with report show=unplaced.",
+              "description": "Functions left out of the counts (show=unplaced).",
               "type": "integer"
             },
             "reasons": {
-              "description": "Why functions were left out, with counts.",
+              "description": "Reasons for left-out functions, with counts.",
               "$ref": "#/properties/run/properties/reasons"
             },
             "unread": {
