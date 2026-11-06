@@ -34,6 +34,13 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet test -c Release --blame-hang-timeout 15m
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hang-dumps-${{ matrix.os }}
+          path: "**/TestResults/**/*.dmp"
+          if-no-files-found: ignore
+          retention-days: 7
 
   # YARA-X C library for runtimes/<rid>/native: upstream's win-x64 build checked by SHA-256, the others built from
   # the pinned commit with the table's Rust and cargo-c versions. musl archives ship without it.

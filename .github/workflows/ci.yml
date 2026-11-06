@@ -151,7 +151,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-${{ matrix.os }}
-          path: "**/TestResults/*.trx"
+          path: |
+            **/TestResults/*.trx
+            **/TestResults/**/*.dmp
           if-no-files-found: ignore
 
   # Heavy test classes of a pushed commit (sweep, ghidra, live), sharded; the local push run joins these results.
