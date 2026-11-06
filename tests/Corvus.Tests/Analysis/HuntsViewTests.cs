@@ -155,6 +155,14 @@ public sealed class HuntsViewTests : IDisposable
         Assert.Contains(@"endswith '\\status'", hunt.Kql, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_source_file_path_gets_no_file_query()
+    {
+        var set = Hunts(Image("build.exe", Text(@"d:\agent\src\afxbutton.cpp", @"C:\__w\inc\util.h", @"C:\ProgramData\app\state.dat")));
+        var paths = set.Hunts.SelectMany(h => h.Facts).Where(f => f.StartsWith("file_path:", StringComparison.Ordinal)).ToList();
+        Assert.Equal([@"file_path:C:\ProgramData\app\state.dat"], paths);
+    }
+
     // Field test 10: a path with an apostrophe was dropped.
     [Fact]
     public void A_file_path_with_an_apostrophe_is_kept()

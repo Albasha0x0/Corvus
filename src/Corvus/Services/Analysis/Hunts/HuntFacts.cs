@@ -136,6 +136,11 @@ public static partial class HuntFacts
         BareDll().IsMatch(name) && !KnownDlls.Contains(name) && !name.StartsWith("api-ms-", StringComparison.OrdinalIgnoreCase)
         && !name.StartsWith("ext-ms-", StringComparison.OrdinalIgnoreCase);
 
+    private static readonly HashSet<string> BuildFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdb", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".cs", ".rs", ".obj", ".asm",
+    };
+
     // Pipe paths, registry keys, library names without a folder and file paths among the printable ASCII and UTF-16 runs.
     private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, ref int compressed, List<string> notes, CancellationToken ct)
     {
@@ -152,8 +157,9 @@ public static partial class HuntFacts
             foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, Unquoted(run, m));
             if (RegistryPath().IsMatch(run)) Add(HuntKind.RegistryKey, Values.BeforeMessage(run));
             if (BareDll().IsMatch(run) && SideLoadable(run)) Add(HuntKind.DllName, run);
-            // A debug path names the build machine, not a file the program writes.
-            else if (WindowsFile().IsMatch(run) && !run.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) Add(HuntKind.FilePath, run);
+            // Debug and assertion paths name the build machine, not a file the
+            // program writes.
+            else if (WindowsFile().IsMatch(run) && !BuildFiles.Contains(Path.GetExtension(run))) Add(HuntKind.FilePath, run);
         }
         compressed += inHot;
         if (capped > 0) notes.Add($"{capped:N0} pipe, registry, library and file strings past {MaxPerKind} per kind were not read.");

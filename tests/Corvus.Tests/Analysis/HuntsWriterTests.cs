@@ -398,6 +398,38 @@ public sealed class HuntsWriterTests
     }
 
     // Field test 14: an archive has no process or image-load events.
+    [Theory]
+    [InlineData(HuntKind.Ipv4, "2.5.29.19")]
+    [InlineData(HuntKind.Ipv4, "255.255.255.255")]
+    [InlineData(HuntKind.Ipv6, "b::")]
+    [InlineData(HuntKind.Ipv6, "::add")]
+    [InlineData(HuntKind.Domain, "www")]
+    [InlineData(HuntKind.Url, "http://t/")]
+    public void A_string_that_only_has_the_form_of_an_address_gets_no_query(string kind, string value)
+    {
+        var set = KqlHunts.Write([new(kind, value, "string")], Sha1, true);
+        Assert.Empty(set.Hunts);
+        Assert.Contains(set.Notes, n => n.Contains("no network query", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(HuntKind.Ipv4, "2.5.29.19")]
+    [InlineData(HuntKind.Domain, "intranet")]
+    public void A_value_the_code_refers_to_keeps_its_query(string kind, string value)
+    {
+        Assert.NotEmpty(KqlHunts.Write([new(kind, value, "reference")], Sha1, true).Hunts);
+    }
+
+    [Theory]
+    [InlineData(HuntKind.Ipv4, "1.1.1.1")]
+    [InlineData(HuntKind.Ipv6, "2606:4700:4700::1111")]
+    [InlineData(HuntKind.Domain, "www.example.org")]
+    [InlineData(HuntKind.Url, "http://example.com/a")]
+    public void A_plausible_string_keeps_its_query(string kind, string value)
+    {
+        Assert.NotEmpty(KqlHunts.Write([new(kind, value, "string")], Sha1, true).Hunts);
+    }
+
     [Fact]
     public void The_written_note_counts_queries_and_rules_apart()
     {

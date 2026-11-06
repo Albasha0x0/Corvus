@@ -145,7 +145,7 @@ public static class KqlHunts
                 notes.Add($"{group.Count()} mutex name(s) have no query: Defender XDR documents no mutex action type.");
                 continue;
             }
-            int skippedWeak = 0, written = 0, over = 0, tooLong = 0, unqueried = 0, local = 0;
+            int skippedWeak = 0, written = 0, over = 0, tooLong = 0, unqueried = 0, local = 0, implausible = 0;
             if (group.Key == HuntKind.DllName)
             {
                 var libraries = group.Where(m => m.Key.Value.Length <= MaxValueChars).ToList();
@@ -166,6 +166,7 @@ public static class KqlHunts
                 if (IsNetwork(kind) && !scoped && Rank(evidence) < Rank(IndicatorEvidence.Reference) && (sha1 == null || !executable)) { skippedWeak++; continue; }
                 if (written >= MaxPerKind) { over++; continue; }
                 if (IsNetwork(kind) && !Routable(kind, value)) { local++; continue; }
+                if (evidence == IndicatorEvidence.String && !Plausible(kind, value)) { implausible++; continue; }
                 var made = Queries(kind, value, evidence, sha1, scoped, executable, ref unqueried);
                 foreach (var h in made)
                 {
@@ -177,7 +178,8 @@ public static class KqlHunts
             }
             if (tooLong > 0) notes.Add($"{tooLong} {group.Key} fact(s) over {MaxValueChars:N0} characters have no query.");
             if (unqueried > 0) notes.Add($"{unqueried} {group.Key} fact(s) have no query: {UnqueriedReason(group.Key)}.");
-            if (local > 0) notes.Add($"{local} {group.Key} fact(s) name a loopback, unspecified, private or link-local address and have no network query.");
+            if (local > 0) notes.Add($"{local} {group.Key} fact(s) name a loopback, unspecified, private, link-local or broadcast address and have no network query.");
+            if (implausible > 0) notes.Add($"{implausible} {group.Key} string(s) read as an object identifier, a fragment or a name with no domain and have no network query.");
             if (group.Key == HuntKind.NamedPipe && written > 0)
                 notes.Add("Named pipe queries read ActionType NamedPipeEvent and AdditionalFields.PipeName; no Learn page lists them, so no result does not show the pipe is absent.");
             if (group.Key == HuntKind.Url && written > 0)
@@ -281,7 +283,29 @@ public static class KqlHunts
     private static bool Routable(string kind, string value) =>
         kind is not (HuntKind.Ipv4 or HuntKind.Ipv6) || !IPAddress.TryParse(value, out var ip) || IsRoutable(ip);
 
-    // Loopback, unspecified, private and link-local addresses match local traffic of every device.
+    // A string can have the form of an address or host without being one. A
+    // reference is kept as read.
+    private static bool Plausible(string kind, string value)
+    {
+        switch (kind)
+        {
+            case HuntKind.Domain:
+                return value.Contains('.');
+            case HuntKind.Url:
+                return !Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.HostNameType != UriHostNameType.Dns || uri.Host.Contains('.');
+            case HuntKind.Ipv4:
+                // RFC 5280 attribute and extension identifiers start 2.5.
+                return !value.StartsWith("2.5.", StringComparison.Ordinal);
+            case HuntKind.Ipv6:
+                if (!IPAddress.TryParse(value, out var ip)) return true;
+                var b = ip.GetAddressBytes();
+                return Enumerable.Range(0, 8).Count(i => b[2 * i] != 0 || b[2 * i + 1] != 0) >= 3;
+            default:
+                return true;
+        }
+    }
+
+    // Loopback, unspecified, private, link-local and broadcast addresses match local traffic of every device.
     private static bool IsRoutable(IPAddress ip)
     {
         if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
@@ -289,7 +313,7 @@ public static class KqlHunts
         if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return false;
         var b = ip.GetAddressBytes();
         if (b.Length == 4)
-            return !(b[0] is 10 or 0 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168
+            return !(b[0] is 10 or 0 or 255 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168
                 || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127);
         return (b[0] & 0xFE) != 0xFC;
     }
