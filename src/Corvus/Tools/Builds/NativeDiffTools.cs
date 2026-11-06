@@ -392,8 +392,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var added = Unmatched(match).Where(r => r.Old == null).Select(r => new ReviewFunction(null, r.New, r.NewName ?? "", r.Reason, null)).ToList();
         var changed = match.Pairs.Where(p => !Identical(match, p)).OrderBy(p => match.Old.Functions[p.Old].Start).Select(p => Pair(match, p))
             .Select(r => new ReviewFunction(r.Old, r.New, r.OldName ?? "", null, diff + r.Old)).ToList();
-        var review = UpdateReviewer.Review(new ReviewSources(pair.Old.Id, pair.New.Id, pair.Old.Pe, pair.New.Pe, added, changed, oldFacts, oldNotes, newFacts, newNotes,
-            oldBytes, newBytes, set.Hunts), ct);
+        var old = UpdateReviewer.Read(pair.Old.Pe, oldBytes, oldFacts, match.Old.Failed, match.Old.Index.Truncations.Count, ct);
+        var current = UpdateReviewer.Read(pair.New.Pe, newBytes, newFacts, match.New.Failed, match.New.Index.Truncations.Count, ct);
+        var review = UpdateReviewer.Review(new ReviewSources(pair.Old.Id, pair.New.Id, old, current, match.Pairs.Count, added, changed, set.Hunts), ct);
         return (review, set);
     }
 
