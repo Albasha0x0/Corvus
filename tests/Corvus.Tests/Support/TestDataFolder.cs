@@ -5,12 +5,18 @@ namespace Corvus.Tests;
 
 internal static class TestDataFolder
 {
+    private static bool _isolated;
+
     /// <summary>Tests and their servers keep data in their own folder, never the user's, so caches persist and legacy migration never runs.</summary>
     [ModuleInitializer]
     internal static void Isolate()
     {
-        if (Environment.GetEnvironmentVariable(DataFolder.RootVariable) is not { Length: > 0 })
-            Environment.SetEnvironmentVariable(DataFolder.RootVariable, Path.Combine(Path.GetTempPath(), "corvus-test-data"));
+        // The second call comes after the temporary folder is redirected.
+        if (_isolated) return;
+        _isolated = true;
+        // A person's own CORVUS_DATA_DIR holds real rule packs and results, which
+        // change test output and must not take test writes.
+        Environment.SetEnvironmentVariable(DataFolder.RootVariable, Path.Combine(Path.GetTempPath(), "corvus-test-data"));
         // Stall dumps outlive the per-test caches they would otherwise go into.
         if (Environment.GetEnvironmentVariable(Native.Providers.Ghidra.JavaThreadDump.FolderVariable) is not { Length: > 0 })
             Environment.SetEnvironmentVariable(Native.Providers.Ghidra.JavaThreadDump.FolderVariable,
