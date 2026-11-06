@@ -403,6 +403,7 @@ public sealed class HuntsWriterTests
     [InlineData(HuntKind.Ipv4, "255.255.255.255")]
     [InlineData(HuntKind.Ipv6, "b::")]
     [InlineData(HuntKind.Ipv6, "::add")]
+    [InlineData(HuntKind.Ipv6, "6:86::")]
     [InlineData(HuntKind.Domain, "www")]
     [InlineData(HuntKind.Url, "http://t/")]
     public void A_string_that_only_has_the_form_of_an_address_gets_no_query(string kind, string value)
@@ -423,11 +424,27 @@ public sealed class HuntsWriterTests
     [Theory]
     [InlineData(HuntKind.Ipv4, "1.1.1.1")]
     [InlineData(HuntKind.Ipv6, "2606:4700:4700::1111")]
+    [InlineData(HuntKind.Ipv6, "2a03::1")]
+    [InlineData(HuntKind.Ipv4, "2.5.10.20")]
     [InlineData(HuntKind.Domain, "www.example.org")]
     [InlineData(HuntKind.Url, "http://example.com/a")]
     public void A_plausible_string_keeps_its_query(string kind, string value)
     {
         Assert.NotEmpty(KqlHunts.Write([new(kind, value, "string")], Sha1, true).Hunts);
+    }
+
+    [Fact]
+    public void Registry_keys_that_differ_in_case_give_one_query()
+    {
+        var set = KqlHunts.Write([new(HuntKind.RegistryKey, @"HKLM\Software\App", "string"), new(HuntKind.RegistryKey, @"HKLM\SOFTWARE\app", "string")], Sha1, true);
+        Assert.Single(set.Hunts);
+    }
+
+    [Fact]
+    public void A_registry_key_without_a_SHA1_names_the_SHA1_as_the_reason()
+    {
+        var set = KqlHunts.Write([new(HuntKind.RegistryKey, @"HKLM\Software\App", "string")]);
+        Assert.Contains(set.Notes, n => n.Contains("SHA-1 of the file that changes the key", StringComparison.Ordinal));
     }
 
     [Fact]

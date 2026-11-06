@@ -158,9 +158,17 @@ public sealed class HuntsViewTests : IDisposable
     [Fact]
     public void A_source_file_path_gets_no_file_query()
     {
-        var set = Hunts(Image("build.exe", Text(@"d:\agent\src\afxbutton.cpp", @"C:\__w\inc\util.h", @"C:\ProgramData\app\state.dat")));
+        var set = Hunts(Image("build.exe", Text(@"d:\agent\src\afxbutton.cpp", @"C:\__w\inc\util.h", @"d:\os\src\mesh.hlsl", @"C:\ProgramData\app\state.dat")));
         var paths = set.Hunts.SelectMany(h => h.Facts).Where(f => f.StartsWith("file_path:", StringComparison.Ordinal)).ToList();
         Assert.Equal([@"file_path:C:\ProgramData\app\state.dat"], paths);
+    }
+
+    [Fact]
+    public void A_stray_byte_before_a_library_name_gets_no_query()
+    {
+        var set = Hunts(Image("names.exe", Text("Fd3d10.dll", "d3d10.dll", "Antdll.dll", "Fapi-ms-win-core-file-l1-1-0.dll", "plugin.dll")));
+        var names = set.Hunts.SelectMany(h => h.Facts).Where(f => f.StartsWith("dll_name:", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(["dll_name:d3d10.dll", "dll_name:plugin.dll"], names);
     }
 
     // Field test 10: a path with an apostrophe was dropped.

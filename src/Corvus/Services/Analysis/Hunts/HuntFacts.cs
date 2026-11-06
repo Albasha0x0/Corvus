@@ -43,6 +43,7 @@ public static partial class HuntFacts
         // Regions are read once, from the bytes the strings come from.
         var hot = input.Streamed || !IsExecutable(input) ? null : HighEntropyWindows(input.Image, ct);
         int compressed = 0;
+        var imports = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (summary.File.Sha1.Length > 0) facts.Add(new(HuntKind.Sha1, summary.File.Sha1, IndicatorEvidence.Computed));
         if (summary.File.Certificate is { Present: true, Signer: { Length: > 0 } signer })
             facts.Add(new(HuntKind.Signer, signer, IndicatorEvidence.Computed));
@@ -83,13 +84,16 @@ public static partial class HuntFacts
             var file = PeFile.FromBytes(image, input.Path);
             if (file.VersionInfo?.Get("OriginalFilename") is { Length: > 0 } original) facts.Add(new(HuntKind.OriginalFileName, original, IndicatorEvidence.Decoded));
             foreach (var module in file.Imports.Select(i => i.Module).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                imports.Add(module);
                 if (SideLoadable(module)) facts.Add(new(HuntKind.DllName, module, IndicatorEvidence.Reference));
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             notes.Add($"The version resource and imports are unknown, the image did not parse: {ex.Message}");
         }
-        facts.AddRange(Strings(image, hot!, ref compressed, notes, ct));
+        facts.AddRange(Strings(image, hot!, imports, ref compressed, notes, ct));
         if (compressed > 0) notes.Add(CompressedNote(compressed));
         return (facts, notes);
     }
@@ -139,10 +143,20 @@ public static partial class HuntFacts
     private static readonly HashSet<string> BuildFiles = new(StringComparer.OrdinalIgnoreCase)
     {
         ".pdb", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".cs", ".rs", ".obj", ".asm",
+        ".hlsl", ".hlsli", ".fx", ".idl", ".def", ".rc", ".lib",
     };
 
+    // A printable byte before a name joins its run, so Fd3d10.dll beside
+    // d3d10.dll reads as a second library.
+    private static bool HasStrayByte(string name, HashSet<string> names)
+    {
+        var tail = name[1..];
+        return names.Contains(tail) || KnownDlls.Contains(tail) || tail.StartsWith("api-ms-", StringComparison.OrdinalIgnoreCase)
+            || tail.StartsWith("ext-ms-", StringComparison.OrdinalIgnoreCase);
+    }
+
     // Pipe paths, registry keys, library names without a folder and file paths among the printable ASCII and UTF-16 runs.
-    private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, ref int compressed, List<string> notes, CancellationToken ct)
+    private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, HashSet<string> imports, ref int compressed, List<string> notes, CancellationToken ct)
     {
         var found = new Dictionary<(string, string), HuntFact>();
         int capped = 0, inHot = 0;
@@ -163,7 +177,9 @@ public static partial class HuntFacts
         }
         compressed += inHot;
         if (capped > 0) notes.Add($"{capped:N0} pipe, registry, library and file strings past {MaxPerKind} per kind were not read.");
-        return found.Values;
+        var names = new HashSet<string>(imports, StringComparer.OrdinalIgnoreCase);
+        names.UnionWith(found.Keys.Where(k => k.Item1 == HuntKind.DllName).Select(k => k.Item2));
+        return found.Values.Where(f => f.Kind != HuntKind.DllName || !HasStrayByte(f.Value, names));
     }
 
     private static IEnumerable<(string Text, int Offset)> Runs(byte[] image, CancellationToken ct)

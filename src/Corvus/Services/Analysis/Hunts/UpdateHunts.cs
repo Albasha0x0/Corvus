@@ -14,7 +14,8 @@ public static class UpdateHunts
 
     /// <summary>
     /// Queries limited to <paramref name="newSha1"/> for the hosts, URLs, addresses, pipes, files and library names
-    /// only <paramref name="newFacts"/> holds; no added fact gives no query and a note saying so.
+    /// only <paramref name="newFacts"/> holds, plus a DNS and TLS name query on any device per added host;
+    /// no added fact gives no query and a note saying so.
     /// </summary>
     public static HuntSet Added(IEnumerable<HuntFact> oldFacts, IEnumerable<HuntFact> newFacts, string newSha1)
     {

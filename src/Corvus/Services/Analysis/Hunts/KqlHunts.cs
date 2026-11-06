@@ -81,7 +81,7 @@ public static class KqlHunts
 
     private const string Base = "Timestamp, DeviceId, DeviceName, ReportId";
 
-    private const string EmptyUrlNote = "RemoteUrl is empty on some connections, so no result does not show no connection; the DNS and TLS name queries read rows that name no process.";
+    private const string EmptyUrlNote = "RemoteUrl is empty on some connections, so no result does not show no connection; the DNS and TLS name queries read rows on any device that name no process, so a row does not show this file made the connection.";
 
     /// <summary>A KQL single-quoted string literal of <paramref name="value"/>: quote and backslash escaped, control characters written as escapes.</summary>
     public static string Literal(string value)
@@ -183,9 +183,11 @@ public static class KqlHunts
             if (group.Key == HuntKind.NamedPipe && written > 0)
                 notes.Add("Named pipe queries read ActionType NamedPipeEvent and AdditionalFields.PipeName; no Learn page lists them, so no result does not show the pipe is absent.");
             if (group.Key == HuntKind.Url && written > 0)
-                notes.Add("URL queries match the host, since RemoteUrl can omit the path.");
+                notes.Add("URL queries match the host where it is a name, since RemoteUrl can omit the path.");
             if (group.Key is HuntKind.Domain or HuntKind.Url && written > 0 && !notes.Contains(EmptyUrlNote))
                 notes.Add(EmptyUrlNote);
+            if (group.Key == HuntKind.RegistryKey && written > 0)
+                notes.Add("Registry queries match the path as written, so a key under WOW6432Node or a numbered control set gives no result.");
             if (group.Key == HuntKind.FilePath && written > 0)
                 notes.Add("DeviceFileEvents does not record every write, so no result does not show the file was not written.");
             if (skippedWeak > 0)
@@ -274,6 +276,7 @@ public static class KqlHunts
     {
         HuntKind.Sha1 => "the value is not 40 hex digits",
         HuntKind.DllName => "they need the SHA-1 of the loading file",
+        HuntKind.RegistryKey => "they need the SHA-1 of the file that changes the key",
         HuntKind.Ipv4 or HuntKind.Ipv6 => "the value is not an address",
         HuntKind.NamedPipe => "the pipe name is empty, or it is only a string and the file SHA-1 is unknown",
         HuntKind.FilePath => "the path names no file, or it is only a string and the file SHA-1 is unknown",
@@ -294,12 +297,13 @@ public static class KqlHunts
             case HuntKind.Url:
                 return !Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.HostNameType != UriHostNameType.Dns || uri.Host.Contains('.');
             case HuntKind.Ipv4:
-                // RFC 5280 attribute and extension identifiers start 2.5.
-                return !value.StartsWith("2.5.", StringComparison.Ordinal);
+                // RFC 5280 attribute and extension identifiers.
+                return !value.StartsWith("2.5.4.", StringComparison.Ordinal) && !value.StartsWith("2.5.29.", StringComparison.Ordinal);
             case HuntKind.Ipv6:
                 if (!IPAddress.TryParse(value, out var ip)) return true;
                 var b = ip.GetAddressBytes();
-                return Enumerable.Range(0, 8).Count(i => b[2 * i] != 0 || b[2 * i + 1] != 0) >= 3;
+                // Every group under 0x1000 reads as a text fragment such as 6:86::.
+                return Enumerable.Range(0, 8).Any(i => b[2 * i] >= 0x10);
             default:
                 return true;
         }
@@ -515,7 +519,7 @@ public static class KqlHunts
     private sealed class FactKeyComparer : IEqualityComparer<(string Kind, string Value)>
     {
         private static bool Folds(string kind) =>
-            kind is HuntKind.DllName or HuntKind.OriginalFileName or HuntKind.Domain or HuntKind.NamedPipe or HuntKind.FilePath;
+            kind is HuntKind.DllName or HuntKind.OriginalFileName or HuntKind.Domain or HuntKind.NamedPipe or HuntKind.FilePath or HuntKind.RegistryKey;
 
         public bool Equals((string Kind, string Value) a, (string Kind, string Value) b) =>
             a.Kind == b.Kind && string.Equals(a.Value, b.Value, Folds(a.Kind) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
