@@ -310,7 +310,11 @@ public sealed class ExportProjectTests
         var call = tools.ExportProject("TestFixture", dir.File("out"));
         for (int i = 0; i < 400 && !call.IsCompleted; i++)
         {
-            clock.Advance(TimeSpan.FromSeconds(10));
+            // FakeTimeProvider 10.10.0: disposing a timer does not wait for a
+            // callback in flight, as a real timer's DisposeAsync does, so the
+            // tick can reach a source the finished export disposed.
+            try { clock.Advance(TimeSpan.FromSeconds(10)); }
+            catch (ObjectDisposedException) { break; }
             await Task.Delay(10);
         }
         var stalled = await Assert.ThrowsAsync<ToolError>(() => call);
