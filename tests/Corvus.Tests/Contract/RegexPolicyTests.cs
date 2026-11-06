@@ -184,8 +184,7 @@ public sealed partial class RegexPolicyTests
 
     /// <summary>
     /// Fails when a scan of a line 8 times longer takes over 24 times as long (linear: about 8, quadratic: 64) and over
-    /// 50 ms; a quadratic scan of the longer line takes seconds. Each size keeps its best of 5 runs, taken in turn, so a
-    /// burst of load slows both sizes alike.
+    /// 50 ms; a quadratic scan of the longer line takes seconds. Each size keeps its best of at least 5 runs, taken in turn.
     /// </summary>
     private static void ScansInLinearTime(Regex regex, Func<int, string>[] lines, int n = 2_500)
     {
@@ -196,7 +195,9 @@ public sealed partial class RegexPolicyTests
             _ = regex.Count(line(100));
             string input = line(n), longer = line(8 * n);
             double once = double.MaxValue, eightTimes = double.MaxValue;
-            for (int run = 0; run < 5; run++)
+            // Regression: push run on ee7f08eb took 99 ms for a scan of about 2 ms.
+            // A pause outlasts 5 runs; a quadratic scan stays over at any run.
+            for (int run = 0; run < 5 || (run < 40 && eightTimes >= 50 && eightTimes >= 24 * once); run++)
             {
                 once = Math.Min(once, Scan(regex, input));
                 eightTimes = Math.Min(eightTimes, Scan(regex, longer));
