@@ -180,9 +180,9 @@ public sealed class RuleProofTests : IDisposable
         return clean;
     }
 
-    private string FolderOf(int count)
+    private string FolderOf(int count, string name = "clean")
     {
-        var clean = Folder("clean");
+        var clean = Folder(name);
         for (int i = 0; i < count; i++) File.WriteAllText(Path.Combine(clean, "f" + i + ".bin"), "x");
         return clean;
     }
@@ -306,5 +306,48 @@ public sealed class RuleProofTests : IDisposable
         Assert.DoesNotContain("false", pipe.Reason, StringComparison.OrdinalIgnoreCase);
         var hash = Assert.Single(set.Hunts, h => h.Table == "DeviceFileEvents" && h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal)).Proof!;
         Assert.Equal("any", hash.Scope);
+    }
+
+    [Fact]
+    public void Folders_that_contain_each_other_are_refused()
+    {
+        var clean = Folder("clean");
+        var nested = Directory.CreateDirectory(Path.Combine(clean, "builds")).FullName;
+        foreach (var (c, p) in new[] { (clean, nested), (nested, clean), (clean, clean) })
+        {
+            var error = Assert.Throws<ToolError>(() => RuleProof.Apply(Plain("registry_key", @"Software\X"), new ProofOptions(c, p), (_, _) => null!, default));
+            Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+        }
+    }
+
+    [Fact]
+    public void Prior_files_that_are_not_images_of_the_same_kind_are_not_builds()
+    {
+        var prior = Folder("prior");
+        Build(prior, "Build1", "durable-pipe");
+        Build(prior, "Build2", "durable-pipe");
+        for (int i = 0; i < 3; i++) File.WriteAllText(Path.Combine(prior, "notes" + i + ".txt"), "text");
+        var file = Build(Folder("input"), "Build3", "durable-pipe");
+        var set = Prove(file, new ProofOptions(Folder("clean"), prior, MinFiles: 1));
+        Assert.Equal((2, 3), (set.Proof!.Prior!.Read, set.Proof.Prior.Ignored));
+        var proof = Pipe(set, "durable-pipe").Proof!;
+        Assert.Equal(("durable", 2), (proof.Status, proof.PriorHits));
+    }
+
+    [Fact]
+    public void A_prior_build_that_could_not_show_a_kind_is_unknown_for_a_fact_of_it()
+    {
+        var prior = FolderOf(3, "prior");
+        var set = RuleProof.Apply(Plain("named_pipe", "svc"), new ProofOptions(Folder("clean"), prior, MinFiles: 1), (path, _) => Path.GetFileName(path) switch
+        {
+            "f0.bin" => new RuleProof.FileRead(false, [new HuntFact(HuntKind.NamedPipe, "svc", IndicatorEvidence.String)], new HashSet<string>()),
+            "f1.bin" => new RuleProof.FileRead(false, [], new HashSet<string> { HuntKind.NamedPipe }),
+            _ => new RuleProof.FileRead(false, [], new HashSet<string>()),
+        }, default);
+        var proof = set.Hunts[0].Proof!;
+        Assert.Equal("unknown", proof.Status);
+        Assert.Equal(1, proof.Facts[0].PriorUnknown);
+        Assert.Equal(["f2.bin"], proof.Facts[0].MissingFrom);
+        Assert.Contains("1 of 3 prior builds could not show it", proof.Reason, StringComparison.Ordinal);
     }
 }

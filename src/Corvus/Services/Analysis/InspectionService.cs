@@ -1111,7 +1111,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 var (huntFacts, factNotes) = (read.Facts, read.Notes);
                 var set = Hunts.KqlHunts.Write(huntFacts, null, Hunts.HuntFacts.IsExecutable(input));
                 var hunts = new Hunts.HuntSet(set.Hunts, [.. factNotes, .. set.Notes]) { Facts = huntFacts, UnknownKinds = read.Unknown };
-                if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, s.File.Sha1, proof, ct);
+                if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, s.File.Sha1, Hunts.RuleProof.KindOf(input.Head), proof, ct);
                 views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries."]);
             }
             if (input.Options.View != "indicators") return s;

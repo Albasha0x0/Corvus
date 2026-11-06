@@ -8,7 +8,7 @@ public sealed record ProofOptions(string CleanFolder, string? PriorBuildsFolder 
     int UnreadPercent = RuleProof.DefaultUnreadPercent, int MinFiles = RuleProof.DefaultMinFiles);
 
 /// <summary>One fact of a query: the clean files that carry it and, with prior builds, the builds that hold it.</summary>
-public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string> Samples, int? PriorHits = null, IReadOnlyList<string>? MissingFrom = null, string? Status = null);
+public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string> Samples, int? PriorHits = null, IReadOnlyList<string>? MissingFrom = null, string? Status = null, int? PriorUnknown = null);
 
 /// <summary>
 /// The verdict (keep, review or drop) of a query with its reason, clean hits, sample paths and prior-build standing.
@@ -22,7 +22,7 @@ public sealed record HuntProof(string Verdict, string Reason, int CleanHits, IRe
 /// copies of the file itself, and per fact kind the files that could not show it.
 /// </summary>
 public sealed record ProofFolder(string Folder, int Found, int Read, int NotRead, int Skipped, int Inaccessible, IReadOnlyList<string> Unread, int CopyCount,
-    IReadOnlyList<string> Copies, IReadOnlyDictionary<string, int> UnknownByKind)
+    IReadOnlyList<string> Copies, IReadOnlyDictionary<string, int> UnknownByKind, int Ignored = 0)
 {
     /// <summary>Files or folders whose facts are unknown: not read, past the bound, or not entered.</summary>
     public int Unknown => NotRead + Skipped + Inaccessible;
@@ -55,7 +55,10 @@ public static partial class RuleProof
     private const int MaxFactsShown = 10;
 
     /// <summary>What a reader returns for one file: whether it is a copy of the file under proof, and the facts and unknown kinds otherwise.</summary>
-    internal sealed record FileRead(bool Copy, IReadOnlyList<HuntFact> Facts, IReadOnlySet<string> Unknown);
+    internal sealed record FileRead(bool Copy, IReadOnlyList<HuntFact> Facts, IReadOnlySet<string> Unknown, string Kind = "Pe");
+
+    /// <summary>The kind of image a file head is (Pe, Elf, MachO, Unknown); prior builds are only files of the kind of the file under proof.</summary>
+    public static string KindOf(ReadOnlySpan<byte> head) => Corvus.Native.NativeImageLoader.Detect(head).ToString();
 
     // One folder's read files, the fact kinds each could not show, and the files that hold each query fact.
     private sealed record Scan(ProofFolder Folder, List<string> Files, List<int> Masks, Dictionary<string, List<int>> Holders);
@@ -65,29 +68,34 @@ public static partial class RuleProof
     /// <paramref name="sha1"/> names the file the queries came from: a clean or prior file with the same bytes is named, not counted.
     /// Throws InvalidArgument for a threshold out of range and NotFound for a missing folder.
     /// </summary>
-    public static HuntSet Apply(InspectionService inspection, HuntSet set, string sha1, ProofOptions options, CancellationToken ct) =>
-        Apply(set, options, (path, token) => ReadWith(inspection, path, sha1, token), ct);
+    public static HuntSet Apply(InspectionService inspection, HuntSet set, string sha1, string? imageKind, ProofOptions options, CancellationToken ct) =>
+        Apply(set, options, (path, token) => ReadWith(inspection, path, sha1, token), ct, imageKind);
 
     private static FileRead ReadWith(InspectionService inspection, string path, string sha1, CancellationToken ct)
     {
         var summary = inspection.Summarize(null, path, ct, new FileViewOptions("hunts"));
         if (summary.Views.GetValueOrDefault("hunts")?.Detail is not HuntSet read) throw new InvalidDataException("the file has no hunts view");
         if (summary.File.Sha1.Length > 0 && string.Equals(summary.File.Sha1, sha1, StringComparison.OrdinalIgnoreCase)) return new FileRead(true, [], new HashSet<string>());
-        return new FileRead(false, read.Facts, read.UnknownKinds);
+        return new FileRead(false, read.Facts, read.UnknownKinds, Corvus.Native.NativeImageLoader.DetectFile(path).ToString());
     }
 
-    internal static HuntSet Apply(HuntSet set, ProofOptions options, Func<string, CancellationToken, FileRead> reader, CancellationToken ct)
+    internal static HuntSet Apply(HuntSet set, ProofOptions options, Func<string, CancellationToken, FileRead> reader, CancellationToken ct, string? imageKind = null)
     {
         if (options.DropAt < 1) throw new ToolError(ErrorCode.InvalidArgument, "dropAt is below 1.", "pass dropAt of 1 or more");
         if (options.MaxFiles < 1) throw new ToolError(ErrorCode.InvalidArgument, "maxFiles is below 1.", "pass maxFiles of 1 or more");
         if (options.MinFiles < 1) throw new ToolError(ErrorCode.InvalidArgument, "minFiles is below 1.", "pass minFiles of 1 or more");
         if (options.UnreadPercent is < 0 or > 100) throw new ToolError(ErrorCode.InvalidArgument, "unreadPercent is not between 0 and 100.", "pass unreadPercent from 0 to 100");
         RequireFolder("cleanFolder", options.CleanFolder);
-        if (options.PriorBuildsFolder != null) RequireFolder("priorBuildsFolder", options.PriorBuildsFolder);
+        if (options.PriorBuildsFolder != null)
+        {
+            RequireFolder("priorBuildsFolder", options.PriorBuildsFolder);
+            if (Overlap(options.CleanFolder, options.PriorBuildsFolder))
+                throw new ToolError(ErrorCode.InvalidArgument, "cleanFolder and priorBuildsFolder overlap: a build would count as a clean file.", "pass folders that do not contain each other");
+        }
         var facts = set.Hunts.SelectMany(h => h.Facts).Distinct(StringComparer.Ordinal).ToList();
         var clock = Stopwatch.StartNew();
-        var clean = ScanFolder(options.CleanFolder, facts, reader, options.MaxFiles, ct);
-        var prior = options.PriorBuildsFolder == null ? null : ScanFolder(options.PriorBuildsFolder, facts, reader, options.MaxFiles, ct);
+        var clean = ScanFolder(options.CleanFolder, facts, reader, options.MaxFiles, null, ct);
+        var prior = options.PriorBuildsFolder == null ? null : ScanFolder(options.PriorBuildsFolder, facts, reader, options.MaxFiles, imageKind ?? "", ct);
         var seconds = clock.Elapsed.TotalSeconds;
         var read = clean.Folder.Read + (prior?.Folder.Read ?? 0);
         var scan = new ProofScan(options.DropAt, options.UnreadPercent, options.MinFiles, Math.Round(seconds, 2), seconds > 0 ? Math.Round(read * 60 / seconds, 1) : 0, clean.Folder, prior?.Folder);
@@ -100,6 +108,14 @@ public static partial class RuleProof
             notes.Add($"The prior-build scan is partial ({Reasons(prior.Folder)}): a fact listed as new may be in a build not read.");
         if (prior is { Folder.Read: 0 }) notes.Add("No prior build was read, so no fact has a prior-build standing.");
         return set with { Hunts = judged, Notes = notes, Proof = scan };
+    }
+
+    private static bool Overlap(string a, string b)
+    {
+        static string Full(string p) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(p)) + Path.DirectorySeparatorChar;
+        var (x, y) = (Full(a), Full(b));
+        var compare = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return x.StartsWith(y, compare) || y.StartsWith(x, compare);
     }
 
     private static string Reasons(ProofFolder f)
@@ -160,7 +176,8 @@ public static partial class RuleProof
         return (paths, unentered);
     }
 
-    private static Scan ScanFolder(string folder, List<string> facts, Func<string, CancellationToken, FileRead> reader, int max, CancellationToken ct)
+    // An image kind of "" keeps every image; null keeps every file.
+    private static Scan ScanFolder(string folder, List<string> facts, Func<string, CancellationToken, FileRead> reader, int max, string? imageKind, CancellationToken ct)
     {
         var (found, unentered) = Walk(folder, ct);
         var paths = found.Take(max).ToList();
@@ -170,7 +187,7 @@ public static partial class RuleProof
         var unknownByKind = new Dictionary<string, int>(StringComparer.Ordinal);
         var unread = unentered.Take(Named).ToList();
         var copies = new List<string>();
-        int notRead = 0;
+        int notRead = 0, ignored = 0;
         var probes = facts.Select(f => (Fact: f, Probes: FactMatch.Query(KindOf(f), f[(f.IndexOf(':', StringComparison.Ordinal) + 1)..]))).Where(p => p.Probes.Count > 0).ToList();
         foreach (var path in paths)
         {
@@ -179,6 +196,7 @@ public static partial class RuleProof
             {
                 var read = reader(path, ct);
                 if (read.Copy) { copies.Add(path); continue; }
+                if (imageKind != null && (imageKind.Length > 0 ? read.Kind != imageKind : read.Kind == "Unknown")) { ignored++; continue; }
                 int index = files.Count, mask = 0;
                 files.Add(path);
                 foreach (var kind in read.Unknown)
@@ -202,7 +220,7 @@ public static partial class RuleProof
             }
         }
         var summary = new ProofFolder(folder, found.Count, files.Count, notRead, found.Count - paths.Count, unentered.Count, unread, copies.Count,
-            [.. copies.Take(Named)], unknownByKind);
+            [.. copies.Take(Named)], unknownByKind, ignored);
         return new Scan(summary, files, masks, holders);
     }
 
@@ -214,9 +232,12 @@ public static partial class RuleProof
             var samples = hits.Take(Named).Select(i => clean.Files[i]).ToList();
             if (prior is not { Files.Count: > 0 }) return new FactProof(f, hits.Count, samples);
             var held = prior.Holders.GetValueOrDefault(f) ?? [];
-            var missing = Enumerable.Range(0, prior.Files.Count).Except(held).Take(Named).Select(i => Path.GetRelativePath(prior.Folder.Folder, prior.Files[i])).ToList();
-            var status = held.Count == prior.Files.Count ? "durable" : held.Count == 0 ? "new" : "partial";
-            return new FactProof(f, hits.Count, samples, held.Count, missing, status);
+            int bit = Bit(KindOf(f));
+            // A build that could not show the kind of this fact neither holds it nor lacks it.
+            var blindBuilds = Enumerable.Range(0, prior.Files.Count).Except(held).Where(i => (prior.Masks[i] & bit) != 0).ToList();
+            var missing = Enumerable.Range(0, prior.Files.Count).Except(held).Except(blindBuilds).Take(Named).Select(i => Path.GetRelativePath(prior.Folder.Folder, prior.Files[i])).ToList();
+            var status = blindBuilds.Count > 0 ? "unknown" : held.Count == prior.Files.Count ? "durable" : held.Count == 0 ? "new" : "partial";
+            return new FactProof(f, hits.Count, samples, held.Count, missing, status, blindBuilds.Count);
         }).ToList();
         // A query is an OR over its facts, so a file carrying any of them alerts.
         var union = hunt.Facts.SelectMany(f => clean.Holders.GetValueOrDefault(f) ?? []).Distinct().Order().ToList();
@@ -245,13 +266,14 @@ public static partial class RuleProof
         int? priorHits = null;
         if (prior is { Files.Count: > 0 } && facts.Count > 0)
         {
-            standing = facts.All(f => f.Status == "durable") ? "durable" : facts.All(f => f.Status == "new") ? "new" : "changed";
+            standing = facts.Any(f => f.Status == "unknown") ? "unknown" : facts.All(f => f.Status == "durable") ? "durable" : facts.All(f => f.Status == "new") ? "new" : "changed";
             priorHits = facts.Min(f => f.PriorHits);
             var absent = facts.SelectMany(f => f.MissingFrom ?? []).Distinct(StringComparer.OrdinalIgnoreCase).Take(3).ToList();
             reason += standing switch
             {
                 "durable" => $"; durable in all {prior.Files.Count:N0} prior builds",
                 "new" => $"; new, in none of {prior.Files.Count:N0} prior builds",
+                "unknown" => $"; {facts.Max(f => f.PriorUnknown):N0} of {prior.Files.Count:N0} prior builds could not show it",
                 _ => $"; missing from {string.Join(", ", absent)}",
             };
         }
