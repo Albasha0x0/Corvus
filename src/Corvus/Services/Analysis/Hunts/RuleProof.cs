@@ -14,14 +14,14 @@ public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string>
 public sealed record HuntProof(string Verdict, string Reason, int CleanHits, IReadOnlyList<string> Samples, IReadOnlyList<FactProof> Facts, int? PriorHits = null, string? Status = null);
 
 /// <summary>
-/// What one folder scan read: files found, read, not read and past the bound, 
+/// What one folder scan read: files found, read, not read and past the bound, folders and links not followed,
 /// copies of the file itself, and per fact kind the files that could not show it.
 /// </summary>
-public sealed record ProofFolder(string Folder, int Found, int Read, int NotRead, int Skipped, IReadOnlyList<string> Unread, int CopyCount,
+public sealed record ProofFolder(string Folder, int Found, int Read, int NotRead, int Skipped, int Inaccessible, IReadOnlyList<string> Unread, int CopyCount,
     IReadOnlyList<string> Copies, IReadOnlyDictionary<string, int> UnknownByKind)
 {
-    /// <summary>Files whose facts are unknown: not read or past the bound.</summary>
-    public int Unknown => NotRead + Skipped;
+    /// <summary>Files or folders whose facts are unknown: not read, past the bound, or not entered.</summary>
+    public int Unknown => NotRead + Skipped + Inaccessible;
 
     /// <summary>False when anything is unknown, or a read file could not show a fact kind.</summary>
     public bool Complete => Unknown == 0 && UnknownByKind.Count == 0;
@@ -77,6 +77,7 @@ public static class RuleProof
         if (options.DropAt < 1) throw new ToolError(ErrorCode.InvalidArgument, "dropAt is below 1.", "pass dropAt of 1 or more");
         if (options.MaxFiles < 1) throw new ToolError(ErrorCode.InvalidArgument, "maxFiles is below 1.", "pass maxFiles of 1 or more");
         if (options.MinFiles < 1) throw new ToolError(ErrorCode.InvalidArgument, "minFiles is below 1.", "pass minFiles of 1 or more");
+        if (options.UnreadPercent is < 0 or > 100) throw new ToolError(ErrorCode.InvalidArgument, "unreadPercent is not between 0 and 100.", "pass unreadPercent from 0 to 100");
         RequireFolder("cleanFolder", options.CleanFolder);
         if (options.PriorBuildsFolder != null) RequireFolder("priorBuildsFolder", options.PriorBuildsFolder);
         var facts = set.Hunts.SelectMany(h => h.Facts).Distinct(StringComparer.Ordinal).ToList();
@@ -102,6 +103,7 @@ public static class RuleProof
         var parts = new List<string>();
         if (f.NotRead > 0) parts.Add($"{f.NotRead:N0} not read");
         if (f.Skipped > 0) parts.Add($"{f.Skipped:N0} past maxFiles");
+        if (f.Inaccessible > 0) parts.Add($"{f.Inaccessible:N0} folders or links not entered");
         foreach (var (kind, count) in f.UnknownByKind.OrderBy(k => k.Key, StringComparer.Ordinal)) parts.Add($"{count:N0} could not show {kind}");
         return string.Join(", ", parts);
     }
@@ -140,28 +142,43 @@ public static class RuleProof
             ? v.ToUpperInvariant() : v);
     }
 
-    private static List<string> Walk(string root, CancellationToken ct)
+    // Files of a folder, entered in order; a folder that cannot be entered and a link that is not followed are named and counted.
+    private static (List<string> Paths, List<string> Unentered) Walk(string root, CancellationToken ct)
     {
-        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
         var paths = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(root, "*", options))
+        var unentered = new List<string>();
+        var pending = new Stack<string>([root]);
+        while (pending.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
-            paths.Add(path);
+            var dir = pending.Pop();
+            try
+            {
+                foreach (var entry in new DirectoryInfo(dir).EnumerateFileSystemInfos())
+                {
+                    if (entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) unentered.Add($"{entry.FullName}: link not followed");
+                    else if (entry is DirectoryInfo) pending.Push(entry.FullName);
+                    else paths.Add(entry.FullName);
+                }
+            }
+            catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+            {
+                unentered.Add($"{dir}: {e.Message.Split('\n')[0].Trim()}");
+            }
         }
         paths.Sort(StringComparer.OrdinalIgnoreCase);
-        return paths;
+        return (paths, unentered);
     }
 
     private static Scan ScanFolder(string folder, List<string> facts, Func<string, CancellationToken, FileRead> reader, int max, CancellationToken ct)
     {
-        var found = Walk(folder, ct);
+        var (found, unentered) = Walk(folder, ct);
         var paths = found.Take(max).ToList();
         var files = new List<string>();
         var masks = new List<int>();
         var holders = new Dictionary<string, List<int>>(StringComparer.Ordinal);
         var unknownByKind = new Dictionary<string, int>(StringComparer.Ordinal);
-        var unread = new List<string>();
+        var unread = unentered.Take(Named).ToList();
         var copies = new List<string>();
         int notRead = 0;
         var keys = facts.Select(f => (Fact: f, Key: FactKey(f))).ToList();
@@ -187,13 +204,14 @@ public static class RuleProof
                     list.Add(index);
                 }
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            // A file's own timeout is that file not read; the caller's cancellation ends the scan.
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 notRead++;
-                if (unread.Count < Named) unread.Add($"{path}: {e.Message.Split('\n')[0].Trim()}");
+                if (unread.Count < Named) unread.Add($"{path}: {(e is OperationCanceledException ? "timed out" : e.Message.Split('\n')[0].Trim())}");
             }
         }
-        var summary = new ProofFolder(folder, found.Count, files.Count, notRead, found.Count - paths.Count, unread, copies.Count,
+        var summary = new ProofFolder(folder, found.Count, files.Count, notRead, found.Count - paths.Count, unentered.Count, unread, copies.Count,
             [.. copies.Take(Named)], unknownByKind);
         return new Scan(summary, files, masks, holders);
     }
@@ -219,7 +237,7 @@ public static class RuleProof
         int blind = clean.Masks.Count(m => (m & kinds) != 0);
         int informative = clean.Folder.Read - blind;
         int lost = clean.Folder.Unknown + blind;
-        long total = clean.Folder.Found - clean.Folder.CopyCount;
+        long total = clean.Folder.Found + clean.Folder.Inaccessible - clean.Folder.CopyCount;
         var names = string.Join(", ", hunt.Facts.Select(KindOf).Distinct().Order(StringComparer.Ordinal));
         string verdict, reason;
         if (hunt.Facts.Any(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal)) && clean.Folder.CopyCount > 0)
@@ -246,7 +264,7 @@ public static class RuleProof
                 _ => $"; missing from {string.Join(", ", absent)}",
             };
         }
-        return new HuntProof(verdict, reason, hits, unionSamples,[.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing);
+        return new HuntProof(verdict, reason, hits, unionSamples, [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing);
     }
 
     private static string Show(string fact) => fact.Length > 80 ? fact[..77] + "..." : fact;

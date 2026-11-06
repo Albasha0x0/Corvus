@@ -237,4 +237,58 @@ public sealed class RuleProofTests : IDisposable
         Assert.Contains("minimum is 20", proof.Reason, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_link_in_the_clean_folder_is_named_and_the_scan_is_partial()
+    {
+        var clean = FolderOf(2);
+        var target = Folder("elsewhere");
+        var link = Path.Combine(clean, "link");
+        if (OperatingSystem.IsWindows())
+        {
+            using var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"") { CreateNoWindow = true, UseShellExecute = false })!;
+            mk.WaitForExit();
+        }
+        else Directory.CreateSymbolicLink(link, target);
+        var set = RuleProof.Apply(Plain("registry_key", "Software_X"), new ProofOptions(clean, MinFiles: 1), (_, _) => new RuleProof.FileRead(false, [], new HashSet<string>()), default);
+        Assert.Equal(1, set.Proof!.Clean.Inaccessible);
+        Assert.Contains(set.Proof.Clean.Unread, u => u.StartsWith(link, StringComparison.OrdinalIgnoreCase));
+        Assert.False(set.Proof.Clean.Complete);
+    }
+
+    [Fact]
+    public void A_file_that_times_out_is_not_read_and_the_scan_goes_on()
+    {
+        var clean = FolderOf(3);
+        var set = RuleProof.Apply(Plain("registry_key", "Software_X"), new ProofOptions(clean, MinFiles: 1), (path, _) =>
+            Path.GetFileName(path) == "f1.bin" ? throw new OperationCanceledException(new CancellationTokenSource().Token) : new RuleProof.FileRead(false, [], new HashSet<string>()), default);
+        Assert.Equal((2, 1), (set.Proof!.Clean.Read, set.Proof.Clean.NotRead));
+        Assert.Contains(set.Proof.Clean.Unread, u => u.EndsWith("timed out", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_caller_cancellation_still_ends_the_scan()
+    {
+        using var cts = new CancellationTokenSource();
+        var clean = FolderOf(3);
+        Assert.ThrowsAny<OperationCanceledException>(() => RuleProof.Apply(Plain("registry_key", "Software_X"), new ProofOptions(clean), (_, _) => { cts.Cancel(); cts.Token.ThrowIfCancellationRequested(); return null!; }, cts.Token));
+    }
+
+    [Fact]
+    public void A_percent_outside_0_to_100_is_refused()
+    {
+        var error = Assert.Throws<ToolError>(() => RuleProof.Apply(Plain("registry_key", "Software_X"), new ProofOptions(FolderOf(1), UnreadPercent: 101), (_, _) => null!, default));
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+    }
+
+    [Fact]
+    public async Task The_text_output_shows_the_files_cut_by_max_files_and_the_folders_not_entered()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "own-" + i);
+        var file = Build(Folder("input"), "Subject", "lonely-pipe");
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
+        var text = await tools.SummarizeFile(path: file, view: "hunts", cleanFolder: clean, maxFiles: 2);
+        Assert.Contains("2 of 3 files read", text, StringComparison.Ordinal);
+        Assert.Contains("1 past maxFiles", text, StringComparison.Ordinal);
+    }
 }

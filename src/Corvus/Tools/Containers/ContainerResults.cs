@@ -270,7 +270,7 @@ internal static class ContainerText
     // The scan of a proof in one line per folder.
     private static string ProofText(JsonObject scan)
     {
-        static string Folder(string name, JsonObject? f) => f == null ? "" : $"\n  {name}:{f["read"]} read, {f["notRead"]} not read, {f["readInPart"]} read in part{((bool?)f["truncated"] == true ? ", more files than maxFiles" : "")} ({f["folder"]})";
+        static string Folder(string name, JsonObject? f) => f == null ? "" : $"\n  {name}: {f["read"]} of {f["found"]} files read, {f["notRead"]} not read, {f["skipped"]} past maxFiles, {f["inaccessible"]} folders or links not entered ({f["folder"]})";
         return $"Proof: dropAt {scan["dropAt"]}, {scan["filesPerMinute"]} files per minute.{Folder("clean", scan["clean"] as JsonObject)}{Folder("prior builds", scan["prior"] as JsonObject)}";
     }
 
