@@ -1,5 +1,46 @@
 # Release notes
 
+## 2.12.0
+
+### Highlights
+
+- Write Defender XDR hunting queries and disabled detection rules from the facts of a file.
+- Write queries for what a new build adds to a vendor update.
+- Resolve an Application Error event to its build's function.
+- Join compiled-in components to device events through a custom table.
+
+### Breaking changes
+
+- **STIX import hash:** the bundle carries it in the PE extension. Before: `file.hashes.IMPHASH`. After: `file.extensions.windows-pebinary-ext.imphash`. No setting restores it.
+- **STIX notes:** the malware-analysis object keeps them in a custom property. Before: `description`. After: `x_corvus_notes`. No setting restores it.
+
+### Changes
+
+- **Containers:** `summarize_file view=hunts` writes one query per fact on Defender XDR tables; `huntsPath` saves queries and disabled rules as JSON. [7f622b3f](https://github.com/Albasha0x0/Corvus/commit/7f622b3f)
+- **Containers:** `view=hunts` pages ten queries by default and prints each as a block. [09f1d891](https://github.com/Albasha0x0/Corvus/commit/09f1d891)
+- **Containers:** `summarize_file componentsPath` writes compiled-in components as JSON lines for a custom table. [a921231a](https://github.com/Albasha0x0/Corvus/commit/a921231a)
+- **Containers:** LibreSSL builds are named in component rows. [0072c045](https://github.com/Albasha0x0/Corvus/commit/0072c045)
+- **Containers:** recipes cover a Defender XDR or Sentinel incident file and compiled-in components. [c678d842](https://github.com/Albasha0x0/Corvus/commit/c678d842)
+- **Native:** `compare_native_images view=hunts` writes queries for what only the new build holds. [00bbf6da](https://github.com/Albasha0x0/Corvus/commit/00bbf6da)
+- **Native:** `compare_native_images huntsPath` saves update queries and disabled rules. [b4c340ec](https://github.com/Albasha0x0/Corvus/commit/b4c340ec)
+- **Dumps:** `symbolize_stack_text` reads Application Error text and event XML and labels each frame same build, different build or module not loaded. [932da244](https://github.com/Albasha0x0/Corvus/commit/932da244)
+- **Dumps:** a function name without a range reports why: absent, ambiguous, inside a function or no extent. [bdf8c868](https://github.com/Albasha0x0/Corvus/commit/bdf8c868)
+
+### Fixes
+
+- **Containers:** hunts match the columns Defender records; hosts and addresses found only as strings get queries. [116d7e9a](https://github.com/Albasha0x0/Corvus/commit/116d7e9a)
+- **Containers:** strings that only look like facts get no query. [b5743744](https://github.com/Albasha0x0/Corvus/commit/b5743744)
+- **Containers:** a stray byte before a library name gives no second library. [44a44428](https://github.com/Albasha0x0/Corvus/commit/44a44428)
+- **Containers:** a quoted pipe path ends at its closing quote. [58389f46](https://github.com/Albasha0x0/Corvus/commit/58389f46)
+- **Containers:** addresses of 7 characters and IPv6 addresses are read from native strings. [59f8f73c](https://github.com/Albasha0x0/Corvus/commit/59f8f73c)
+- **Containers:** output paths naming a folder or one file twice are refused before the file is read. [ce891882](https://github.com/Albasha0x0/Corvus/commit/ce891882)
+- **Containers:** an empty file gets no SHA-1 query; a note says why. [5e7350a7](https://github.com/Albasha0x0/Corvus/commit/5e7350a7)
+- **Containers:** a sandboxed `unpack_container` works with `CORVUS_DATA_DIR` set and no marker id yet; a folder a sandboxed worker marked before is refused once. [86bbf07d](https://github.com/Albasha0x0/Corvus/commit/86bbf07d)
+- **Dotnet:** a repeated component ref no longer fails the SBOM. [51bde39c](https://github.com/Albasha0x0/Corvus/commit/51bde39c)
+- **Dumps:** every event of an Application Error text is read. [5101f66d](https://github.com/Albasha0x0/Corvus/commit/5101f66d)
+- **Dumps:** the image and section of each crash text frame are checked. [c681a5ba](https://github.com/Albasha0x0/Corvus/commit/c681a5ba)
+- **Native:** a tree kill of a process that is already exiting no longer throws out of cleanup. [661461d2](https://github.com/Albasha0x0/Corvus/commit/661461d2)
+
 ## 2.11.1
 
 ### Highlights
