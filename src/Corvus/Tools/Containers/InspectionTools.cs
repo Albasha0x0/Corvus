@@ -46,6 +46,11 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Write hunting queries and disabled rules here, JSON.")] string? huntsPath = null,
+        [Description("view=hunts: clean files; each query gets keep, review or drop.")] string? cleanFolder = null,
+        [Description("With cleanFolder: earlier builds; each fact reports which hold it.")] string? priorBuildsFolder = null,
+        [Description("With cleanFolder: clean files with a fact that drop its query; default 3.")] int? dropAt = null,
+        [Description("With cleanFolder: files read per folder; default 2000.")] int? maxFiles = null,
+        [Description("With cleanFolder: percent of clean files unread above which no hit is a review; default 5.")] int? unreadPercent = null,
         [Description("Write component rows here, JSON lines.")] string? componentsPath = null,
         [Description("Overwrite these files.")] bool overwrite = false,
         [Description("Password to decrypt with; only it is tried.")] string? password = null,
@@ -58,13 +63,19 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                     $"drop {refused.Parameter}=, or pass one of those views");
             if (script != null && name != "assets") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=assets.", "pass view=assets with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
-            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null || componentsPath != null, Stix = stixPath != null, Hunts = huntsPath != null, Script = script };
+            if (cleanFolder == null && (priorBuildsFolder != null || dropAt != null || maxFiles != null || unreadPercent != null))
+                throw new ToolError(ErrorCode.InvalidArgument, "priorBuildsFolder, dropAt, maxFiles and unreadPercent apply with cleanFolder.", "pass cleanFolder, or drop them");
+            if (cleanFolder != null && name != "hunts" && huntsPath == null)
+                throw new ToolError(ErrorCode.InvalidArgument, "cleanFolder checks the queries of view=hunts.", "pass view=hunts, or drop cleanFolder");
+            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null || componentsPath != null, Stix = stixPath != null, Hunts = huntsPath != null, Script = script,
+                Proof = cleanFolder == null ? null : new Services.Analysis.Hunts.ProofOptions(cleanFolder, priorBuildsFolder, dropAt ?? Services.Analysis.Hunts.RuleProof.DefaultDropAt, maxFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMaxFiles,
+                    unreadPercent ?? Services.Analysis.Hunts.RuleProof.DefaultUnreadPercent) };
             var native = NativeNamed(assembly, path);
             FileSummaryRecord record;
             // A file the workspace has not loaded is read where a crashing reader cannot end the server.
             if (assembly == null && path != null && native == null)
             {
-                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath);
+                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath, cleanFolder, priorBuildsFolder, dropAt, maxFiles, unreadPercent);
                 // A sandboxed worker cannot write the caller's folders: it writes staged files the server then moves.
                 FileWork.CheckOutputs(args);
                 var staged = FileIsolation.PoolFor(serverOptions, workers) is { Sandboxed: true } ? FileWork.StageOutputs(args) : null;

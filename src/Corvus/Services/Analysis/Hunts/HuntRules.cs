@@ -7,11 +7,13 @@ namespace Corvus.Services.Analysis.Hunts;
 /// <summary>Microsoft Graph v1.0 detectionRule bodies for hunting queries; a rule is created disabled, so nothing runs until a person enables it.</summary>
 public static class HuntRules
 {
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+
     /// <summary>The ISO 8601 run interval of every rule: once a day.</summary>
     public const string Frequency = "P1D";
 
-    /// <summary>The hunts that become detection rules: every query except a signer query, which matches every file the publisher signs, and a <see cref="Hunt.HuntingOnly"/> query.</summary>
-    public static IReadOnlyList<Hunt> Rules(HuntSet set) => [.. set.Hunts.Where(h => h.Table != "DeviceFileCertificateInfo" && !h.HuntingOnly)];
+    /// <summary>The hunts that become detection rules: every query except a signer query, which matches every file the publisher signs, a <see cref="Hunt.HuntingOnly"/> query and a query the proof dropped.</summary>
+    public static IReadOnlyList<Hunt> Rules(HuntSet set) => [.. set.Hunts.Where(h => h.Table != "DeviceFileCertificateInfo" && !h.HuntingOnly && h.Proof?.Verdict != "drop")];
 
     /// <summary>The detectionRule body of <paramref name="hunt"/>: id, names, query, schedule, status disabled and an alert template that maps the columns its query returns.</summary>
     public static JsonObject Rule(Hunt hunt)
@@ -52,7 +54,9 @@ public static class HuntRules
     public static string Written(HuntSet set, string path)
     {
         int queries = set.Hunts.Count, rules = Rules(set).Count;
-        return $"{queries} hunting {(queries == 1 ? "query" : "queries")} and {rules} detection {(rules == 1 ? "rule" : "rules")} (disabled) written to {path}.";
+        int dropped = set.Hunts.Count(h => h.Proof?.Verdict == "drop");
+        var tail = dropped > 0 ? $"; {dropped} dropped by the proof, no rule" : "";
+        return $"{queries} hunting {(queries == 1 ? "query" : "queries")} and {rules} detection {(rules == 1 ? "rule" : "rules")} (disabled) written to {path}{tail}.";
     }
 
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
@@ -60,7 +64,8 @@ public static class HuntRules
     {
         var rules = Rules(set);
         var notes = set.Notes.ToList();
-        if (rules.Count < set.Hunts.Count) notes.Add("Signer and DNS or TLS name queries are hunting queries only: they match every file the publisher signs or name no file, so no detection rule is written for them.");
+        if (set.Hunts.Any(h => h.Table == "DeviceFileCertificateInfo" || h.HuntingOnly)) notes.Add("Signer and DNS or TLS name queries are hunting queries only: they match every file the publisher signs or name no file, so no detection rule is written for them.");
+        if (set.Hunts.Any(h => h.Proof?.Verdict == "drop")) notes.Add("A query the proof dropped keeps its verdict and gets no detection rule.");
         var root = new JsonObject
         {
             ["hunts"] = new JsonArray([.. set.Hunts.Select(h => (JsonNode)new JsonObject
@@ -76,6 +81,10 @@ public static class HuntRules
             ["detectionRules"] = new JsonArray([.. rules.Select(h => (JsonNode)Rule(h))]),
             ["notes"] = new JsonArray([.. notes.Select(n => (JsonNode)JsonValue.Create(n)!)]),
         };
+        if (set.Proof != null) root["proof"] = JsonSerializer.SerializeToNode(set.Proof, Options);
+        var queries = (JsonArray)root["hunts"]!;
+        for (int i = 0; i < set.Hunts.Count; i++)
+            if (set.Hunts[i].Proof is { } proof) ((JsonObject)queries[i]!)["proof"] = JsonSerializer.SerializeToNode(proof, Options);
         return Encoding.UTF8.GetBytes(root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 }

@@ -244,6 +244,7 @@ internal static class ContainerText
         var page = new JsonArray([.. all.Skip(skip).Take(take).Select(h => h?.DeepClone())]);
         var paged = new JsonObject { ["total"] = all.Count, ["offset"] = skip, ["hunts"] = page };
         if (skip + page.Count < all.Count) paged["nextOffset"] = skip + page.Count;
+        if (detail["proof"] is { } proof) paged["proof"] = proof.DeepClone();
         if (detail["notes"] is { } notes) paged["notes"] = notes.DeepClone();
         return paged;
     }
@@ -255,13 +256,22 @@ internal static class ContainerText
         var hunts = detail["hunts"] as JsonArray ?? [];
         var shown = hunts.Count > 0 ? $" (showing {offset + 1}-{offset + hunts.Count})" : offset > 0 ? $" (none from offset {offset})" : "";
         sb.Append($"{total} hunting {OutputPager.Noun(total, "query")}{shown}:\n");
+        if (detail["proof"] is JsonObject scan) sb.Append(ProofText(scan)).Append('\n');
         foreach (var h in hunts.OfType<JsonObject>())
         {
             sb.Append($"  {h["id"]} ({h["table"]}, {h["severity"]}, {h["evidence"]}) {Escape((string?)h["title"] ?? "")}\n");
+            if (h["proof"] is JsonObject proof) sb.Append($"    proof: {proof["verdict"]}, {Escape((string?)proof["reason"] ?? "")}\n");
             foreach (var line in ((string?)h["kql"] ?? "").Split('\n')) sb.Append("    ").Append(line).Append('\n');
         }
         foreach (var n in detail["notes"] as JsonArray ?? []) sb.Append("Note: ").Append(Escape((string?)n ?? "")).Append('\n');
         sb.Append(detail["nextOffset"] is { } next ? OutputPager.More((int)next) : OutputPager.End(total, "query")).Append('\n');
+    }
+
+    // The scan of a proof in one line per folder.
+    private static string ProofText(JsonObject scan)
+    {
+        static string Folder(string name, JsonObject? f) => f == null ? "" : $"\n  {name}:{f["read"]} read, {f["notRead"]} not read, {f["readInPart"]} read in part{((bool?)f["truncated"] == true ? ", more files than maxFiles" : "")} ({f["folder"]})";
+        return $"Proof: dropAt {scan["dropAt"]}, {scan["filesPerMinute"]} files per minute.{Folder("clean", scan["clean"] as JsonObject)}{Folder("prior builds", scan["prior"] as JsonObject)}";
     }
 
     private static string? SignatureLine(CertificateInfo c) =>

@@ -1109,7 +1109,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             {
                 var (huntFacts, factNotes) = Hunts.HuntFacts.Of(s, input, ct);
                 var set = Hunts.KqlHunts.Write(huntFacts, null, Hunts.HuntFacts.IsExecutable(input));
-                views["hunts"] = new FileView(new Hunts.HuntSet(set.Hunts, [.. factNotes, .. set.Notes]), [$"{set.Hunts.Count:N0} hunting queries."]);
+                var hunts = new Hunts.HuntSet(set.Hunts, [.. factNotes, .. set.Notes]) { Facts = huntFacts };
+                if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, s.File.Sha1, proof, ct);
+                views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries."]);
             }
             if (input.Options.View != "indicators") return s;
             var indicators = IndicatorList.Of(s);

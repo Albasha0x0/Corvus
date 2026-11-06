@@ -18,10 +18,21 @@ public sealed record Hunt(string Id, string Title, string Table, string Kql, IRe
     /// <summary>True for a query that gets no detection rule, since its rows name no file.</summary>
     [JsonIgnore]
     public bool HuntingOnly { get; init; }
+
+    /// <summary>The check against clean files and prior builds; null when none was asked for.</summary>
+    public HuntProof? Proof { get; init; }
 }
 
 /// <summary>The queries written for a fact list, and the notes naming each fact that got none.</summary>
-public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> Notes);
+public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> Notes)
+{
+    /// <summary>Every fact read from the file, with or without a query; empty for a set written from a fact list.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<HuntFact> Facts { get; init; } = [];
+
+    /// <summary>What the clean-file and prior-build scans read; null when none was asked for.</summary>
+    public ProofScan? Proof { get; init; }
+}
 
 /// <summary>The fact kinds <see cref="KqlHunts"/> writes queries for.</summary>
 public static class HuntKind

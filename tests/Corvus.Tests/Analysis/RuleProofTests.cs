@@ -1,0 +1,172 @@
+using System.Text.Json.Nodes;
+using Corvus.Core;
+using Corvus.Services;
+using Corvus.Services.Analysis;
+using Corvus.Services.Analysis.Hunts;
+
+namespace Corvus.Tests;
+
+/// <summary>Hunting queries checked against folders of clean files and prior builds; every program is built from source with named pipes.</summary>
+public sealed class RuleProofTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly AssemblyWorkspace _ws = new();
+    public void Dispose() { _ws.Dispose(); _dir.Dispose(); }
+
+    private string Folder(string name) => Directory.CreateDirectory(_dir.File(name)).FullName;
+
+    // A library with one method per pipe, so its pipes are its facts.
+    private static string Build(string folder, string name, params string[] pipes)
+    {
+        var methods = string.Concat(pipes.Select((p, i) => "public static string P" + i + "() => @\"\\\\.\\pipe\\" + p + "\";"));
+        var path = Path.Combine(folder, name + ".dll");
+        File.WriteAllBytes(path, InspectionTests.Compile(name, "public static class " + name + " { " + methods + " }"));
+        return path;
+    }
+
+    private HuntSet Prove(string file, ProofOptions options)
+    {
+        var summary = new InspectionService(_ws).Summarize(null, file, default, new FileViewOptions("hunts") { Proof = options });
+        return (HuntSet)summary.Views["hunts"].Detail;
+    }
+
+    private static Hunt Pipe(HuntSet set, string name) => Assert.Single(set.Hunts, h => h.Facts.Any(f => f.Contains(name, StringComparison.Ordinal)));
+
+    [Fact]
+    public void A_fact_the_clean_files_carry_is_dropped_and_a_fact_of_the_program_alone_is_kept()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "shared-pipe-beta", "clean-own-" + i);
+        var file = Build(Folder("input"), "Subject", "shared-pipe-beta", "unique-pipe-alpha");
+        var set = Prove(file, new ProofOptions(clean));
+        var shared = Pipe(set, "shared-pipe-beta").Proof!;
+        Assert.Equal("drop", shared.Verdict);
+        Assert.Equal(3, shared.CleanHits);
+        Assert.Equal(3, shared.Samples.Count);
+        var unique = Pipe(set, "unique-pipe-alpha").Proof!;
+        Assert.Equal("keep", unique.Verdict);
+        Assert.Equal(0, unique.CleanHits);
+    }
+
+    [Fact]
+    public void Queries_are_ranked_keep_first_then_fewest_clean_hits()
+    {
+        var clean = Folder("clean");
+        Build(clean, "Clean0", "one-hit-pipe");
+        for (int i = 1; i < 4; i++) Build(clean, "Clean" + i, "many-hit-pipe");
+        var file = Build(Folder("input"), "Subject", "many-hit-pipe", "one-hit-pipe", "no-hit-pipe");
+        var verdicts = Prove(file, new ProofOptions(clean)).Hunts.Select(h => h.Proof!.Verdict).ToList();
+        Assert.Equal(verdicts.OrderBy(v => v == "keep" ? 0 : v == "review" ? 1 : 2), verdicts);
+        Assert.Contains("review", verdicts);
+        Assert.Equal("drop", verdicts[^1]);
+    }
+
+    [Fact]
+    public void A_clean_copy_of_the_same_bytes_is_named_and_is_no_hit_on_a_fact()
+    {
+        var clean = Folder("clean");
+        var file = Build(Folder("input"), "Subject", "copied-pipe");
+        var copy = Path.Combine(clean, "Copy.dll");
+        File.Copy(file, copy);
+        var set = Prove(file, new ProofOptions(clean));
+        Assert.Equal([copy], set.Proof!.Clean.Copies);
+        Assert.Equal(0, set.Proof.Clean.Read);
+        var hash = Assert.Single(set.Hunts, h => h.Table == "DeviceFileEvents" && h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal));
+        Assert.Equal("review", hash.Proof!.Verdict);
+        Assert.Contains(copy, hash.Proof.Reason, StringComparison.Ordinal);
+        Assert.Equal(0, Pipe(set, "copied-pipe").Proof!.CleanHits);
+    }
+
+    [Fact]
+    public void A_fact_added_in_build_3_of_5_is_reported_as_missing_from_the_builds_before_it()
+    {
+        var prior = Folder("prior");
+        Build(prior, "Build1", "durable-pipe");
+        Build(prior, "Build2", "durable-pipe");
+        Build(prior, "Build3", "durable-pipe", "added-in-three");
+        Build(prior, "Build4", "durable-pipe", "added-in-three");
+        var file = Build(Folder("input"), "Build5", "durable-pipe", "added-in-three", "added-in-five");
+        var set = Prove(file, new ProofOptions(Folder("clean"), prior));
+        var durable = Pipe(set, "durable-pipe").Proof!;
+        Assert.Equal(("durable", 4), (durable.Status, durable.PriorHits));
+        var added = Pipe(set, "added-in-three").Proof!;
+        Assert.Equal(("changed", 2), (added.Status, added.PriorHits));
+        Assert.Equal(["Build1.dll", "Build2.dll"], added.Facts[0].MissingFrom);
+        Assert.Contains("missing from Build1.dll, Build2.dll", added.Reason, StringComparison.Ordinal);
+        var only = Pipe(set, "added-in-five").Proof!;
+        Assert.Equal(("new", 0), (only.Status, only.PriorHits));
+    }
+
+    [Fact]
+    public void An_unreadable_clean_file_makes_the_scan_partial_and_a_query_with_no_hit_a_review()
+    {
+        var clean = Folder("clean");
+        Build(clean, "Readable", "other-pipe");
+        var locked = Build(clean, "Locked", "other-pipe");
+        var file = Build(Folder("input"), "Subject", "lonely-pipe");
+        using var hold = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+        var set = Prove(file, new ProofOptions(clean));
+        Assert.Equal((1, 1, false), (set.Proof!.Clean.Read, set.Proof.Clean.NotRead, set.Proof.Clean.Complete));
+        Assert.Contains(set.Proof.Clean.Unread, u => u.StartsWith(locked, StringComparison.OrdinalIgnoreCase));
+        var proof = Pipe(set, "lonely-pipe").Proof!;
+        Assert.Equal("review", proof.Verdict);
+        Assert.Contains("1 not read", proof.Reason, StringComparison.Ordinal);
+        Assert.Contains(set.Notes, n => n.StartsWith("The clean scan is partial", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_unread_share_under_the_threshold_keeps_a_query_and_the_reason_names_it()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 20; i++) Build(clean, "Clean" + i, "own-" + i);
+        var locked = Build(clean, "Locked", "own-locked");
+        var file = Build(Folder("input"), "Subject", "lonely-pipe");
+        using var hold = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+        var proof = Pipe(Prove(file, new ProofOptions(clean)), "lonely-pipe").Proof!;
+        Assert.Equal("keep", proof.Verdict);
+        Assert.Contains("1 not read", proof.Reason, StringComparison.Ordinal);
+        var strict = Pipe(Prove(file, new ProofOptions(clean, UnreadPercent: 4)), "lonely-pipe").Proof!;
+        Assert.Equal("review", strict.Verdict);
+    }
+
+    [Fact]
+    public void A_folder_over_max_files_is_read_to_the_bound_and_reported_partial()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "own-" + i);
+        var file = Build(Folder("input"), "Subject", "lonely-pipe");
+        var set = Prove(file, new ProofOptions(clean, MaxFiles: 2));
+        Assert.Equal((2, 1), (set.Proof!.Clean.Read, set.Proof.Clean.Skipped));
+        Assert.Equal("review", Pipe(set, "lonely-pipe").Proof!.Verdict);
+    }
+
+    [Fact]
+    public async Task A_dropped_query_stays_in_the_saved_file_with_its_verdict_and_gets_no_rule()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "shared-pipe-beta");
+        var file = Build(Folder("input"), "Subject", "shared-pipe-beta", "unique-pipe-alpha");
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
+        var saved = _dir.File("hunts.json");
+        var text = await tools.SummarizeFile(path: file, view: "hunts", huntsPath: saved, cleanFolder: clean);
+        Assert.Contains("dropped by the proof", text, StringComparison.Ordinal);
+        var root = JsonNode.Parse(File.ReadAllBytes(saved))!;
+        var dropped = root["hunts"]!.AsArray().Single(h => h!["proof"]!["verdict"]!.GetValue<string>() == "drop")!;
+        Assert.DoesNotContain(root["detectionRules"]!.AsArray(), r => r!["id"]!.GetValue<string>() == dropped["id"]!.GetValue<string>());
+        Assert.Contains(root["detectionRules"]!.AsArray(), r => r!["queryCondition"]!["queryText"]!.GetValue<string>().Contains("unique-pipe-alpha", StringComparison.Ordinal));
+        Assert.Equal(3, root["proof"]!["clean"]!["read"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task The_proof_parameters_are_refused_without_a_clean_folder_or_outside_the_hunts_view()
+    {
+        var file = Build(Folder("input"), "Subject", "lonely-pipe");
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
+        var alone = await Assert.ThrowsAsync<ToolError>(() => tools.SummarizeFile(path: file, view: "hunts", dropAt: 2));
+        Assert.Equal(ErrorCode.InvalidArgument, alone.Code);
+        var other = await Assert.ThrowsAsync<ToolError>(() => tools.SummarizeFile(path: file, view: "overview", cleanFolder: Folder("clean")));
+        Assert.Equal(ErrorCode.InvalidArgument, other.Code);
+        var missing = await Assert.ThrowsAsync<ToolError>(() => tools.SummarizeFile(path: file, view: "hunts", cleanFolder: _dir.File("absent")));
+        Assert.Equal(ErrorCode.NotFound, missing.Code);
+    }
+}

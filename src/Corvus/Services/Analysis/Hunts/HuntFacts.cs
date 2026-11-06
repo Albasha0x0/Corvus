@@ -102,7 +102,12 @@ public static partial class HuntFacts
     /// <summary>False for a note on the signer alone; every other note names facts that were not read.</summary>
     public static bool LimitsFacts(string note) => !note.StartsWith("The signer is unknown", StringComparison.Ordinal);
 
-    /// <summary>True for a PE or ELF image, the files whose process and image-load events the SHA-1 queries read.</summary>
+    /// <summary>True when a note names facts the reader did not read: a streamed image, an image that did not parse or a per-kind cap.</summary>
+    public static bool ReadInPart(IEnumerable<string> notes) =>
+        notes.Any(n => n.StartsWith("The image is streamed", StringComparison.Ordinal) || n.StartsWith("The version resource and imports are unknown", StringComparison.Ordinal)
+            || n.Contains("per kind were not read", StringComparison.Ordinal) || n.Contains("extracted values were read for pipes", StringComparison.Ordinal));
+
+    /// <summary>True for a PE or ELF image,the files whose process and image-load events the SHA-1 queries read.</summary>
     public static bool IsExecutable(FileInput input) =>
         input.Head.Length >= 2 && input.Head[0] == 'M' && input.Head[1] == 'Z' || Corvus.Native.NativeImageLoader.Detect(input.Head) == Corvus.Native.NativeFileKind.Elf;
 
