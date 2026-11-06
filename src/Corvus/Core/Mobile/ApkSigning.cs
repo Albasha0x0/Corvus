@@ -398,7 +398,7 @@ public static class ApkSigning
                 }
             }
             catch (PlatformNotSupportedException) { return null; }
-            catch (CryptographicException) { return false; }
+            catch (Exception ex) when (Certificates.KeyRefused(ex)) { return false; }
         }
 
         /// <summary>The content digest over entries, central directory and end record: chunked SHA-256/512 or the verity root.</summary>
@@ -636,8 +636,8 @@ public static class ApkSigning
                     if (info.Certificate is { } c) certificates.Add(Describe(c));
                 cms.CheckSignature(verifySignatureOnly: true);
             }
-            catch (CryptographicException ex) { reasons.Add($"{block}: the signature over {sfName} does not verify ({ex.Message})"); }
             catch (PlatformNotSupportedException) { return new(certificates, [], null, null, Unsupported, [$"{block}: cannot be checked on this host"], [], []); }
+            catch (Exception ex) when (Certificates.KeyRefused(ex)) { reasons.Add($"{block}: the signature over {sfName} does not verify ({ex.Message})"); }
 
             var signature = Manifest.Parse(sf);
             if (signature.Main.TryGetValue("X-Android-APK-Signed", out var schemes))

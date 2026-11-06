@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -45,7 +46,7 @@ public sealed record CrxHeader(int Version, string? ExtensionId, int Proofs, int
                 stream.Position = zipAt;
                 if (rsa.VerifyData(stream, sig, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1)) verified = 1;
             }
-            catch (CryptographicException ex) { notes.Add("CRX2 key: " + ex.Message); }
+            catch (Exception ex) when (Certificates.KeyRefused(ex)) { notes.Add("CRX2 key: " + ex.Message); }
             return new CrxHeader(2, Id(SHA256.HashData(key)), 1, verified, notes);
         }
         throw new InvalidDataException($"CRX version {version} is not 2 or 3");
@@ -102,7 +103,7 @@ public sealed record CrxHeader(int Version, string? ExtensionId, int Proofs, int
                     }
                     if (ok) verified++;
                 }
-                catch (CryptographicException ex) { notes.Add("CRX3 key proof: " + ex.Message); }
+                catch (Exception ex) when (Certificates.KeyRefused(ex)) { notes.Add("CRX3 key proof: " + ex.Message); }
             }
         }
         if (id != null && !proofs.Any(p => p.Kind == 2 && Id(SHA256.HashData(p.Key)) == id))

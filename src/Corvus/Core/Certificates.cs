@@ -24,6 +24,12 @@ public sealed record CertificateInfo(
 /// <summary>Reads and verifies a PE's Authenticode signature; malformed input is reported in Problem.</summary>
 public static class Certificates
 {
+    /// <summary>Whether <paramref name="ex"/> reports a public key or signature the platform refused.</summary>
+    // On macOS a key Security.framework refuses throws ArgumentException from
+    // SecKeyPair.PublicOnly, not CryptographicException. .NET 10, no upstream
+    // issue yet; read from CI run 42202494543.
+    public static bool KeyRefused(Exception ex) => ex is CryptographicException or ArgumentException;
+
     private const int SecurityDirectory = 4;
     private const ushort WinCertTypePkcsSignedData = 2;
     private const string CodeSigning = "1.3.6.1.5.5.7.3.3";
@@ -109,7 +115,7 @@ public static class Certificates
 
         bool? valid;
         try { signer.CheckSignature(verifySignatureOnly: true); valid = true; }
-        catch (CryptographicException) { valid = false; }
+        catch (Exception ex) when (KeyRefused(ex)) { valid = false; }
 
         var timestamp = SigningTime(signer, cms.Certificates);
         return new CertificateInfo(true, cert?.Subject, cert?.Issuer, cert?.Thumbprint, cert?.NotBefore.ToUniversalTime(), cert?.NotAfter.ToUniversalTime(),
@@ -142,7 +148,7 @@ public static class Certificates
                         counter.CheckSignature(verifySignatureOnly: true);
                         if (counter.Certificate is { } cert && TrustedAt(cert, certificates, time, null, roots)) return time;
                     }
-                    catch (Exception ex) when (ex is CryptographicException or AsnContentException) { }
+                    catch (Exception ex) when (KeyRefused(ex) || ex is AsnContentException) { }
         return null;
     }
 
@@ -284,7 +290,7 @@ public static class Certificates
             if (unknown) note = (note == null ? "" : note + "; ") + (offline ? "revocation not checked (CORVUS_OFFLINE=1 and no cached revocation data)" : "revocation not checked (no revocation data could be retrieved)");
             return null;
         }
-        catch (Exception ex) when (ex is CryptographicException or AsnContentException)
+        catch (Exception ex) when (KeyRefused(ex) || ex is AsnContentException)
         {
             return $"signature unreadable: {ex.Message}";
         }

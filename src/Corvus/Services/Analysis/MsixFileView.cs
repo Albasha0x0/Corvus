@@ -365,7 +365,7 @@ internal sealed class MsixFileView(long maxHashBytes) : IFileSummaryView
             var cert = info?.Certificate;
             bool valid = true;
             try { cms.CheckSignature(verifySignatureOnly: true); }
-            catch (CryptographicException) { valid = false; }
+            catch (Exception ex) when (Certificates.KeyRefused(ex)) { valid = false; }
             var timestamped = info?.UnsignedAttributes.Cast<CryptographicAttributeObject>()
                 .Any(a => a.Oid.Value is "1.2.840.113549.1.9.6" or "1.2.840.113549.1.9.16.2.14");
             return new SignatureRecord(valid ? "signed" : "invalid",

@@ -93,7 +93,7 @@ internal static class PackageProvenance
                 if (statements.Count > MaxAttestations) notes.Add($"provenance {name}: the first {MaxAttestations} attestations are read");
                 attestations.AddRange(statements.Take(MaxAttestations).Select(s => Check(name, s, digests)));
             }
-            catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException or KeyNotFoundException)
+            catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException or KeyNotFoundException || Certificates.KeyRefused(ex))
             {
                 notes.Add($"provenance {name}: not read ({ex.Message}); its attestations are unknown");
             }
@@ -193,7 +193,7 @@ internal static class PackageProvenance
     {
         var hash = key.KeySize > 256 ? HashAlgorithmName.SHA384 : HashAlgorithmName.SHA256;
         try { return key.VerifyData(data, signature, hash, DSASignatureFormat.Rfc3279DerSequence); }
-        catch (CryptographicException) { return false; }
+        catch (Exception ex) when (Certificates.KeyRefused(ex)) { return false; }
     }
 
     private static (ECDsa? Key, string? Why) NpmKey(string keyId, DateTimeOffset? at)

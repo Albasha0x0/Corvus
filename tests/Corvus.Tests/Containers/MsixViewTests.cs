@@ -341,6 +341,27 @@ public sealed class MsixViewTests(ITestOutputHelper output)
         Assert.Contains(Inspect(ms.ToArray(), name: "t.msixbundle").Highlights, h => h.Contains("unpack_container path=<bundle>"));
     }
 
+    // Regression: release run 42202494543, a fuzzed key left CheckSignature
+    // with an ArgumentException on macOS.
+    [Fact]
+    public void A_signature_with_a_damaged_public_key_stays_a_signature_record()
+    {
+        var signature = Signature(Publisher);
+        var cms = new SignedCms();
+        cms.Decode(signature.AsSpan(4));
+        var key = cms.Certificates[0].PublicKey.ExportSubjectPublicKeyInfo();
+        int at = signature.AsSpan().IndexOf(key);
+        Assert.True(at > 0);
+        for (int i = 0; i < key.Length; i++)
+        {
+            var damaged = signature.ToArray();
+            damaged[at + i] ^= 0xFF;
+            var bytes = Package(Manifest, damaged, Files(), files => BlockMap(files));
+            var view = new MsixFileView().Inspect(new FileInput("tool.msix", bytes, Blob.Identify(bytes)), default)!;
+            Assert.NotEqual("unsigned", ((MsixFileView.Facts)view.Detail).Signature.Status);
+        }
+    }
+
     [Fact]
     [FuzzEntry(typeof(MsixFileView))]
     public void Fuzzed_MSIX_packages_never_throw_past_a_tool_error()
