@@ -350,4 +350,40 @@ public sealed class RuleProofTests : IDisposable
         Assert.Equal(["f2.bin"], proof.Facts[0].MissingFrom);
         Assert.Contains("1 of 3 prior builds could not show it", proof.Reason, StringComparison.Ordinal);
     }
+
+    private static string BuildLibraries(string folder, string name, params string[] libraries)
+    {
+        var loads = string.Concat(libraries.Select((l, i) => "public static object L" + i + "() => System.Runtime.InteropServices.NativeLibrary.Load(\"" + l + "\");"));
+        var path = Path.Combine(folder, name + ".dll");
+        File.WriteAllBytes(path, InspectionTests.Compile(name, "public static class " + name + " { " + loads + " }"));
+        return path;
+    }
+
+    [Fact]
+    public void A_library_query_with_one_common_name_is_written_again_without_it()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) BuildLibraries(clean, "Clean" + i, "common-lib.dll");
+        var file = BuildLibraries(Folder("input"), "Subject", "common-lib.dll", "own-lib.dll");
+        var query = Assert.Single(Prove(file, new ProofOptions(clean, MinFiles: 1)).Hunts, h => h.Facts[0].StartsWith("dll_name:", StringComparison.Ordinal));
+        Assert.DoesNotContain("common-lib.dll", query.Kql, StringComparison.Ordinal);
+        Assert.Contains("own-lib.dll", query.Kql, StringComparison.Ordinal);
+        Assert.Contains("dll_name:own-lib.dll", query.Facts);
+        Assert.DoesNotContain("dll_name:common-lib.dll", query.Facts);
+        Assert.Equal(["dll_name:common-lib.dll (3 clean files)"], query.Proof!.Removed);
+        Assert.Equal("keep", query.Proof.Verdict);
+        Assert.Contains("written again without dll_name:common-lib.dll", query.Proof.Reason, StringComparison.Ordinal);
+        Assert.Empty(KqlCheck.Diagnostics(query.Kql));
+    }
+
+    [Fact]
+    public void A_library_query_whose_names_are_all_common_is_dropped_whole()
+    {
+        var hunt = KqlHunts.LibraryHunt(["common-a.dll", "common-b.dll"], IndicatorEvidence.Reference, "0123456789abcdef0123456789abcdef01234567", false);
+        var facts = hunt.Facts.Select(f => new HuntFact(HuntKind.DllName, f["dll_name:".Length..], IndicatorEvidence.Reference)).ToList();
+        var set = RuleProof.Apply(new HuntSet([hunt], []), new ProofOptions(FolderOf(3), MinFiles: 1), (_, _) => new RuleProof.FileRead(false, facts, new HashSet<string>()), default);
+        var proof = set.Hunts[0].Proof!;
+        Assert.Equal(("drop", null), (proof.Verdict, proof.Removed));
+        Assert.Equal(hunt.Id, set.Hunts[0].Id);
+    }
 }

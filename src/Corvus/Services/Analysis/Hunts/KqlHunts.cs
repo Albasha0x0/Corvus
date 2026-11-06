@@ -518,23 +518,29 @@ public static class KqlHunts
         {
             if (hunts.Count >= MaxPerKind) { over += chunk.Count; continue; }
             var values = chunk.Select(c => c.Key.Value).ToList();
-            var key = string.Join('\n', values.Select(v => v.ToLowerInvariant()));
             var evidence = chunk.Select(c => c.Value).Aggregate(IndicatorEvidence.Stronger);
-            var title = values.Count == 1 ? $"{Short(values[0])} loaded from the folder of the file" : $"{values.Count} libraries loaded from the folder of the file";
-            hunts.Add(new Hunt(Id("dll_name", key, scoped ? "-new" : "", sha1), title, "DeviceImageLoadEvents", string.Join('\n',
-            [
-                "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
-                $"| where FileName in~ ({string.Join(", ", values.Select(Literal))})",
-                "| where isnotempty(InitiatingProcessFolderPath)",
-                $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
-                $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
-                "| where DllDir == LoaderDir",
-                // A program in the system folder loads its DLLs from there by design.
-                "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
-                $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath",
-            ]), [.. values.Select(v => $"{HuntKind.DllName}:{v}")], evidence) { Severity = "medium" });
+            hunts.Add(LibraryHunt(values, evidence, sha1, scoped));
         }
         return hunts;
+    }
+
+    /// <summary>The query that reads the loads of <paramref name="values"/> from the folder of the file with SHA-1 <paramref name="sha1"/>.</summary>
+    internal static Hunt LibraryHunt(IReadOnlyList<string> values, string evidence, string sha1, bool scoped)
+    {
+        var key = string.Join('\n', values.Select(v => v.ToLowerInvariant()));
+        var title = values.Count == 1 ? $"{Short(values[0])} loaded from the folder of the file" : $"{values.Count} libraries loaded from the folder of the file";
+        return new Hunt(Id("dll_name", key, scoped ? "-new" : "", sha1), title, "DeviceImageLoadEvents", string.Join('\n',
+        [
+            "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
+            $"| where FileName in~ ({string.Join(", ", values.Select(Literal))})",
+            "| where isnotempty(InitiatingProcessFolderPath)",
+            $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
+            $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
+            "| where DllDir == LoaderDir",
+            // A program in the system folder loads its DLLs from there by design.
+            "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
+            $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath",
+        ]), [.. values.Select(v => $"{HuntKind.DllName}:{v}")], evidence) { Severity = "medium" };
     }
 
     // Names are compared as Windows compares them, except where a case change is a different value.

@@ -15,7 +15,7 @@ public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string>
 /// Scope is "file" for a query limited to the SHA-1 of the file under proof, whose rows no clean file can return, else "any".
 /// </summary>
 public sealed record HuntProof(string Verdict, string Reason, int CleanHits, IReadOnlyList<string> Samples, IReadOnlyList<FactProof> Facts, int? PriorHits = null, string? Status = null,
-    string Scope = "any");
+    string Scope = "any", IReadOnlyList<string>? Removed = null);
 
 /// <summary>
 /// What one folder scan read: files found, read, not read and past the bound, folders and links not followed,
@@ -99,7 +99,7 @@ public static partial class RuleProof
         var seconds = clock.Elapsed.TotalSeconds;
         var read = clean.Folder.Read + (prior?.Folder.Read ?? 0);
         var scan = new ProofScan(options.DropAt, options.UnreadPercent, options.MinFiles, Math.Round(seconds, 2), seconds > 0 ? Math.Round(read * 60 / seconds, 1) : 0, clean.Folder, prior?.Folder);
-        var judged = set.Hunts.Select((h, i) => (Hunt: h with { Proof = Judge(h, clean, prior, options) }, Index: i))
+        var judged = set.Hunts.Select((h, i) => (Reduce(h, clean, options), Index: i)).Select(x => (Hunt: x.Item1.Hunt with { Proof = Judge(x.Item1.Hunt, clean, prior, options, x.Item1.Removed) }, x.Index))
             .OrderBy(x => Rank(x.Hunt.Proof!.Verdict)).ThenBy(x => x.Hunt.Proof!.CleanHits).ThenBy(x => x.Index).Select(x => x.Hunt).ToList();
         var notes = new List<string>(set.Notes);
         if (!clean.Folder.Complete)
@@ -224,7 +224,20 @@ public static partial class RuleProof
         return new Scan(summary, files, masks, holders);
     }
 
-    private static HuntProof Judge(Hunt hunt, Scan clean, Scan? prior, ProofOptions options)
+    // A query over several library names that has some names common to clean files is written again without them.
+    private static (Hunt Hunt, IReadOnlyList<string> Removed) Reduce(Hunt hunt, Scan clean, ProofOptions options)
+    {
+        if (hunt.Facts.Count < 2 || !hunt.Facts.All(f => f.StartsWith(HuntKind.DllName + ":", StringComparison.Ordinal))) return (hunt, []);
+        var common = hunt.Facts.Where(f => (clean.Holders.GetValueOrDefault(f)?.Count ?? 0) >= options.DropAt).ToList();
+        var sha1 = FileScope().Match(hunt.Kql) is { Success: true } m ? m.Value[^41..^1] : null;
+        if (common.Count == 0 || common.Count == hunt.Facts.Count || sha1 == null) return (hunt, []);
+        var rest = hunt.Facts.Except(common).Select(f => f[(HuntKind.DllName.Length + 1)..]).ToList();
+        var written = KqlHunts.LibraryHunt(rest, hunt.Evidence, sha1, hunt.Id.EndsWith("-new", StringComparison.Ordinal));
+        if (KqlCheck.Diagnostics(written.Kql).Count > 0) return (hunt, []);
+        return (written, [.. common.Select(f => $"{f} ({clean.Holders[f].Count:N0} clean files)")]);
+    }
+
+    private static HuntProof Judge(Hunt hunt, Scan clean, Scan? prior, ProofOptions options, IReadOnlyList<string> removed)
     {
         var facts = hunt.Facts.Select(f =>
         {
@@ -262,6 +275,7 @@ public static partial class RuleProof
         else if (informative < options.MinFiles)
             (verdict, reason) = ("review", $"Only {informative:N0} clean files could show {names}; the minimum is {options.MinFiles:N0}");
         else (verdict, reason) = ("keep", $"No hit in {informative:N0} clean files that could show {names}" + (lost > 0 ? $"; {Reasons(clean.Folder)}" : ""));
+        if (removed.Count > 0) reason += $"; written again without {string.Join(", ", removed)}";
         string? standing = null;
         int? priorHits = null;
         if (prior is { Files.Count: > 0 } && facts.Count > 0)
@@ -277,7 +291,7 @@ public static partial class RuleProof
                 _ => $"; missing from {string.Join(", ", absent)}",
             };
         }
-        return new HuntProof(verdict, reason, hits, unionSamples, [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing, scoped ? "file" : "any");
+        return new HuntProof(verdict, reason, hits, unionSamples, [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing, scoped ? "file" : "any", removed.Count > 0 ? removed : null);
     }
 
     // A query limited to one file reads that file's events, so a clean file cannot return a row.
