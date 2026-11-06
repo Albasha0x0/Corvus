@@ -30,6 +30,10 @@ public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> No
     [JsonIgnore]
     public IReadOnlyList<HuntFact> Facts { get; init; } = [];
 
+    /// <summary>The kinds the file could not show; a fact of such a kind absent from it is unknown, not a miss.</summary>
+    [JsonIgnore]
+    public IReadOnlySet<string> UnknownKinds { get; init; } = new HashSet<string>();
+
     /// <summary>What the clean-file and prior-build scans read; null when none was asked for.</summary>
     public ProofScan? Proof { get; init; }
 }

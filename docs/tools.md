@@ -574,6 +574,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `dropAt` | integer |  |  | With cleanFolder: clean files with a fact that drop its query; default 3. |
 | `maxFiles` | integer |  |  | With cleanFolder: files read per folder; default 2000. |
 | `unreadPercent` | integer |  |  | With cleanFolder: percent of clean files unread above which no hit is a review; default 5. |
+| `minFiles` | integer |  |  | With cleanFolder: clean files that must show a query's facts for keep; default 20. |
 | `componentsPath` | string |  |  | Write component rows here, JSON lines. |
 | `overwrite` | boolean |  |  | Overwrite these files. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |

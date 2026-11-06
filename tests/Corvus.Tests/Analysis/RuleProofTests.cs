@@ -38,7 +38,7 @@ public sealed class RuleProofTests : IDisposable
         var clean = Folder("clean");
         for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "shared-pipe-beta", "clean-own-" + i);
         var file = Build(Folder("input"), "Subject", "shared-pipe-beta", "unique-pipe-alpha");
-        var set = Prove(file, new ProofOptions(clean));
+        var set = Prove(file, new ProofOptions(clean, MinFiles: 1));
         var shared = Pipe(set, "shared-pipe-beta").Proof!;
         Assert.Equal("drop", shared.Verdict);
         Assert.Equal(3, shared.CleanHits);
@@ -55,7 +55,7 @@ public sealed class RuleProofTests : IDisposable
         Build(clean, "Clean0", "one-hit-pipe");
         for (int i = 1; i < 4; i++) Build(clean, "Clean" + i, "many-hit-pipe");
         var file = Build(Folder("input"), "Subject", "many-hit-pipe", "one-hit-pipe", "no-hit-pipe");
-        var verdicts = Prove(file, new ProofOptions(clean)).Hunts.Select(h => h.Proof!.Verdict).ToList();
+        var verdicts = Prove(file, new ProofOptions(clean, MinFiles: 1)).Hunts.Select(h => h.Proof!.Verdict).ToList();
         Assert.Equal(verdicts.OrderBy(v => v == "keep" ? 0 : v == "review" ? 1 : 2), verdicts);
         Assert.Contains("review", verdicts);
         Assert.Equal("drop", verdicts[^1]);
@@ -68,7 +68,7 @@ public sealed class RuleProofTests : IDisposable
         var file = Build(Folder("input"), "Subject", "copied-pipe");
         var copy = Path.Combine(clean, "Copy.dll");
         File.Copy(file, copy);
-        var set = Prove(file, new ProofOptions(clean));
+        var set = Prove(file, new ProofOptions(clean, MinFiles: 1));
         Assert.Equal([copy], set.Proof!.Clean.Copies);
         Assert.Equal(0, set.Proof.Clean.Read);
         var hash = Assert.Single(set.Hunts, h => h.Table == "DeviceFileEvents" && h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal));
@@ -86,7 +86,7 @@ public sealed class RuleProofTests : IDisposable
         Build(prior, "Build3", "durable-pipe", "added-in-three");
         Build(prior, "Build4", "durable-pipe", "added-in-three");
         var file = Build(Folder("input"), "Build5", "durable-pipe", "added-in-three", "added-in-five");
-        var set = Prove(file, new ProofOptions(Folder("clean"), prior));
+        var set = Prove(file, new ProofOptions(Folder("clean"), prior, MinFiles: 1));
         var durable = Pipe(set, "durable-pipe").Proof!;
         Assert.Equal(("durable", 4), (durable.Status, durable.PriorHits));
         var added = Pipe(set, "added-in-three").Proof!;
@@ -105,7 +105,7 @@ public sealed class RuleProofTests : IDisposable
         var locked = Build(clean, "Locked", "other-pipe");
         var file = Build(Folder("input"), "Subject", "lonely-pipe");
         using var hold = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
-        var set = Prove(file, new ProofOptions(clean));
+        var set = Prove(file, new ProofOptions(clean, MinFiles: 1));
         Assert.Equal((1, 1, false), (set.Proof!.Clean.Read, set.Proof.Clean.NotRead, set.Proof.Clean.Complete));
         Assert.Contains(set.Proof.Clean.Unread, u => u.StartsWith(locked, StringComparison.OrdinalIgnoreCase));
         var proof = Pipe(set, "lonely-pipe").Proof!;
@@ -122,10 +122,10 @@ public sealed class RuleProofTests : IDisposable
         var locked = Build(clean, "Locked", "own-locked");
         var file = Build(Folder("input"), "Subject", "lonely-pipe");
         using var hold = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
-        var proof = Pipe(Prove(file, new ProofOptions(clean)), "lonely-pipe").Proof!;
+        var proof = Pipe(Prove(file, new ProofOptions(clean, MinFiles: 1)), "lonely-pipe").Proof!;
         Assert.Equal("keep", proof.Verdict);
         Assert.Contains("1 not read", proof.Reason, StringComparison.Ordinal);
-        var strict = Pipe(Prove(file, new ProofOptions(clean, UnreadPercent: 4)), "lonely-pipe").Proof!;
+        var strict = Pipe(Prove(file, new ProofOptions(clean, UnreadPercent: 4, MinFiles: 1)), "lonely-pipe").Proof!;
         Assert.Equal("review", strict.Verdict);
     }
 
@@ -135,7 +135,7 @@ public sealed class RuleProofTests : IDisposable
         var clean = Folder("clean");
         for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "own-" + i);
         var file = Build(Folder("input"), "Subject", "lonely-pipe");
-        var set = Prove(file, new ProofOptions(clean, MaxFiles: 2));
+        var set = Prove(file, new ProofOptions(clean, MaxFiles: 2, MinFiles: 1));
         Assert.Equal((2, 1), (set.Proof!.Clean.Read, set.Proof.Clean.Skipped));
         Assert.Equal("review", Pipe(set, "lonely-pipe").Proof!.Verdict);
     }
@@ -169,4 +169,61 @@ public sealed class RuleProofTests : IDisposable
         var missing = await Assert.ThrowsAsync<ToolError>(() => tools.SummarizeFile(path: file, view: "hunts", cleanFolder: _dir.File("absent")));
         Assert.Equal(ErrorCode.NotFound, missing.Code);
     }
+
+    private static HuntSet Plain(string kind, string value, string table = "DeviceRegistryEvents") =>
+        new([new Hunt("h", "title", table, "DeviceEvents", [kind + ":" + value], IndicatorEvidence.String)], []);
+
+    private string Readable(int count)
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < count; i++) Build(clean, "Clean" + i, "own-" + i);
+        return clean;
+    }
+
+    private string FolderOf(int count)
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < count; i++) File.WriteAllText(Path.Combine(clean, "f" + i + ".bin"), "x");
+        return clean;
+    }
+
+    [Fact]
+    public void Text_files_cannot_show_a_registry_key_so_no_hit_is_unknown()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 30; i++) File.WriteAllText(Path.Combine(clean, "note" + i + ".txt"), "plain text " + i);
+        var keys = InspectionTests.Compile("Keys", """
+            public static class Keys
+            {
+                public static object Open() => Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Vendor\App");
+            }
+            """);
+        var file = Path.Combine(Folder("input"), "Keys.dll");
+        File.WriteAllBytes(file, keys);
+        var registry = Assert.Single(Prove(file, new ProofOptions(clean)).Hunts, h => h.Table == "DeviceRegistryEvents").Proof!;
+        Assert.Equal("review", registry.Verdict);
+        Assert.Contains("could not show registry_key", registry.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_signer_a_clean_file_could_not_show_is_unknown_and_one_it_could_show_is_a_miss()
+    {
+        var set = Plain("signer", "CN=Example Publisher", "DeviceFileCertificateInfo");
+        var clean = FolderOf(25);
+        var blind = RuleProof.Apply(set, new ProofOptions(clean), (_, _) => new RuleProof.FileRead(false, [], new HashSet<string> { HuntKind.Signer }), default);
+        Assert.Equal("review", blind.Hunts[0].Proof!.Verdict);
+        var sighted = RuleProof.Apply(set, new ProofOptions(clean), (_, _) => new RuleProof.FileRead(false, [], new HashSet<string>()), default);
+        Assert.Equal("keep", sighted.Hunts[0].Proof!.Verdict);
+    }
+
+    [Fact]
+    public void A_clean_folder_under_the_minimum_gives_a_review_that_states_the_count()
+    {
+        var keys = Prove(Build(Folder("input"), "Subject", "lonely-pipe"), new ProofOptions(Readable(3)));
+        var proof = Pipe(keys, "lonely-pipe").Proof!;
+        Assert.Equal("review", proof.Verdict);
+        Assert.Contains("Only 3 clean files", proof.Reason, StringComparison.Ordinal);
+        Assert.Contains("minimum is 20", proof.Reason, StringComparison.Ordinal);
+    }
+
 }

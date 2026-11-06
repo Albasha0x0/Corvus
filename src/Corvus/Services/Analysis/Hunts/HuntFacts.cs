@@ -34,11 +34,30 @@ public static partial class HuntFacts
     [GeneratedRegex(@"^[A-Za-z]:\\[^\s""<>|*?]+\.[A-Za-z0-9]{1,5}$", RegexOptions.CultureInvariant)]
     private static partial Regex WindowsFile();
 
+    /// <summary>The facts of a file, the notes naming what was not read, and the kinds the reader could not show for this file.</summary>
+    public sealed record HuntRead(List<HuntFact> Facts, List<string> Notes, HashSet<string> Unknown);
+
+    // The kinds read from strings, imports and the version resource.
+    private static readonly string[] ImageKinds =
+        [HuntKind.OriginalFileName, HuntKind.DllName, HuntKind.NamedPipe, HuntKind.FilePath, HuntKind.RegistryKey,
+         HuntKind.Domain, HuntKind.Url, HuntKind.Ipv4, HuntKind.Ipv6];
+
     /// <summary>The facts of <paramref name="summary"/> and the notes naming what was not read; the strings of an image over the file-input size limit are not scanned.</summary>
     public static (List<HuntFact> Facts, List<string> Notes) Of(InspectionService.FileSummary summary, FileInput input, CancellationToken ct)
     {
+        var read = Read(summary, input, ct);
+        return (read.Facts, read.Notes);
+    }
+
+    /// <summary>
+    /// The facts and notes of <see cref="Of"/> with the kinds this file could not show: an absence of such a
+    /// kind in the facts is unknown, not a miss.
+    /// </summary>
+    public static HuntRead Read(InspectionService.FileSummary summary, FileInput input, CancellationToken ct)
+    {
         var facts = new List<HuntFact>();
         var notes = new List<string>();
+        var unknown = new HashSet<string>(StringComparer.Ordinal);
         bool pe = input.Head.Length >= 2 && input.Head[0] == 'M' && input.Head[1] == 'Z';
         // Regions are read once, from the bytes the strings come from.
         var hot = input.Streamed || !IsExecutable(input) ? null : HighEntropyWindows(input.Image, ct);
@@ -48,19 +67,27 @@ public static partial class HuntFacts
         else if (summary.File.Sha1.Length > 0) facts.Add(new(HuntKind.Sha1, summary.File.Sha1, IndicatorEvidence.Computed));
         if (summary.File.Certificate is { Present: true, Signer: { Length: > 0 } signer })
             facts.Add(new(HuntKind.Signer, signer, IndicatorEvidence.Computed));
-        else if (summary.File.Certificate is { Present: true })
-            notes.Add("The signer is unknown: the embedded certificate names none.");
-        else if (pe)
-            notes.Add("The signer is unknown: the file has no embedded signature, and catalog signatures are not read.");
+        else
+        {
+            // A catalog-signed file has no embedded signature, so no signer is read for it.
+            unknown.Add(HuntKind.Signer);
+            if (summary.File.Certificate is { Present: true })
+                notes.Add("The signer is unknown: the embedded certificate names none.");
+            else if (pe)
+                notes.Add("The signer is unknown: the file has no embedded signature, and catalog signatures are not read.");
+        }
         foreach (var i in IndicatorList.Of(summary).Indicators.Where(i => i.Type is "url" or "domain" or "ipv4" or "ipv6"))
         {
-            if (hot != null && i.Sources.All(src => src == "native") && StringOffset(i.FirstLocation) is { } at && InHot(hot, at)) { compressed++; continue; }
+            if (hot != null && i.Sources.All(src => src == "native") && StringOffset(i.FirstLocation) is { } at && InHot(hot, at)) { compressed++; unknown.Add(i.Type); continue; }
             facts.Add(new(i.Type, i.Value, i.Evidence));
         }
         foreach (var a in summary.Assemblies)
         {
             if (a.Values.Total > a.Values.Top.Count)
+            {
                 notes.Add($"{a.Path}: {a.Values.Top.Count} of {a.Values.Total} extracted values were read for pipes, files and mutexes; extract_strings lists all.");
+                unknown.UnionWith([HuntKind.NamedPipe, HuntKind.FilePath, HuntKind.RegistryKey]);
+            }
             foreach (var v in a.Values.Top)
             {
                 var kind = v.Type switch { "named_pipe" => HuntKind.NamedPipe, "file_path" => HuntKind.FilePath, "registry_key" => HuntKind.RegistryKey, "mutex" => HuntKind.Mutex, _ => null };
@@ -70,14 +97,16 @@ public static partial class HuntFacts
         if (!pe)
         {
             notes.Add("The version resource, imports and strings are read for PE images only.");
+            unknown.UnionWith(ImageKinds);
             if (compressed > 0) notes.Add(CompressedNote(compressed));
             if (!IsExecutable(input)) notes.Add("The file is not an executable image: unpack_container lists the entries of a container to hunt each one.");
-            return (facts, notes);
+            return new(facts, notes, unknown);
         }
         if (input.Streamed)
         {
             notes.Add($"The image is streamed ({input.Length:N0} bytes): its version resource, imports and strings were not read.");
-            return (facts, notes);
+            unknown.UnionWith(ImageKinds);
+            return new(facts, notes, unknown);
         }
         var image = input.Image;
         try
@@ -93,21 +122,17 @@ public static partial class HuntFacts
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             notes.Add($"The version resource and imports are unknown, the image did not parse: {ex.Message}");
+            unknown.UnionWith([HuntKind.OriginalFileName, HuntKind.DllName]);
         }
-        facts.AddRange(Strings(image, hot!, imports, ref compressed, notes, ct));
+        facts.AddRange(Strings(image, hot!, imports, ref compressed, notes, unknown, ct));
         if (compressed > 0) notes.Add(CompressedNote(compressed));
-        return (facts, notes);
+        return new(facts, notes, unknown);
     }
 
     /// <summary>False for a note on the signer alone; every other note names facts that were not read.</summary>
     public static bool LimitsFacts(string note) => !note.StartsWith("The signer is unknown", StringComparison.Ordinal);
 
-    /// <summary>True when a note names facts the reader did not read: a streamed image, an image that did not parse or a per-kind cap.</summary>
-    public static bool ReadInPart(IEnumerable<string> notes) =>
-        notes.Any(n => n.StartsWith("The image is streamed", StringComparison.Ordinal) || n.StartsWith("The version resource and imports are unknown", StringComparison.Ordinal)
-            || n.Contains("per kind were not read", StringComparison.Ordinal) || n.Contains("extracted values were read for pipes", StringComparison.Ordinal));
-
-    /// <summary>True for a PE or ELF image,the files whose process and image-load events the SHA-1 queries read.</summary>
+    /// <summary>True for a PE or ELF image, the files whose process and image-load events the SHA-1 queries read.</summary>
     public static bool IsExecutable(FileInput input) =>
         input.Head.Length >= 2 && input.Head[0] == 'M' && input.Head[1] == 'Z' || Corvus.Native.NativeImageLoader.Detect(input.Head) == Corvus.Native.NativeFileKind.Elf;
 
@@ -162,18 +187,18 @@ public static partial class HuntFacts
     }
 
     // Pipe paths, registry keys, library names without a folder and file paths among the printable ASCII and UTF-16 runs.
-    private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, HashSet<string> imports, ref int compressed, List<string> notes, CancellationToken ct)
+    private static IEnumerable<HuntFact> Strings(byte[] image, bool[] hot, HashSet<string> imports, ref int compressed, List<string> notes, HashSet<string> unknown, CancellationToken ct)
     {
         var found = new Dictionary<(string, string), HuntFact>();
         int capped = 0, inHot = 0;
         void Add(string kind, string value)
         {
-            if (found.Count(f => f.Key.Item1 == kind) >= MaxPerKind) { capped++; return; }
+            if (found.Count(f => f.Key.Item1 == kind) >= MaxPerKind) { capped++; unknown.Add(kind); return; }
             found.TryAdd((kind, value), new(kind, value, IndicatorEvidence.String));
         }
         foreach (var (run, offset) in Runs(image, ct))
         {
-            if (InHot(hot, offset)) { inHot++; continue; }
+            if (InHot(hot, offset)) { inHot++; foreach (var kind in KindsOf(run)) unknown.Add(kind); continue; }
             foreach (Match m in Pipe().Matches(run)) Add(HuntKind.NamedPipe, Unquoted(run, m));
             if (RegistryPath().IsMatch(run)) Add(HuntKind.RegistryKey, Values.BeforeMessage(run));
             if (BareDll().IsMatch(run) && SideLoadable(run)) Add(HuntKind.DllName, run);
@@ -186,6 +211,15 @@ public static partial class HuntFacts
         var names = new HashSet<string>(imports, StringComparer.OrdinalIgnoreCase);
         names.UnionWith(found.Keys.Where(k => k.Item1 == HuntKind.DllName).Select(k => k.Item2));
         return found.Values.Where(f => f.Kind != HuntKind.DllName || !HasStrayByte(f.Value, names));
+    }
+
+    // The kinds a string would give were it not in a compressed region.
+    private static IEnumerable<string> KindsOf(string run)
+    {
+        if (Pipe().IsMatch(run)) yield return HuntKind.NamedPipe;
+        if (RegistryPath().IsMatch(run)) yield return HuntKind.RegistryKey;
+        if (BareDll().IsMatch(run) && SideLoadable(run)) yield return HuntKind.DllName;
+        else if (WindowsFile().IsMatch(run) && !BuildFiles.Contains(Path.GetExtension(run))) yield return HuntKind.FilePath;
     }
 
     private static IEnumerable<(string Text, int Offset)> Runs(byte[] image, CancellationToken ct)
