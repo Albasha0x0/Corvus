@@ -244,6 +244,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
                     ["TMP"] = scratch,
                     ["LOCALAPPDATA"] = local,
                     ["APPDATA"] = roaming,
+                    [MarkerId.WorkerVariable] = MarkerId.ForWorker(),
                 };
                 start = start with { Sandbox = true, Environment = variables };
             }

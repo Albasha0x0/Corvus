@@ -288,6 +288,7 @@ the server keeps answering.
 | `CORVUS_WORKER_MEMORY_MB` | ½ of available | memory limit per worker, at least 256; `0`: none |
 | `CORVUS_WORKER_LINUX_SANDBOX` | set by the pool | `1`: the Linux files worker applies its sandbox at start; the pool sets it from `CORVUS_WORKER_SANDBOX` |
 | `CORVUS_WORKER_FIXTURE_OPS` | off | `1`: a worker also answers the tests' fixture ops |
+| `CORVUS_WORKER_MARKER_ID` | set by the pool | The data folder id a sandboxed files worker writes in unpack and export markers |
 | `CORVUS_YARA_LIBRARY` | shipped build | path of a libyara_x_capi 1.22.1 build for an unsupported platform; loaded without the SHA-256 check |
 | `CORVUS_CHILD_DATA_KB` | | set by Corvus for a capped Linux child; becomes its RLIMIT_DATA |
 

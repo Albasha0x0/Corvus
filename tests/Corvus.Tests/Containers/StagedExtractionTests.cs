@@ -1,3 +1,4 @@
+using Corvus.Native.Providers;
 using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Tests;
@@ -5,11 +6,18 @@ namespace Corvus.Tests;
 /// <summary>unpack_container through a sandboxed files worker: the server fills the folder the call names.</summary>
 public sealed class StagedExtractionTests : FileIsolationTestBase
 {
-    private WorkerPool SandboxedPool() => new(new WorkerPoolOptions
+    private WorkerPool SandboxedPool(string? dataFolder = null) => new(new WorkerPoolOptions
     {
         Enabled = true,
         Sandbox = true,
-        Start = WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [WorkerHost.FixtureOpsVariable] = "1" } },
+        Start = WorkerPool.OwnCommand() with
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                [WorkerHost.FixtureOpsVariable] = "1",
+                [DataFolder.RootVariable] = dataFolder ?? Environment.GetEnvironmentVariable(DataFolder.RootVariable),
+            },
+        },
     });
 
     [Fact]
@@ -25,6 +33,23 @@ public sealed class StagedExtractionTests : FileIsolationTestBase
         Assert.True(result.IsError != true, Whole(result));
         Assert.Equal("text 1", File.ReadAllText(Path.Combine(target, "docs", "f1.txt")));
         Assert.DoesNotContain("extract-", Whole(result));
+    }
+
+    // Regression for 7ff36ecd7: the worker wrote marker.id to a data folder its low integrity level denies.
+    [Fact]
+    public async Task A_sandboxed_worker_extracts_with_a_data_folder_it_cannot_write()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (zip, _, _, _) = Inputs();
+        var data = Path.Combine(_dir.Path, "data");
+        Directory.CreateDirectory(data);
+        using var pool = SandboxedPool(data);
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var target = Path.Combine(_dir.Path, "named");
+        var result = await Call(session, "unpack_container", new() { ["path"] = zip, ["outputDirectory"] = target, ["extractOnly"] = true });
+        Assert.True(result.IsError != true, Whole(result));
+        Assert.Equal("text 1", File.ReadAllText(Path.Combine(target, "docs", "f1.txt")));
     }
 
     [Fact]

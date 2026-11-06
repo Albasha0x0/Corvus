@@ -9,6 +9,12 @@ namespace Corvus.Core;
 /// </summary>
 public static class MarkerId
 {
+    /// <summary>
+    /// Hands the server's id to a sandboxed worker, which cannot write to the
+    /// data folder and keeps its caches in a scratch folder of its own.
+    /// </summary>
+    public const string WorkerVariable = "CORVUS_WORKER_MARKER_ID";
+
     private const string FileName = "marker.id";
 
     private static readonly Lazy<string> Value = new(Load);
@@ -18,8 +24,19 @@ public static class MarkerId
     /// </summary>
     public static string Current => Value.Value;
 
+    /// <summary>
+    /// The id for a worker's environment; null when the data folder cannot
+    /// keep one, so that only the calls that need the id fail.
+    /// </summary>
+    public static string? ForWorker()
+    {
+        try { return Current; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { return null; }
+    }
+
     private static string Load()
     {
+        if (Environment.GetEnvironmentVariable(WorkerVariable) is { Length: 32 } given) return given;
         var path = Native.Providers.DataFolder.Combine(FileName);
         if (Read(path) is { } kept) return kept;
         var id = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
