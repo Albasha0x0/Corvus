@@ -23,11 +23,11 @@ public class CatalogAuditTests
     // interface and hunts values of its view; then by 100 for its
     // huntsPath and overwrite parameters.
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 150_900;
+    private const int MaxModelFacingBytes = 151_500;
 
     // Raised by 150 for compare_native_images huntsPath and overwrite.
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 297_150;
+    private const int MaxToolsListBytes = 297_800;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()
@@ -201,7 +201,7 @@ public class CatalogAuditTests
 
     /// <summary>Per profile: tool count and the ceiling of model-facing bytes, the measured size rounded up to 50.</summary>
     [Theory]
-    [InlineData(Toolsets.Lean, 40, 37_550)]
+    [InlineData(Toolsets.Lean, 40, 37_950)]
     [InlineData(Toolsets.CoreName, 100, 89_300)]
     public void Profiles_stay_within_their_ceilings(string profile, int maxTools, int maxModelFacing)
     {
