@@ -44,7 +44,8 @@ public static partial class HuntFacts
         var hot = input.Streamed || !IsExecutable(input) ? null : HighEntropyWindows(input.Image, ct);
         int compressed = 0;
         var imports = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (summary.File.Sha1.Length > 0) facts.Add(new(HuntKind.Sha1, summary.File.Sha1, IndicatorEvidence.Computed));
+        if (summary.File.Size == 0) notes.Add("The file is empty: its SHA-1 matches every empty file, so it has no query.");
+        else if (summary.File.Sha1.Length > 0) facts.Add(new(HuntKind.Sha1, summary.File.Sha1, IndicatorEvidence.Computed));
         if (summary.File.Certificate is { Present: true, Signer: { Length: > 0 } signer })
             facts.Add(new(HuntKind.Signer, signer, IndicatorEvidence.Computed));
         else if (summary.File.Certificate is { Present: true })
@@ -70,7 +71,7 @@ public static partial class HuntFacts
         {
             notes.Add("The version resource, imports and strings are read for PE images only.");
             if (compressed > 0) notes.Add(CompressedNote(compressed));
-            if (!IsExecutable(input)) notes.Add("The file is not an executable image: unpack_container lists its entries to hunt each one.");
+            if (!IsExecutable(input)) notes.Add("The file is not an executable image: unpack_container lists the entries of a container to hunt each one.");
             return (facts, notes);
         }
         if (input.Streamed)

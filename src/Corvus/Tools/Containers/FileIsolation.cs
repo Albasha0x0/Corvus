@@ -586,7 +586,7 @@ public static class FileWork
         {
             // Another view keeps its own result when there is no SBOM to write.
             if (!required)
-                return "No SBOM written: no component was read from the file; an executable has no component list. list_imports names its libraries.";
+                return "No SBOM written: no component was read from the file; a part the readers cannot read is unknown, not absent. list_imports names an image's libraries.";
             throw new ToolError(ErrorCode.NotFound, "No component was read from the file; no SBOM written. A part the readers cannot read is unknown, not absent.", "call summarize_file view=dependencies path=<an app, bundle or package> sbomPath=<file>");
         }
         var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,

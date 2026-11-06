@@ -80,7 +80,7 @@ public sealed class ImportHashTests : IDisposable
     }
 
     [Fact]
-    public void The_file_summary_carries_the_import_hash_and_the_bundle_lists_it_with_the_file_hashes()
+    public void The_file_summary_carries_the_import_hash_and_the_bundle_lists_it_in_the_PE_extension()
     {
         var path = _dir.File("a.exe");
         File.WriteAllBytes(path, Image(("kernel32.dll", ["ExitProcess"])));
@@ -89,6 +89,8 @@ public sealed class ImportHashTests : IDisposable
         Assert.Equal(Md5("kernel32.exitprocess"), summary.File.Imphash);
         var bundle = System.Text.Json.JsonDocument.Parse(StixBundle.Write(summary, "1.0.0", DateTimeOffset.UnixEpoch, Guid.NewGuid(), Guid.NewGuid()));
         var file = bundle.RootElement.GetProperty("objects").EnumerateArray().First(o => o.GetProperty("type").GetString() == "file");
-        Assert.Equal(summary.File.Imphash, file.GetProperty("hashes").GetProperty("IMPHASH").GetString());
+        var pe = file.GetProperty("extensions").GetProperty("windows-pebinary-ext");
+        Assert.Equal(summary.File.Imphash, pe.GetProperty("imphash").GetString());
+        Assert.False(file.GetProperty("hashes").TryGetProperty("IMPHASH", out _));
     }
 }

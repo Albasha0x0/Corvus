@@ -68,6 +68,21 @@ public sealed class StixBundleTests : IDisposable
         [.. JsonDocument.Parse(bytes).RootElement.GetProperty("objects").EnumerateArray()];
 
     [Fact]
+    public void The_import_hash_is_kept_in_the_PE_extension()
+    {
+        var path = _dir.File("UpdateCheck.dll");
+        using (var zip = ZipFile.OpenRead(Fixture()))
+            zip.GetEntry("bin/UpdateCheck.dll")!.ExtractToFile(path);
+        var bytes = Bundle(path);
+        AssertValid(bytes);
+        var sample = Objects(bytes).Single(o => o.GetProperty("type").GetString() == "file");
+        Assert.False(sample.GetProperty("hashes").TryGetProperty("IMPHASH", out _));
+        var pe = sample.GetProperty("extensions").GetProperty("windows-pebinary-ext");
+        Assert.Equal("dll", pe.GetProperty("pe_type").GetString());
+        Assert.Equal(32, pe.GetProperty("imphash").GetString()!.Length);
+    }
+
+    [Fact]
     public void The_bundle_validates_against_the_STIX_2_1_schemas_and_names_where_each_object_was_found()
     {
         var bytes = Bundle(Fixture());

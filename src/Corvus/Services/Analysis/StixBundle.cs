@@ -58,9 +58,15 @@ public static class StixBundle
         int networkValues = 0, stringOnly = 0;
         bool cut = false;
         // The STIX TLSH hash is the 70 digits without the "T1" version prefix.
-        var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256), ("IMPHASH", file.Imphash), ("TLSH", file.Tlsh?[2..]));
+        var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256), ("TLSH", file.Tlsh?[2..]));
         var sample = FileObject(sampleHashes, Path.GetFileName(file.Path), null);
         sample.Properties["size"] = file.Size;
+        // STIX has no import hash algorithm; the PE extension names the field.
+        if (file is { Imphash: { Length: > 0 } imphash, PeType: { } peType })
+            sample.Properties["extensions"] = new Dictionary<string, object>
+            {
+                ["windows-pebinary-ext"] = new Dictionary<string, object> { ["pe_type"] = peType, ["imphash"] = imphash },
+            };
 
         foreach (var a in summary.Assemblies)
         {

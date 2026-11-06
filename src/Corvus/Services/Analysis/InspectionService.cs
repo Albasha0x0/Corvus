@@ -51,6 +51,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         /// <summary>The import hash of a PE image with regular imports (MD5 over "library.function" terms, as pefile computes it); null otherwise.</summary>
         public string? Imphash { get; init; }
 
+        /// <summary>The STIX pe_type of a PE image: sys for the native subsystem, dll, or exe; null otherwise.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? PeType { get; init; }
+
         /// <summary>The TLSH digest ("T1" form); null when the input has none, with the reason in <see cref="TlshAbsent"/>.</summary>
         public string? Tlsh { get; init; }
 
@@ -1299,12 +1303,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     private static FileFacts Facts(string path, byte[] bytes)
     {
-        bool pe = PeImage.TryParse(bytes) != null;
+        var image = PeImage.TryParse(bytes);
+        bool pe = image != null;
         var (tlsh, tlshAbsent) = Tlsh.Of(bytes);
         return new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),
             pe ? Certificates.Read(bytes) : new CertificateInfo(false))
         {
             Imphash = pe ? Imphash(bytes) : null,
+            PeType = image == null ? null : image.Subsystem(bytes) == 1 ? "sys" : image.IsDll ? "dll" : "exe",
             Tlsh = tlsh,
             TlshAbsent = tlshAbsent,
             Zone = ZoneIdentifier.Of(path),

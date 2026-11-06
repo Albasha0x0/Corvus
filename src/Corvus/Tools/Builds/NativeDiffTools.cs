@@ -287,8 +287,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             if (inspection == null) throw new ToolError(ErrorCode.ProviderUnavailable, "view=hunts reads the builds' facts, which this server cannot summarize.");
             var set = await Task.Run(() => UpdateHuntSet(inspection, pair, record.Changes, cancellationToken), cancellationToken);
-            record = record with { Hunts = set.Hunts, Notes = [.. record.Notes, .. set.Notes] };
-            head.Append($"{set.Hunts.Count} hunting queries.\n");
+            const string Unpaged = "view=hunts returns every query in hunts; items, total, offset and limit list function pairs and do not apply.";
+            record = record with { Hunts = set.Hunts, Notes = [.. record.Notes, .. set.Notes, Unpaged] };
+            head.Append($"{set.Hunts.Count} hunting {(set.Hunts.Count == 1 ? "query" : "queries")}.\n");
             foreach (var h in set.Hunts) head.Append($"  {h.Id} ({h.Table}) {h.Title}\n{string.Join('\n', h.Kql.Split('\n').Select(l => "    " + l))}\n");
             foreach (var note in set.Notes) head.Append("Note: ").Append(note).Append('\n');
         }
@@ -342,7 +343,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             if (crash.Hunts.Count > 0)
             {
                 notes.Add($"The crash query matches the module name {Path.GetFileName(pair.Old.FilePath)}, the old build's file name; use the name the program loads it under if that differs.");
-                notes.Add("The crash query reads the Event table of a workspace that collects the Application log; advanced hunting without such a workspace rejects the table, and no rows or a rejected table is unknown, not absent.");
+                notes.Add("The crash query and its detection rule read the Event table of a workspace that collects the Application log; advanced hunting without such a workspace rejects the table, and no rows or a rejected table is unknown, not absent.");
             }
         }
         return new HuntSet(hunts, notes);

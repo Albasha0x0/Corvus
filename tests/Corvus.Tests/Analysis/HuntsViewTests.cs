@@ -123,6 +123,16 @@ public sealed class HuntsViewTests : IDisposable
         Assert.Contains(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void An_empty_file_gets_no_hash_query_and_a_note_says_why()
+    {
+        var path = _dir.File("empty.bin");
+        File.WriteAllBytes(path, []);
+        var set = Hunts(path);
+        Assert.DoesNotContain(set.Hunts, h => h.Facts.Any(f => f.StartsWith("sha1:", StringComparison.Ordinal)));
+        Assert.Contains(set.Notes, n => n.StartsWith("The file is empty", StringComparison.Ordinal));
+    }
+
     // A header that fails to parse still gets its strings read.
     private string Image(string name, byte[] body)
     {

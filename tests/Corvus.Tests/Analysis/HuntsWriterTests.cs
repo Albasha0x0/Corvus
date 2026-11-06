@@ -448,6 +448,13 @@ public sealed class HuntsWriterTests
     }
 
     [Fact]
+    public void The_written_note_uses_the_singular_for_one_query_and_one_rule()
+    {
+        var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed")]);
+        Assert.Equal("1 hunting query and 1 detection rule (disabled) written to a.json.", HuntRules.Written(new HuntSet([set.Hunts[0]], []), "a.json"));
+    }
+
+    [Fact]
     public void The_written_note_counts_queries_and_rules_apart()
     {
         var set = KqlHunts.Write([new(HuntKind.Sha1, Sha1, "computed"), new(HuntKind.Domain, "app.example.net", "string")]);

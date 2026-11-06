@@ -49,8 +49,11 @@ public static class HuntRules
         };
 
     /// <summary>The note naming how many queries and rules <see cref="Write"/> saved to a path.</summary>
-    public static string Written(HuntSet set, string path) =>
-        $"{set.Hunts.Count} hunting queries and {Rules(set).Count} detection rules (disabled) written to {path}.";
+    public static string Written(HuntSet set, string path)
+    {
+        int queries = set.Hunts.Count, rules = Rules(set).Count;
+        return $"{queries} hunting {(queries == 1 ? "query" : "queries")} and {rules} detection {(rules == 1 ? "rule" : "rules")} (disabled) written to {path}.";
+    }
 
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
     public static byte[] Write(HuntSet set)

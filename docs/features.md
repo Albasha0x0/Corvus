@@ -469,10 +469,10 @@ Labels:
 
 - `summarize_file` reads up to 25 assemblies inside a container.
 - `summarize_file` counts a script's modules and map sources in their first 8 MB; a script over 64 MB is not named as a container.
-- `stixPath=` writes a STIX 2.1 bundle of the file, its members, the indicators of every view and one note per matched capa label.
+- `stixPath=` writes a STIX 2.1 bundle of the file, its members, the network indicators of every view and one note per matched capa label; a value read only as a string is not exported.
 - `view=indicators` lists URLs, domains, addresses, TLS fingerprints, strings of native images and certificate names and revocation URLs from every view, one row per value with its sources.
-- `view=hunts` writes Defender XDR advanced hunting queries from the hash, signer, original file name, hosts, pipes and library names of a file; `huntsPath=` also writes a disabled detection rule for each.
-- `compare_native_images view=hunts` writes queries for the hosts, pipes and library names only the new build holds, limited to its SHA-1, and a crash query for the changed functions.
+- `view=hunts` writes Defender XDR advanced hunting queries from the hash, signer, original file name, hosts, pipes, file paths, registry keys and library names of a file; `huntsPath=` also writes a disabled detection rule for each, except signer and DNS or TLS name queries.
+- `compare_native_images view=hunts` writes queries for the facts only the new build holds, limited to its SHA-1, a DNS and TLS name query on any device per added host, and a crash query for the changed functions.
 - `batch --file --report` names each rule the YARA step matched.
 - `summarize_file` reports the import hash of a PE image beside its file hashes.
 - `summarize_file` notes the TLSH digest of the file; an input under 50 bytes or with too little variation has none and says why.
