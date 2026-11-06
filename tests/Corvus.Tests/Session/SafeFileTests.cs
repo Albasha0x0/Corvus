@@ -230,7 +230,9 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     public void A_held_file_is_waited_for_and_a_lost_race_is_not()
     {
         int tries = 0;
-        SafeFile.WhenReleased(() => { if (++tries < 3) throw new IOException("held open"); });
+        // Regression: release run 42202494543 slept past the 2 s default on a
+        // stalled macOS runner.
+        SafeFile.WhenReleased(() => { if (++tries < 3) throw new IOException("held open"); }, TimeSpan.FromMinutes(1));
         Assert.Equal(3, tries);
         int calls = 0;
         var clock = System.Diagnostics.Stopwatch.StartNew();
