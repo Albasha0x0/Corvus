@@ -112,7 +112,7 @@ public static partial class HuntFacts
     private static string CompressedNote(int count) =>
         $"{count:N0} string fact(s) lie in compressed or high-entropy regions (entropy {Corvus.Native.PackerDetection.HighEntropy} or more per {WindowBytes}-byte window) and have no query.";
 
-    private static bool[] HighEntropyWindows(byte[] image, CancellationToken ct)
+    internal static bool[] HighEntropyWindows(byte[] image, CancellationToken ct)
     {
         var hot = new bool[(image.Length + WindowBytes - 1) / WindowBytes];
         for (int w = 0; w < hot.Length; w++)
@@ -124,7 +124,7 @@ public static partial class HuntFacts
         return hot;
     }
 
-    private static bool InHot(bool[] hot, long offset) => offset / WindowBytes < hot.Length && hot[offset / WindowBytes];
+    internal static bool InHot(bool[] hot, long offset) => offset / WindowBytes < hot.Length && hot[offset / WindowBytes];
 
     [GeneratedRegex(@"file offset 0x([0-9a-f]+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex OffsetText();
