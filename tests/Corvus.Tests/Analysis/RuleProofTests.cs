@@ -206,6 +206,23 @@ public sealed class RuleProofTests : IDisposable
     }
 
     [Fact]
+    public void A_reason_names_only_the_unknown_kinds_the_query_depends_on()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 30; i++) File.WriteAllText(Path.Combine(clean, "note" + i + ".txt"), "plain text " + i);
+        var keys = InspectionTests.Compile("Keys", """
+            public static class Keys
+            {
+                public static object Open() => Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Vendor\App");
+            }
+            """);
+        var file = Path.Combine(Folder("input"), "Keys.dll");
+        File.WriteAllBytes(file, keys);
+        var registry = Assert.Single(Prove(file, new ProofOptions(clean)).Hunts, h => h.Table == "DeviceRegistryEvents").Proof!;
+        Assert.DoesNotContain("dll_name", registry.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_signer_a_clean_file_could_not_show_is_unknown_and_one_it_could_show_is_a_miss()
     {
         var set = Plain("signer", "CN=Example Publisher", "DeviceFileCertificateInfo");

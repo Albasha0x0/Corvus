@@ -130,13 +130,13 @@ public static partial class RuleProof
         return x.StartsWith(y, compare) || y.StartsWith(x, compare);
     }
 
-    private static string Reasons(ProofFolder f)
+    private static string Reasons(ProofFolder f, ISet<string>? only = null)
     {
         var parts = new List<string>();
         if (f.NotRead > 0) parts.Add($"{f.NotRead:N0} not read");
         if (f.Skipped > 0) parts.Add($"{f.Skipped:N0} past maxFiles");
         if (f.Inaccessible > 0) parts.Add($"{f.Inaccessible:N0} folders or links not entered");
-        foreach (var (kind, count) in f.UnknownByKind.OrderBy(k => k.Key, StringComparer.Ordinal)) parts.Add($"{count:N0} could not show {kind}");
+        foreach (var (kind, count) in f.UnknownByKind.Where(k => only == null || only.Contains(k.Key)).OrderBy(k => k.Key, StringComparer.Ordinal)) parts.Add($"{count:N0} could not show {kind}");
         return string.Join(", ", parts);
     }
 
@@ -275,6 +275,7 @@ public static partial class RuleProof
         int lost = clean.Folder.Unknown + blind;
         long total = clean.Folder.Found + clean.Folder.Inaccessible - clean.Folder.CopyCount;
         var names = string.Join(", ", hunt.Facts.Select(KindOf).Distinct().Order(StringComparer.Ordinal));
+        var own = hunt.Facts.Select(KindOf).ToHashSet(StringComparer.Ordinal);
         bool scoped = FileScope().IsMatch(hunt.Kql);
         string verdict, reason;
         if (hunt.Facts.Any(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal)) && clean.Folder.CopyCount > 0)
@@ -283,10 +284,10 @@ public static partial class RuleProof
         else if (hits > 0) (verdict, reason) = ("review", $"{hits:N0} clean {(hits == 1 ? "file carries" : "files carry")} {Show(worst!.Fact)}{Cannot(scoped)}");
         else if (clean.Folder.Read == 0) (verdict, reason) = ("review", "No clean file was read");
         else if (lost * 100 > (long)options.UnreadPercent * total)
-            (verdict, reason) = ("review", $"{lost:N0} of {total:N0} clean files could not show {names} ({Reasons(clean.Folder)})");
+            (verdict, reason) = ("review", $"{lost:N0} of {total:N0} clean files could not show {names} ({Reasons(clean.Folder, own)})");
         else if (informative < options.MinFiles)
             (verdict, reason) = ("review", $"Only {informative:N0} clean files could show {names}; the minimum is {options.MinFiles:N0}");
-        else (verdict, reason) = ("keep", $"No hit in {informative:N0} clean files that could show {names}" + (lost > 0 ? $"; {Reasons(clean.Folder)}" : ""));
+        else (verdict, reason) = ("keep", $"No hit in {informative:N0} clean files that could show {names}" + (lost > 0 ? $"; {Reasons(clean.Folder, own)}" : ""));
         if (removed.Count > 0) reason += $"; written again without {string.Join(", ", removed)}";
         string? standing = null;
         int? priorHits = null;
