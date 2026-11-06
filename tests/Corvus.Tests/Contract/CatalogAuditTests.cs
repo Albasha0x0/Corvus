@@ -21,13 +21,15 @@ public class CatalogAuditTests
     // by 100 for the componentsPath parameter; then by 300 for the
     // hunts field of compare_native_images; then by 100 for the
     // interface and hunts values of its view; then by 100 for its
-    // huntsPath and overwrite parameters.
+    // huntsPath and overwrite parameters; then by 150 for the review view,
+    // its reviewPath parameter and the review field of compare_native_images.
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 150_900;
+    private const int MaxModelFacingBytes = 151_050;
 
-    // Raised by 150 for compare_native_images huntsPath and overwrite.
+    // Raised by 150 for compare_native_images huntsPath and overwrite, then
+    // by 800 for its review view, reviewPath parameter and review field.
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 297_150;
+    private const int MaxToolsListBytes = 297_950;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()

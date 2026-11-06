@@ -1888,7 +1888,7 @@ Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatche
 |---|---|---|---|---|
 | `oldImage` | string |  |  | Old build: image id or path. |
 | `newImage` | string |  |  | New build: image id or path. |
-| `view` | string |  | `pairs` | changed: code differs; ambiguous: candidates; hunts: added-fact queries; wasm: interface. Values: pairs, changed, unmatched, ambiguous, interface, hunts. |
+| `view` | string |  | `pairs` | changed: code differs; ambiguous: candidates; hunts: added-fact queries; review: pass or hold; wasm: interface. Values: pairs, changed, unmatched, ambiguous, interface, hunts, review. |
 | `tier` | integer |  | `0` | Only tier 1 (name, bytes) .. 5 (fuzzy); 0 all. |
 | `codeOnly` | boolean |  |  | Match by code, not names. |
 | `minScore` | number |  | `0.7` | Least fuzzy score (0-1). |
@@ -1900,9 +1900,10 @@ Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatche
 | `newResult` | string |  |  | The new side, from the same tool. |
 | `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory. Values: ida, ghidra. |
 | `huntsPath` | string |  |  | view=hunts: save queries and rules here, JSON. |
-| `overwrite` | boolean |  |  | Replace huntsPath. |
+| `reviewPath` | string |  |  | view=review: save the report here, Markdown (.md) or JSON. |
+| `overwrite` | boolean |  |  | Replace huntsPath or reviewPath. |
 
-Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `notes`, `evidence`, `changes`, `oldVersion`, `newVersion`, `hunts`.
+Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `notes`, `evidence`, `changes`, `oldVersion`, `newVersion`, `hunts`, `review`.
 
 ### diff_function
 

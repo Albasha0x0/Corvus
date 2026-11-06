@@ -78,6 +78,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("File version of the new build (version resource); absent when it has none.")] public string? NewVersion { get; init; }
         [Description("hunts: queries for facts only the new build has, and a crash query for changed functions.")]
         public IReadOnlyList<Hunt>? Hunts { get; init; }
+        [Description("review: what the new build adds and the verdict, pass or hold, with each hold reason.")]
+        public UpdateReview? Review { get; init; }
     }
 
     public sealed record AddressMapping(
@@ -181,7 +183,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
-        [Description("changed: code differs; ambiguous: candidates; hunts: added-fact queries; wasm: interface.")] string view = "pairs",
+        [Description("changed: code differs; ambiguous: candidates; hunts: added-fact queries; review: pass or hold; wasm: interface.")] string view = "pairs",
         [Description("Only tier 1 (name, bytes) .. 5 (fuzzy); 0 all.")] int tier = 0,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         [Description("Least fuzzy score (0-1).")] double minScore = 0.7,
@@ -193,7 +195,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NewResultDescription)] string? newResult = null,
         [Description("ida or ghidra: compare oldImage's file with that engine's memory.")] string? engine = null,
         [Description("view=hunts: save queries and rules here, JSON.")] string? huntsPath = null,
-        [Description("Replace huntsPath.")] bool overwrite = false,
+        [Description("view=review: save the report here, Markdown (.md) or JSON.")] string? reviewPath = null,
+        [Description("Replace huntsPath or reviewPath.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -205,10 +208,15 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (!Views.Contains(v))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use " + string.Join(", ", Views));
         if (huntsPath != null && v != "hunts") throw new ToolError(ErrorCode.InvalidArgument, "huntsPath applies to view=hunts.", "pass view=hunts");
+        if (reviewPath != null && v != "review") throw new ToolError(ErrorCode.InvalidArgument, "reviewPath applies to view=review.", "pass view=review");
         // Checked before the builds are matched, which can take minutes.
         var huntsFile = huntsPath == null ? null : SafeFile.Output(huntsPath);
-        if (huntsFile != null && Directory.Exists(huntsFile)) throw new ToolError(ErrorCode.InvalidArgument, $"huntsPath {huntsFile} is a folder.", "pass a file path for huntsPath");
-        if (huntsFile != null && !overwrite && File.Exists(huntsFile)) throw new ToolError(ErrorCode.Conflict, $"{huntsFile} exists: pass overwrite=true to replace it.");
+        var reviewFile = reviewPath == null ? null : SafeFile.Output(reviewPath);
+        foreach (var (file, name) in new[] { (huntsFile, "huntsPath"), (reviewFile, "reviewPath") })
+        {
+            if (file != null && Directory.Exists(file)) throw new ToolError(ErrorCode.InvalidArgument, $"{name} {file} is a folder.", $"pass a file path for {name}");
+            if (file != null && !overwrite && File.Exists(file)) throw new ToolError(ErrorCode.Conflict, $"{file} exists: pass overwrite=true to replace it.");
+        }
         offset = Math.Max(0, offset);
         var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         if (huntsFile != null && result.Record.Hunts is { } written)
@@ -216,6 +224,12 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             var set = new HuntSet(written, result.Record.Notes);
             var full = SafeFile.WriteAllBytes(huntsFile, HuntRules.Write(set), overwrite);
             var note = HuntRules.Written(set, full);
+            result = result with { Record = result.Record with { Notes = [.. result.Record.Notes, note] }, Head = result.Head + "Note: " + note + "\n" };
+        }
+        if (reviewFile != null && result.Record.Review is { } review)
+        {
+            var body = reviewFile.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? UpdateReviewer.Json(review, result.Record.Hunts ?? [], result.Record.Notes) : UpdateReviewer.Markdown(review, result.Record.Hunts ?? [], result.Record.Notes);
+            var note = $"Review written to {SafeFile.WriteAllText(reviewFile, body, overwrite)}.";
             result = result with { Record = result.Record with { Notes = [.. result.Record.Notes, note] }, Head = result.Head + "Note: " + note + "\n" };
         }
         return ToolOutput.List(result.Rows, offset, limit, result.Total,
@@ -232,8 +246,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (tier is < 0 or > 5) throw new ToolError(ErrorCode.InvalidArgument, $"tier must be 0-5, not {tier}.", "use 0 for all or 1-5");
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.", "use a value in 0-1");
         var (oldNative, newNative) = await Task.Run(() => (Targets.Native(workspace, oldImage), Targets.Native(workspace, newImage)), cancellationToken);
-        if (v == "hunts" && (oldNative.Image is WasmImage || newNative.Image is WasmImage))
-            throw new ToolError(ErrorCode.InvalidArgument, "view=hunts reads PE images; a WebAssembly module has none.", "use pairs, changed, unmatched, ambiguous or interface");
+        if (v is "hunts" or "review" && (oldNative.Image is WasmImage || newNative.Image is WasmImage))
+            throw new ToolError(ErrorCode.InvalidArgument, $"view={v} reads PE images; a WebAssembly module has none.", "use pairs, changed, unmatched, ambiguous or interface");
         if (oldNative.Image is WasmImage oldWasm && newNative.Image is WasmImage newWasm)
             return await Task.Run(() => CompareWasm(oldNative.Id, oldWasm, newNative.Id, newWasm, v, offset, limit, cancellationToken), cancellationToken);
         if (v == "interface") throw new ToolError(ErrorCode.InvalidArgument, "view=interface compares two WebAssembly modules.", "use " + string.Join(", ", Views.Where(w => w != "interface")));
@@ -243,8 +257,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var n = match.New.Index;
 
         IReadOnlyList<FunctionRow> rows;
-        // The hunts view lists queries, not pairs.
-        if (v == "hunts") rows = [];
+        // The hunts and review views list queries and facts, not pairs.
+        if (v is "hunts" or "review") rows = [];
         else if (v is "pairs" or "changed")
             rows = match.Pairs.Where(p => tier == 0 || p.Tier == tier).Where(p => v == "pairs" || !Identical(match, p))
                 .OrderBy(p => match.Old.Functions[p.Old].Start).Select(p => Pair(match, p)).ToList();
@@ -283,6 +297,15 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             record = record with { Changes = capabilities };
             head.Append(capabilityText);
         }
+        if (v == "review")
+        {
+            if (inspection == null) throw new ToolError(ErrorCode.ProviderUnavailable, "view=review reads the builds' facts, which this server cannot summarize.");
+            var (review, set) = await Task.Run(() => ReviewOf(inspection, pair, record.Changes, cancellationToken), cancellationToken);
+            const string Unpaged = "view=review returns one report in review; items, total, offset and limit list function pairs and do not apply.";
+            record = record with { Review = review, Hunts = set.Hunts, Notes = [.. record.Notes, .. set.Notes, Unpaged] };
+            head.Append(UpdateReviewer.VerdictText(review)).Append('\n');
+            foreach (var section in review.Sections) head.Append("  ").Append(section).Append('\n');
+        }
         if (v == "hunts")
         {
             if (inspection == null) throw new ToolError(ErrorCode.ProviderUnavailable, "view=hunts reads the builds' facts, which this server cannot summarize.");
@@ -293,24 +316,33 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             foreach (var h in set.Hunts) head.Append($"  {h.Id} ({h.Table}) {h.Title}\n{string.Join('\n', h.Kql.Split('\n').Select(l => "    " + l))}\n");
             foreach (var note in set.Notes) head.Append("Note: ").Append(note).Append('\n');
         }
-        if (v != "hunts") head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
-        return new NativeView(record, head.ToString(), [.. rows.Skip(offset).Take(Math.Max(0, limit))], rows.Count, v is "pairs" or "changed" or "hunts" ? "pair" : "function", false);
+        if (v is not ("hunts" or "review")) head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
+        return new NativeView(record, head.ToString(), [.. rows.Skip(offset).Take(Math.Max(0, limit))], rows.Count, v is "pairs" or "changed" or "hunts" or "review" ? "pair" : "function", false);
     }
 
     /// <summary>The queries for facts only the new build holds, plus crash queries for the old build's changed functions.</summary>
     private static HuntSet UpdateHuntSet(InspectionService inspection, BuildPair pair, IReadOnlyList<EvidenceChange>? capabilities, CancellationToken ct)
     {
+        var (oldFacts, oldNotes, _) = ReadFacts(inspection, pair.Old, ct);
+        var (newFacts, newNotes, _) = ReadFacts(inspection, pair.New, ct);
+        return UpdateHuntSet(pair, capabilities, oldFacts, oldNotes, newFacts, newNotes, ct);
+    }
+
+    /// <summary>A build's hunt facts and notes, and its bytes; the bytes are null for a streamed image.</summary>
+    private static (List<HuntFact> Facts, List<string> Notes, byte[]? Bytes) ReadFacts(InspectionService inspection, LoadedNative native, CancellationToken ct)
+    {
+        var options = new FileViewOptions("hunts");
+        var summary = inspection.Summarize(null, native.FilePath, ct, options);
+        var input = FileInput.Open(Path.GetFullPath(native.FilePath));
+        input.Options = options;
+        var (facts, notes) = HuntFacts.Of(summary, input, ct);
+        return (facts, notes, input.Streamed ? null : input.Image);
+    }
+
+    private static HuntSet UpdateHuntSet(BuildPair pair, IReadOnlyList<EvidenceChange>? capabilities, IReadOnlyList<HuntFact> oldFacts, IReadOnlyList<string> oldNotes,
+        IReadOnlyList<HuntFact> newFacts, IReadOnlyList<string> newNotes, CancellationToken ct)
+    {
         var notes = new List<string>();
-        (List<HuntFact> Facts, List<string> Notes) Read(LoadedNative native)
-        {
-            var options = new FileViewOptions("hunts");
-            var summary = inspection.Summarize(null, native.FilePath, ct, options);
-            var input = FileInput.Open(Path.GetFullPath(native.FilePath));
-            input.Options = options;
-            return HuntFacts.Of(summary, input, ct);
-        }
-        var (oldFacts, oldNotes) = Read(pair.Old);
-        var (newFacts, newNotes) = Read(pair.New);
         notes.AddRange(oldNotes.Select(n => "old: " + n));
         notes.AddRange(newNotes.Select(n => "new: " + n));
         notes.AddRange(UpdateHunts.PartialReads(oldNotes.Any(HuntFacts.LimitsFacts), newNotes.Any(HuntFacts.LimitsFacts)));
@@ -347,6 +379,22 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             }
         }
         return new HuntSet(hunts, notes);
+    }
+
+    /// <summary>The update review of two builds and the hunts written for the same pair.</summary>
+    private static (UpdateReview Review, HuntSet Hunts) ReviewOf(InspectionService inspection, BuildPair pair, IReadOnlyList<EvidenceChange>? capabilities, CancellationToken ct)
+    {
+        var (oldFacts, oldNotes, oldBytes) = ReadFacts(inspection, pair.Old, ct);
+        var (newFacts, newNotes, newBytes) = ReadFacts(inspection, pair.New, ct);
+        var set = UpdateHuntSet(pair, capabilities, oldFacts, oldNotes, newFacts, newNotes, ct);
+        var match = pair.Match;
+        var diff = $"diff_function oldImage={pair.Old.Id} newImage={pair.New.Id} address=";
+        var added = Unmatched(match).Where(r => r.Old == null).Select(r => new ReviewFunction(null, r.New, r.NewName ?? "", r.Reason, null)).ToList();
+        var changed = match.Pairs.Where(p => !Identical(match, p)).OrderBy(p => match.Old.Functions[p.Old].Start).Select(p => Pair(match, p))
+            .Select(r => new ReviewFunction(r.Old, r.New, r.OldName ?? "", null, diff + r.Old)).ToList();
+        var review = UpdateReviewer.Review(new ReviewSources(pair.Old.Id, pair.New.Id, pair.Old.Pe, pair.New.Pe, added, changed, oldFacts, oldNotes, newFacts, newNotes,
+            oldBytes, newBytes, set.Hunts), ct);
+        return (review, set);
     }
 
     /// <summary>compare_native_images engine=: the image's file bytes against that engine's memory, ranges by engine address.</summary>
