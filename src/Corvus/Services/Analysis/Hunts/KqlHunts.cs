@@ -451,10 +451,8 @@ public static class KqlHunts
                         $"| project {Base}, FileName, PipeName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
                 ];
             case HuntKind.FilePath:
-                var leaf = value[(value.LastIndexOfAny(['\\', '/']) + 1)..];
+                var (leaf, folder, rooted) = FilePathParts(value);
                 if (leaf.Length == 0) { unqueried++; return []; }
-                var folder = value[..Math.Max(0, value.Length - leaf.Length - 1)];
-                var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
                 // A path seen only as a string is not shown to be written, so
                 // the query reads writes by this file alone.
                 bool byFile = scoped || Rank(evidence) < Rank(IndicatorEvidence.Reference);
@@ -480,9 +478,18 @@ public static class KqlHunts
         }
     }
 
+    // The file name, its folder and whether the path names a drive or share; the query matches on exactly these.
+    internal static (string Leaf, string Folder, bool Rooted) FilePathParts(string value)
+    {
+        var leaf = value[(value.LastIndexOfAny(['\\', '/']) + 1)..];
+        var folder = value[..Math.Max(0, value.Length - leaf.Length - 1)];
+        var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
+        return (leaf, folder, rooted);
+    }
+
     // RegistryKey spells the hive out and holds the user's SID under
     // HKEY_CURRENT_USER, so the query matches the path below the hive.
-    private static string SubKey(string value)
+    internal static string SubKey(string value)
     {
         var path = value.Trim('\\');
         int slash = path.IndexOf('\\');
@@ -562,7 +569,7 @@ public static class KqlHunts
             $"| project {Base}, ActionType, AdditionalFields") with { HuntingOnly = true };
 
     // The CN of a distinguished name, else the value.
-    private static string SignerName(string value)
+    internal static string SignerName(string value)
     {
         int at = value.IndexOf("CN=", StringComparison.OrdinalIgnoreCase);
         if (at < 0) return value;
@@ -571,7 +578,7 @@ public static class KqlHunts
         return (comma < 0 ? rest : rest[..comma]).Trim().Trim('"');
     }
 
-    private static string PipeName(string value)
+    internal static string PipeName(string value)
     {
         var v = value.Trim();
         int at = v.IndexOf(@"pipe\", StringComparison.OrdinalIgnoreCase);

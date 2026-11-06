@@ -128,20 +128,6 @@ public static class RuleProof
         return i < 0 ? 0 : 1 << i;
     }
 
-    private static string FactKey(string fact)
-    {
-        int at = fact.IndexOf(':', StringComparison.Ordinal);
-        return at < 0 ? fact : FactKey(fact[..at], fact[(at + 1)..]);
-    }
-
-    // Names and hashes compare without case.
-    private static string FactKey(string kind, string value)
-    {
-        var v = value.Trim();
-        return kind + ":" + (kind is HuntKind.DllName or HuntKind.OriginalFileName or HuntKind.Domain or HuntKind.NamedPipe or HuntKind.FilePath or HuntKind.RegistryKey or HuntKind.Sha1
-            ? v.ToUpperInvariant() : v);
-    }
-
     // Files of a folder, entered in order; a folder that cannot be entered and a link that is not followed are named and counted.
     private static (List<string> Paths, List<string> Unentered) Walk(string root, CancellationToken ct)
     {
@@ -181,7 +167,7 @@ public static class RuleProof
         var unread = unentered.Take(Named).ToList();
         var copies = new List<string>();
         int notRead = 0;
-        var keys = facts.Select(f => (Fact: f, Key: FactKey(f))).ToList();
+        var probes = facts.Select(f => (Fact: f, Probes: FactMatch.Query(KindOf(f), f[(f.IndexOf(':', StringComparison.Ordinal) + 1)..]))).Where(p => p.Probes.Count > 0).ToList();
         foreach (var path in paths)
         {
             ct.ThrowIfCancellationRequested();
@@ -197,8 +183,8 @@ public static class RuleProof
                     unknownByKind[kind] = unknownByKind.GetValueOrDefault(kind) + 1;
                 }
                 masks.Add(mask);
-                var has = read.Facts.Select(f => FactKey(f.Kind, f.Value)).ToHashSet(StringComparer.Ordinal);
-                foreach (var (fact, key) in keys.Where(k => has.Contains(k.Key)))
+                var profile = new FactMatch.Profile(read.Facts);
+                foreach (var (fact, _) in probes.Where(p => p.Probes.Any(profile.Has)))
                 {
                     if (!holders.TryGetValue(fact, out var list)) holders[fact] = list = [];
                     list.Add(index);
