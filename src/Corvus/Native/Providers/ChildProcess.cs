@@ -315,7 +315,7 @@ internal sealed class PosixGroupProcess : ChildProcess
             if (!HasExited) _ = SysKill(_workerId, 9);
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
-        try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
+        try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or AggregateException or Win32Exception) { }
     }
 
     /// <summary>True while a process of the worker's group runs; false when none or unknown. Linux skips zombies, which a container without init never reaps.</summary>

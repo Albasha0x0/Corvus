@@ -359,7 +359,7 @@ internal static class Tools
         p.BeginErrorReadLine();
         if (!p.WaitForExit(timeoutMs))
         {
-            try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            try { p.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or AggregateException) { }
             lock (output) return (-2, $"{psi.FileName} timed out after {timeoutMs / 1000} s\n{output}");
         }
         // A child process that inherited the pipes may keep them open; do not wait for it.

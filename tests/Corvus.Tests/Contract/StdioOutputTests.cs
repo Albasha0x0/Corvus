@@ -45,7 +45,7 @@ public class StdioOutputTests
         }
         finally
         {
-            try { server.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            try { server.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or AggregateException) { }
             server.WaitForExit(10_000);
         }
     }

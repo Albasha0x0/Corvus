@@ -132,7 +132,7 @@ internal static class Installation
         var stderr = p.StandardError.ReadToEndAsync();
         if (!p.WaitForExit(TimeSpan.FromMinutes(2)))
         {
-            try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            try { p.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or AggregateException) { }
             return (-1, "timed out after 2 minutes");
         }
         return (p.ExitCode, stderr.GetAwaiter().GetResult() + "\n" + stdout.GetAwaiter().GetResult());

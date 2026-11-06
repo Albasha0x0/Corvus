@@ -763,7 +763,7 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
             p.StandardInput.Close();
             _ = p.StandardOutput.ReadToEndAsync();
             _ = p.StandardError.ReadToEndAsync();
-            if (!p.WaitForExit(60_000)) { try { p.Kill(true); } catch (InvalidOperationException) { } return false; }
+            if (!p.WaitForExit(60_000)) { try { p.Kill(true); } catch (Exception ex) when (ex is InvalidOperationException or AggregateException) { } return false; }
             return p.ExitCode == 0;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException) { return false; }

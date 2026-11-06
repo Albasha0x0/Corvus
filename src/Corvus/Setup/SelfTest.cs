@@ -66,7 +66,7 @@ internal static class SelfTest
             catch (IOException ex) { return Fail(ex.Message, stderr, p, timeout - clock.Elapsed); }
             finally
             {
-                try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                try { p.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or AggregateException) { }
             }
         }
     }
