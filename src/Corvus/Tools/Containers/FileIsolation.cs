@@ -460,7 +460,7 @@ public static class FileWork
         {
             if (paths[i] is not { } path) continue;
             var target = SafeFile.Output(path);
-            if (!a.Overwrite && File.Exists(target))
+            if (!a.Overwrite && System.IO.Path.Exists(target))
                 throw new ToolError(ErrorCode.Conflict, $"{target} exists: pass overwrite=true to replace it.");
             // One folder per output keeps the file name the notes show.
             staged[i] = System.IO.Path.Combine(staging, i.ToString(CultureInfo.InvariantCulture), System.IO.Path.GetFileName(target));

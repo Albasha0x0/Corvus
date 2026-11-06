@@ -97,6 +97,7 @@ public sealed class TempDir : IDisposable
     public void Dispose()
     {
         // A server just told to stop may still run in the folder (its working directory on Windows): retry briefly.
+        // An engine JVM it ended can hold its project lock for seconds while it exits on a loaded machine.
         for (var clock = System.Diagnostics.Stopwatch.StartNew(); ; Thread.Sleep(100))
         {
             try
@@ -108,7 +109,7 @@ public sealed class TempDir : IDisposable
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Best effort: the leak guard reports what stays, with this error.
-                if (clock.Elapsed > TimeSpan.FromSeconds(3))
+                if (clock.Elapsed > TimeSpan.FromSeconds(10))
                 {
                     LeakGuard.DeleteFailures[System.IO.Path.GetFullPath(Path)] = $"{ex.GetType().Name}: {ex.Message}";
                     return;

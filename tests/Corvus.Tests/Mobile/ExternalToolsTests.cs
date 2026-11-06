@@ -267,7 +267,11 @@ public class ExternalToolsTests : IDisposable
         Assert.DoesNotContain("late", slow.Text);
         PerfBudget.Time("mobile/external-tool-timeout", watch.Elapsed, TimeSpan.FromSeconds(10), output);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        // A timed source fires on the thread pool, which a loaded host can hold
+        // past the child's 20 s sleep.
+        using var cts = new CancellationTokenSource();
+        var canceller = new Thread(() => { Thread.Sleep(300); cts.Cancel(); }) { IsBackground = true };
+        canceller.Start();
         Assert.ThrowsAny<OperationCanceledException>(() => ExternalTools.Run(FakeTool.Executable, ["slow"], TimeSpan.FromSeconds(30), 1000, cts.Token, fake.Environment));
         Assert.Equal("not a program", ExternalTools.Run(Path.Combine(fake.Directory, "none.exe"), [], TimeSpan.FromSeconds(5), 10, default).StartError is { } e && e.Length > 0 ? "not a program" : "started");
     }

@@ -1,5 +1,56 @@
 # Release notes
 
+## 2.11.1
+
+### Highlights
+
+- Bucket .NET crashes by their first managed frame.
+- List the functions coverage left out, with the reason for each.
+- See library versions of native images in the SBOM.
+- Read NXPK file names and find their Zstandard dictionary.
+
+### Breaking changes
+
+None.
+
+### Changes
+
+- **Dumps:** `bucket_minidumps` adds the first managed frame to the bucket of a native crash in a .NET process; cached buckets are read again once. [8497bbfd](https://github.com/Albasha0x0/Corvus/commit/8497bbfd)
+- **Live:** `live_coverage report show=unplaced` lists the functions left out with their reasons. [146436f3](https://github.com/Albasha0x0/Corvus/commit/146436f3)
+- **Native:** `summarize_file` lists library version strings of native images in the dependencies view and the SBOM. [1eb51adb](https://github.com/Albasha0x0/Corvus/commit/1eb51adb)
+- **Containers:** NXPK file name tables are read; names list, extract and match. [838efcfa](https://github.com/Albasha0x0/Corvus/commit/838efcfa)
+- **Containers:** an NXPK Zstandard dictionary is found in the executables beside the archive. [31ab0f36](https://github.com/Albasha0x0/Corvus/commit/31ab0f36)
+
+### Fixes
+
+- **Session:** a relay holding a handshake session swaps to a new build again. [bb34cfdd](https://github.com/Albasha0x0/Corvus/commit/bb34cfdd)
+- **Session:** the status row names only missing programs, each with its variable. [527baad8](https://github.com/Albasha0x0/Corvus/commit/527baad8)
+- **Containers:** `summarize_file` outputs are written by the server; an existing target without `overwrite` is refused before the worker runs. [fbbd4ab0](https://github.com/Albasha0x0/Corvus/commit/fbbd4ab0)
+- **Containers:** a .pyc with a non-stock magic or remapped opcodes is reported, not decoded as stock. [4e034211](https://github.com/Albasha0x0/Corvus/commit/4e034211)
+- **Containers:** indicators are kept when the SBOM cannot be written; DER strings stop at their stated length. [e6d54720](https://github.com/Albasha0x0/Corvus/commit/e6d54720)
+- **Containers:** a RAR5 name scan ends at a data size past the stream and keeps the names read. [a3443eed](https://github.com/Albasha0x0/Corvus/commit/a3443eed)
+- **Containers:** a rule pack removed while the packs are listed is skipped. [87ed74ba](https://github.com/Albasha0x0/Corvus/commit/87ed74ba)
+- **Native:** `compare_native_images` accepts `view=interface`. [2be9a1f5](https://github.com/Albasha0x0/Corvus/commit/2be9a1f5)
+- **Native:** `emulate_native` reports the faulting address and managed throw helpers. [3ff916da](https://github.com/Albasha0x0/Corvus/commit/3ff916da)
+- **Native:** protector SDK stubs are named as stubs; `get_pe_info` names an orphaned .reloc and the exception table's section. [8a090f3a](https://github.com/Albasha0x0/Corvus/commit/8a090f3a)
+- **Native:** `disassemble` from an address keeps block labels and notes. [03a37bb0](https://github.com/Albasha0x0/Corvus/commit/03a37bb0)
+- **Native:** negative immediates print as -0x10; frame and seed checks agree across tools. [e77ee345](https://github.com/Albasha0x0/Corvus/commit/e77ee345)
+- **Native:** slot calls through a loaded object are listed as unresolved. [89bf5db4](https://github.com/Albasha0x0/Corvus/commit/89bf5db4)
+- **Native:** the YARA-X next step is kept, and `server_status` lists YARA-X. [bf2fddd9](https://github.com/Albasha0x0/Corvus/commit/bf2fddd9)
+- **Native:** a running capa analysis states its real end rule. [af122b2c](https://github.com/Albasha0x0/Corvus/commit/af122b2c)
+- **Native:** `verify_native_imports` binds the shared assemblies an image's manifest names before the search order. [074fe145](https://github.com/Albasha0x0/Corvus/commit/074fe145f)
+- **Engines:** the engine cache cap counts everything on disk and evicts least recently used entries. [e4016868](https://github.com/Albasha0x0/Corvus/commit/e4016868)
+- **Engines:** the Ghidra decompiler is named by its path in the install. [d7039c58](https://github.com/Albasha0x0/Corvus/commit/d7039c58)
+- **Dumps:** `open_minidump` writes at most `limit` modules (default 50); `decompile_native` labels partial analysis. [105bfee7](https://github.com/Albasha0x0/Corvus/commit/105bfee7)
+- **Live:** session events are ordered by when they ran in the target. [21ad4520](https://github.com/Albasha0x0/Corvus/commit/21ad4520)
+- **Live:** `live_events` pages by cursor, then orders each page by time. [7ff7e745](https://github.com/Albasha0x0/Corvus/commit/7ff7e745)
+- **Live:** `save_modules` restores the bytes session hooks replaced. [6b0b68e8](https://github.com/Albasha0x0/Corvus/commit/6b0b68e8)
+- **Live:** `open_minidump view=changes` labels session hooks of a snapshot. [ed956bfe](https://github.com/Albasha0x0/Corvus/commit/ed956bfe)
+- **Live:** a snapshot names the hooks file it saves beside its dump. [04bcaf55](https://github.com/Albasha0x0/Corvus/commit/04bcaf55)
+- **Live:** the timeline lists connects the network provider retransmits unanswered. [40bd6b64](https://github.com/Albasha0x0/Corvus/commit/40bd6b64)
+- **Live:** list shows open sessions; close returns one line. [80cec50f](https://github.com/Albasha0x0/Corvus/commit/80cec50f)
+- **Live:** Frida gets its own TMPDIR on Linux. [d1b83230](https://github.com/Albasha0x0/Corvus/commit/d1b83230)
+
 ## 2.11.0
 
 ### Highlights

@@ -20,6 +20,8 @@ public sealed class JadxServer : IDisposable
     private long _nextId;
     private int _disposed;
     private long _stderrLines;
+    private readonly Task _stderrRead;
+    private static readonly TimeSpan StderrDrain = TimeSpan.FromSeconds(2);
     private string? _pendingNext;
 
     public string Package { get; }
@@ -34,7 +36,7 @@ public sealed class JadxServer : IDisposable
         Package = package;
         _temp = temp;
         _ = Task.Run(ReadLoop);
-        _ = Task.Run(() =>
+        _stderrRead = Task.Run(() =>
         {
             try
             {
@@ -136,7 +138,13 @@ public sealed class JadxServer : IDisposable
             var done = await Task.WhenAny(tcs.Task, Task.Delay(timeout, ct), _process.Exited).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             if (done == tcs.Task) return await tcs.Task.ConfigureAwait(false);
-            if (done == _process.Exited && !tcs.Task.IsCompleted) throw new JadxExitedException(_process.ExitCode, StderrTail);
+            if (done == _process.Exited && !tcs.Task.IsCompleted)
+            {
+                // Wait for the reader, bounded since a child can hold the pipe,
+                // so the last lines before the exit reach the error.
+                await Task.WhenAny(_stderrRead, Task.Delay(StderrDrain, CancellationToken.None)).ConfigureAwait(false);
+                throw new JadxExitedException(_process.ExitCode, StderrTail);
+            }
             if (tcs.Task.IsCompleted) return await tcs.Task.ConfigureAwait(false);
             throw new TimeoutException($"the JADX server did not answer {method} within {timeout.TotalSeconds:0} s");
         }

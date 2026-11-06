@@ -100,6 +100,14 @@ public class ReleaseScriptTests
         Assert.Contains("cp release/tests.json corvus-tests.json", workflow);
     }
 
+    // The 2.11.1 run bumped a main three commits behind origin; the push refused it.
+    [Fact]
+    public void A_main_that_differs_from_origin_stops_before_the_bump()
+    {
+        var check = Script.IndexOf("Fail 'main differs from origin/main'", StringComparison.Ordinal);
+        Assert.True(check > 0 && check < Script.IndexOf("Run 'git' @('add', '-A')", StringComparison.Ordinal));
+    }
+
     // Fixture: a ledger line, one push run with its class records, two family stamps and the last run, all on HEAD.
     [Fact]
     [Trait("Speed", "Slow")]
@@ -233,7 +241,6 @@ public class ReleaseScriptTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void The_release_script_parses_as_PowerShell()
     {
         var path = Path.Combine(DocsTests.RepoRoot(), "release.ps1");

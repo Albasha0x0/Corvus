@@ -237,6 +237,10 @@ if (-not $VerifyOnly) {
         if ((git tag --list $tag) -and -not $resume) { Fail "tag $tag exists" }
         if ($resume) { Write-Host "Pushing the existing $tag." }
         else {
+            # A bump on a stale main loses the commits it lacks.
+            git fetch --quiet origin main
+            if ($LASTEXITCODE -ne 0) { Fail 'could not read origin/main' }
+            if ((git rev-parse HEAD) -ne (git rev-parse FETCH_HEAD)) { Fail 'main differs from origin/main' }
             $null = Get-Notes
 
             # A release needs a full pass at most -MaxBehind commits back and no failure after it on this history.
