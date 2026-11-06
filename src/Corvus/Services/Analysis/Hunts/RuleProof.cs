@@ -210,8 +210,11 @@ public static class RuleProof
             var status = held.Count == prior.Files.Count ? "durable" : held.Count == 0 ? "new" : "partial";
             return new FactProof(f, hits.Count, samples, held.Count, missing, status);
         }).ToList();
+        // A query is an OR over its facts, so a file carrying any of them alerts.
+        var union = hunt.Facts.SelectMany(f => clean.Holders.GetValueOrDefault(f) ?? []).Distinct().Order().ToList();
         var worst = facts.Count == 0 ? null : facts.MaxBy(f => f.CleanHits)!;
-        int hits = worst?.CleanHits ?? 0;
+        int hits = union.Count;
+        var unionSamples = union.Take(Named).Select(i => clean.Files[i]).ToList();
         int kinds = hunt.Facts.Aggregate(0, (m, f) => m | Bit(KindOf(f)));
         int blind = clean.Masks.Count(m => (m & kinds) != 0);
         int informative = clean.Folder.Read - blind;
@@ -243,7 +246,7 @@ public static class RuleProof
                 _ => $"; missing from {string.Join(", ", absent)}",
             };
         }
-        return new HuntProof(verdict, reason, hits, worst?.Samples ?? [], [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing);
+        return new HuntProof(verdict, reason, hits, unionSamples,[.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing);
     }
 
     private static string Show(string fact) => fact.Length > 80 ? fact[..77] + "..." : fact;

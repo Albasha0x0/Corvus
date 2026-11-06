@@ -217,6 +217,17 @@ public sealed class RuleProofTests : IDisposable
     }
 
     [Fact]
+    public void A_query_over_several_facts_counts_the_files_that_carry_any_of_them()
+    {
+        var hunt = new Hunt("h", "libraries", "DeviceImageLoadEvents", "DeviceImageLoadEvents", ["dll_name:lib-a.dll", "dll_name:lib-b.dll"], IndicatorEvidence.Reference);
+        var clean = FolderOf(4);
+        var set = RuleProof.Apply(new HuntSet([hunt], []), new ProofOptions(clean, MinFiles: 1), (path, _) =>
+            new RuleProof.FileRead(false, [new HuntFact(HuntKind.DllName, Path.GetFileName(path) is "f0.bin" or "f1.bin" ? "lib-a.dll" : "lib-b.dll", IndicatorEvidence.Reference)], new HashSet<string>()), default);
+        var proof = set.Hunts[0].Proof!;
+        Assert.Equal(("drop", 4), (proof.Verdict, proof.CleanHits));
+    }
+
+    [Fact]
     public void A_clean_folder_under_the_minimum_gives_a_review_that_states_the_count()
     {
         var keys = Prove(Build(Folder("input"), "Subject", "lonely-pipe"), new ProofOptions(Readable(3)));
