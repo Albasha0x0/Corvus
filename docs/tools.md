@@ -1901,6 +1901,8 @@ Match functions of two native builds (x86, x64, ARM64): pairs, changed, unmatche
 | `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory. Values: ida, ghidra. |
 | `huntsPath` | string |  |  | view=hunts: save queries and rules here, JSON. |
 | `reviewPath` | string |  |  | view=review: save the report here, Markdown (.md) or JSON. |
+| `crashText` | string |  |  | view=review: crash text (up to 1 MiB) to place in the new build; this or crashPath. |
+| `crashPath` | string |  |  | view=review: crash text file; its last 8 MiB are read. |
 | `overwrite` | boolean |  |  | Replace huntsPath or reviewPath. |
 
 Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `notes`, `evidence`, `changes`, `oldVersion`, `newVersion`, `hunts`, `review`.

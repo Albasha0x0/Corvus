@@ -42,7 +42,11 @@ public sealed record UpdateReview(
     string OldImage, string NewImage, string Verdict, IReadOnlyList<ReviewHold> Holds, IReadOnlyList<string> Sections,
     IReadOnlyList<ReviewFunction> Added, int AddedTotal, IReadOnlyList<ReviewFunction> Changed, int ChangedTotal,
     IReadOnlyList<ReviewImport> Imports, IReadOnlyList<ReviewHost> Hosts, IReadOnlyList<ReviewEmbedded> Embedded,
-    ReviewSigner Signer, IReadOnlyList<ReviewVersionChange> Version);
+    ReviewSigner Signer, IReadOnlyList<ReviewVersionChange> Version)
+{
+    /// <summary>Where the frames of the crash text given with the review fall; null when none was given. It does not change the verdict.</summary>
+    public ReviewCrash? Crash { get; init; }
+}
 
 /// <summary>What one build gave the review: its image, bytes, hosts and embedded images, and what was not read of each.</summary>
 public sealed record BuildReading
@@ -71,6 +75,9 @@ public sealed record ReviewSources(
 
     /// <summary>Why the facts the hunts came from were read in part; the hunts section is partial and does not hold.</summary>
     public IReadOnlyList<string> HuntLimits { get; init; } = [];
+
+    /// <summary>The frames of a crash text placed in the new build; null when none was given.</summary>
+    public ReviewCrash? Crash { get; init; }
 }
 
 /// <summary>The review of an update: what the new build adds and the hold reasons found in it.</summary>
@@ -329,8 +336,15 @@ public static partial class UpdateReviewer
         var queries = $"{s.Hunts.Count} quer{(s.Hunts.Count == 1 ? "y" : "ies")}";
         sections.Add(s.HuntLimits.Count == 0 ? new ReviewSection("hunts", "read", queries)
             : new ReviewSection("hunts", "partial", $"{queries}; {string.Join("; ", s.HuntLimits)}"));
+        if (s.Crash is { } crash)
+        {
+            int Count(string c) => crash.Frames.Count(f => f.Class == c);
+            sections.Add(new ReviewSection("crash", crash.Capped ? "partial" : "read",
+                $"{crash.Total} frame(s): {Count("changed")} changed, {Count("added")} added, {Count("unchanged")} unchanged, {Count("unknown")} unknown; a crash does not change the verdict"));
+        }
         return new UpdateReview(s.OldImage, s.NewImage, holds.Count == 0 ? "pass" : "hold", holds, [.. sections.Select(x => x.ToString())],
-            [.. s.Added.Take(MaxListed)], s.Added.Count, [.. s.Changed.Take(MaxListed)], s.Changed.Count, imports, hosts, embedded, signer, version);
+            [.. s.Added.Take(MaxListed)], s.Added.Count, [.. s.Changed.Take(MaxListed)], s.Changed.Count, imports, hosts, embedded, signer, version)
+            { Crash = s.Crash };
     }
 
     /// <summary>The value as one plain line: control characters and line breaks become spaces.</summary>
@@ -374,6 +388,13 @@ public static partial class UpdateReviewer
         foreach (var v in r.Version) sb.Append($"- {Md(v.Field)}: {(v.Old == null ? "none" : Md(v.Old))} -> {(v.New == null ? "none" : Md(v.New))}\n");
         sb.Append($"\n## Hunting queries ({hunts.Count})\n\n");
         foreach (var h in hunts) sb.Append($"- {Md(h.Id)} ({Md(h.Table)}) {Md(h.Title)}\n");
+        if (r.Crash is { } crash)
+        {
+            sb.Append($"\n## Crash frames ({crash.Total})\n\n");
+            if (crash.ExceptionCode != null) sb.Append($"- exception code {crash.ExceptionCode}\n");
+            foreach (var f in crash.Frames) sb.Append($"- {Md(f.ToString())}\n");
+            foreach (var n in crash.Notes) sb.Append($"- {Md(n)}\n");
+        }
         if (notes.Count > 0)
         {
             sb.Append("\n## Notes\n\n");

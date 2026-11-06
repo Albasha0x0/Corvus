@@ -12,7 +12,7 @@ using Corvus.Tools;
 namespace Corvus.Tests;
 
 /// <summary>compare_native_images view=review over two self-built builds: what the new build adds and the pass or hold verdict.</summary>
-public sealed class UpdateReviewTests
+public sealed partial class UpdateReviewTests
 {
     private const uint Name = 0x1000, Other = 0x1040, Injected = 0x1080, OldStamp = 0x5F8A1B2C;
 
@@ -67,7 +67,7 @@ public sealed class UpdateReviewTests
         return data;
     }
 
-    private static async Task<(NativeDiffTools.NativeComparison Record, string Text)> Compare(byte[] before, byte[] after, string? reviewPath = null, bool injected = false)
+    private static async Task<(NativeDiffTools.NativeComparison Record, string Text)> Compare(byte[] before, byte[] after, string? reviewPath = null, bool injected = false, string? crashText = null)
     {
         using var h = new NativeBuildUpdateTests.Harness();
         var (o, oi) = await h.Load(before, "old.dll", [Name, Other]);
@@ -79,7 +79,7 @@ public sealed class UpdateReviewTests
             index.SetUserName(Other, "Steady");
         }
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code, inspection: new InspectionService(h.Env.Workspace));
-        return await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(o.Id, n.Id, view: "review", reviewPath: reviewPath));
+        return await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(o.Id, n.Id, view: "review", reviewPath: reviewPath, crashText: crashText));
     }
 
     private static UpdateReview Of(NativeDiffTools.NativeComparison record) => record.Review!;
