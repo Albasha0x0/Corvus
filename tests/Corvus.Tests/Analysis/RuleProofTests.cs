@@ -386,4 +386,33 @@ public sealed class RuleProofTests : IDisposable
         Assert.Equal(("drop", null), (proof.Verdict, proof.Removed));
         Assert.Equal(hunt.Id, set.Hunts[0].Id);
     }
+
+    [Fact]
+    public void A_saved_hunts_file_is_checked_as_the_queries_it_holds()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "shared-pipe-beta");
+        var file = Build(Folder("input"), "Subject", "shared-pipe-beta", "unique-pipe-alpha");
+        var direct = Prove(file, new ProofOptions(clean, MinFiles: 1));
+        var saved = _dir.File("hunts.json");
+        File.WriteAllBytes(saved, HuntRules.Write(new HuntSet(direct.Hunts.Select(h => h with { Proof = null }).ToList(), [])));
+        var fromJson = Prove(saved, new ProofOptions(clean, MinFiles: 1));
+        Assert.Equal(direct.Hunts.Select(h => (h.Id, h.Proof!.Verdict)).Order(), fromJson.Hunts.Select(h => (h.Id, h.Proof!.Verdict)).Order());
+        Assert.DoesNotContain(fromJson.Notes, n => n.Contains("PE images only", StringComparison.Ordinal));
+        Assert.Equal(direct.Hunts.Count(h => h.HuntingOnly), fromJson.Hunts.Count(h => h.HuntingOnly));
+    }
+
+    [Fact]
+    public async Task The_tool_reads_a_saved_hunts_file_with_the_view_hunts()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "shared-pipe-beta");
+        var file = Build(Folder("input"), "Subject", "shared-pipe-beta");
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_ws), _ws);
+        var saved = _dir.File("hunts.json");
+        await tools.SummarizeFile(path: file, view: "hunts", huntsPath: saved);
+        var text = await tools.SummarizeFile(path: saved, view: "hunts", cleanFolder: clean, minFiles: 1);
+        Assert.Contains("drop", text, StringComparison.Ordinal);
+        Assert.Contains("is common: 3 clean files carry it", text, StringComparison.Ordinal);
+    }
 }

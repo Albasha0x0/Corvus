@@ -1107,11 +1107,18 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 };
             if (input.Options.Hunts || input.Options.View == "hunts")
             {
-                var read = Hunts.HuntFacts.Read(s, input, ct);
-                var (huntFacts, factNotes) = (read.Facts, read.Notes);
-                var set = Hunts.KqlHunts.Write(huntFacts, null, Hunts.HuntFacts.IsExecutable(input));
-                var hunts = new Hunts.HuntSet(set.Hunts, [.. factNotes, .. set.Notes]) { Facts = huntFacts, UnknownKinds = read.Unknown };
-                if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, s.File.Sha1, Hunts.RuleProof.KindOf(input.Head), proof, ct);
+                Hunts.HuntSet hunts;
+                string sha1, kind = "";
+                // A hunts file written by huntsPath is the queries to check, not a file to read facts from.
+                if (!input.Streamed && Hunts.HuntRules.Read(input.Bytes) is { } saved) (hunts, sha1) = (saved, Hunts.RuleProof.Sha1Of(saved));
+                else
+                {
+                    var read = Hunts.HuntFacts.Read(s, input, ct);
+                    var set = Hunts.KqlHunts.Write(read.Facts, null, Hunts.HuntFacts.IsExecutable(input));
+                    hunts = new Hunts.HuntSet(set.Hunts, [.. read.Notes, .. set.Notes]) { Facts = read.Facts, UnknownKinds = read.Unknown };
+                    (sha1, kind) = (s.File.Sha1, Hunts.RuleProof.KindOf(input.Head));
+                }
+                if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, sha1, kind.Length > 0 ? kind : null, proof, ct);
                 views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries."]);
             }
             if (input.Options.View != "indicators") return s;

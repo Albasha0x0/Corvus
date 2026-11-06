@@ -71,6 +71,11 @@ public static partial class RuleProof
     public static HuntSet Apply(InspectionService inspection, HuntSet set, string sha1, string? imageKind, ProofOptions options, CancellationToken ct) =>
         Apply(set, options, (path, token) => ReadWith(inspection, path, sha1, token), ct, imageKind);
 
+    /// <summary>The SHA-1 a saved set of queries was written for: its hash fact, else the file its queries are limited to; empty when none.</summary>
+    public static string Sha1Of(HuntSet set) =>
+        set.Hunts.SelectMany(h => h.Facts).FirstOrDefault(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal))?[(HuntKind.Sha1.Length + 1)..]
+        ?? set.Hunts.Select(h => FileScope().Match(h.Kql)).FirstOrDefault(m => m.Success)?.Value[^41..^1] ?? "";
+
     private static FileRead ReadWith(InspectionService inspection, string path, string sha1, CancellationToken ct)
     {
         var summary = inspection.Summarize(null, path, ct, new FileViewOptions("hunts"));

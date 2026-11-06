@@ -59,6 +59,37 @@ public static class HuntRules
         return $"{queries} hunting {(queries == 1 ? "query" : "queries")} and {rules} detection {(rules == 1 ? "rule" : "rules")} (disabled) written to {path}{tail}.";
     }
 
+    /// <summary>
+    /// The hunt set of a file <see cref="Write"/> saved; null when the bytes are not one. A query with no rule and no
+    /// drop verdict is a hunting-only query.
+    /// </summary>
+    public static HuntSet? Read(ReadOnlySpan<byte> bytes)
+    {
+        // Only a small file that starts like a JSON object is parsed.
+        int at = 0;
+        while (at < bytes.Length && bytes[at] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') at++;
+        if (bytes.Length > 16 << 20 || at == bytes.Length || bytes[at] != (byte)'{' && bytes[at] != 0xEF) return null;
+        try
+        {
+            if (JsonNode.Parse(bytes) is not JsonObject { } root || root["hunts"] is not JsonArray queries) return null;
+            var ruleIds = (root["detectionRules"] as JsonArray ?? []).Select(r => (string?)r?["id"]).ToHashSet();
+            var hunts = new List<Hunt>();
+            foreach (var q in queries)
+            {
+                if (q is not JsonObject o || (string?)o["id"] is not { } id || (string?)o["kql"] is not { } kql || o["facts"] is not JsonArray facts) return null;
+                var table = (string?)o["table"] ?? "";
+                bool dropped = (string?)o["proof"]?["verdict"] == "drop";
+                hunts.Add(new Hunt(id, (string?)o["title"] ?? id, table, kql, [.. facts.Select(x => x?.GetValue<string>() ?? "")], (string?)o["evidence"] ?? "")
+                {
+                    Severity = (string?)o["severity"] ?? "informational",
+                    HuntingOnly = !ruleIds.Contains(id) && !dropped && table != "DeviceFileCertificateInfo",
+                });
+            }
+            return new HuntSet(hunts, [.. (root["notes"] as JsonArray ?? []).Select(n => n?.GetValue<string>() ?? "")]);
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException) { return null; }
+    }
+
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
     public static byte[] Write(HuntSet set)
     {
