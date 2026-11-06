@@ -430,4 +430,15 @@ public sealed class RuleProofTests : IDisposable
             ((HuntSet)lean.Views["hunts"].Detail).Facts.Select(f => f.Kind + ":" + f.Value).Order());
         Assert.Equal(full.File.Sha1, lean.File.Sha1);
     }
+
+    [Fact]
+    public void Extensions_limit_the_files_a_proof_folder_counts()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "own-" + i);
+        for (int i = 0; i < 4; i++) File.WriteAllText(Path.Combine(clean, "note" + i + ".txt"), "text");
+        var file = Build(Folder("input"), "Subject", "lonely-pipe");
+        var set = Prove(file, new ProofOptions(clean, MinFiles: 1, Extensions: [".DLL"]));
+        Assert.Equal((3, 3), (set.Proof!.Clean.Found, set.Proof.Clean.Read));
+    }
 }

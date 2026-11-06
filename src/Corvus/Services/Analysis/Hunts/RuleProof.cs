@@ -3,9 +3,9 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis.Hunts;
 
-/// <summary>The folders a set of queries is checked against and the thresholds that decide a verdict.</summary>
+/// <summary>The folders a set of queries is checked against and the thresholds that decide a verdict; Extensions, when given, limits both folders to files with one of them (".dll").</summary>
 public sealed record ProofOptions(string CleanFolder, string? PriorBuildsFolder = null, int DropAt = RuleProof.DefaultDropAt, int MaxFiles = RuleProof.DefaultMaxFiles,
-    int UnreadPercent = RuleProof.DefaultUnreadPercent, int MinFiles = RuleProof.DefaultMinFiles);
+    int UnreadPercent = RuleProof.DefaultUnreadPercent, int MinFiles = RuleProof.DefaultMinFiles, IReadOnlyList<string>? Extensions = null);
 
 /// <summary>One fact of a query: the clean files that carry it and, with prior builds, the builds that hold it.</summary>
 public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string> Samples, int? PriorHits = null, IReadOnlyList<string>? MissingFrom = null, string? Status = null, int? PriorUnknown = null);
@@ -106,8 +106,8 @@ public static partial class RuleProof
         }
         var facts = set.Hunts.SelectMany(h => h.Facts).Distinct(StringComparer.Ordinal).ToList();
         var clock = Stopwatch.StartNew();
-        var clean = ScanFolder(options.CleanFolder, facts, reader, options.MaxFiles, null, ct);
-        var prior = options.PriorBuildsFolder == null ? null : ScanFolder(options.PriorBuildsFolder, facts, reader, options.MaxFiles, imageKind ?? "", ct);
+        var clean = ScanFolder(options.CleanFolder, facts, reader, options.MaxFiles, null, options.Extensions, ct);
+        var prior = options.PriorBuildsFolder == null ? null : ScanFolder(options.PriorBuildsFolder, facts, reader, options.MaxFiles, imageKind ?? "", options.Extensions, ct);
         var seconds = clock.Elapsed.TotalSeconds;
         var read = clean.Folder.Read + (prior?.Folder.Read ?? 0);
         var scan = new ProofScan(options.DropAt, options.UnreadPercent, options.MinFiles, Math.Round(seconds, 2), seconds > 0 ? Math.Round(read * 60 / seconds, 1) : 0, clean.Folder, prior?.Folder);
@@ -161,7 +161,7 @@ public static partial class RuleProof
     }
 
     // Files of a folder, entered in order; a folder that cannot be entered and a link that is not followed are named and counted.
-    private static (List<string> Paths, List<string> Unentered) Walk(string root, CancellationToken ct)
+    private static (List<string> Paths, List<string> Unentered) Walk(string root, IReadOnlyList<string>? extensions, CancellationToken ct)
     {
         var paths = new List<string>();
         var unentered = new List<string>();
@@ -176,7 +176,7 @@ public static partial class RuleProof
                 {
                     if (entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) unentered.Add($"{entry.FullName}: link not followed");
                     else if (entry is DirectoryInfo) pending.Push(entry.FullName);
-                    else paths.Add(entry.FullName);
+                    else if (extensions == null || extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase)) paths.Add(entry.FullName);
                 }
             }
             catch (Exception e) when (e is UnauthorizedAccessException or IOException)
@@ -189,9 +189,9 @@ public static partial class RuleProof
     }
 
     // An image kind of "" keeps every image; null keeps every file.
-    private static Scan ScanFolder(string folder, List<string> facts, Func<string, CancellationToken, FileRead> reader, int max, string? imageKind, CancellationToken ct)
+    private static Scan ScanFolder(string folder, List<string> facts, Func<string, CancellationToken, FileRead> reader, int max, string? imageKind, IReadOnlyList<string>? extensions, CancellationToken ct)
     {
-        var (found, unentered) = Walk(folder, ct);
+        var (found, unentered) = Walk(folder, extensions, ct);
         var paths = found.Take(max).ToList();
         var files = new List<string>();
         var masks = new List<int>();
