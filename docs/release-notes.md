@@ -40,6 +40,7 @@
 - **Dumps:** every event of an Application Error text is read. [5101f66d](https://github.com/Albasha0x0/Corvus/commit/5101f66d)
 - **Dumps:** the image and section of each crash text frame are checked. [c681a5ba](https://github.com/Albasha0x0/Corvus/commit/c681a5ba)
 - **Native:** a tree kill of a process that is already exiting no longer throws out of cleanup. [661461d2](https://github.com/Albasha0x0/Corvus/commit/661461d2)
+- **Containers:** a public key macOS refuses reads as a bad signature; a damaged attestation certificate is reported as not read. [eb2924a2](https://github.com/Albasha0x0/Corvus/commit/eb2924a2)
 
 ## 2.11.1
 
