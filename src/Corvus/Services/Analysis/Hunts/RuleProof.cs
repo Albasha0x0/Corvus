@@ -10,8 +10,12 @@ public sealed record ProofOptions(string CleanFolder, string? PriorBuildsFolder 
 /// <summary>One fact of a query: the clean files that carry it and, with prior builds, the builds that hold it.</summary>
 public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string> Samples, int? PriorHits = null, IReadOnlyList<string>? MissingFrom = null, string? Status = null);
 
-/// <summary>The verdict (keep, review or drop) of a query with its reason, clean hits, sample paths and prior-build standing.</summary>
-public sealed record HuntProof(string Verdict, string Reason, int CleanHits, IReadOnlyList<string> Samples, IReadOnlyList<FactProof> Facts, int? PriorHits = null, string? Status = null);
+/// <summary>
+/// The verdict (keep, review or drop) of a query with its reason, clean hits, sample paths and prior-build standing.
+/// Scope is "file" for a query limited to the SHA-1 of the file under proof, whose rows no clean file can return, else "any".
+/// </summary>
+public sealed record HuntProof(string Verdict, string Reason, int CleanHits, IReadOnlyList<string> Samples, IReadOnlyList<FactProof> Facts, int? PriorHits = null, string? Status = null,
+    string Scope = "any");
 
 /// <summary>
 /// What one folder scan read: files found, read, not read and past the bound, folders and links not followed,
@@ -31,7 +35,7 @@ public sealed record ProofFolder(string Folder, int Found, int Read, int NotRead
 public sealed record ProofScan(int DropAt, int UnreadPercent, int MinFiles, double Seconds, double FilesPerMinute, ProofFolder Clean, ProofFolder? Prior);
 
 /// <summary>Checks hunting queries against a folder of clean files and a folder of prior builds before a rule is enabled.</summary>
-public static class RuleProof
+public static partial class RuleProof
 {
     /// <summary>Clean files carrying a fact at which its query is dropped.</summary>
     public const int DefaultDropAt = 3;
@@ -225,11 +229,12 @@ public static class RuleProof
         int lost = clean.Folder.Unknown + blind;
         long total = clean.Folder.Found + clean.Folder.Inaccessible - clean.Folder.CopyCount;
         var names = string.Join(", ", hunt.Facts.Select(KindOf).Distinct().Order(StringComparer.Ordinal));
+        bool scoped = FileScope().IsMatch(hunt.Kql);
         string verdict, reason;
         if (hunt.Facts.Any(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal)) && clean.Folder.CopyCount > 0)
             (verdict, reason) = ("review", $"A clean file has the same bytes: {clean.Folder.Copies[0]}");
-        else if (hits >= options.DropAt) (verdict, reason) = ("drop", $"{hits:N0} clean files carry {Show(worst!.Fact)}");
-        else if (hits > 0) (verdict, reason) = ("review", $"{hits:N0} clean {(hits == 1 ? "file carries" : "files carry")} {Show(worst!.Fact)}");
+        else if (hits >= options.DropAt) (verdict, reason) = ("drop", $"{Show(worst!.Fact)} is common: {hits:N0} clean files carry it{Cannot(scoped)}");
+        else if (hits > 0) (verdict, reason) = ("review", $"{hits:N0} clean {(hits == 1 ? "file carries" : "files carry")} {Show(worst!.Fact)}{Cannot(scoped)}");
         else if (clean.Folder.Read == 0) (verdict, reason) = ("review", "No clean file was read");
         else if (lost * 100 > (long)options.UnreadPercent * total)
             (verdict, reason) = ("review", $"{lost:N0} of {total:N0} clean files could not show {names} ({Reasons(clean.Folder)})");
@@ -250,8 +255,14 @@ public static class RuleProof
                 _ => $"; missing from {string.Join(", ", absent)}",
             };
         }
-        return new HuntProof(verdict, reason, hits, unionSamples, [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing);
+        return new HuntProof(verdict, reason, hits, unionSamples, [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing, scoped ? "file" : "any");
     }
+
+    // A query limited to one file reads that file's events, so a clean file cannot return a row.
+    private static string Cannot(bool scoped) => scoped ? "; the query reads this file's events only, so those files cannot alert" : "";
+
+    [System.Text.RegularExpressions.GeneratedRegex("InitiatingProcessSHA1 == '[0-9a-f]{40}'", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex FileScope();
 
     private static string Show(string fact) => fact.Length > 80 ? fact[..77] + "..." : fact;
 }

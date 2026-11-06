@@ -291,4 +291,20 @@ public sealed class RuleProofTests : IDisposable
         Assert.Contains("2 of 3 files read", text, StringComparison.Ordinal);
         Assert.Contains("1 past maxFiles", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void A_query_limited_to_the_file_says_the_clean_files_cannot_alert()
+    {
+        var clean = Folder("clean");
+        for (int i = 0; i < 3; i++) Build(clean, "Clean" + i, "shared-pipe-beta");
+        var file = Build(Folder("input"), "Subject", "shared-pipe-beta");
+        var set = Prove(file, new ProofOptions(clean, MinFiles: 1));
+        var pipe = Pipe(set, "shared-pipe-beta").Proof!;
+        Assert.Equal(("drop", "file"), (pipe.Verdict, pipe.Scope));
+        Assert.Contains("is common: 3 clean files carry it", pipe.Reason, StringComparison.Ordinal);
+        Assert.Contains("cannot alert", pipe.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("false", pipe.Reason, StringComparison.OrdinalIgnoreCase);
+        var hash = Assert.Single(set.Hunts, h => h.Table == "DeviceFileEvents" && h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal)).Proof!;
+        Assert.Equal("any", hash.Scope);
+    }
 }
