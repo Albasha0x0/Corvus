@@ -475,7 +475,7 @@ Labels:
 - `compare_native_images view=hunts` writes queries for the facts only the new build holds, limited to its SHA-1, a DNS and TLS name query on any device per added host, and a crash query for the changed functions.
 - `compare_native_images view=review` reports what a new PE build adds: functions, imports, hosts, embedded PE images, signer and version resource changes; `reviewPath=` saves it as Markdown, or JSON for a `.json` path.
 - `view=review` ends with pass or hold; a hold lists each reason from this table.
-- Pass means no listed reason was found: a changed function does not hold, images encoded or compressed inside a build are not read, and it does not show the update is safe.
+- Pass means no listed reason was found: an added or changed function does not hold, images encoded or compressed inside a build are not read, and it does not show the update is safe.
 - A section read in part in the new build and not in the old holds as `unread_section`; the same limit in both builds is a note.
 - A new import of GetProcAddress or LoadLibrary is listed as a concern and does not hold.
 

@@ -64,7 +64,14 @@ public sealed record BuildReading
 /// <summary>What the review reads from two builds.</summary>
 public sealed record ReviewSources(
     string OldImage, string NewImage, BuildReading Old, BuildReading New, int Matched,
-    IReadOnlyList<ReviewFunction> Added, IReadOnlyList<ReviewFunction> Changed, IReadOnlyList<Hunt> Hunts);
+    IReadOnlyList<ReviewFunction> Added, IReadOnlyList<ReviewFunction> Changed, IReadOnlyList<Hunt> Hunts)
+{
+    /// <summary>Why the function pairs may be incomplete, such as a stopped fuzzy comparison; the functions section is partial and does not hold.</summary>
+    public IReadOnlyList<string> MatchLimits { get; init; } = [];
+
+    /// <summary>Why the facts the hunts came from were read in part; the hunts section is partial and does not hold.</summary>
+    public IReadOnlyList<string> HuntLimits { get; init; } = [];
+}
 
 /// <summary>The review of an update: what the new build adds and the hold reasons found in it.</summary>
 public static partial class UpdateReviewer
@@ -262,8 +269,14 @@ public static partial class UpdateReviewer
         if (s.Matched == 0) Unknown("functions", "no function pair matched, so added and changed functions are unknown");
         else
             Partial("functions", s.Old.Undecoded + s.Old.FunctionLimits, s.New.Undecoded + s.New.FunctionLimits,
-                $"{s.Added.Count} added or unmatched, {s.Changed.Count} changed; a changed function does not hold",
+                $"{s.Added.Count} added or unmatched, {s.Changed.Count} changed; an added or changed function does not hold",
                 $"{s.New.Undecoded} function(s) not decoded and {s.New.FunctionLimits} analysis limit(s) in the new build");
+
+        if (s.MatchLimits.Count > 0)
+        {
+            var last = sections[^1];
+            sections[^1] = last with { Status = "partial", Detail = $"{last.Detail}; {string.Join("; ", s.MatchLimits)}" };
+        }
 
         IReadOnlyList<ReviewImport> imports = [];
         var (oldPe, newPe) = (s.Old.Pe, s.New.Pe);
@@ -313,7 +326,9 @@ public static partial class UpdateReviewer
             sections.Add(new ReviewSection("version resource", "partial", "the resource directory has parse issues"));
         else sections.Add(new ReviewSection("version resource", "read", $"{version.Count} field(s) changed"));
 
-        sections.Add(new ReviewSection("hunts", "read", $"{s.Hunts.Count} quer{(s.Hunts.Count == 1 ? "y" : "ies")}"));
+        var queries = $"{s.Hunts.Count} quer{(s.Hunts.Count == 1 ? "y" : "ies")}";
+        sections.Add(s.HuntLimits.Count == 0 ? new ReviewSection("hunts", "read", queries)
+            : new ReviewSection("hunts", "partial", $"{queries}; {string.Join("; ", s.HuntLimits)}"));
         return new UpdateReview(s.OldImage, s.NewImage, holds.Count == 0 ? "pass" : "hold", holds, [.. sections.Select(x => x.ToString())],
             [.. s.Added.Take(MaxListed)], s.Added.Count, [.. s.Changed.Take(MaxListed)], s.Changed.Count, imports, hosts, embedded, signer, version);
     }
@@ -326,7 +341,7 @@ public static partial class UpdateReviewer
 
     /// <summary>The verdict line: pass names no listed reason found and what it does not cover; hold counts its reasons.</summary>
     public static string VerdictText(UpdateReview r) => r.Verdict == "pass"
-        ? "Verdict: pass. No hold reason in the table was found; changed functions do not hold, images encoded or compressed inside the build are not read, and this does not show the update is safe."
+        ? "Verdict: pass. No hold reason in the table was found; an added or changed function does not hold, images encoded or compressed inside the build are not read, and this does not show the update is safe."
         : $"Verdict: hold. {r.Holds.Count} reason(s):\n" + string.Join('\n', r.Holds.Select(h => $"  {h.Id}: {Line(h.Evidence)}"));
 
     /// <summary>The review as Markdown: verdict first, then a section per fact, the hunting queries and the notes; values from the files are escaped.</summary>

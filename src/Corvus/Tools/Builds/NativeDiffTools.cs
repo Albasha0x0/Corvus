@@ -394,7 +394,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             .Select(r => new ReviewFunction(r.Old, r.New, r.OldName ?? "", null, diff + r.Old)).ToList();
         var old = UpdateReviewer.Read(pair.Old.Pe, oldBytes, oldFacts, match.Old.Failed, match.Old.Index.Truncations.Count, ct);
         var current = UpdateReviewer.Read(pair.New.Pe, newBytes, newFacts, match.New.Failed, match.New.Index.Truncations.Count, ct);
-        var review = UpdateReviewer.Review(new ReviewSources(pair.Old.Id, pair.New.Id, old, current, match.Pairs.Count, added, changed, set.Hunts), ct);
+        var matchLimits = match.Notes.Where(n => n.StartsWith(MatchOptions.FuzzyCapNote, StringComparison.Ordinal)).ToList();
+        var huntLimits = UpdateHunts.PartialReads(oldNotes.Any(HuntFacts.LimitsFacts), newNotes.Any(HuntFacts.LimitsFacts));
+        var review = UpdateReviewer.Review(new ReviewSources(pair.Old.Id, pair.New.Id, old, current, match.Pairs.Count, added, changed, set.Hunts)
+            { MatchLimits = matchLimits, HuntLimits = huntLimits }, ct);
         return (review, set);
     }
 

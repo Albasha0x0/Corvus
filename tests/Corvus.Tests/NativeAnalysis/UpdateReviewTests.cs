@@ -109,7 +109,7 @@ public sealed class UpdateReviewTests
         Assert.Equal((0, 0), (review.AddedTotal, review.ChangedTotal));
         Assert.Empty(review.Imports);
         Assert.Contains("this does not show the update is safe", text, StringComparison.Ordinal);
-        Assert.Contains("changed functions do not hold", text, StringComparison.Ordinal);
+        Assert.Contains("an added or changed function does not hold", text, StringComparison.Ordinal);
         Assert.Contains("encoded or compressed inside the build are not read", text, StringComparison.Ordinal);
     }
 
@@ -415,6 +415,32 @@ public sealed class UpdateReviewTests
         Assert.Single(headings, l => l == "## Verdict");
         Assert.DoesNotContain(text.Split('\n'), l => l.StartsWith("Verdict: pass", StringComparison.Ordinal));
         Assert.DoesNotContain('\r', text);
+    }
+
+    [Fact]
+    public async Task A_fuzzy_comparison_stopped_at_its_cap_makes_the_functions_section_partial_without_a_hold()
+    {
+        using var h = new NativeBuildUpdateTests.Harness();
+        var (o, _) = await h.Load(NativeBuildUpdateTests.Image(false, 0), "old.dll", NativeBuildUpdateTests.OldStarts);
+        var (n, _) = await h.Load(NativeBuildUpdateTests.Image(true, NativeBuildUpdateTests.Shift), "new.dll", NativeBuildUpdateTests.NewStarts(NativeBuildUpdateTests.Shift));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code, inspection: new InspectionService(h.Env.Workspace));
+        var (record, _) = await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() =>
+            tools.CompareNativeImages(o.Id, n.Id, view: "review", codeOnly: true, minScore: 0.5, maxComparisons: 1));
+        Assert.Contains(record.Notes, x => x.StartsWith("fuzzy matching stopped", StringComparison.Ordinal));
+        Assert.Contains(Of(record).Sections, x => x.StartsWith("functions: partial", StringComparison.Ordinal) && x.Contains("fuzzy matching stopped", StringComparison.Ordinal));
+        Assert.DoesNotContain(Of(record).Holds, x => x.Evidence.StartsWith("functions", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Facts_read_in_part_make_the_hunts_section_partial_with_the_reason_and_no_hold()
+    {
+        var pe = Image(OldStamp);
+        var file = PeFile.FromBytes(pe, "a.dll");
+        var read = UpdateReviewer.Read(file, pe, [], 0, 0, default);
+        var limits = UpdateHunts.PartialReads(false, true);
+        var review = UpdateReviewer.Review(Sources(read, read) with { HuntLimits = limits }, default);
+        Assert.Contains(review.Sections, x => x.StartsWith("hunts: partial", StringComparison.Ordinal) && x.Contains("new build's facts are partial", StringComparison.Ordinal));
+        Assert.Equal("pass", review.Verdict);
     }
 
     [Fact]
