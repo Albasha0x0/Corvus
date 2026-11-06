@@ -76,11 +76,18 @@ public static partial class RuleProof
         set.Hunts.SelectMany(h => h.Facts).FirstOrDefault(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal))?[(HuntKind.Sha1.Length + 1)..]
         ?? set.Hunts.Select(h => FileScope().Match(h.Kql)).FirstOrDefault(m => m.Success)?.Value[^41..^1] ?? "";
 
+    private static string Sha1Stream(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(stream));
+    }
+
     private static FileRead ReadWith(InspectionService inspection, string path, string sha1, CancellationToken ct)
     {
-        var summary = inspection.Summarize(null, path, ct, new FileViewOptions("hunts"));
+        // A copy of the file under proof is known from its hash alone.
+        if (sha1.Length > 0 && string.Equals(Sha1Stream(path), sha1, StringComparison.OrdinalIgnoreCase)) return new FileRead(true, [], new HashSet<string>());
+        var summary = inspection.Summarize(null, path, ct, new FileViewOptions("hunts") { FactsOnly = true });
         if (summary.Views.GetValueOrDefault("hunts")?.Detail is not HuntSet read) throw new InvalidDataException("the file has no hunts view");
-        if (summary.File.Sha1.Length > 0 && string.Equals(summary.File.Sha1, sha1, StringComparison.OrdinalIgnoreCase)) return new FileRead(true, [], new HashSet<string>());
         return new FileRead(false, read.Facts, read.UnknownKinds, Corvus.Native.NativeImageLoader.DetectFile(path).ToString());
     }
 

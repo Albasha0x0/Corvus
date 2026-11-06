@@ -415,4 +415,19 @@ public sealed class RuleProofTests : IDisposable
         Assert.Contains("drop", text, StringComparison.Ordinal);
         Assert.Contains("is common: 3 clean files carry it", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void The_facts_only_read_gives_the_same_hunt_facts_without_the_digest()
+    {
+        var file = Build(Folder("input"), "Subject", "shared-pipe-beta");
+        var inspection = new InspectionService(_ws);
+        var full = inspection.Summarize(null, file, default, new FileViewOptions("hunts"));
+        var lean = inspection.Summarize(null, file, default, new FileViewOptions("hunts") { FactsOnly = true });
+        Assert.NotNull(full.File.Tlsh ?? full.File.TlshAbsent);
+        Assert.Null(lean.File.Tlsh);
+        Assert.Equal("not computed", lean.File.TlshAbsent);
+        Assert.Equal(((HuntSet)full.Views["hunts"].Detail).Facts.Select(f => f.Kind + ":" + f.Value).Order(),
+            ((HuntSet)lean.Views["hunts"].Detail).Facts.Select(f => f.Kind + ":" + f.Value).Order());
+        Assert.Equal(full.File.Sha1, lean.File.Sha1);
+    }
 }

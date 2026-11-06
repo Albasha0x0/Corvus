@@ -190,6 +190,9 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
     /// <summary>Hunting queries are to be written to a file, which needs the hunts view whatever view is shown.</summary>
     public bool Hunts { get; init; }
 
+    /// <summary>Only the facts hunting queries read are needed: the digest, import hash, zone, layout and capa result are not computed.</summary>
+    public bool FactsOnly { get; init; }
+
     /// <summary>The clean files and prior builds the hunting queries are checked against; null for no check.</summary>
     public Hunts.ProofOptions? Proof { get; init; }
 

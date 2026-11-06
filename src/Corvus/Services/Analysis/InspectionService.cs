@@ -1080,11 +1080,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var input = OpenInput(path!);
         input.Options = options ?? FileViewOptions.None;
         var full = input.Path;
-        var facts = Facts(input, ct);
+        var facts = Facts(input, ct, input.Options.FactsOnly);
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
         if (facts.Zone is { } zone) fileHighlights.Add($"Zone.Identifier: {zone}.");
-        if (PlayerLayout.FileHint(full, input.Streamed ? input.Head : input.Bytes) is { } layout) fileHighlights.Add(layout);
+        if (!input.Options.FactsOnly && PlayerLayout.FileHint(full, input.Streamed ? input.Head : input.Bytes) is { } layout) fileHighlights.Add(layout);
         var viewNotes = new List<string>();
         var views = Views(input, viewNotes, ct);
         foreach (var v in views.Values) fileHighlights.AddRange(v.Highlights);
@@ -1099,7 +1099,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 Go = views.GetValueOrDefault("go")?.Detail as GoBuildFacts,
                 Views = views,
             };
-            if (Native.NativeImageLoader.Detect(input.Head) is Native.NativeFileKind.Pe or Native.NativeFileKind.Elf)
+            if (!input.Options.FactsOnly && Native.NativeImageLoader.Detect(input.Head) is Native.NativeFileKind.Pe or Native.NativeFileKind.Elf)
                 s = s with
                 {
                     Capa = NativeCapa.Cached(full),
@@ -1300,9 +1300,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         || h.Contains("does not verify", StringComparison.Ordinal) || h.Contains("unreadable", StringComparison.Ordinal)
         || h.StartsWith("High-entropy", StringComparison.Ordinal) || h.Contains("not valid IL", StringComparison.Ordinal);
 
-    private static FileFacts Facts(FileInput input, CancellationToken ct)
+    private static FileFacts Facts(FileInput input, CancellationToken ct, bool factsOnly = false)
     {
-        if (!input.Streamed) return Facts(input.Path, input.Bytes);
+        if (!input.Streamed) return Facts(input.Path, input.Bytes, factsOnly);
         var (md5, sha1, sha256, entropy, (tlsh, tlshAbsent)) = input.Hashes(ct);
         CertificateInfo certificate;
         if (PeImage.TryParse(input.Head) == null) certificate = new CertificateInfo(false);
@@ -1311,19 +1311,19 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate) { Tlsh = tlsh, TlshAbsent = tlshAbsent, Zone = ZoneIdentifier.Of(input.Path) };
     }
 
-    private static FileFacts Facts(string path, byte[] bytes)
+    private static FileFacts Facts(string path, byte[] bytes, bool factsOnly = false)
     {
         var image = PeImage.TryParse(bytes);
         bool pe = image != null;
-        var (tlsh, tlshAbsent) = Tlsh.Of(bytes);
+        var (tlsh, tlshAbsent) = factsOnly ? (null, "not computed") : Tlsh.Of(bytes);
         return new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),
             pe ? Certificates.Read(bytes) : new CertificateInfo(false))
         {
-            Imphash = pe ? Imphash(bytes) : null,
+            Imphash = pe && !factsOnly ? Imphash(bytes) : null,
             PeType = image == null ? null : image.Subsystem(bytes) == 1 ? "sys" : image.IsDll ? "dll" : "exe",
             Tlsh = tlsh,
             TlshAbsent = tlshAbsent,
-            Zone = ZoneIdentifier.Of(path),
+            Zone = factsOnly ? null : ZoneIdentifier.Of(path),
         };
     }
 
