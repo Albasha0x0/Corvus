@@ -13,8 +13,9 @@ public class OutputSchemaTransformTests
     // Raised from 107,300 for the capa field of summarize_file (90e183c45),
     // then from 107,500 for the coverage left-out list and .pyc fields,
     // then from 107,800 for the hunts field of compare_native_images,
-    // then from 108,100 for its review field.
-    private const int MaxOutputSchemaTotalBytes = 108_750;
+    // then from 108,100 for its review field,
+    // then from 108,750 for the proof record and the crash frames.
+    private const int MaxOutputSchemaTotalBytes = 108_800;
 
     /// <summary>Record fields that say a result stopped early make the provenance partial; the others listed mean something else.</summary>
     [Fact]
