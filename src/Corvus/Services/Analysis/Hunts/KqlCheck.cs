@@ -2,14 +2,14 @@ using System.Text;
 
 namespace Corvus.Services.Analysis.Hunts;
 
-/// <summary>A lexical check of the query shapes the writer emits: terminated literals, balanced brackets, known table, known columns and functions.</summary>
+/// <summary>A lexical check of the query shapes the writer emits: terminated literals, balanced brackets, known table, known columns and functions; a union is checked branch by branch.</summary>
 public static class KqlCheck
 {
     private static readonly HashSet<string> Keywords = new(StringComparer.Ordinal)
-        { "where", "project", "extend", "and", "or", "not", "in", "has", "contains", "startswith", "endswith", "by", "take", "true", "false" };
+        { "where", "project", "extend", "and", "or", "not", "in", "has", "contains", "startswith", "endswith", "by", "take", "true", "false", "summarize" };
 
     private static readonly HashSet<string> Functions = new(StringComparer.Ordinal)
-        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end", "extract", "strcmp" };
+        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end", "extract", "strcmp", "dcount", "min", "max" };
 
     /// <summary>The problems of <paramref name="kql"/> against the columns of its first table; empty when none.</summary>
     public static IReadOnlyList<string> Diagnostics(string kql)
@@ -17,6 +17,36 @@ public static class KqlCheck
         var problems = new List<string>();
         var tokens = Tokens(kql, problems);
         if (tokens.Count == 0) return ["The query is empty."];
+        if (tokens[0].Text == "union") Union(tokens, problems);
+        else Check(tokens, problems);
+        return problems;
+    }
+
+    // Each parenthesized branch is a query of its own, separated by commas.
+    private static void Union(List<Token> tokens, List<string> problems)
+    {
+        int i = 1;
+        if (tokens.Count == 1) problems.Add("A union has no branch.");
+        while (i < tokens.Count)
+        {
+            if (tokens[i].Text != "(") { problems.Add("A union takes parenthesized queries."); return; }
+            int depth = 0, start = i + 1;
+            for (; i < tokens.Count; i++)
+            {
+                if (tokens[i].Text == "(") depth++;
+                else if (tokens[i].Text == ")" && --depth == 0) break;
+            }
+            if (i >= tokens.Count) { problems.Add("A parenthesis is not closed."); return; }
+            if (i == start) problems.Add("A union branch is empty.");
+            else Check(tokens.GetRange(start, i - start), problems);
+            i++;
+            if (i < tokens.Count && tokens[i].Text != ",") { problems.Add("A union takes parenthesized queries."); return; }
+            i++;
+        }
+    }
+
+    private static void Check(List<Token> tokens, List<string> problems)
+    {
         var table = tokens[0].Text;
         var columns = HuntSchema.Columns(table).Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
         if (columns.Count == 0) problems.Add($"Table '{table}' is not in the schema.");
@@ -36,7 +66,6 @@ public static class KqlCheck
             else if (!call && !columns.Contains(t.Text) && !aliases.Contains(t.Text)) problems.Add($"Name '{t.Text}' is not a column of {table}.");
         }
         if (depth > 0) problems.Add("A parenthesis is not closed.");
-        return problems;
     }
 
     private readonly record struct Token(char Kind, string Text);

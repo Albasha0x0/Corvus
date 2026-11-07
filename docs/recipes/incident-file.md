@@ -53,6 +53,7 @@ corvus summarize_file path=sample.bin view=hunts huntsPath=case/hunts.json
 
 - Pass each query from `view=hunts` to `RunAdvancedHuntingQuery` as `kqlQuery`.
 - Check the queries before enabling a rule: `view=hunts cleanFolder=<clean files> priorBuildsFolder=<earlier builds>`.
+- Run the `tenant-` query of the hunts to read catalog signature, signer and devices of the file; save the JSON and pass `tenantResultPath=<result>` with `view=hunts` to label the file report.
 - Run `FetchAdvancedHuntingTablesDetailedSchema` first when a query reports an unknown column.
 - Hunts match on SHA-1: the `SHA256` columns of device tables are usually not populated ([DeviceEvents](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-deviceevents-table)).
 - Matches on the signer, file name and hosts show other devices that the hash alone misses.

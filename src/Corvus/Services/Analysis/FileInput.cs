@@ -190,6 +190,9 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
     /// <summary>Hunting queries are to be written to a file, which needs the hunts view whatever view is shown.</summary>
     public bool Hunts { get; init; }
 
+    /// <summary>A saved result of the tenant query of the hunts view, joined to the file; null for none.</summary>
+    public string? TenantResultPath { get; init; }
+
     /// <summary>Only the facts hunting queries read are needed: the digest, import hash, zone, layout and capa result are not computed.</summary>
     public bool FactsOnly { get; init; }
 

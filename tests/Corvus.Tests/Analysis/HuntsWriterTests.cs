@@ -24,7 +24,7 @@ public sealed class HuntsWriterTests
         return GlobalState.Default.WithCluster(new ClusterSymbol("cluster", db)).WithDatabase(db);
     }
 
-    private static KustoCode Parse(string kql) => KustoCode.ParseAndAnalyze(kql, Globals());
+    internal static KustoCode Parse(string kql) => KustoCode.ParseAndAnalyze(kql, Globals());
 
     private static HuntFact[] OneOfEach() =>
     [

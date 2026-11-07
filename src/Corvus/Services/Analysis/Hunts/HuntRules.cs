@@ -89,7 +89,7 @@ public static class HuntRules
                 hunts.Add(new Hunt(id, Text(o, "title") ?? id, table, kql, [.. facts.EnumerateArray().Select(x => x.GetString()!)], Text(o, "evidence") ?? "")
                 {
                     Severity = Text(o, "severity") ?? "informational",
-                    HuntingOnly = !ruleIds.Contains(id) && !dropped && table != "DeviceFileCertificateInfo",
+                    HuntingOnly = !ruleIds.Contains(id) && !dropped && (table != "DeviceFileCertificateInfo" || id.StartsWith(TenantResult.IdPrefix, StringComparison.Ordinal)),
                 });
             }
             var notes = root.TryGetProperty("notes", out var n) && n.ValueKind == JsonValueKind.Array

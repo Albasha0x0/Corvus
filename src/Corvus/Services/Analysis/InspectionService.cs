@@ -200,6 +200,21 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }
     }
 
+    // A saved result is joined only to a file with a SHA-1; bytes that are not a result are refused.
+    private static (Hunts.TenantFacts? Facts, List<string> Notes) JoinTenant(string? path, string sha1)
+    {
+        if (path == null) return (null, []);
+        if (sha1.Length != 40) return (null, ["The file has no SHA-1, so the tenant result is not joined."]);
+        var full = InputFiles.RequireRegularFile(path);
+        if (!File.Exists(full)) throw Targets.FileNotFound(path);
+        var length = new FileInfo(full).Length;
+        if (length > Hunts.TenantResult.MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{full} is over {Hunts.TenantResult.MaxBytes:N0} bytes, too large for a query result.");
+        var read = Hunts.TenantResult.Read(File.ReadAllBytes(full), sha1, File.GetLastWriteTimeUtc(full));
+        if (read.Refused != null)
+            throw new ToolError(ErrorCode.MalformedInput, $"{full}: {read.Refused}", "save the JSON a run of the tenant query returns");
+        return (read.Facts, [.. read.Notes]);
+    }
+
     private static (string Full, byte[] Bytes) ReadFile(string path)
     {
         if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
@@ -1109,17 +1124,35 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             {
                 Hunts.HuntSet hunts;
                 string sha1, kind = "";
+                Hunts.TenantFacts? tenant = null;
+                List<string> tenantNotes = [];
+                var saved = input.Streamed ? null : Hunts.HuntRules.Read(input.Bytes);
                 // A hunts file written by huntsPath is the queries to check, not a file to read facts from.
-                if (!input.Streamed && Hunts.HuntRules.Read(input.Bytes) is { } saved) (hunts, sha1) = (saved, Hunts.RuleProof.Sha1Of(saved));
+                if (saved != null) (hunts, sha1) = (saved, Hunts.RuleProof.Sha1Of(saved));
                 else
                 {
                     var read = Hunts.HuntFacts.Read(s, input, ct);
-                    var set = Hunts.KqlHunts.Write(read.Facts, null, Hunts.HuntFacts.IsExecutable(input));
-                    hunts = new Hunts.HuntSet(set.Hunts, [.. read.Notes, .. set.Notes]) { Facts = read.Facts, UnknownKinds = read.Unknown };
-                    (sha1, kind) = (s.File.Sha1, Hunts.RuleProof.KindOf(input.Head));
+                    sha1 = s.File.Sha1;
+                    (tenant, tenantNotes) = JoinTenant(input.Options.TenantResultPath, sha1);
+                    var facts = read.Facts;
+                    // The tenant names the signer of a catalog-signed file, which the file does not show.
+                    if (tenant != null && Hunts.TenantResult.Signer(tenant) is { } tenantSigner && read.Unknown.Remove(Hunts.HuntKind.Signer))
+                    {
+                        facts = [.. facts, new(Hunts.HuntKind.Signer, tenantSigner, IndicatorEvidence.Computed)];
+                        read.Notes.RemoveAll(n => n.StartsWith("The signer is unknown", StringComparison.Ordinal));
+                        tenantNotes.Add("The signer comes from the tenant result.");
+                    }
+                    var set = Hunts.KqlHunts.Write(facts, null, Hunts.HuntFacts.IsExecutable(input));
+                    var queries = set.Hunts;
+                    if (sha1.Length == 40 && s.File.Size > 0) queries = [.. queries, Hunts.TenantResult.Query(sha1)];
+                    hunts = new Hunts.HuntSet(queries, [.. read.Notes, .. set.Notes, .. tenantNotes]) { Facts = facts, UnknownKinds = read.Unknown };
+                    kind = Hunts.RuleProof.KindOf(input.Head);
                 }
+                if (saved != null) (tenant, tenantNotes) = JoinTenant(input.Options.TenantResultPath, sha1);
                 if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, sha1, kind.Length > 0 ? kind : null, proof, ct);
-                views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries."]);
+                if (saved != null) hunts = hunts with { Notes = [.. hunts.Notes, .. tenantNotes] };
+                hunts = hunts with { Tenant = tenant };
+                views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries.", .. tenant == null ? [] : Hunts.TenantResult.Lines(tenant)]);
             }
             if (input.Options.View != "indicators") return s;
             var indicators = IndicatorList.Of(s);

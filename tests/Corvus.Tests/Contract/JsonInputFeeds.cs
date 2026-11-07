@@ -81,6 +81,9 @@ public sealed partial class JsonInputTests
         ["Services/Analysis/Hunts/HuntRules.cs"] = (
             """{"hunts":[{"id":"a","title":"t","table":"DeviceRegistryEvents","kql":"x","facts":["registry_key:k"],"proof":{"verdict":"keep"}}],"detectionRules":[{"id":"a"}],"notes":["n"]}""",
             b => Corvus.Services.Analysis.Hunts.HuntRules.Read(b)),
+        ["Services/Analysis/Hunts/TenantResult.cs"] = (
+            """{"schema":[],"results":[{"Source":"DeviceFileEvents","Queried":"0123456789abcdef0123456789abcdef01234567","Devices":1,"FirstSeen":"2026-11-05T01:00:00Z"}]}""",
+            b => Corvus.Services.Analysis.Hunts.TenantResult.Read(b, "0123456789abcdef0123456789abcdef01234567", DateTimeOffset.UnixEpoch)),
         ["Core/Electron.cs"] = ("""[{"file":"a.js","alg":"SHA256","value":"abc"}]""", b => Electron.ParseResource(b, "x")),
         ["Core/Models/Safetensors.cs"] = (
             """{"__metadata__":{"k":"v"},"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}""",

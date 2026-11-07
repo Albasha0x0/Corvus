@@ -89,7 +89,7 @@ public sealed class HuntsViewTests : IDisposable
         var hunts = root["hunts"]!.AsArray();
         var rules = root["detectionRules"]!.AsArray();
         Assert.NotEmpty(hunts);
-        Assert.Equal(hunts.Count(h => !((string?)h!["id"])!.EndsWith("-lookups", StringComparison.Ordinal)), rules.Count);
+        Assert.Equal(hunts.Count(h => !((string?)h!["id"])!.EndsWith("-lookups", StringComparison.Ordinal) && !((string?)h["id"])!.StartsWith("tenant-", StringComparison.Ordinal)), rules.Count);
         foreach (var rule in rules)
         {
             Assert.False(string.IsNullOrEmpty((string?)rule!["id"]));
@@ -214,7 +214,7 @@ public sealed class HuntsViewTests : IDisposable
         using (var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
             using (var w = new StreamWriter(zip.CreateEntry("a.txt").Open())) w.Write("hello");
         var set = Hunts(path);
-        Assert.Equal("DeviceFileEvents", Assert.Single(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal)).Table);
+        Assert.Equal("DeviceFileEvents", Assert.Single(set.Hunts, h => h.Facts[0].StartsWith("sha1:", StringComparison.Ordinal) && !h.HuntingOnly).Table);
         Assert.DoesNotContain(set.Hunts, h => h.Table is "DeviceProcessEvents" or "DeviceImageLoadEvents");
         Assert.Contains(set.Notes, n => n.Contains("unpack_container", StringComparison.Ordinal));
     }

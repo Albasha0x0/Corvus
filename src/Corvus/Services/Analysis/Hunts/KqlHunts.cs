@@ -36,6 +36,9 @@ public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> No
 
     /// <summary>What the clean-file and prior-build scans read; null when none was asked for.</summary>
     public ProofScan? Proof { get; init; }
+
+    /// <summary>The tenant facts joined from a saved query result; null when no result was joined.</summary>
+    public TenantFacts? Tenant { get; init; }
 }
 
 /// <summary>The fact kinds <see cref="KqlHunts"/> writes queries for.</summary>
