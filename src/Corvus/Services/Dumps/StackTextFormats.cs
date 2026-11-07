@@ -214,11 +214,16 @@ internal static class StackTextFormats
             number++;
             var line = raw.TrimEnd('\r');
             if (line.Trim().Length == 0) continue;
-            bool taken = false;
+            bool taken = false, overflow = false;
             foreach (var e in entries)
             {
                 var m = e.Pattern.Match(line);
-                if (!m.Success || !e.Apply(m, number, line.Trim(), result, state)) continue;
+                if (!m.Success) continue;
+                bool applied;
+                // A hex or decimal field wider than 64 bits makes the line unreadable, not the text.
+                try { applied = e.Apply(m, number, line.Trim(), result, state); }
+                catch (OverflowException) { overflow = true; break; }
+                if (!applied) continue;
                 result.Formats[e.Family] = result.Formats.GetValueOrDefault(e.Family) + 1;
                 taken = true;
                 break;
@@ -226,7 +231,8 @@ internal static class StackTextFormats
             if (!taken)
             {
                 result.Unrecognized++;
-                if (result.UnrecognizedSample.Count < 5) result.UnrecognizedSample.Add(line.Length > 200 ? line[..200] + "..." : line);
+                var shown = line.Length > 200 ? line[..200] + "..." : line;
+                if (result.UnrecognizedSample.Count < 5) result.UnrecognizedSample.Add(overflow ? "value over 64 bits: " + shown : shown);
             }
         }
         Finish(result, state);
