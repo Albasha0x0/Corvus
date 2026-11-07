@@ -147,6 +147,23 @@ public sealed class TenantResultTests : IDisposable
     }
 
     [Fact]
+    public void A_signer_with_a_quote_a_backslash_and_a_newline_stays_inside_its_query_literal()
+    {
+        var file = Program(out var sha1);
+        var saved = _dir.File("hostile.json");
+        // As JSON text, the signer decodes to a quote, a backslash and a newline.
+        var signer = @"Evil' or 1 == 1 \\ x\ny";
+        File.WriteAllText(saved, Result(Catalog(sha1, signer), Row("DeviceFileEvents", sha1, "\"Devices\":1")));
+        var set = View(file, saved);
+        var hunt = Assert.Single(set.Hunts, h => h.Table == "DeviceFileCertificateInfo" && h.Facts[0].StartsWith("signer:", StringComparison.Ordinal));
+        Assert.Empty(KqlCheck.Diagnostics(hunt.Kql));
+        Assert.Empty(HuntsWriterTests.Parse(hunt.Kql).GetDiagnostics());
+        Assert.Contains(@"Evil\' or 1 == 1 \\ x", hunt.Kql, StringComparison.Ordinal);
+        Assert.Single(hunt.Kql.Split((char)10), l => l.StartsWith("| where Signer has ", StringComparison.Ordinal));
+        Assert.Equal(sha1, set.Tenant!.Sha1);
+    }
+
+    [Fact]
     public void A_result_file_that_is_not_JSON_is_refused_with_its_path()
     {
         var file = Program(out _);
