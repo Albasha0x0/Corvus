@@ -104,16 +104,19 @@ public static partial class RuleProof
             if (Overlap(options.CleanFolder, options.PriorBuildsFolder))
                 throw new ToolError(ErrorCode.InvalidArgument, "cleanFolder and priorBuildsFolder overlap: a build would count as a clean file.", "pass folders that do not contain each other");
         }
-        var facts = set.Hunts.SelectMany(h => h.Facts).Distinct(StringComparer.Ordinal).ToList();
+        var facts = set.Hunts.Where(h => !h.HuntingOnly).SelectMany(h => h.Facts).Distinct(StringComparer.Ordinal).ToList();
         var clock = Stopwatch.StartNew();
         var clean = ScanFolder(options.CleanFolder, facts, reader, options.MaxFiles, null, options.Extensions, ct);
         var prior = options.PriorBuildsFolder == null ? null : ScanFolder(options.PriorBuildsFolder, facts, reader, options.MaxFiles, imageKind ?? "", options.Extensions, ct);
         var seconds = clock.Elapsed.TotalSeconds;
         var read = clean.Folder.Read + (prior?.Folder.Read ?? 0);
         var scan = new ProofScan(options.DropAt, options.UnreadPercent, options.MinFiles, Math.Round(seconds, 2), seconds > 0 ? Math.Round(read * 60 / seconds, 1) : 0, clean.Folder, prior?.Folder);
-        var judged = set.Hunts.Select((h, i) => (Reduce(h, clean, options), Index: i)).Select(x => (Hunt: x.Item1.Hunt with { Proof = Judge(x.Item1.Hunt, clean, prior, options, x.Item1.Removed) }, x.Index))
+        var judged = set.Hunts.Where(h => !h.HuntingOnly).Select((h, i) => (Reduce(h, clean, options), Index: i)).Select(x => (Hunt: x.Item1.Hunt with { Proof = Judge(x.Item1.Hunt, clean, prior, options, x.Item1.Removed) }, x.Index))
             .OrderBy(x => Rank(x.Hunt.Proof!.Verdict)).ThenBy(x => x.Hunt.Proof!.CleanHits).ThenBy(x => x.Index).Select(x => x.Hunt).ToList();
+        var lookups = set.Hunts.Where(h => h.HuntingOnly).ToList();
+        judged.AddRange(lookups);
         var notes = new List<string>(set.Notes);
+        if (lookups.Count > 0) notes.Add($"{lookups.Count:N0} hunting-only {(lookups.Count == 1 ? "query" : "queries")} got no verdict: their rows name no file to check.");
         if (!clean.Folder.Complete)
             notes.Add($"The clean scan is partial ({Reasons(clean.Folder)}): a query with no clean hit is not shown absent from the files that could not show its facts.");
         if (prior is { Folder.Complete: false })

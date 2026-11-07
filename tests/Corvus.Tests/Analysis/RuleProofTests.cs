@@ -55,7 +55,7 @@ public sealed class RuleProofTests : IDisposable
         Build(clean, "Clean0", "one-hit-pipe");
         for (int i = 1; i < 4; i++) Build(clean, "Clean" + i, "many-hit-pipe");
         var file = Build(Folder("input"), "Subject", "many-hit-pipe", "one-hit-pipe", "no-hit-pipe");
-        var verdicts = Prove(file, new ProofOptions(clean, MinFiles: 1)).Hunts.Select(h => h.Proof!.Verdict).ToList();
+        var verdicts = Prove(file, new ProofOptions(clean, MinFiles: 1)).Hunts.Where(h => !h.HuntingOnly).Select(h => h.Proof!.Verdict).ToList();
         Assert.Equal(verdicts.OrderBy(v => v == "keep" ? 0 : v == "review" ? 1 : 2), verdicts);
         Assert.Contains("review", verdicts);
         Assert.Equal("drop", verdicts[^1]);
@@ -151,7 +151,7 @@ public sealed class RuleProofTests : IDisposable
         var text = await tools.SummarizeFile(path: file, view: "hunts", huntsPath: saved, cleanFolder: clean);
         Assert.Contains("dropped by the proof", text, StringComparison.Ordinal);
         var root = JsonNode.Parse(File.ReadAllBytes(saved))!;
-        var dropped = root["hunts"]!.AsArray().Single(h => h!["proof"]!["verdict"]!.GetValue<string>() == "drop")!;
+        var dropped = root["hunts"]!.AsArray().Single(h => h!["proof"]?["verdict"]?.GetValue<string>() == "drop")!;
         Assert.DoesNotContain(root["detectionRules"]!.AsArray(), r => r!["id"]!.GetValue<string>() == dropped["id"]!.GetValue<string>());
         Assert.Contains(root["detectionRules"]!.AsArray(), r => r!["queryCondition"]!["queryText"]!.GetValue<string>().Contains("unique-pipe-alpha", StringComparison.Ordinal));
         Assert.Equal(3, root["proof"]!["clean"]!["read"]!.GetValue<int>());
@@ -405,6 +405,15 @@ public sealed class RuleProofTests : IDisposable
     }
 
     [Fact]
+    public void A_hunting_only_query_gets_no_verdict_and_the_note_counts_it()
+    {
+        var tenant = TenantResult.Query("0123456789abcdef0123456789abcdef01234567");
+        var set = RuleProof.Apply(new HuntSet([tenant], []), new ProofOptions(FolderOf(3), MinFiles: 1), (_, _) => new RuleProof.FileRead(false, [], new HashSet<string>()), default);
+        Assert.Null(Assert.Single(set.Hunts).Proof);
+        Assert.Contains(set.Notes, n => n.Contains("1 hunting-only query got no verdict", StringComparison.Ordinal));
+    }
+
+    [Fact]
     [FuzzEntry(typeof(HuntRules))]
     public void Fuzzed_saved_hunts_files_never_throw_unexpectedly()
     {
@@ -423,7 +432,7 @@ public sealed class RuleProofTests : IDisposable
         var saved = _dir.File("hunts.json");
         File.WriteAllBytes(saved, HuntRules.Write(new HuntSet(direct.Hunts.Select(h => h with { Proof = null }).ToList(), [])));
         var fromJson = Prove(saved, new ProofOptions(clean, MinFiles: 1));
-        Assert.Equal(direct.Hunts.Select(h => (h.Id, h.Proof!.Verdict)).Order(), fromJson.Hunts.Select(h => (h.Id, h.Proof!.Verdict)).Order());
+        Assert.Equal(direct.Hunts.Where(h => !h.HuntingOnly).Select(h => (h.Id, h.Proof!.Verdict)).Order(), fromJson.Hunts.Where(h => !h.HuntingOnly).Select(h => (h.Id, h.Proof!.Verdict)).Order());
         Assert.DoesNotContain(fromJson.Notes, n => n.Contains("PE images only", StringComparison.Ordinal));
         Assert.Equal(direct.Hunts.Count(h => h.HuntingOnly), fromJson.Hunts.Count(h => h.HuntingOnly));
     }
