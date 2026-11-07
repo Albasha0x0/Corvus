@@ -101,6 +101,18 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
         Assert.InRange(visited, 1, 4096);
     }
 
+    // Regression: a cancel seen after the index was reported as NotFound (Windows CI, view=flow query=sinks).
+    [Theory]
+    [InlineData("sinks")]
+    [InlineData("nothing_named_this")]
+    [InlineData("\"no such literal\"")]
+    public void A_cancel_before_the_seeds_is_not_reported_as_no_match(string query)
+    {
+        var p = JsProgram.Build("app.js", "function a(x) { return x; } a(1);", [], default)!;
+        var flow = new JsFlow(p, null, null, default);
+        Assert.ThrowsAny<OperationCanceledException>(() => flow.Run(query, 0, 0, false, 200, JsFlow.Budget.Default, new CancellationToken(canceled: true)));
+    }
+
     // The parsed bundle is cached first; a dedicated thread cancels a quarter
     // into the view's uncancelled time, as a thread-pool timer fires late on
     // a busy 2-core runner (release.yml, v2.10.0). A view that ends before

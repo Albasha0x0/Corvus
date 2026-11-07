@@ -619,7 +619,9 @@ internal sealed class JsFlow
         _queue.Clear();
         _seen.Clear();
         _current = -1;
-        var seeds = Seeds(query, line, column, back);
+        var seeds = Seeds(query, line, column, back, ct);
+        // A cancel is never reported as a query with no match.
+        ct.ThrowIfCancellationRequested();
         if (seeds.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"nothing in {_p.Path} matches '{query ?? $"{line}:{column}"}'.",
                 "query takes a name, \"literal\", sinks, sink:<kind>, module:<id>, or pass line and column");
@@ -709,7 +711,7 @@ internal sealed class JsFlow
 
     // ---- seeds ----
 
-    private List<(object State, string Kind, string Text, Node At, JsEndpoint? Endpoint, string? Link)> Seeds(string? query, int line, int column, bool back)
+    private List<(object State, string Kind, string Text, Node At, JsEndpoint? Endpoint, string? Link)> Seeds(string? query, int line, int column, bool back, CancellationToken ct)
     {
         var seeds = new List<(object, string, string, Node, JsEndpoint?, string?)>();
         if (line > 0 && column > 0)
@@ -722,8 +724,10 @@ internal sealed class JsFlow
         if (q is "sinks" or "sink" || q.StartsWith("sink:", StringComparison.Ordinal))
         {
             var filter = q.StartsWith("sink:", StringComparison.Ordinal) ? q[5..] : null;
+            int visited = 0;
             foreach (var call in _calls)
             {
+                if ((++visited & 0x3FF) == 0) ct.ThrowIfCancellationRequested();
                 if (SinkOf(call) is not { } s || filter != null && !s.Category.StartsWith(filter, StringComparison.OrdinalIgnoreCase)
                     && !s.Call.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
                 var args = Args(call);
@@ -754,8 +758,10 @@ internal sealed class JsFlow
         if (q.Length >= 2 && q[0] is '"' or '\'' or '`' && q[^1] == q[0])
         {
             var text = q[1..^1];
+            int scanned = 0;
             foreach (var n in _parent.Keys)
             {
+                if ((++scanned & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
                 var value = n switch
                 {
                     StringLiteral s => s.Value,
