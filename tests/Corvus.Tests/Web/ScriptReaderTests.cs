@@ -22,6 +22,20 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
         Assert.True(r.Complete);
     }
 
+    // A lookahead keeps the pattern off the linear engine, and the input makes it backtrack past its limit.
+    [Theory]
+    [InlineData("powershell", "Write-Host ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!' -replace '(?=a)(a+)+b','x')")]
+    [InlineData("powershell", "Write-Host ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!' -split '(?=a)(a+)+b')")]
+    [InlineData("powershell", "Write-Host ([regex]::Matches('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!', '(?=a)(a+)+b').Count)")]
+    [InlineData("powershell", "if ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!' -match '(?=a)(a+)+b') { Write-Host 'hit' }")]
+    [InlineData("javascript", "console.log('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!'.replace(/(?=a)(a+)+b/g, 'x'));")]
+    public void A_regex_that_runs_out_of_time_leaves_the_reading_not_complete_with_a_note(string language, string script)
+    {
+        var r = ScriptReader.Read(script, language);
+        Assert.False(r.Complete);
+        Assert.Contains(r.Notes, n => n.Contains("regular expression ran out of time", StringComparison.Ordinal));
+    }
+
     public static TheoryData<string> LauncherSamples() =>
         [.. Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Web", "ScriptFixtures", "launchers"), "*.cmd").Select(f => Path.GetFileName(f)).Order()];
 

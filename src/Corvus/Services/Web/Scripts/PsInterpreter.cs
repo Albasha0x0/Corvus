@@ -604,7 +604,7 @@ internal sealed partial class PsInterpreter
                     bool m = rx.IsMatch(a);
                     return bare == "match" ? m : !m;
                 }
-                catch (RegexMatchTimeoutException) { return PsUnknown.Value; }
+                catch (RegexMatchTimeoutException) { _ctx.RegexTimedOut(); return PsUnknown.Value; }
             }
             case "contains" or "notcontains":
             {
@@ -688,12 +688,12 @@ internal sealed partial class PsInterpreter
         return op switch { "eq" => c == 0, "ne" => c != 0, "gt" => c > 0, "ge" => c >= 0, "lt" => c < 0, _ => c <= 0 };
     }
 
-    private static bool WildcardMatch(string text, string pattern, bool ci)
+    private bool WildcardMatch(string text, string pattern, bool ci)
     {
         var rx = "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".").Replace(@"\[", "[").Replace(@"\]", "]") + "$";
         try { return RegexTimeouts.Create(rx, (ci ? RegexOptions.IgnoreCase : 0) | RegexOptions.CultureInvariant | RegexOptions.Singleline, TimeSpan.FromMilliseconds(100)).IsMatch(text); }
         catch (ArgumentException) { return false; }
-        catch (RegexMatchTimeoutException) { return false; }
+        catch (RegexMatchTimeoutException) { _ctx.RegexTimedOut(); return false; }
     }
 
     private static Regex? SafeRegex(string pattern, bool ci, RegexOptions extra = 0)
@@ -730,7 +730,7 @@ internal sealed partial class PsInterpreter
         {
             if (Str(item) is not { } s) return PsUnknown.Value;
             try { parts.AddRange(max > 0 ? rx.Split(s, max) : rx.Split(s)); }
-            catch (RegexMatchTimeoutException) { return PsUnknown.Value; }
+            catch (RegexMatchTimeoutException) { _ctx.RegexTimedOut(); return PsUnknown.Value; }
         }
         return TagStep(parts.ToArray(), null, l);
     }
@@ -749,7 +749,7 @@ internal sealed partial class PsInterpreter
                 var result = rx.Replace(s, replacement);
                 return result.Length > _budget.MaxChars ? PsUnknown.Value : TagStep(result, "replace", item);
             }
-            catch (RegexMatchTimeoutException) { return PsUnknown.Value; }
+            catch (RegexMatchTimeoutException) { _ctx.RegexTimedOut(); return PsUnknown.Value; }
         }
         if (l is object[] arr)
         {

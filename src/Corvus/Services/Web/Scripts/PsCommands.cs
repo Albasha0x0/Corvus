@@ -862,7 +862,7 @@ internal sealed partial class PsInterpreter
                 bool rtl = options.Contains("RightToLeft", StringComparison.OrdinalIgnoreCase);
                 if (SafeRegex(pattern, options.Contains("IgnoreCase", StringComparison.OrdinalIgnoreCase), rtl ? RegexOptions.RightToLeft : 0) is not { } rx) return PsUnknown.Value;
                 try { return TagStep(rx.Matches(input).Select(m => (object?)new PsMatchValue(m.Value, m.Index)).ToArray(), rtl ? "reverse" : null, A(0)); }
-                catch (RegexMatchTimeoutException) { return PsUnknown.Value; }
+                catch (RegexMatchTimeoutException) { _ctx.RegexTimedOut(); return PsUnknown.Value; }
             }
             case ("regex", "replace"):
                 return args.Count >= 3 ? Replace(A(0), new object?[] { A(1), A(2) }, ci: false) : PsUnknown.Value;

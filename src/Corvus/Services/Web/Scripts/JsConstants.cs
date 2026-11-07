@@ -24,7 +24,7 @@ internal sealed class JsUnknown
 internal sealed record JsRegex(string Pattern, string Flags);
 
 /// <summary>Evaluates constant JavaScript expressions with the language's conversions; names and calls resolve through callbacks; runs nothing.</summary>
-internal sealed class JsConstants(ScriptBudget budget)
+internal sealed class JsConstants(ScriptBudget budget, Action? onRegexTimeout = null)
 {
     private const int MaxDepth = 200;
     private int _depth;
@@ -347,7 +347,11 @@ internal sealed class JsConstants(ScriptBudget budget)
             if (!Known(args[i])) return JsUnknown.Value;
         }
         try { return Method(method.Receiver, method.Name, args); }
-        catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException or RegexMatchTimeoutException or IndexOutOfRangeException) { return JsUnknown.Value; }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or OverflowException or RegexMatchTimeoutException or IndexOutOfRangeException)
+        {
+            if (ex is RegexMatchTimeoutException) onRegexTimeout?.Invoke();
+            return JsUnknown.Value;
+        }
     }
 
     private object? A(object?[] args, int i) => i < args.Length ? args[i] : JsUndefined.Value;

@@ -109,6 +109,13 @@ internal sealed class ScriptContext(ScriptBudget budget)
     /// <summary>Environment variables a layer set (batch set, $env:), read by later layers in any language.</summary>
     public Dictionary<string, string> Environment { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>A regular expression ran out of time on its input: the text is left as it was and the reading is partial, not complete.</summary>
+    public void RegexTimedOut()
+    {
+        Incomplete = true;
+        Note("A regular expression ran out of time: the reading is partial.");
+    }
+
     public void Note(string note)
     {
         if (Notes.Count < 40 && !Notes.Contains(note)) Notes.Add(note);

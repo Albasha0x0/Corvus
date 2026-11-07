@@ -143,7 +143,7 @@ internal sealed class JsPass
         _ctx = ctx;
         _depth = depth;
         _edits = new TextEdits(text);
-        _eval = new JsConstants(ctx.Budget);
+        _eval = new JsConstants(ctx.Budget, ctx.RegexTimedOut);
     }
 
     private string Src(Node n) => _text[n.Start..n.End];
