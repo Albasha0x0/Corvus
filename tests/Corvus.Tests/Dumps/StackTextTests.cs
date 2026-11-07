@@ -184,6 +184,18 @@ public sealed class StackTextTests : IDisposable
             frames.Select(f => (f.Symbol, f.SymbolOffset, f.BuildId)));
     }
 
+    [Theory]
+    [InlineData("windbg", "app+0x11111111111111111")]
+    [InlineData("android", "#00 pc 11111111111111111  /system/lib64/libapp.so")]
+    [InlineData("android", "#00 pc 1004  /system/lib64/libapp.so (f+99999999999999999999)")]
+    public void A_field_wider_than_64_bits_makes_its_line_unrecognized_and_keeps_the_rest(string format, string wide)
+    {
+        var parsed = StackTextFormats.Parse(wide + "\n" + (format == "windbg" ? "app+0x10" : "#01 pc 1008  /system/lib64/libapp.so"), format);
+        Assert.Equal(1, parsed.Unrecognized);
+        Assert.StartsWith("value over 64 bits: ", Assert.Single(parsed.UnrecognizedSample), StringComparison.Ordinal);
+        Assert.Single(parsed.Frames);
+    }
+
     /// <summary>AOT builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
     [Fact]
     public async Task An_AOT_zero_MVID_is_unknown_not_another_build()

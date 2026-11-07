@@ -489,6 +489,8 @@ Labels:
   | `new_unnamed_import` | The new build imports a function by ordinal only that the old one does not. |
   | `new_embedded_executable` | The new build holds a PE image the old one does not; time stamp and checksum are ignored. |
   | `unread_section` | A section the verdict needs is unknown, or partial in the new build and not in the old. |
+- `compare_native_images view=review crashText=` or `crashPath=` places each native frame of an Application Error event, WER report or debugger stack in a changed, added or unchanged function of the new build.
+- A crash frame is `unknown` when its module has no build given, its time stamp differs from the new build's or is absent, or its offset is in no function.
 - `batch --file --report` names each rule the YARA step matched.
 - `summarize_file` reports the import hash of a PE image beside its file hashes.
 - `summarize_file` notes the TLSH digest of the file; an input under 50 bytes or with too little variation has none and says why.

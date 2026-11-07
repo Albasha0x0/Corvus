@@ -625,6 +625,65 @@
               "field"
             ]
           }
+        },
+        "crash": {
+          "type": "object",
+          "properties": {
+            "exceptionCode": {
+              "type": "string"
+            },
+            "total": {
+              "type": "integer"
+            },
+            "frames": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer"
+                  },
+                  "class": {
+                    "type": "string"
+                  },
+                  "module": {
+                    "type": "string"
+                  },
+                  "offset": {
+                    "type": "string"
+                  },
+                  "section": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "index",
+                  "class",
+                  "detail"
+                ]
+              }
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "capped": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "total",
+            "frames",
+            "notes"
+          ]
         }
       },
       "required": [

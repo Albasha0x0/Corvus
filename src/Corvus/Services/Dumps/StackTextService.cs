@@ -157,7 +157,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
     }
 
     /// <summary>The text, or a log file read tail-first (crash records are at its end).</summary>
-    private static string Input(string? text, string? path, List<string> notes)
+    internal static string Input(string? text, string? path, List<string> notes)
     {
         bool hasText = !string.IsNullOrEmpty(text), hasPath = !string.IsNullOrWhiteSpace(path);
         if (hasText == hasPath)
@@ -196,7 +196,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
     }
 
     /// <summary>Module load addresses: the caller's (name=0xBASE;...), then the text's module list.</summary>
-    private static Dictionary<string, ulong> Bases(string? list, ParsedStackText parsed)
+    internal static Dictionary<string, ulong> Bases(string? list, ParsedStackText parsed)
     {
         var bases = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in parsed.Modules)
@@ -222,7 +222,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         return result;
     }
 
-    private static bool SameModule(string a, string b) =>
+    internal static bool SameModule(string a, string b) =>
         a.Equals(b, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(a).Equals(Path.GetFileNameWithoutExtension(b), StringComparison.OrdinalIgnoreCase)
         && (!Path.HasExtension(a) || !Path.HasExtension(b));
 
@@ -250,7 +250,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         });
 
     /// <summary>The module a native frame is in: named by the text, else the module whose range (or nearest base below) holds its address.</summary>
-    private static string? ModuleOf(TextFrame f, Dictionary<string, ulong> bases, ParsedStackText parsed)
+    internal static string? ModuleOf(TextFrame f, Dictionary<string, ulong> bases, ParsedStackText parsed)
     {
         if (f.Module != null) return f.Module;
         if (f.Outside) return null;

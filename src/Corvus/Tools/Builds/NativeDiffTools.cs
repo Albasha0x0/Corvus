@@ -196,6 +196,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("ida or ghidra: compare oldImage's file with that engine's memory.")] string? engine = null,
         [Description("view=hunts: save queries and rules here, JSON.")] string? huntsPath = null,
         [Description("view=review: save the report here, Markdown (.md) or JSON.")] string? reviewPath = null,
+        [Description("view=review: crash text (up to 1 MiB) to place in the new build; this or crashPath.")] string? crashText = null,
+        [Description("view=review: crash text file; its last 8 MiB are read.")] string? crashPath = null,
         [Description("Replace huntsPath or reviewPath.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -209,7 +211,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use " + string.Join(", ", Views));
         if (huntsPath != null && v != "hunts") throw new ToolError(ErrorCode.InvalidArgument, "huntsPath applies to view=hunts.", "pass view=hunts");
         if (reviewPath != null && v != "review") throw new ToolError(ErrorCode.InvalidArgument, "reviewPath applies to view=review.", "pass view=review");
+        if ((crashText != null || crashPath != null) && v != "review") throw new ToolError(ErrorCode.InvalidArgument, "crashText and crashPath apply to view=review.", "pass view=review");
         // Checked before the builds are matched, which can take minutes.
+        (ParsedStackText, List<string>)? crash = crashText != null || crashPath != null ? CrashLocator.Read(crashText, crashPath) : null;
         var huntsFile = huntsPath == null ? null : SafeFile.Output(huntsPath);
         var reviewFile = reviewPath == null ? null : SafeFile.Output(reviewPath);
         foreach (var (file, name) in new[] { (huntsFile, "huntsPath"), (reviewFile, "reviewPath") })
@@ -218,7 +222,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             if (file != null && !overwrite && File.Exists(file)) throw new ToolError(ErrorCode.Conflict, $"{file} exists: pass overwrite=true to replace it.");
         }
         offset = Math.Max(0, offset);
-        var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var result = await ViewOf(oldImage, newImage, v, tier, codeOnly, minScore, maxComparisons, offset, limit, new ProgressSpan(progress, 0, 1, 1), cancellationToken, crash);
         if (huntsFile != null && result.Record.Hunts is { } written)
         {
             var set = new HuntSet(written, result.Record.Notes);
@@ -239,7 +243,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     /// <summary>The matched builds as one page of view <paramref name="v"/>; <paramref name="progress"/> may have no sink.</summary>
     internal async Task<NativeView> ViewOf(string? oldImage, string? newImage, string v, int tier, bool codeOnly, double minScore, long maxComparisons, int offset, int limit,
-        ProgressSpan progress, CancellationToken cancellationToken)
+        ProgressSpan progress, CancellationToken cancellationToken, (ParsedStackText Parsed, List<string> Notes)? crash = null)
     {
         if (maxComparisons is < 1 or > MaxFuzzyCap)
             throw new ToolError(ErrorCode.InvalidArgument, $"maxComparisons must be 1-{MaxFuzzyCap:N0}, not {maxComparisons}.", "use a value in 1-1000000000; default 40000000");
@@ -300,11 +304,12 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (v == "review")
         {
             if (inspection == null) throw new ToolError(ErrorCode.ProviderUnavailable, "view=review reads the builds' facts, which this server cannot summarize.");
-            var (review, set) = await Task.Run(() => ReviewOf(inspection, pair, record.Changes, cancellationToken), cancellationToken);
+            var (review, set) = await Task.Run(() => ReviewOf(inspection, pair, record.Changes, crash, cancellationToken), cancellationToken);
             const string Unpaged = "view=review returns one report in review; items, total, offset and limit list function pairs and do not apply.";
             record = record with { Review = review, Hunts = set.Hunts, Notes = [.. record.Notes, .. set.Notes, Unpaged] };
             head.Append(UpdateReviewer.VerdictText(review)).Append('\n');
             foreach (var section in review.Sections) head.Append("  ").Append(section).Append('\n');
+            foreach (var frame in review.Crash?.Frames ?? []) head.Append("  crash ").Append(frame).Append('\n');
         }
         if (v == "hunts")
         {
@@ -382,7 +387,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     /// <summary>The update review of two builds and the hunts written for the same pair.</summary>
-    private static (UpdateReview Review, HuntSet Hunts) ReviewOf(InspectionService inspection, BuildPair pair, IReadOnlyList<EvidenceChange>? capabilities, CancellationToken ct)
+    private static (UpdateReview Review, HuntSet Hunts) ReviewOf(InspectionService inspection, BuildPair pair, IReadOnlyList<EvidenceChange>? capabilities,
+        (ParsedStackText Parsed, List<string> Notes)? crash, CancellationToken ct)
     {
         var (oldFacts, oldNotes, oldBytes) = ReadFacts(inspection, pair.Old, ct);
         var (newFacts, newNotes, newBytes) = ReadFacts(inspection, pair.New, ct);
@@ -397,7 +403,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var matchLimits = match.Notes.Where(n => n.StartsWith(MatchOptions.FuzzyCapNote, StringComparison.Ordinal)).ToList();
         var huntLimits = UpdateHunts.PartialReads(oldNotes.Any(HuntFacts.LimitsFacts), newNotes.Any(HuntFacts.LimitsFacts));
         var review = UpdateReviewer.Review(new ReviewSources(pair.Old.Id, pair.New.Id, old, current, match.Pairs.Count, added, changed, set.Hunts)
-            { MatchLimits = matchLimits, HuntLimits = huntLimits }, ct);
+            {
+                MatchLimits = matchLimits, HuntLimits = huntLimits,
+                Crash = crash is { } c ? CrashLocator.Locate(c.Parsed, pair.Old, pair.New, pair.NewIndex, match, c.Notes) : null,
+            }, ct);
         return (review, set);
     }
 
@@ -1265,11 +1274,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                 if (byX[i] != null) continue;
                 var p = prints[i];
                 double? best = m.BestSeen.TryGetValue((old, i), out var b) ? Math.Round(b, 3) : null;
-                string reason = m.Ambiguous.ContainsKey((old, i)) ? "ambiguous"
-                    : p.Failed ? "not_decoded"
-                    : best >= 0.3 ? "below_min_score"
-                    : p.Instructions < 3 ? "too_small"
-                    : old ? "not_in_new_build" : "new_in_this_build";
+                string reason = m.UnmatchedReason(old, i);
                 var (at, name) = (Va(index, p.Start), Name(index, p.Function));
                 yield return new FunctionRow(old ? at : null, old ? null : at, old ? name : null, old ? null : name)
                     { OldSize = old ? p.Size : null, NewSize = old ? null : p.Size, OldBlocks = old ? p.Blocks : null, NewBlocks = old ? null : p.Blocks, Reason = reason, BestScore = best };

@@ -132,7 +132,7 @@ public static class ArgumentCheck
     /// <summary>Parameters that name a file or directory on this machine to read, in every tool that declares them.</summary>
     public static readonly IReadOnlySet<string> InputPathParameters = new HashSet<string>(StringComparer.Ordinal)
     {
-        "path", "mapping", "directory", "folder", "oldPath", "newPath", "headerPath", "projectDir", "scriptPath", "dacPath", "imageDirectories", "cleanFolder", "priorBuildsFolder",
+        "path", "crashPath", "mapping", "directory", "folder", "oldPath", "newPath", "headerPath", "projectDir", "scriptPath", "dacPath", "imageDirectories", "cleanFolder", "priorBuildsFolder",
     };
 
     /// <summary>Parameters that name a file or directory to write, in every tool that declares them; each passes <see cref="SafeFile.Output(string)"/>.</summary>

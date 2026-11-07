@@ -60,6 +60,18 @@ public sealed class MatchResult
     public TimeSpan Elapsed { get; init; }
 
     public FunctionMatch? ForOldStart(uint start) => Old.ByStart.TryGetValue(start, out var i) ? ByOld[i] : null;
+
+    /// <summary>Why function <paramref name="index"/> of a side has no pair: ambiguous, not_decoded, below_min_score, too_small, not_in_new_build or new_in_this_build.</summary>
+    public string UnmatchedReason(bool oldSide, int index)
+    {
+        var p = (oldSide ? Old : New).Functions[index];
+        double? best = BestSeen.TryGetValue((oldSide, index), out var b) ? Math.Round(b, 3) : null;
+        return Ambiguous.ContainsKey((oldSide, index)) ? "ambiguous"
+            : p.Failed ? "not_decoded"
+            : best >= 0.3 ? "below_min_score"
+            : p.Instructions < 3 ? "too_small"
+            : oldSide ? "not_in_new_build" : "new_in_this_build";
+    }
 }
 
 /// <summary>Matches the functions of two builds in tiers (name or bytes, structure, signature, call graph, fuzzy); each pair is unique on both sides.</summary>
