@@ -24,6 +24,9 @@ public static class IndicatorEvidence
     /// <summary>A name or fingerprint seen in captured network traffic.</summary>
     public const string Traffic = "traffic";
 
+    /// <summary>A value a tenant's saved query result reports about the file, not read from the file; it is outside <see cref="Classes"/> and ranks with the weakest.</summary>
+    public const string Tenant = "tenant";
+
     /// <summary>The classes, weakest first.</summary>
     public static readonly string[] Classes = [String, Reference, Decoded, Computed, Traffic];
 

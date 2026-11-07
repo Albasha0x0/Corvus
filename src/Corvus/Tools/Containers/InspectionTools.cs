@@ -52,7 +52,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("With cleanFolder: files read per folder; default 2000.")] int? maxFiles = null,
         [Description("With cleanFolder: percent of clean files unread above which no hit is a review; default 5.")] int? unreadPercent = null,
         [Description("With cleanFolder: clean files that must show a query's facts for keep; default 20.")] int? minFiles = null,
-        [Description("view=hunts: the saved JSON result of the tenant query; labels the file with its signature and devices.")] string? tenantResultPath = null,
+        [Description("view=hunts: the JSON result file of the tenant query; labels the file with its signature and devices.")] string? tenantResultPath = null,
         [Description("Write component rows here, JSON lines.")] string? componentsPath = null,
         [Description("Overwrite these files.")] bool overwrite = false,
         [Description("Password to decrypt with; only it is tried.")] string? password = null,
@@ -70,7 +70,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (cleanFolder != null && name != "hunts" && huntsPath == null)
                 throw new ToolError(ErrorCode.InvalidArgument, "cleanFolder checks the queries of view=hunts.", "pass view=hunts, or drop cleanFolder");
             if (tenantResultPath != null && name != "hunts")
-                throw new ToolError(ErrorCode.InvalidArgument, "tenantResultPath joins a result to view=hunts.", "pass view=hunts, or drop tenantResultPath");
+                throw new ToolError(ErrorCode.InvalidArgument, "tenantResultPath joins a result to view=hunts.", "pass view=hunts (view=overview and view=all do not show the label), or drop tenantResultPath");
             var options = new FileViewOptions(name, table, columns, offset, limit) { TenantResultPath = tenantResultPath, Sbom = sbomPath != null || componentsPath != null, Stix = stixPath != null, Hunts = huntsPath != null, Script = script,
                 Proof = cleanFolder == null ? null : new Services.Analysis.Hunts.ProofOptions(cleanFolder, priorBuildsFolder, dropAt ?? Services.Analysis.Hunts.RuleProof.DefaultDropAt, maxFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMaxFiles,
                     unreadPercent ?? Services.Analysis.Hunts.RuleProof.DefaultUnreadPercent,

@@ -30,6 +30,22 @@ public sealed class RuleProofIsolationTests : FileIsolationTestBase
     }
 
     [Fact]
+    public async Task A_worker_reads_a_saved_tenant_result()
+    {
+        var sha1 = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(Env.FixturePath)));
+        var saved = Path.Combine(_dir.Path, "tenant.json");
+        File.WriteAllText(saved, "{\"results\":[{\"Source\":\"DeviceFileEvents\",\"Queried\":\"" + sha1 + "\",\"Devices\":1}]}");
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+
+        var result = await Call(session, "summarize_file", new() { ["path"] = Env.FixturePath, ["view"] = "hunts", ["tenantResultPath"] = saved });
+
+        Assert.True(result.IsError != true, Whole(result));
+        Assert.Contains("Tenant (result saved", Whole(result), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_cancelled_call_ends_the_scan_in_the_worker_and_the_next_read_succeeds()
     {
         var clean = CleanFolder(20_000);

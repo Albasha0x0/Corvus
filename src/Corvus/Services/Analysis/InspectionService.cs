@@ -212,7 +212,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var read = Hunts.TenantResult.Read(File.ReadAllBytes(full), sha1, File.GetLastWriteTimeUtc(full));
         if (read.Refused != null)
             throw new ToolError(ErrorCode.MalformedInput, $"{full}: {read.Refused}", "save the JSON a run of the tenant query returns");
-        return (read.Facts, [.. read.Notes]);
+        return (read.Facts, [.. read.Notes, .. read.Facts?.Notes ?? []]);
     }
 
     private static (string Full, byte[] Bytes) ReadFile(string path)
@@ -1138,21 +1138,27 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                     // The tenant names the signer of a catalog-signed file, which the file does not show.
                     if (tenant != null && Hunts.TenantResult.Signer(tenant) is { } tenantSigner && read.Unknown.Remove(Hunts.HuntKind.Signer))
                     {
-                        facts = [.. facts, new(Hunts.HuntKind.Signer, tenantSigner, IndicatorEvidence.Computed)];
+                        facts = [.. facts, new(Hunts.HuntKind.Signer, tenantSigner, IndicatorEvidence.Tenant)];
                         read.Notes.RemoveAll(n => n.StartsWith("The signer is unknown", StringComparison.Ordinal));
                         tenantNotes.Add("The signer comes from the tenant result.");
                     }
                     var set = Hunts.KqlHunts.Write(facts, null, Hunts.HuntFacts.IsExecutable(input));
                     var queries = set.Hunts;
-                    if (sha1.Length == 40 && s.File.Size > 0) queries = [.. queries, Hunts.TenantResult.Query(sha1)];
+                    if (sha1.Length == 40 && s.File.Size > 0)
+                    {
+                        var tenantQuery = Hunts.TenantResult.Query(sha1);
+                        if (Hunts.KqlCheck.Diagnostics(tenantQuery.Kql) is { Count: > 0 } problems) tenantNotes.Add($"Query {tenantQuery.Id} was dropped: {problems[0]}");
+                        else queries = [.. queries, tenantQuery];
+                    }
                     hunts = new Hunts.HuntSet(queries, [.. read.Notes, .. set.Notes, .. tenantNotes]) { Facts = facts, UnknownKinds = read.Unknown };
                     kind = Hunts.RuleProof.KindOf(input.Head);
                 }
                 if (saved != null) (tenant, tenantNotes) = JoinTenant(input.Options.TenantResultPath, sha1);
                 if (input.Options.Proof is { } proof) hunts = Hunts.RuleProof.Apply(this, hunts, sha1, kind.Length > 0 ? kind : null, proof, ct);
                 if (saved != null) hunts = hunts with { Notes = [.. hunts.Notes, .. tenantNotes] };
-                hunts = hunts with { Tenant = tenant };
-                views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries.", .. tenant == null ? [] : Hunts.TenantResult.Lines(tenant)]);
+                // The label is a note, so it shows with the queries it describes.
+                hunts = hunts with { Tenant = tenant, Notes = [.. hunts.Notes, .. tenant == null ? [] : Hunts.TenantResult.Lines(tenant)] };
+                views["hunts"] = new FileView(hunts, [$"{hunts.Hunts.Count:N0} hunting queries."]);
             }
             if (input.Options.View != "indicators") return s;
             var indicators = IndicatorList.Of(s);

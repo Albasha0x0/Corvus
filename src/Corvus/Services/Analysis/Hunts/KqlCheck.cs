@@ -6,10 +6,15 @@ namespace Corvus.Services.Analysis.Hunts;
 public static class KqlCheck
 {
     private static readonly HashSet<string> Keywords = new(StringComparer.Ordinal)
-        { "where", "project", "extend", "and", "or", "not", "in", "has", "contains", "startswith", "endswith", "by", "take", "true", "false", "summarize" };
+        { "where", "project", "extend", "and", "or", "not", "in", "has", "contains", "startswith", "endswith", "by", "take", "true", "false" };
 
     private static readonly HashSet<string> Functions = new(StringComparer.Ordinal)
-        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end", "extract", "strcmp", "dcount", "min", "max" };
+        { "tostring", "parse_json", "tolower", "isnotempty", "coalesce", "iff", "strcat", "substring", "strlen", "trim_end", "extract", "strcmp" };
+
+    // Aggregates of a union branch, which the single-table queries do not use.
+    private static readonly HashSet<string> BranchKeywords = new(StringComparer.Ordinal) { "summarize" };
+
+    private static readonly HashSet<string> BranchFunctions = new(StringComparer.Ordinal) { "dcount", "min", "max" };
 
     /// <summary>The problems of <paramref name="kql"/> against the columns of its first table; empty when none.</summary>
     public static IReadOnlyList<string> Diagnostics(string kql)
@@ -18,7 +23,7 @@ public static class KqlCheck
         var tokens = Tokens(kql, problems);
         if (tokens.Count == 0) return ["The query is empty."];
         if (tokens[0].Text == "union") Union(tokens, problems);
-        else Check(tokens, problems);
+        else Check(tokens, problems, false);
         return problems;
     }
 
@@ -26,6 +31,7 @@ public static class KqlCheck
     private static void Union(List<Token> tokens, List<string> problems)
     {
         int i = 1;
+        bool comma = false;
         if (tokens.Count == 1) problems.Add("A union has no branch.");
         while (i < tokens.Count)
         {
@@ -38,14 +44,16 @@ public static class KqlCheck
             }
             if (i >= tokens.Count) { problems.Add("A parenthesis is not closed."); return; }
             if (i == start) problems.Add("A union branch is empty.");
-            else Check(tokens.GetRange(start, i - start), problems);
+            else Check(tokens.GetRange(start, i - start), problems, true);
             i++;
             if (i < tokens.Count && tokens[i].Text != ",") { problems.Add("A union takes parenthesized queries."); return; }
+            comma = i < tokens.Count;
             i++;
         }
+        if (comma) problems.Add("A union branch list ends with a comma.");
     }
 
-    private static void Check(List<Token> tokens, List<string> problems)
+    private static void Check(List<Token> tokens, List<string> problems, bool branch)
     {
         var table = tokens[0].Text;
         var columns = HuntSchema.Columns(table).Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
@@ -60,9 +68,9 @@ public static class KqlCheck
             var t = tokens[i];
             if (t.Text == "(") depth++;
             else if (t.Text == ")" && --depth < 0) problems.Add("A closing parenthesis has no opening one.");
-            if (t.Kind != 'i' || Keywords.Contains(t.Text) || tokens[i - 1].Text == ".") continue;
+            if (t.Kind != 'i' || Keywords.Contains(t.Text) || branch && BranchKeywords.Contains(t.Text) || tokens[i - 1].Text == ".") continue;
             bool call = i + 1 < tokens.Count && tokens[i + 1].Text == "(";
-            if (call && !Functions.Contains(t.Text)) problems.Add($"Function '{t.Text}' is not allowed.");
+            if (call && !Functions.Contains(t.Text) && !(branch && BranchFunctions.Contains(t.Text))) problems.Add($"Function '{t.Text}' is not allowed.");
             else if (!call && !columns.Contains(t.Text) && !aliases.Contains(t.Text)) problems.Add($"Name '{t.Text}' is not a column of {table}.");
         }
         if (depth > 0) problems.Add("A parenthesis is not closed.");
