@@ -52,7 +52,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("With cleanFolder: files read per folder; default 2000.")] int? maxFiles = null,
         [Description("With cleanFolder: percent of clean files unread above which no hit is a review; default 5.")] int? unreadPercent = null,
         [Description("With cleanFolder: clean files that must show a query's facts for keep; default 20.")] int? minFiles = null,
-        [Description("view=hunts: the JSON result file of the tenant query; labels the file with its signature and devices.")] string? tenantResultPath = null,
+        [Description("view=hunts: result file of the tenant query, JSON; labels the file.")] string? tenantResultPath = null,
         [Description("Write component rows here, JSON lines.")] string? componentsPath = null,
         [Description("Overwrite these files.")] bool overwrite = false,
         [Description("Password to decrypt with; only it is tried.")] string? password = null,

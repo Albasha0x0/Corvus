@@ -575,7 +575,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `maxFiles` | integer |  |  | With cleanFolder: files read per folder; default 2000. |
 | `unreadPercent` | integer |  |  | With cleanFolder: percent of clean files unread above which no hit is a review; default 5. |
 | `minFiles` | integer |  |  | With cleanFolder: clean files that must show a query's facts for keep; default 20. |
-| `tenantResultPath` | string |  |  | view=hunts: the JSON result file of the tenant query; labels the file with its signature and devices. |
+| `tenantResultPath` | string |  |  | view=hunts: result file of the tenant query, JSON; labels the file. |
 | `componentsPath` | string |  |  | Write component rows here, JSON lines. |
 | `overwrite` | boolean |  |  | Overwrite these files. |
 | `password` | string |  |  | Password to decrypt with; only it is tried. |

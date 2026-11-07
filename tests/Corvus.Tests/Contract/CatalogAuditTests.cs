@@ -23,15 +23,17 @@ public class CatalogAuditTests
     // interface and hunts values of its view; then by 100 for its
     // huntsPath and overwrite parameters; then by 150 for the review view,
     // its reviewPath parameter and the review field of compare_native_images;
-    // then by 250 for its crashText and crashPath parameters.
+    // then by 250 for its crashText and crashPath parameters; then by 100 for
+    // the summarize_file tenantResultPath parameter.
     /// <summary>Ceiling of the model-facing catalog bytes (names, descriptions, input schemas): the measured size rounded up to 50; trim descriptions before raising it.</summary>
-    private const int MaxModelFacingBytes = 152_050;
+    private const int MaxModelFacingBytes = 152_150;
 
     // Raised by 150 for compare_native_images huntsPath and overwrite, then
     // by 800 for its review view, reviewPath parameter and review field,
-    // then by 250 for its crashText and crashPath parameters and the crash field.
+    // then by 250 for its crashText and crashPath parameters and the crash field,
+    // then by 100 for the summarize_file tenantResultPath parameter.
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 298_950;
+    private const int MaxToolsListBytes = 299_100;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()
@@ -203,9 +205,10 @@ public class CatalogAuditTests
         Ratchet.Check("output-schema-bytes", $"an output schema is at most {MaxOutputSchemaBytes} bytes in tools/list (S8.1)", outputs);
     }
 
+    // The lean ceiling rose by 100 for the summarize_file tenantResultPath parameter.
     /// <summary>Per profile: tool count and the ceiling of model-facing bytes, the measured size rounded up to 50.</summary>
     [Theory]
-    [InlineData(Toolsets.Lean, 40, 38_100)]
+    [InlineData(Toolsets.Lean, 40, 38_200)]
     [InlineData(Toolsets.CoreName, 100, 89_300)]
     public void Profiles_stay_within_their_ceilings(string profile, int maxTools, int maxModelFacing)
     {
