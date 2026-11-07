@@ -332,7 +332,7 @@ public static class KqlHunts
     }
 
     // Loopback, unspecified, private, link-local and broadcast addresses match local traffic of every device.
-    private static bool IsRoutable(IPAddress ip)
+    internal static bool IsRoutable(IPAddress ip)
     {
         if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
         if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any)) return false;

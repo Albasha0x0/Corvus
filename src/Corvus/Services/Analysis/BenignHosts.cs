@@ -6,6 +6,17 @@ public static class BenignHosts
     /// <summary>True for a host in the table, compared case-insensitively.</summary>
     public static bool Contains(string host) => Hosts.Contains(host);
 
+    /// <summary>True for a host in the table or a subdomain of one; a trailing dot and case are ignored.</summary>
+    public static bool Covers(string host)
+    {
+        var name = host.Trim().TrimEnd('.');
+        for (int dot = -1; ; dot = name.IndexOf('.', dot + 1))
+        {
+            if (Hosts.Contains(dot < 0 ? name : name[(dot + 1)..])) return true;
+            if (name.IndexOf('.', dot + 1) < 0) return false;
+        }
+    }
+
     private static readonly HashSet<string> Hosts = new(StringComparer.OrdinalIgnoreCase)
     {
         "schemas.microsoft.com", "www.w3.org", "w3.org", "schemas.xmlsoap.org", "schemas.openxmlformats.org", "purl.org",

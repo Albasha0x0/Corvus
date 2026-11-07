@@ -13,12 +13,20 @@ public static class AuditIndicators
     /// <summary>The service limits named in the file: indicators per tenant, calls per minute and calls per hour.</summary>
     public const int TenantLimit = 15_000, PerMinute = 100, PerHour = 1_500;
 
+    /// <summary>The note naming what changing the action does; the only note that names a blocking action.</summary>
+    public const string LeavingAudit = "Changing action from Audit to Block, BlockAndRemediate or AlertAndBlock turns a record into one that blocks.";
+
     private static readonly string[] Notes =
     [
         "Each entry of indicators is a request body for POST https://api.security.microsoft.com/api/indicators; Corvus makes no call.",
-        "Every action is Audit with generateAlert true: a match raises an alert and nothing is blocked.",
+        "Every action is Audit with generateAlert true: a match raises an alert and no action is taken.",
+        LeavingAudit,
         $"Limits: {TenantLimit:N0} active indicators per tenant, {PerMinute} calls per minute, {PerHour:N0} calls per hour.",
-        "File indicators need Defender Antivirus in active mode with file hash computation on; no expirationTime is set.",
+        "File indicators need Defender Antivirus in active mode with file hash computation on.",
+        "No expirationTime is set: the Learn page names no behavior for an omitted one, so it is unknown; set it before posting.",
+        "IP, URL and domain indicators need Network Protection for processes other than Edge; Learn takes external IP addresses only.",
+        "A domain indicator matches the domain and every subdomain on every device, and was checked only against the clean folder.",
+        "An IPv6 address is written with eight segments, as Learn shows.",
         "No certificate indicator is written: it takes a leaf certificate thumbprint, which Corvus does not read.",
     ];
 
@@ -57,7 +65,7 @@ public static class AuditIndicators
         {
             ["indicators"] = new JsonArray([.. bodies.Select(b => (JsonNode)b)]),
             ["withheld"] = new JsonArray([.. withheld.Select(w => (JsonNode)new JsonObject { ["fact"] = w.Fact, ["reason"] = w.Reason })]),
-            ["notes"] = new JsonArray([.. Notes.Select(n => (JsonNode)JsonValue.Create(n)!)]),
+            ["notes"] = new JsonArray([.. Notes.Append(AuditFacts.ProofNote(set)).Where(n => n.Length > 0).Select(n => (JsonNode)JsonValue.Create(n)!)]),
         };
         return (Encoding.UTF8.GetBytes(root.ToJsonString(new JsonSerializerOptions { WriteIndented = true })), bodies.Count, withheld.Count);
     }

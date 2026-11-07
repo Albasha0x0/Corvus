@@ -23,11 +23,17 @@ public static class AuditPolicy
         "Disabled:Script Enforcement",
     ];
 
+    /// <summary>The line naming what leaving audit mode does; written in the policy comments and in its Info setting.</summary>
+    public const string LeavingAudit =
+        "Removing option 3 (Enabled:Audit Mode) turns the deny rules into blocks: this file and any file with the same Authenticode hash stop running at once, "
+        + "and option 16 (Enabled:Update Policy No Reboot) applies the change with no restart.";
+
     private static readonly string[] Comment =
     [
         "Audit policy. Option 3 (Enabled:Audit Mode) logs a match as event 3076 and blocks nothing.",
         "Deny rules name the Authenticode SHA-1 and SHA-256 hashes of the file; Allow rules for every file keep all other files allowed.",
         "Without the Allow rules, every file the policy does not list would be logged as a match.",
+        LeavingAudit,
         "Option 11 (Disabled:Script Enforcement) is set: script enforcement acts in audit mode too and would block MSHTA and MSXML code.",
         "Gaps: signer rules need the PCA TBS hash and page hash rules need page hashes; Corvus reads neither.",
     ];
@@ -55,7 +61,7 @@ public static class AuditPolicy
         using (var w = XmlWriter.Create(stream, settings))
         {
             w.WriteStartDocument();
-            foreach (var line in Comment) w.WriteComment(" " + line + " ");
+            foreach (var line in Comment.Append(AuditFacts.ProofNote(set))) w.WriteComment(" " + line + " ");
             w.WriteStartElement("SiPolicy", Namespace);
             w.WriteAttributeString("PolicyType", "Base Policy");
             w.WriteElementString("VersionEx", "1.0.0.0");
@@ -86,6 +92,15 @@ public static class AuditPolicy
             w.WriteElementString("CiSigners", "");
             w.WriteElementString("HvciOptions", "0");
             w.WriteStartElement("Settings");
+            // Comments are not in a converted policy; the Info setting keeps the warning.
+            w.WriteStartElement("Setting");
+            w.WriteAttributeString("Provider", "PolicyInfo");
+            w.WriteAttributeString("Key", "Information");
+            w.WriteAttributeString("ValueName", "Info");
+            w.WriteStartElement("Value");
+            w.WriteElementString("String", LeavingAudit);
+            w.WriteEndElement();
+            w.WriteEndElement();
             w.WriteStartElement("Setting");
             w.WriteAttributeString("Provider", "PolicyInfo");
             w.WriteAttributeString("Key", "Information");
@@ -102,7 +117,7 @@ public static class AuditPolicy
     }
 
     /// <summary>The note naming the file <see cref="Write"/> saved to <paramref name="path"/>.</summary>
-    public static string Written(string path) => $"App Control policy in audit mode written to {path}: 2 deny rules (Authenticode SHA-1 and SHA-256) and allow rules for all other files.";
+    public static string Written(string path) => $"App Control policy in audit mode written to {path}: 2 deny rules (Authenticode SHA-1 and SHA-256) and allow rules for all other files. The warning on leaving audit mode is in its comments and in its Info setting.";
 
     private static void Deny(XmlWriter w, string id, string name, string hash)
     {
