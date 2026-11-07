@@ -394,6 +394,9 @@
                     },
                     "status": {
                       "type": "string"
+                    },
+                    "priorUnknown": {
+                      "type": "integer"
                     }
                   },
                   "required": [
@@ -408,6 +411,16 @@
               },
               "status": {
                 "type": "string"
+              },
+              "scope": {
+                "type": "string",
+                "default": "any"
+              },
+              "removed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
