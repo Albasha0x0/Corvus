@@ -239,7 +239,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
     }
 
     /// <summary>The module's version and time stamp: the frame's own event, else the text's module list.</summary>
-    internal static TextModule? Described(TextFrame f, string module, ParsedStackText parsed) =>
+    private static TextModule? Described(TextFrame f, string module, ParsedStackText parsed) =>
         f.Described ?? parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
 
     /// <summary>A module name from the text made safe to place in a call: separators, quotes, angle brackets and control characters become underscores.</summary>

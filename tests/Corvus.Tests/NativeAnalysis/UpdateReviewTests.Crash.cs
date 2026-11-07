@@ -135,7 +135,6 @@ public sealed partial class UpdateReviewTests
         var review = Of(record);
         Assert.Contains("crash: read, 4 frame(s): 1 changed, 1 added, 1 unchanged, 1 unknown", string.Join('\n', review.Sections), StringComparison.Ordinal);
         Assert.Contains("crash changed: new.dll+0x1004 Grown+0x4", text, StringComparison.Ordinal);
-        Assert.Equal("pass", (await Compare(Image(OldStamp), Image(NewStamp), crashText: Event("new.dll", NewStamp, 0x1000))).Record.Review!.Verdict);
     }
 
     [Fact]
@@ -148,11 +147,16 @@ public sealed partial class UpdateReviewTests
     }
 
     [Fact]
-    public async Task A_module_name_with_a_line_separator_reads_as_one_line()
+    public async Task A_module_name_with_a_line_separator_reads_as_one_escaped_line_in_the_head_and_the_report()
     {
-        var (record, _) = await Crash(Event("a\u2028<b>.dll", NewStamp, 0x1004));
-        var detail = Assert.Single(FramesOf(record)).ToString();
-        Assert.DoesNotContain('\u2028', detail);
+        using var dir = new TempDir();
+        var md = dir.File("review.md");
+        var (_, head) = await Compare(Image(OldStamp), Image(NewStamp), md, crashText: Event("a\u2028<b>.dll", NewStamp, 0x1004));
+        Assert.DoesNotContain('\u2028', head);
+        Assert.Contains("a <b>.dll", head, StringComparison.Ordinal);
+        var report = File.ReadAllText(md);
+        Assert.DoesNotContain('\u2028', report);
+        Assert.Contains(@"a \<b\>.dll", report, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -177,5 +181,89 @@ public sealed partial class UpdateReviewTests
         var ex = await Assert.ThrowsAsync<ToolError>(() => tools.CompareNativeImages("a", "b", view: view, crashText: text, crashPath: path));
         Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
         Assert.Contains(message, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_review_with_crash_text_has_the_verdict_and_holds_of_the_same_review_without_it()
+    {
+        var host = new Options { Strings = ["http://added.example.net/update"] };
+        var (plain, _) = await Compare(Image(OldStamp), Image(NewStamp, host));
+        var (withCrash, _) = await Compare(Image(OldStamp), Image(NewStamp, host), crashText: Event("new.dll", NewStamp, 0x1000));
+        Assert.Equal("hold", Of(plain).Verdict);
+        Assert.Equal(Of(plain).Verdict, Of(withCrash).Verdict);
+        Assert.Equal(Of(plain).Holds, Of(withCrash).Holds);
+        Assert.Null(Of(plain).Crash);
+    }
+
+    [Fact]
+    public async Task Frames_past_the_cap_are_counted_and_the_section_says_how_many_were_placed()
+    {
+        var (record, text) = await Crash(string.Concat(Enumerable.Repeat("new+0x1004\n", CrashLocatorCap + 50)));
+        var crash = Of(record).Crash!;
+        Assert.Equal((CrashLocatorCap + 50, CrashLocatorCap), (crash.Total, crash.Frames.Count));
+        var section = Assert.Single(Of(record).Sections, x => x.StartsWith("crash:", StringComparison.Ordinal));
+        Assert.Contains($"crash: partial, {CrashLocatorCap + 50} frame(s), first {CrashLocatorCap} placed: 0 changed, 0 added, 0 unchanged, {CrashLocatorCap} unknown", section, StringComparison.Ordinal);
+        Assert.Contains(crash.Notes, n => n.Contains($"the limit is {CrashLocatorCap} frames", StringComparison.Ordinal));
+        Assert.Contains("first 200 placed", text, StringComparison.Ordinal);
+    }
+
+    private const int CrashLocatorCap = 200;
+
+    [Fact]
+    public async Task A_crash_file_over_8_MiB_is_read_from_its_tail()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("crash.txt");
+        var line = new string('x', 1023) + "\n";
+        File.WriteAllText(file, string.Concat(Enumerable.Repeat(line, 9 * 1024)) + Event("new.dll", NewStamp, 0x1004));
+        var (record, _) = await Compare(Image(OldStamp), Image(NewStamp, new Options { Grow = true }), crashPath: file);
+        var crash = Of(record).Crash!;
+        Assert.Equal("changed", Assert.Single(crash.Frames).Class);
+        Assert.Contains(crash.Notes, n => n.Contains("only its last 8 MiB were read", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("0x5F8A1B2D", "1004")]
+    [InlineData("0x5f8a1b2d", "0x1004")]
+    [InlineData("0x00005f8a1b2d", "0X1004")]
+    public async Task A_time_stamp_in_any_case_or_with_leading_zeros_and_an_offset_with_or_without_0x_are_the_same_numbers(string stamp, string offset)
+    {
+        var raw = $"Faulting application name: app.exe, version: 1.0.0.0, time stamp: {stamp}\nFaulting module name: new.dll, version: 1.0.0.0, time stamp: {stamp}\nException code: 0xc0000005\nFault offset: {offset}\n";
+        var (record, _) = await Crash(raw);
+        var frame = Assert.Single(FramesOf(record));
+        Assert.Equal(("changed", "Grown+0x4"), (frame.Class, frame.Function));
+    }
+
+    [Fact]
+    public async Task A_zero_time_stamp_is_no_time_stamp()
+    {
+        var (record, _) = await Crash(Event("new.dll", 0, 0x1004));
+        var frame = Assert.Single(FramesOf(record));
+        Assert.Equal("unknown", frame.Class);
+        Assert.Contains("no time stamp of its own", frame.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_stack_frame_does_not_take_the_time_stamp_of_an_event_in_the_same_text()
+    {
+        // The last frame is a return address at the end of Steady; it is not placed in Steady or anywhere else.
+        var (record, _) = await Crash(Event("new.dll", NewStamp, 0x1004) + "00 000000a1`2b4ff6c8 00007ff6`1234abcd new+0x1004\n01 000000a1`2b4ff6c8 00007ff6`1234abcd new+0x1049\n");
+        var frames = FramesOf(record);
+        Assert.Equal(["changed", "unknown", "unknown"], frames.Select(f => f.Class));
+        Assert.All(frames.Skip(1), f =>
+        {
+            Assert.Null(f.Function);
+            Assert.Contains("no time stamp of its own", f.Detail, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task An_empty_crashText_is_refused_even_with_a_crashPath()
+    {
+        using var h = new NativeBuildUpdateTests.Harness();
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code, inspection: new InspectionService(h.Env.Workspace));
+        var ex = await Assert.ThrowsAsync<ToolError>(() => tools.CompareNativeImages("a", "b", view: "review", crashText: "", crashPath: "x.txt"));
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Contains("crashText is empty", ex.Message, StringComparison.Ordinal);
     }
 }

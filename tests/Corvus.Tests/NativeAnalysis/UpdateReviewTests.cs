@@ -67,7 +67,7 @@ public sealed partial class UpdateReviewTests
         return data;
     }
 
-    private static async Task<(NativeDiffTools.NativeComparison Record, string Text)> Compare(byte[] before, byte[] after, string? reviewPath = null, bool injected = false, string? crashText = null)
+    private static async Task<(NativeDiffTools.NativeComparison Record, string Text)> Compare(byte[] before, byte[] after, string? reviewPath = null, bool injected = false, string? crashText = null, string? crashPath = null)
     {
         using var h = new NativeBuildUpdateTests.Harness();
         var (o, oi) = await h.Load(before, "old.dll", [Name, Other]);
@@ -79,7 +79,7 @@ public sealed partial class UpdateReviewTests
             index.SetUserName(Other, "Steady");
         }
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code, inspection: new InspectionService(h.Env.Workspace));
-        return await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(o.Id, n.Id, view: "review", reviewPath: reviewPath, crashText: crashText));
+        return await BuildToolCalls.Collected<NativeDiffTools.NativeComparison>(() => tools.CompareNativeImages(o.Id, n.Id, view: "review", reviewPath: reviewPath, crashText: crashText, crashPath: crashPath));
     }
 
     private static UpdateReview Of(NativeDiffTools.NativeComparison record) => record.Review!;

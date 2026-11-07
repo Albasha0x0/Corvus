@@ -340,7 +340,7 @@ public static partial class UpdateReviewer
         {
             int Count(string c) => crash.Frames.Count(f => f.Class == c);
             sections.Add(new ReviewSection("crash", crash.Capped ? "partial" : "read",
-                $"{crash.Total} frame(s): {Count("changed")} changed, {Count("added")} added, {Count("unchanged")} unchanged, {Count("unknown")} unknown; a crash does not change the verdict"));
+                $"{crash.Total} frame(s){(crash.Capped ? $", first {crash.Frames.Count} placed" : "")}: {Count("changed")} changed, {Count("added")} added, {Count("unchanged")} unchanged, {Count("unknown")} unknown; a crash does not change the verdict"));
         }
         return new UpdateReview(s.OldImage, s.NewImage, holds.Count == 0 ? "pass" : "hold", holds, [.. sections.Select(x => x.ToString())],
             [.. s.Added.Take(MaxListed)], s.Added.Count, [.. s.Changed.Take(MaxListed)], s.Changed.Count, imports, hosts, embedded, signer, version)

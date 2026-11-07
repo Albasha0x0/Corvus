@@ -37,7 +37,9 @@ internal static class CrashLocator
     public static (ParsedStackText Parsed, List<string> Notes) Read(string? text, string? path)
     {
         var notes = new List<string>();
-        bool hasText = !string.IsNullOrEmpty(text), hasPath = !string.IsNullOrWhiteSpace(path);
+        if (text != null && text.Length == 0)
+            throw new ToolError(ErrorCode.InvalidArgument, "crashText is empty.", path != null ? "omit crashText to read crashPath" : "pass the crash text or crashPath");
+        bool hasText = text != null, hasPath = !string.IsNullOrWhiteSpace(path);
         if (hasText == hasPath)
             throw new ToolError(ErrorCode.InvalidArgument, hasText ? "pass crashText or crashPath, not both." : "view=review with crash text needs crashText or crashPath.");
         if (hasText && text!.Length > StackTextService.MaxTextChars)
@@ -81,10 +83,12 @@ internal static class CrashLocator
             if (module == null) return Unplaced(null, "no module for this address");
             if (!names.Any(n => StackTextService.SameModule(n, module)))
                 return Unplaced(module, $"no build given for {module}; the builds are {string.Join(" and ", names.Distinct())}");
-            var text = StackTextService.Described(f, module, parsed);
-            if (text?.TimeDateStamp is not { } want)
-                return Unplaced(module, $"the text gives no time stamp for {module}, so its build is not confirmed");
-            if (newStamp is not { } have)
+            // Only a fault frame of an event or report carries a time stamp of its own, and its offset is the faulting
+            // address, not a return address. A module list entry or another event's stamp is never borrowed, and the
+            // frames of a stack never reach the function lookup, so no return-address adjustment is needed.
+            if (f.Described?.TimeDateStamp is not { } want || want == 0)
+                return Unplaced(module, $"the frame gives no time stamp of its own for {module}, so its build is not confirmed");
+            if (newStamp is not { } have || have == 0)
                 return Unplaced(module, "the new build has no PE time stamp to compare with the text's");
             if (oldStamp == have)
                 return Unplaced(module, $"the old and new builds have the same time stamp 0x{have:X8}, so the text cannot be tied to the new build");
