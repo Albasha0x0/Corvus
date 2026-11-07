@@ -472,6 +472,7 @@ Labels:
 - `stixPath=` writes a STIX 2.1 bundle of the file, its members, the network indicators of every view and one note per matched capa label; a value read only as a string is not exported.
 - `view=indicators` lists URLs, domains, addresses, TLS fingerprints, strings of native images and certificate names and revocation URLs from every view, one row per value with its sources.
 - `view=hunts` writes Defender XDR advanced hunting queries from the hash, signer, original file name, hosts, pipes, file paths, registry keys and library names of a file; `huntsPath=` also writes a disabled detection rule for each, except signer and DNS or TLS name queries.
+- `view=hunts cleanFolder=` checks each query against a folder of clean files: `keep`, `review` or `drop` with the files that carry its facts; a file that cannot show a fact kind is unknown, not a miss. `priorBuildsFolder=` adds the earlier builds that hold each fact. `path=` may be a hunts file saved by `huntsPath`. A dropped query gets no rule in `huntsPath`.
 - `compare_native_images view=hunts` writes queries for the facts only the new build holds, limited to its SHA-1, a DNS and TLS name query on any device per added host, and a crash query for the changed functions.
 - `compare_native_images view=review` reports what a new PE build adds: functions, imports, hosts, embedded PE images, signer and version resource changes; `reviewPath=` saves it as Markdown, or JSON for a `.json` path.
 - `view=review` ends with pass or hold; a hold lists each reason from this table.

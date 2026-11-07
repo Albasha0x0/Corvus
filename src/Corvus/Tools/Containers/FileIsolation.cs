@@ -187,7 +187,8 @@ internal sealed class FileOps : IWorkerOps
 public static class FileWork
 {
     public sealed record SummarizeArgs(string Path, string View, string? Table, string[]? Columns, long Offset, int? Limit, string? SbomPath = null,
-        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null, string? HuntsPath = null, string? ComponentsPath = null);
+        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null, string? HuntsPath = null, string? ComponentsPath = null,
+        string? CleanFolder = null, string? PriorBuildsFolder = null, int? DropAt = null, int? MaxFiles = null, int? UnreadPercent = null, int? MinFiles = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
@@ -565,7 +566,11 @@ public static class FileWork
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
     {
         using var _ = ContainerPassword.Enter(a.Password);
-        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null || a.ComponentsPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script });
+        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null || a.ComponentsPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script,
+            Proof = a.CleanFolder == null ? null : new Services.Analysis.Hunts.ProofOptions(a.CleanFolder, a.PriorBuildsFolder,
+                a.DropAt ?? Services.Analysis.Hunts.RuleProof.DefaultDropAt, a.MaxFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMaxFiles,
+                a.UnreadPercent ?? Services.Analysis.Hunts.RuleProof.DefaultUnreadPercent,
+                a.MinFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMinFiles) });
         var record = ContainerText.Summary(summary, a.View, a.Offset, a.Limit);
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite, a.View == "dependencies")] };
         if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };

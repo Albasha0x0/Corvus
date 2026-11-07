@@ -1,0 +1,317 @@
+using System.Diagnostics;
+using Corvus.Core;
+
+namespace Corvus.Services.Analysis.Hunts;
+
+/// <summary>The folders a set of queries is checked against and the thresholds that decide a verdict; Extensions, when given, limits both folders to files with one of them (".dll").</summary>
+public sealed record ProofOptions(string CleanFolder, string? PriorBuildsFolder = null, int DropAt = RuleProof.DefaultDropAt, int MaxFiles = RuleProof.DefaultMaxFiles,
+    int UnreadPercent = RuleProof.DefaultUnreadPercent, int MinFiles = RuleProof.DefaultMinFiles, IReadOnlyList<string>? Extensions = null);
+
+/// <summary>One fact of a query: the clean files that carry it and, with prior builds, the builds that hold it.</summary>
+public sealed record FactProof(string Fact, int CleanHits, IReadOnlyList<string> Samples, int? PriorHits = null, IReadOnlyList<string>? MissingFrom = null, string? Status = null, int? PriorUnknown = null);
+
+/// <summary>
+/// The verdict (keep, review or drop) of a query with its reason, clean hits, sample paths and prior-build standing.
+/// Scope is "file" for a query limited to the SHA-1 of the file under proof, whose rows no clean file can return, else "any".
+/// </summary>
+public sealed record HuntProof(string Verdict, string Reason, int CleanHits, IReadOnlyList<string> Samples, IReadOnlyList<FactProof> Facts, int? PriorHits = null, string? Status = null,
+    string Scope = "any", IReadOnlyList<string>? Removed = null);
+
+/// <summary>
+/// What one folder scan read: files found, read, not read and past the bound, folders and links not followed,
+/// copies of the file itself, and per fact kind the files that could not show it.
+/// </summary>
+public sealed record ProofFolder(string Folder, int Found, int Read, int NotRead, int Skipped, int Inaccessible, IReadOnlyList<string> Unread, int CopyCount,
+    IReadOnlyList<string> Copies, IReadOnlyDictionary<string, int> UnknownByKind, int Ignored = 0)
+{
+    /// <summary>Files or folders whose facts are unknown: not read, past the bound, or not entered.</summary>
+    public int Unknown => NotRead + Skipped + Inaccessible;
+
+    /// <summary>False when anything is unknown, or a read file could not show a fact kind.</summary>
+    public bool Complete => Unknown == 0 && UnknownByKind.Count == 0;
+}
+
+/// <summary>The scans behind a proof: thresholds, speed and each folder.</summary>
+public sealed record ProofScan(int DropAt, int UnreadPercent, int MinFiles, double Seconds, double FilesPerMinute, ProofFolder Clean, ProofFolder? Prior);
+
+/// <summary>Checks hunting queries against a folder of clean files and a folder of prior builds before a rule is enabled.</summary>
+public static partial class RuleProof
+{
+    /// <summary>Clean files carrying a fact at which its query is dropped.</summary>
+    public const int DefaultDropAt = 3;
+
+    /// <summary>Files read per folder; files past it are unknown.</summary>
+    public const int DefaultMaxFiles = 2_000;
+
+    /// <summary>Share of unknown clean files, in percent, above which a query with no clean hit is a review, not a keep.</summary>
+    public const int DefaultUnreadPercent = 5;
+
+    /// <summary>Clean files that must show a query's facts before no hit is a keep.</summary>
+    public const int DefaultMinFiles = 20;
+
+    /// <summary>Sample paths, lost builds and unread files named per result.</summary>
+    public const int Named = 5;
+
+    private const int MaxFactsShown = 10;
+
+    /// <summary>What a reader returns for one file: whether it is a copy of the file under proof, and the facts and unknown kinds otherwise.</summary>
+    internal sealed record FileRead(bool Copy, IReadOnlyList<HuntFact> Facts, IReadOnlySet<string> Unknown, string Kind = "Pe");
+
+    /// <summary>The kind of image a file head is (Pe, Elf, MachO, Unknown); prior builds are only files of the kind of the file under proof.</summary>
+    public static string KindOf(ReadOnlySpan<byte> head) => Corvus.Native.NativeImageLoader.Detect(head).ToString();
+
+    // One folder's read files, the fact kinds each could not show, and the files that hold each query fact.
+    private sealed record Scan(ProofFolder Folder, List<string> Files, List<int> Masks, Dictionary<string, List<int>> Holders);
+
+    /// <summary>
+    /// <paramref name="set"/> with a verdict on each query and the queries ranked, keep first and fewest clean hits first.
+    /// <paramref name="sha1"/> names the file the queries came from: a clean or prior file with the same bytes is named, not counted.
+    /// Throws InvalidArgument for a threshold out of range and NotFound for a missing folder.
+    /// </summary>
+    public static HuntSet Apply(InspectionService inspection, HuntSet set, string sha1, string? imageKind, ProofOptions options, CancellationToken ct) =>
+        Apply(set, options, (path, token) => ReadWith(inspection, path, sha1, token), ct, imageKind);
+
+    /// <summary>The SHA-1 a saved set of queries was written for: its hash fact, else the file its queries are limited to; empty when none.</summary>
+    public static string Sha1Of(HuntSet set) =>
+        set.Hunts.SelectMany(h => h.Facts).FirstOrDefault(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal))?[(HuntKind.Sha1.Length + 1)..]
+        ?? set.Hunts.Select(h => FileScope().Match(h.Kql)).FirstOrDefault(m => m.Success)?.Value[^41..^1] ?? "";
+
+    private static string Sha1Stream(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(stream));
+    }
+
+    private static FileRead ReadWith(InspectionService inspection, string path, string sha1, CancellationToken ct)
+    {
+        // A copy of the file under proof is known from its hash alone.
+        if (sha1.Length > 0 && string.Equals(Sha1Stream(path), sha1, StringComparison.OrdinalIgnoreCase)) return new FileRead(true, [], new HashSet<string>());
+        var summary = inspection.Summarize(null, path, ct, new FileViewOptions("hunts") { FactsOnly = true });
+        if (summary.Views.GetValueOrDefault("hunts")?.Detail is not HuntSet read) throw new InvalidDataException("the file has no hunts view");
+        return new FileRead(false, read.Facts, read.UnknownKinds, Corvus.Native.NativeImageLoader.DetectFile(path).ToString());
+    }
+
+    internal static HuntSet Apply(HuntSet set, ProofOptions options, Func<string, CancellationToken, FileRead> reader, CancellationToken ct, string? imageKind = null)
+    {
+        if (options.DropAt < 1) throw new ToolError(ErrorCode.InvalidArgument, "dropAt is below 1.", "pass dropAt of 1 or more");
+        if (options.MaxFiles < 1) throw new ToolError(ErrorCode.InvalidArgument, "maxFiles is below 1.", "pass maxFiles of 1 or more");
+        if (options.MinFiles < 1) throw new ToolError(ErrorCode.InvalidArgument, "minFiles is below 1.", "pass minFiles of 1 or more");
+        if (options.UnreadPercent is < 0 or > 100) throw new ToolError(ErrorCode.InvalidArgument, "unreadPercent is not between 0 and 100.", "pass unreadPercent from 0 to 100");
+        RequireFolder("cleanFolder", options.CleanFolder);
+        if (options.PriorBuildsFolder != null)
+        {
+            RequireFolder("priorBuildsFolder", options.PriorBuildsFolder);
+            if (Overlap(options.CleanFolder, options.PriorBuildsFolder))
+                throw new ToolError(ErrorCode.InvalidArgument, "cleanFolder and priorBuildsFolder overlap: a build would count as a clean file.", "pass folders that do not contain each other");
+        }
+        var facts = set.Hunts.SelectMany(h => h.Facts).Distinct(StringComparer.Ordinal).ToList();
+        var clock = Stopwatch.StartNew();
+        var clean = ScanFolder(options.CleanFolder, facts, reader, options.MaxFiles, null, options.Extensions, ct);
+        var prior = options.PriorBuildsFolder == null ? null : ScanFolder(options.PriorBuildsFolder, facts, reader, options.MaxFiles, imageKind ?? "", options.Extensions, ct);
+        var seconds = clock.Elapsed.TotalSeconds;
+        var read = clean.Folder.Read + (prior?.Folder.Read ?? 0);
+        var scan = new ProofScan(options.DropAt, options.UnreadPercent, options.MinFiles, Math.Round(seconds, 2), seconds > 0 ? Math.Round(read * 60 / seconds, 1) : 0, clean.Folder, prior?.Folder);
+        var judged = set.Hunts.Select((h, i) => (Reduce(h, clean, options), Index: i)).Select(x => (Hunt: x.Item1.Hunt with { Proof = Judge(x.Item1.Hunt, clean, prior, options, x.Item1.Removed) }, x.Index))
+            .OrderBy(x => Rank(x.Hunt.Proof!.Verdict)).ThenBy(x => x.Hunt.Proof!.CleanHits).ThenBy(x => x.Index).Select(x => x.Hunt).ToList();
+        var notes = new List<string>(set.Notes);
+        if (!clean.Folder.Complete)
+            notes.Add($"The clean scan is partial ({Reasons(clean.Folder)}): a query with no clean hit is not shown absent from the files that could not show its facts.");
+        if (prior is { Folder.Complete: false })
+            notes.Add($"The prior-build scan is partial ({Reasons(prior.Folder)}): a fact listed as new may be in a build not read.");
+        if (prior is { Folder.Read: 0 }) notes.Add("No prior build was read, so no fact has a prior-build standing.");
+        return set with { Hunts = judged, Notes = notes, Proof = scan };
+    }
+
+    private static bool Overlap(string a, string b)
+    {
+        static string Full(string p) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(p)) + Path.DirectorySeparatorChar;
+        var (x, y) = (Full(a), Full(b));
+        var compare = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return x.StartsWith(y, compare) || y.StartsWith(x, compare);
+    }
+
+    private static string Reasons(ProofFolder f, ISet<string>? only = null)
+    {
+        var parts = new List<string>();
+        if (f.NotRead > 0) parts.Add($"{f.NotRead:N0} not read");
+        if (f.Skipped > 0) parts.Add($"{f.Skipped:N0} past maxFiles");
+        if (f.Inaccessible > 0) parts.Add($"{f.Inaccessible:N0} folders or links not entered");
+        foreach (var (kind, count) in f.UnknownByKind.Where(k => only == null || only.Contains(k.Key)).OrderBy(k => k.Key, StringComparer.Ordinal)) parts.Add($"{count:N0} could not show {kind}");
+        return string.Join(", ", parts);
+    }
+
+    private static void RequireFolder(string name, string path)
+    {
+        if (!Directory.Exists(path)) throw new ToolError(ErrorCode.NotFound, $"{name} {path} is not a folder.", $"pass an existing folder for {name}");
+    }
+
+    private static int Rank(string verdict) => verdict switch { "keep" => 0, "review" => 1, _ => 2 };
+
+    private static string KindOf(string fact)
+    {
+        int at = fact.IndexOf(':', StringComparison.Ordinal);
+        return at < 0 ? fact : fact[..at];
+    }
+
+    // One bit per fact kind; a kind no query uses has none.
+    private static int Bit(string kind)
+    {
+        int i = HuntKind.All.ToList().IndexOf(kind);
+        return i < 0 ? 0 : 1 << i;
+    }
+
+    // Files of a folder, entered in order; a folder that cannot be entered and a link that is not followed are named and counted.
+    private static (List<string> Paths, List<string> Unentered) Walk(string root, IReadOnlyList<string>? extensions, CancellationToken ct)
+    {
+        var paths = new List<string>();
+        var unentered = new List<string>();
+        var pending = new Stack<string>([root]);
+        while (pending.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            var dir = pending.Pop();
+            try
+            {
+                foreach (var entry in new DirectoryInfo(dir).EnumerateFileSystemInfos())
+                {
+                    if (entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) unentered.Add($"{entry.FullName}: link not followed");
+                    else if (entry is DirectoryInfo) pending.Push(entry.FullName);
+                    else if (extensions == null || extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase)) paths.Add(entry.FullName);
+                }
+            }
+            catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+            {
+                unentered.Add($"{dir}: {e.Message.Split('\n')[0].Trim()}");
+            }
+        }
+        paths.Sort(StringComparer.OrdinalIgnoreCase);
+        return (paths, unentered);
+    }
+
+    // An image kind of "" keeps every image; null keeps every file.
+    private static Scan ScanFolder(string folder, List<string> facts, Func<string, CancellationToken, FileRead> reader, int max, string? imageKind, IReadOnlyList<string>? extensions, CancellationToken ct)
+    {
+        var (found, unentered) = Walk(folder, extensions, ct);
+        var paths = found.Take(max).ToList();
+        var files = new List<string>();
+        var masks = new List<int>();
+        var holders = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var unknownByKind = new Dictionary<string, int>(StringComparer.Ordinal);
+        var unread = unentered.Take(Named).ToList();
+        var copies = new List<string>();
+        int notRead = 0, ignored = 0;
+        var probes = facts.Select(f => (Fact: f, Probes: FactMatch.Query(KindOf(f), f[(f.IndexOf(':', StringComparison.Ordinal) + 1)..]))).Where(p => p.Probes.Count > 0).ToList();
+        foreach (var path in paths)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var read = reader(path, ct);
+                if (read.Copy) { copies.Add(path); continue; }
+                if (imageKind != null && (imageKind.Length > 0 ? read.Kind != imageKind : read.Kind == "Unknown")) { ignored++; continue; }
+                int index = files.Count, mask = 0;
+                files.Add(path);
+                foreach (var kind in read.Unknown)
+                {
+                    mask |= Bit(kind);
+                    unknownByKind[kind] = unknownByKind.GetValueOrDefault(kind) + 1;
+                }
+                masks.Add(mask);
+                var profile = new FactMatch.Profile(read.Facts);
+                foreach (var (fact, _) in probes.Where(p => p.Probes.Any(profile.Has)))
+                {
+                    if (!holders.TryGetValue(fact, out var list)) holders[fact] = list = [];
+                    list.Add(index);
+                }
+            }
+            // A file's own timeout is that file not read; the caller's cancellation ends the scan.
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                notRead++;
+                if (unread.Count < Named) unread.Add($"{path}: {(e is OperationCanceledException ? "timed out" : e.Message.Split('\n')[0].Trim())}");
+            }
+        }
+        var summary = new ProofFolder(folder, found.Count, files.Count, notRead, found.Count - paths.Count, unentered.Count, unread, copies.Count,
+            [.. copies.Take(Named)], unknownByKind, ignored);
+        return new Scan(summary, files, masks, holders);
+    }
+
+    // A query over several library names that has some names common to clean files is written again without them.
+    private static (Hunt Hunt, IReadOnlyList<string> Removed) Reduce(Hunt hunt, Scan clean, ProofOptions options)
+    {
+        if (hunt.Facts.Count < 2 || !hunt.Facts.All(f => f.StartsWith(HuntKind.DllName + ":", StringComparison.Ordinal))) return (hunt, []);
+        var common = hunt.Facts.Where(f => (clean.Holders.GetValueOrDefault(f)?.Count ?? 0) >= options.DropAt).ToList();
+        var sha1 = FileScope().Match(hunt.Kql) is { Success: true } m ? m.Value[^41..^1] : null;
+        if (common.Count == 0 || common.Count == hunt.Facts.Count || sha1 == null) return (hunt, []);
+        var rest = hunt.Facts.Except(common).Select(f => f[(HuntKind.DllName.Length + 1)..]).ToList();
+        var written = KqlHunts.LibraryHunt(rest, hunt.Evidence, sha1, hunt.Id.EndsWith("-new", StringComparison.Ordinal));
+        if (KqlCheck.Diagnostics(written.Kql).Count > 0) return (hunt, []);
+        return (written, [.. common.Select(f => $"{f} ({clean.Holders[f].Count:N0} clean files)")]);
+    }
+
+    private static HuntProof Judge(Hunt hunt, Scan clean, Scan? prior, ProofOptions options, IReadOnlyList<string> removed)
+    {
+        var facts = hunt.Facts.Select(f =>
+        {
+            var hits = clean.Holders.GetValueOrDefault(f) ?? [];
+            var samples = hits.Take(Named).Select(i => clean.Files[i]).ToList();
+            if (prior is not { Files.Count: > 0 }) return new FactProof(f, hits.Count, samples);
+            var held = prior.Holders.GetValueOrDefault(f) ?? [];
+            int bit = Bit(KindOf(f));
+            // A build that could not show the kind of this fact neither holds it nor lacks it.
+            var blindBuilds = Enumerable.Range(0, prior.Files.Count).Except(held).Where(i => (prior.Masks[i] & bit) != 0).ToList();
+            var missing = Enumerable.Range(0, prior.Files.Count).Except(held).Except(blindBuilds).Take(Named).Select(i => Path.GetRelativePath(prior.Folder.Folder, prior.Files[i])).ToList();
+            var status = blindBuilds.Count > 0 ? "unknown" : held.Count == prior.Files.Count ? "durable" : held.Count == 0 ? "new" : "partial";
+            return new FactProof(f, hits.Count, samples, held.Count, missing, status, blindBuilds.Count);
+        }).ToList();
+        // A query is an OR over its facts, so a file carrying any of them alerts.
+        var union = hunt.Facts.SelectMany(f => clean.Holders.GetValueOrDefault(f) ?? []).Distinct().Order().ToList();
+        var worst = facts.Count == 0 ? null : facts.MaxBy(f => f.CleanHits)!;
+        int hits = union.Count;
+        var unionSamples = union.Take(Named).Select(i => clean.Files[i]).ToList();
+        int kinds = hunt.Facts.Aggregate(0, (m, f) => m | Bit(KindOf(f)));
+        int blind = clean.Masks.Count(m => (m & kinds) != 0);
+        int informative = clean.Folder.Read - blind;
+        int lost = clean.Folder.Unknown + blind;
+        long total = clean.Folder.Found + clean.Folder.Inaccessible - clean.Folder.CopyCount;
+        var names = string.Join(", ", hunt.Facts.Select(KindOf).Distinct().Order(StringComparer.Ordinal));
+        var own = hunt.Facts.Select(KindOf).ToHashSet(StringComparer.Ordinal);
+        bool scoped = FileScope().IsMatch(hunt.Kql);
+        string verdict, reason;
+        if (hunt.Facts.Any(f => f.StartsWith(HuntKind.Sha1 + ":", StringComparison.Ordinal)) && clean.Folder.CopyCount > 0)
+            (verdict, reason) = ("review", $"A clean file has the same bytes: {clean.Folder.Copies[0]}");
+        else if (hits >= options.DropAt) (verdict, reason) = ("drop", $"{Show(worst!.Fact)} is common: {hits:N0} clean files carry it{Cannot(scoped)}");
+        else if (hits > 0) (verdict, reason) = ("review", $"{hits:N0} clean {(hits == 1 ? "file carries" : "files carry")} {Show(worst!.Fact)}{Cannot(scoped)}");
+        else if (clean.Folder.Read == 0) (verdict, reason) = ("review", "No clean file was read");
+        else if (lost * 100 > (long)options.UnreadPercent * total)
+            (verdict, reason) = ("review", $"{lost:N0} of {total:N0} clean files could not show {names} ({Reasons(clean.Folder, own)})");
+        else if (informative < options.MinFiles)
+            (verdict, reason) = ("review", $"Only {informative:N0} clean files could show {names}; the minimum is {options.MinFiles:N0}");
+        else (verdict, reason) = ("keep", $"No hit in {informative:N0} clean files that could show {names}" + (lost > 0 ? $"; {Reasons(clean.Folder, own)}" : ""));
+        if (removed.Count > 0) reason += $"; written again without {string.Join(", ", removed)}";
+        string? standing = null;
+        int? priorHits = null;
+        if (prior is { Files.Count: > 0 } && facts.Count > 0)
+        {
+            standing = facts.Any(f => f.Status == "unknown") ? "unknown" : facts.All(f => f.Status == "durable") ? "durable" : facts.All(f => f.Status == "new") ? "new" : "changed";
+            priorHits = facts.Min(f => f.PriorHits);
+            var absent = facts.SelectMany(f => f.MissingFrom ?? []).Distinct(StringComparer.OrdinalIgnoreCase).Take(3).ToList();
+            reason += standing switch
+            {
+                "durable" => $"; durable in all {prior.Files.Count:N0} prior builds",
+                "new" => $"; new, in none of {prior.Files.Count:N0} prior builds",
+                "unknown" => $"; {facts.Max(f => f.PriorUnknown):N0} of {prior.Files.Count:N0} prior builds could not show it",
+                _ => $"; missing from {string.Join(", ", absent)}",
+            };
+        }
+        return new HuntProof(verdict, reason, hits, unionSamples, [.. facts.OrderByDescending(f => f.CleanHits).Take(MaxFactsShown)], priorHits, standing, scoped ? "file" : "any", removed.Count > 0 ? removed : null);
+    }
+
+    // A query limited to one file reads that file's events, so a clean file cannot return a row.
+    private static string Cannot(bool scoped) => scoped ? "; the query reads this file's events only, so those files cannot alert" : "";
+
+    [System.Text.RegularExpressions.GeneratedRegex("InitiatingProcessSHA1 == '[0-9a-f]{40}'", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex FileScope();
+
+    private static string Show(string fact) => fact.Length > 80 ? fact[..77] + "..." : fact;
+}

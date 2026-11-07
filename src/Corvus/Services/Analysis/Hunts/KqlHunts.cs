@@ -18,10 +18,25 @@ public sealed record Hunt(string Id, string Title, string Table, string Kql, IRe
     /// <summary>True for a query that gets no detection rule, since its rows name no file.</summary>
     [JsonIgnore]
     public bool HuntingOnly { get; init; }
+
+    /// <summary>The check against clean files and prior builds; null when none was asked for.</summary>
+    public HuntProof? Proof { get; init; }
 }
 
 /// <summary>The queries written for a fact list, and the notes naming each fact that got none.</summary>
-public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> Notes);
+public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> Notes)
+{
+    /// <summary>Every fact read from the file, with or without a query; empty for a set written from a fact list.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<HuntFact> Facts { get; init; } = [];
+
+    /// <summary>The kinds the file could not show; a fact of such a kind absent from it is unknown, not a miss.</summary>
+    [JsonIgnore]
+    public IReadOnlySet<string> UnknownKinds { get; init; } = new HashSet<string>();
+
+    /// <summary>What the clean-file and prior-build scans read; null when none was asked for.</summary>
+    public ProofScan? Proof { get; init; }
+}
 
 /// <summary>The fact kinds <see cref="KqlHunts"/> writes queries for.</summary>
 public static class HuntKind
@@ -436,10 +451,8 @@ public static class KqlHunts
                         $"| project {Base}, FileName, PipeName, InitiatingProcessFileName, SHA1 = InitiatingProcessSHA1"),
                 ];
             case HuntKind.FilePath:
-                var leaf = value[(value.LastIndexOfAny(['\\', '/']) + 1)..];
+                var (leaf, folder, rooted) = FilePathParts(value);
                 if (leaf.Length == 0) { unqueried++; return []; }
-                var folder = value[..Math.Max(0, value.Length - leaf.Length - 1)];
-                var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
                 // A path seen only as a string is not shown to be written, so
                 // the query reads writes by this file alone.
                 bool byFile = scoped || Rank(evidence) < Rank(IndicatorEvidence.Reference);
@@ -465,9 +478,18 @@ public static class KqlHunts
         }
     }
 
+    // The file name, its folder and whether the path names a drive or share; the query matches on exactly these.
+    internal static (string Leaf, string Folder, bool Rooted) FilePathParts(string value)
+    {
+        var leaf = value[(value.LastIndexOfAny(['\\', '/']) + 1)..];
+        var folder = value[..Math.Max(0, value.Length - leaf.Length - 1)];
+        var rooted = value.Length > 2 && (char.IsAsciiLetter(value[0]) && value[1] == ':' || value.StartsWith(@"\\", StringComparison.Ordinal));
+        return (leaf, folder, rooted);
+    }
+
     // RegistryKey spells the hive out and holds the user's SID under
     // HKEY_CURRENT_USER, so the query matches the path below the hive.
-    private static string SubKey(string value)
+    internal static string SubKey(string value)
     {
         var path = value.Trim('\\');
         int slash = path.IndexOf('\\');
@@ -496,23 +518,29 @@ public static class KqlHunts
         {
             if (hunts.Count >= MaxPerKind) { over += chunk.Count; continue; }
             var values = chunk.Select(c => c.Key.Value).ToList();
-            var key = string.Join('\n', values.Select(v => v.ToLowerInvariant()));
             var evidence = chunk.Select(c => c.Value).Aggregate(IndicatorEvidence.Stronger);
-            var title = values.Count == 1 ? $"{Short(values[0])} loaded from the folder of the file" : $"{values.Count} libraries loaded from the folder of the file";
-            hunts.Add(new Hunt(Id("dll_name", key, scoped ? "-new" : "", sha1), title, "DeviceImageLoadEvents", string.Join('\n',
-            [
-                "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
-                $"| where FileName in~ ({string.Join(", ", values.Select(Literal))})",
-                "| where isnotempty(InitiatingProcessFolderPath)",
-                $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
-                $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
-                "| where DllDir == LoaderDir",
-                // A program in the system folder loads its DLLs from there by design.
-                "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
-                $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath",
-            ]), [.. values.Select(v => $"{HuntKind.DllName}:{v}")], evidence) { Severity = "medium" });
+            hunts.Add(LibraryHunt(values, evidence, sha1, scoped));
         }
         return hunts;
+    }
+
+    /// <summary>The query that reads the loads of <paramref name="values"/> from the folder of the file with SHA-1 <paramref name="sha1"/>.</summary>
+    internal static Hunt LibraryHunt(IReadOnlyList<string> values, string evidence, string sha1, bool scoped)
+    {
+        var key = string.Join('\n', values.Select(v => v.ToLowerInvariant()));
+        var title = values.Count == 1 ? $"{Short(values[0])} loaded from the folder of the file" : $"{values.Count} libraries loaded from the folder of the file";
+        return new Hunt(Id("dll_name", key, scoped ? "-new" : "", sha1), title, "DeviceImageLoadEvents", string.Join('\n',
+        [
+            "DeviceImageLoadEvents", $"| where InitiatingProcessSHA1 == {Literal(sha1)}",
+            $"| where FileName in~ ({string.Join(", ", values.Select(Literal))})",
+            "| where isnotempty(InitiatingProcessFolderPath)",
+            $"| extend LoaderDir = {FolderOf("InitiatingProcessFolderPath", "InitiatingProcessFileName")}",
+            $"| extend DllDir = {FolderOf("FolderPath", "FileName")}",
+            "| where DllDir == LoaderDir",
+            // A program in the system folder loads its DLLs from there by design.
+            "| where not(DllDir endswith @'\\windows\\system32' or DllDir endswith @'\\windows\\syswow64')",
+            $"| project {Base}, FileName, FolderPath, SHA1, InitiatingProcessFileName, InitiatingProcessFolderPath",
+        ]), [.. values.Select(v => $"{HuntKind.DllName}:{v}")], evidence) { Severity = "medium" };
     }
 
     // Names are compared as Windows compares them, except where a case change is a different value.
@@ -547,7 +575,7 @@ public static class KqlHunts
             $"| project {Base}, ActionType, AdditionalFields") with { HuntingOnly = true };
 
     // The CN of a distinguished name, else the value.
-    private static string SignerName(string value)
+    internal static string SignerName(string value)
     {
         int at = value.IndexOf("CN=", StringComparison.OrdinalIgnoreCase);
         if (at < 0) return value;
@@ -556,7 +584,7 @@ public static class KqlHunts
         return (comma < 0 ? rest : rest[..comma]).Trim().Trim('"');
     }
 
-    private static string PipeName(string value)
+    internal static string PipeName(string value)
     {
         var v = value.Trim();
         int at = v.IndexOf(@"pipe\", StringComparison.OrdinalIgnoreCase);

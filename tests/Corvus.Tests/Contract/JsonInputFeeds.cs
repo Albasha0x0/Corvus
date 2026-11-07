@@ -78,6 +78,9 @@ public sealed partial class JsonInputTests
         ["Core/Archives/ContainerImage.cs"] = (
             """{"architecture":"amd64","os":"linux","config":{"Cmd":["--serve"],"Env":["MODE=prod"]},"rootfs":{"type":"layers","diff_ids":[]},"history":[{"created_by":"RUN x"}]}""",
             b => Containers.Open(ImageArchive(b), "x.tar", AnalysisLimits.Default, default)),
+        ["Services/Analysis/Hunts/HuntRules.cs"] = (
+            """{"hunts":[{"id":"a","title":"t","table":"DeviceRegistryEvents","kql":"x","facts":["registry_key:k"],"proof":{"verdict":"keep"}}],"detectionRules":[{"id":"a"}],"notes":["n"]}""",
+            b => Corvus.Services.Analysis.Hunts.HuntRules.Read(b)),
         ["Core/Electron.cs"] = ("""[{"file":"a.js","alg":"SHA256","value":"abc"}]""", b => Electron.ParseResource(b, "x")),
         ["Core/Models/Safetensors.cs"] = (
             """{"__metadata__":{"k":"v"},"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}""",

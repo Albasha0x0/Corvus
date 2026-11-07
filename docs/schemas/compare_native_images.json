@@ -347,6 +347,89 @@
           },
           "severity": {
             "type": "string"
+          },
+          "proof": {
+            "type": "object",
+            "properties": {
+              "verdict": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "cleanHits": {
+                "type": "integer"
+              },
+              "samples": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fact": {
+                      "type": "string"
+                    },
+                    "cleanHits": {
+                      "type": "integer"
+                    },
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "priorHits": {
+                      "type": "integer"
+                    },
+                    "missingFrom": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "priorUnknown": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "fact",
+                    "cleanHits",
+                    "samples"
+                  ]
+                }
+              },
+              "priorHits": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string",
+                "default": "any"
+              },
+              "removed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "verdict",
+              "reason",
+              "cleanHits",
+              "samples",
+              "facts"
+            ]
           }
         },
         "required": [
