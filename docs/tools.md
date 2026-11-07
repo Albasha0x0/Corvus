@@ -569,6 +569,8 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
 | `huntsPath` | string |  |  | Write hunting queries and disabled rules here, JSON. |
+| `indicatorsPath` | string |  |  | With cleanFolder: write Audit indicators of the kept facts here, JSON. |
+| `policyPath` | string |  |  | With cleanFolder: write an audit-mode App Control policy here, XML. |
 | `cleanFolder` | string |  |  | view=hunts: clean files; each query gets keep, review or drop. |
 | `priorBuildsFolder` | string |  |  | With cleanFolder: earlier builds; each fact reports which hold it. |
 | `dropAt` | integer |  |  | With cleanFolder: clean files with a fact that drop its query; default 3. |

@@ -46,6 +46,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Write hunting queries and disabled rules here, JSON.")] string? huntsPath = null,
+        [Description("With cleanFolder: write Audit indicators of the kept facts here, JSON.")] string? indicatorsPath = null,
+        [Description("With cleanFolder: write an audit-mode App Control policy here, XML.")] string? policyPath = null,
         [Description("view=hunts: clean files; each query gets keep, review or drop.")] string? cleanFolder = null,
         [Description("With cleanFolder: earlier builds; each fact reports which hold it.")] string? priorBuildsFolder = null,
         [Description("With cleanFolder: clean files with a fact that drop its query; default 3.")] int? dropAt = null,
@@ -67,11 +69,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
             if (cleanFolder == null && (priorBuildsFolder != null || dropAt != null || maxFiles != null || unreadPercent != null || minFiles != null))
                 throw new ToolError(ErrorCode.InvalidArgument, "priorBuildsFolder, dropAt, maxFiles, unreadPercent and minFiles apply with cleanFolder.", "pass cleanFolder, or drop them");
-            if (cleanFolder != null && name != "hunts" && huntsPath == null)
+            if ((indicatorsPath != null || policyPath != null) && cleanFolder == null)
+                throw new ToolError(ErrorCode.InvalidArgument, "indicatorsPath and policyPath write only the facts the proof kept.", "pass cleanFolder, a folder of clean files, or drop them");
+            if (cleanFolder != null && name != "hunts" && huntsPath == null && indicatorsPath == null && policyPath == null)
                 throw new ToolError(ErrorCode.InvalidArgument, "cleanFolder checks the queries of view=hunts.", "pass view=hunts, or drop cleanFolder");
             if (tenantResultPath != null && name != "hunts")
                 throw new ToolError(ErrorCode.InvalidArgument, "tenantResultPath joins a result to view=hunts.", "pass view=hunts (view=overview and view=all do not show the label), or drop tenantResultPath");
-            var options = new FileViewOptions(name, table, columns, offset, limit) { TenantResultPath = tenantResultPath, Sbom = sbomPath != null || componentsPath != null, Stix = stixPath != null, Hunts = huntsPath != null, Script = script,
+            var options = new FileViewOptions(name, table, columns, offset, limit) { TenantResultPath = tenantResultPath, Sbom = sbomPath != null || componentsPath != null, Stix = stixPath != null, Hunts = huntsPath != null || indicatorsPath != null || policyPath != null, AuditFiles = indicatorsPath != null || policyPath != null, Script = script,
                 Proof = cleanFolder == null ? null : new Services.Analysis.Hunts.ProofOptions(cleanFolder, priorBuildsFolder, dropAt ?? Services.Analysis.Hunts.RuleProof.DefaultDropAt, maxFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMaxFiles,
                     unreadPercent ?? Services.Analysis.Hunts.RuleProof.DefaultUnreadPercent,
                     minFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMinFiles) };
@@ -80,7 +84,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             // A file the workspace has not loaded is read where a crashing reader cannot end the server.
             if (assembly == null && path != null && native == null)
             {
-                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath, cleanFolder, priorBuildsFolder, dropAt, maxFiles, unreadPercent, minFiles, tenantResultPath);
+                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password, huntsPath, componentsPath, cleanFolder, priorBuildsFolder, dropAt, maxFiles, unreadPercent, minFiles, tenantResultPath, indicatorsPath, policyPath);
                 // A sandboxed worker cannot write the caller's folders: it writes staged files the server then moves.
                 FileWork.CheckOutputs(args);
                 var staged = FileIsolation.PoolFor(serverOptions, workers) is { Sandboxed: true } ? FileWork.StageOutputs(args) : null;
@@ -107,6 +111,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite, name == "dependencies")] };
             if (stixPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteStix(summary, stixPath, overwrite)] };
             if (huntsPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteHunts(summary, huntsPath, overwrite)] };
+            if (indicatorsPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteIndicators(summary, indicatorsPath, overwrite)] };
+            if (policyPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WritePolicy(summary, policyPath, overwrite)] };
             if (componentsPath != null)
                 record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteComponents(inspection, summary, componentsPath, overwrite, cancellationToken)] };
             if (name == "layers" && graph != null)

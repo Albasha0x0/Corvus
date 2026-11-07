@@ -188,7 +188,7 @@ public static class FileWork
 {
     public sealed record SummarizeArgs(string Path, string View, string? Table, string[]? Columns, long Offset, int? Limit, string? SbomPath = null,
         bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null, string? HuntsPath = null, string? ComponentsPath = null,
-        string? CleanFolder = null, string? PriorBuildsFolder = null, int? DropAt = null, int? MaxFiles = null, int? UnreadPercent = null, int? MinFiles = null, string? TenantResultPath = null);
+        string? CleanFolder = null, string? PriorBuildsFolder = null, int? DropAt = null, int? MaxFiles = null, int? UnreadPercent = null, int? MinFiles = null, string? TenantResultPath = null, string? IndicatorsPath = null, string? PolicyPath = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
@@ -452,7 +452,7 @@ public static class FileWork
     /// </summary>
     internal static (SummarizeArgs Args, string Staging, (string Staged, string Target)[] Files)? StageOutputs(SummarizeArgs a)
     {
-        string?[] paths = [a.SbomPath, a.StixPath, a.HuntsPath, a.ComponentsPath];
+        string?[] paths = [a.SbomPath, a.StixPath, a.HuntsPath, a.ComponentsPath, a.IndicatorsPath, a.PolicyPath];
         if (paths.All(p => p == null)) return null;
         var staging = System.IO.Path.Combine(Native.Providers.WindowsSandbox.Scratch(), "outputs-" + Guid.NewGuid().ToString("N"));
         var staged = new string?[paths.Length];
@@ -467,7 +467,7 @@ public static class FileWork
             staged[i] = System.IO.Path.Combine(staging, i.ToString(CultureInfo.InvariantCulture), System.IO.Path.GetFileName(target));
             files.Add((staged[i]!, target));
         }
-        return (a with { SbomPath = staged[0], StixPath = staged[1], HuntsPath = staged[2], ComponentsPath = staged[3], Overwrite = false }, staging, [.. files]);
+        return (a with { SbomPath = staged[0], StixPath = staged[1], HuntsPath = staged[2], ComponentsPath = staged[3], IndicatorsPath = staged[4], PolicyPath = staged[5], Overwrite = false }, staging, [.. files]);
     }
 
     /// <summary>
@@ -477,7 +477,7 @@ public static class FileWork
     internal static void CheckOutputs(SummarizeArgs a)
     {
         var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, path) in new[] { ("sbomPath", a.SbomPath), ("stixPath", a.StixPath), ("huntsPath", a.HuntsPath), ("componentsPath", a.ComponentsPath) })
+        foreach (var (name, path) in new[] { ("sbomPath", a.SbomPath), ("stixPath", a.StixPath), ("huntsPath", a.HuntsPath), ("componentsPath", a.ComponentsPath), ("indicatorsPath", a.IndicatorsPath), ("policyPath", a.PolicyPath) })
         {
             if (path == null) continue;
             var target = SafeFile.Output(path);
@@ -566,7 +566,7 @@ public static class FileWork
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
     {
         using var _ = ContainerPassword.Enter(a.Password);
-        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null || a.ComponentsPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null, Script = a.Script, TenantResultPath = a.TenantResultPath,
+        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null || a.ComponentsPath != null, Stix = a.StixPath != null, Hunts = a.HuntsPath != null || a.IndicatorsPath != null || a.PolicyPath != null, AuditFiles = a.IndicatorsPath != null || a.PolicyPath != null, Script = a.Script, TenantResultPath = a.TenantResultPath,
             Proof = a.CleanFolder == null ? null : new Services.Analysis.Hunts.ProofOptions(a.CleanFolder, a.PriorBuildsFolder,
                 a.DropAt ?? Services.Analysis.Hunts.RuleProof.DefaultDropAt, a.MaxFiles ?? Services.Analysis.Hunts.RuleProof.DefaultMaxFiles,
                 a.UnreadPercent ?? Services.Analysis.Hunts.RuleProof.DefaultUnreadPercent,
@@ -575,6 +575,8 @@ public static class FileWork
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite, a.View == "dependencies")] };
         if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };
         if (a.HuntsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteHunts(summary, a.HuntsPath, a.Overwrite)] };
+        if (a.IndicatorsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteIndicators(summary, a.IndicatorsPath, a.Overwrite)] };
+        if (a.PolicyPath != null) record = record with { Notes = [.. record.Notes ?? [], WritePolicy(summary, a.PolicyPath, a.Overwrite)] };
         if (a.ComponentsPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteComponents(inspection, summary, a.ComponentsPath, a.Overwrite, ct)] };
         if (a.View == "layers" && graph != null)
         {
@@ -607,6 +609,28 @@ public static class FileWork
             throw new ToolError(ErrorCode.NotFound, "No hunting queries were written: the input is not a file the hunts view reads (a loaded assembly or a folder has no hunts view).", "call summarize_file path=<a file> huntsPath=<file>");
         var full = SafeFile.WriteAllBytes(huntsPath, Services.Analysis.Hunts.HuntRules.Write(set), overwrite);
         return Services.Analysis.Hunts.HuntRules.Written(set, full);
+    }
+
+    private static Services.Analysis.Hunts.HuntSet ProvenHunts(InspectionService.FileSummary summary, string parameter) =>
+        summary.Views.GetValueOrDefault("hunts")?.Detail is Services.Analysis.Hunts.HuntSet set
+            ? set
+            : throw new ToolError(ErrorCode.NotFound, "Nothing was written: the input is not a file the hunts view reads (a loaded assembly or a folder has no hunts view).", $"call summarize_file path=<a file> cleanFolder=<folder> {parameter}=<file>");
+
+    /// <summary>Writes the Defender for Endpoint indicators of the kept facts to <paramref name="indicatorsPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
+    public static string WriteIndicators(InspectionService.FileSummary summary, string indicatorsPath, bool overwrite)
+    {
+        var (json, count, withheld) = Services.Analysis.Hunts.AuditIndicators.Write(ProvenHunts(summary, "indicatorsPath"));
+        var full = SafeFile.WriteAllBytes(indicatorsPath, json, overwrite);
+        return Services.Analysis.Hunts.AuditIndicators.Written(count, withheld, full);
+    }
+
+    /// <summary>Writes the audit-mode App Control policy to <paramref name="policyPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it; with no policy to write it returns the reason.</summary>
+    public static string WritePolicy(InspectionService.FileSummary summary, string policyPath, bool overwrite)
+    {
+        var (xml, note) = Services.Analysis.Hunts.AuditPolicy.Write(ProvenHunts(summary, "policyPath"));
+        if (xml == null) return note;
+        var full = SafeFile.WriteAllBytes(policyPath, xml, overwrite);
+        return Services.Analysis.Hunts.AuditPolicy.Written(full);
     }
 
     /// <summary>

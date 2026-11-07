@@ -53,6 +53,27 @@ public sealed class IsolatedSummaryOutputTests : FileIsolationTestBase
     }
 
     [Fact]
+    public async Task A_sandboxed_worker_writes_the_indicator_and_policy_files_the_call_names()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var clean = Directory.CreateDirectory(Path.Combine(_dir.Path, "clean")).FullName;
+        File.WriteAllBytes(Path.Combine(clean, "Other.dll"), InspectionTests.Compile("Other", "public static class Other { }"));
+        var indicators = Path.Combine(_dir.Path, "out", "indicators.json");
+        var policy = Path.Combine(_dir.Path, "out", "audit.xml");
+        using var pool = SandboxedPool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+
+        var result = await Call(session, "summarize_file", new() { ["path"] = Env.FixturePath, ["cleanFolder"] = clean, ["minFiles"] = 1, ["indicatorsPath"] = indicators, ["policyPath"] = policy });
+
+        Assert.True(result.IsError != true, Whole(result));
+        Assert.True(File.Exists(indicators) && File.Exists(policy), Whole(result));
+        Assert.Contains("\"action\": \"Audit\"", File.ReadAllText(indicators), StringComparison.Ordinal);
+        Assert.Contains("Enabled:Audit Mode", File.ReadAllText(policy), StringComparison.Ordinal);
+        Assert.DoesNotContain("outputs-", Whole(result));
+    }
+
+    [Fact]
     public async Task An_existing_output_file_is_refused_before_the_worker_runs()
     {
         if (!OperatingSystem.IsWindows()) return;

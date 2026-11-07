@@ -1150,7 +1150,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                         if (Hunts.KqlCheck.Diagnostics(tenantQuery.Kql) is { Count: > 0 } problems) tenantNotes.Add($"Query {tenantQuery.Id} was dropped: {problems[0]}");
                         else queries = [.. queries, tenantQuery];
                     }
-                    hunts = new Hunts.HuntSet(queries, [.. read.Notes, .. set.Notes, .. tenantNotes]) { Facts = facts, UnknownKinds = read.Unknown };
+                    hunts = new Hunts.HuntSet(queries, [.. read.Notes, .. set.Notes, .. tenantNotes]) 
+                    { Facts = facts, UnknownKinds = read.Unknown, Image = input.Options.AuditFiles ? Hunts.ImageDigests.Of(input, s.File) : null };
                     kind = Hunts.RuleProof.KindOf(input.Head);
                 }
                 if (saved != null) (tenant, tenantNotes) = JoinTenant(input.Options.TenantResultPath, sha1);

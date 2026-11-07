@@ -39,6 +39,10 @@ public sealed record HuntSet(IReadOnlyList<Hunt> Hunts, IReadOnlyList<string> No
 
     /// <summary>The tenant facts joined from a saved query result; null when no result was joined.</summary>
     public TenantFacts? Tenant { get; init; }
+
+    /// <summary>The hashes of the file the facts were read from, when audit files are written; null for a saved set of queries.</summary>
+    [JsonIgnore]
+    public ImageDigests? Image { get; init; }
 }
 
 /// <summary>The fact kinds <see cref="KqlHunts"/> writes queries for.</summary>

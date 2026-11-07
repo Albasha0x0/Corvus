@@ -190,6 +190,9 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
     /// <summary>Hunting queries are to be written to a file, which needs the hunts view whatever view is shown.</summary>
     public bool Hunts { get; init; }
 
+    /// <summary>Audit indicators or an audit policy are to be written, which reads the Authenticode hashes of the file; the caller also sets <see cref="Hunts"/>.</summary>
+    public bool AuditFiles { get; init; }
+
     /// <summary>A saved result of the tenant query of the hunts view, joined to the file; null for none.</summary>
     public string? TenantResultPath { get; init; }
 
