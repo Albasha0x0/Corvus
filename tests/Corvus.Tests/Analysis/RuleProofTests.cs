@@ -405,6 +405,15 @@ public sealed class RuleProofTests : IDisposable
     }
 
     [Fact]
+    [FuzzEntry(typeof(HuntRules))]
+    public void Fuzzed_saved_hunts_files_never_throw_unexpectedly()
+    {
+        var seed = HuntRules.Write(Plain("registry_key", "Software_X"));
+        var failures = FormatFuzz.Run(seed, b => HuntRules.Read(b), 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+
+    [Fact]
     public void A_saved_hunts_file_is_checked_as_the_queries_it_holds()
     {
         var clean = Folder("clean");

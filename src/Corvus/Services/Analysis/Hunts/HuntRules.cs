@@ -1,4 +1,5 @@
 using System.Text;
+using Corvus.Core;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -71,24 +72,35 @@ public static class HuntRules
         if (bytes.Length > 16 << 20 || at == bytes.Length || bytes[at] != (byte)'{' && bytes[at] != 0xEF) return null;
         try
         {
-            if (JsonNode.Parse(bytes) is not JsonObject { } root || root["hunts"] is not JsonArray queries) return null;
-            var ruleIds = (root["detectionRules"] as JsonArray ?? []).Select(r => (string?)r?["id"]).ToHashSet();
+            using var doc = InputJson.ParseObject(bytes.ToArray());
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("hunts", out var queries) || queries.ValueKind != JsonValueKind.Array) return null;
+            var ruleIds = new HashSet<string?>();
+            if (root.TryGetProperty("detectionRules", out var rules) && rules.ValueKind == JsonValueKind.Array)
+                foreach (var r in rules.EnumerateArray()) ruleIds.Add(Text(r, "id"));
             var hunts = new List<Hunt>();
-            foreach (var q in queries)
+            foreach (var o in queries.EnumerateArray())
             {
-                if (q is not JsonObject o || (string?)o["id"] is not { } id || (string?)o["kql"] is not { } kql || o["facts"] is not JsonArray facts) return null;
-                var table = (string?)o["table"] ?? "";
-                bool dropped = (string?)o["proof"]?["verdict"] == "drop";
-                hunts.Add(new Hunt(id, (string?)o["title"] ?? id, table, kql, [.. facts.Select(x => x?.GetValue<string>() ?? "")], (string?)o["evidence"] ?? "")
+                if (o.ValueKind != JsonValueKind.Object || Text(o, "id") is not { } id || Text(o, "kql") is not { } kql
+                    || !o.TryGetProperty("facts", out var facts) || facts.ValueKind != JsonValueKind.Array
+                    || facts.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String)) return null;
+                var table = Text(o, "table") ?? "";
+                bool dropped = o.TryGetProperty("proof", out var proof) && Text(proof, "verdict") == "drop";
+                hunts.Add(new Hunt(id, Text(o, "title") ?? id, table, kql, [.. facts.EnumerateArray().Select(x => x.GetString()!)], Text(o, "evidence") ?? "")
                 {
-                    Severity = (string?)o["severity"] ?? "informational",
+                    Severity = Text(o, "severity") ?? "informational",
                     HuntingOnly = !ruleIds.Contains(id) && !dropped && table != "DeviceFileCertificateInfo",
                 });
             }
-            return new HuntSet(hunts, [.. (root["notes"] as JsonArray ?? []).Select(n => n?.GetValue<string>() ?? "")]);
+            var notes = root.TryGetProperty("notes", out var n) && n.ValueKind == JsonValueKind.Array
+                ? n.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString()! : "").ToList() : [];
+            return new HuntSet(hunts, notes);
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException) { return null; }
     }
+
+    private static string? Text(JsonElement o, string name) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     /// <summary>The JSON file of a hunt set: the queries, one disabled detectionRule body per query, and the notes.</summary>
     public static byte[] Write(HuntSet set)
