@@ -62,18 +62,38 @@ public static class IndicatorList
     // address that routes.
     private const int MinStringChars = 7, MaxStringChars = 2_048, MaxImageBytes = 256 << 20;
 
+    /// <summary>
+    /// Bounds of an image string scan: <paramref name="MaxPerPass"/> strings kept, shared by the passes or one budget each (<paramref name="PerPass"/>),
+    /// UTF-16 read at both file offset parities (<paramref name="BothParities"/>), a file range not read, and runs a caller drops, counted.
+    /// </summary>
+    public sealed record ImageScanBounds(int MaxPerPass, bool PerPass = false, bool BothParities = false, (long Offset, long Size)? Excluded = null, Func<long, bool>? Skipped = null);
+
+    /// <summary>What an image string scan did not read: runs dropped by <see cref="ImageScanBounds.Skipped"/> and each bound it hit.</summary>
+    public sealed record ImageScanReport(int Skipped, IReadOnlyList<string> Limits);
+
     /// <summary>The network values of the printable ASCII and UTF-16 runs of a native image, each with its file offset; empty for none.</summary>
-    public static List<IndicatorHit> FromImageStrings(string source, byte[] image, CancellationToken ct)
+    public static List<IndicatorHit> FromImageStrings(string source, byte[] image, CancellationToken ct) =>
+        FromImageStrings(source, image, ct, new ImageScanBounds(MaxPerReader), out _);
+
+    /// <summary>The network values of the runs of a native image read within <paramref name="bounds"/>; <paramref name="report"/> names what was not read.</summary>
+    public static List<IndicatorHit> FromImageStrings(string source, byte[] image, CancellationToken ct, ImageScanBounds bounds, out ImageScanReport report)
     {
         var fields = new List<(string, string)>();
-        void Scan(int step, string encoding)
+        var limits = new List<string>();
+        int skipped = 0;
+        if (image.Length > MaxImageBytes) limits.Add($"only the first {MaxImageBytes:N0} bytes were scanned");
+        void Scan(int step, int first, string encoding)
         {
             var run = new System.Text.StringBuilder();
-            int start = 0;
-            for (int i = 0; i + step <= Math.Min(image.Length, MaxImageBytes) && fields.Count < MaxPerReader; i += step)
+            int start = 0, kept = 0;
+            int end = (int)Math.Min(image.Length, MaxImageBytes);
+            bool Open() => (bounds.PerPass ? kept : fields.Count) < bounds.MaxPerPass;
+            int i = first;
+            for (; i + step <= end && Open(); i += step)
             {
                 if ((i & 0xFFFFF) == 0) ct.ThrowIfCancellationRequested();
-                bool text = image[i] is >= 0x20 and < 0x7F && (step == 1 || image[i + 1] == 0);
+                bool text = image[i] is >= 0x20 and < 0x7F && (step == 1 || image[i + 1] == 0)
+                    && !(bounds.Excluded is { } x && i >= x.Offset && i < x.Offset + x.Size);
                 if (text)
                 {
                     if (run.Length == 0) start = i;
@@ -82,17 +102,23 @@ public static class IndicatorList
                 }
                 Flush();
             }
+            if (i + step <= end) limits.Add($"{encoding} string scan stopped at {bounds.MaxPerPass:N0} strings");
             Flush();
             void Flush()
             {
                 if (step == 1) TrimToDerLength(run, start, image);
                 if (run.Length >= MinStringChars && run.ToString() is var t && (t.Contains("://") || t.Contains('@') || t.Contains('.') || t.Count(c => c == ':') >= 2))
-                    fields.Add((t, $"{encoding} string at file offset 0x{start:x}"));
+                {
+                    if (bounds.Skipped?.Invoke(start) == true) skipped++;
+                    else { fields.Add((t, $"{encoding} string at file offset 0x{start:x}")); kept++; }
+                }
                 run.Clear();
             }
         }
-        Scan(1, "ASCII");
-        Scan(2, "UTF-16");
+        Scan(1, 0, "ASCII");
+        Scan(2, 0, "UTF-16");
+        if (bounds.BothParities) Scan(2, 1, "UTF-16 (odd offset)");
+        report = new ImageScanReport(skipped, [.. limits.Distinct()]);
         return FromText(source, fields, ct, IndicatorEvidence.String);
     }
 

@@ -359,6 +359,208 @@
         ]
       }
     },
+    "review": {
+      "description": "review: what the new build adds and the verdict, pass or hold, with each hold reason.",
+      "type": "object",
+      "properties": {
+        "oldImage": {
+          "type": "string"
+        },
+        "newImage": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "holds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "reason",
+              "evidence"
+            ]
+          }
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "oldAddress": {
+                "type": "string"
+              },
+              "newAddress": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "diff": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "addedTotal": {
+          "type": "integer"
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/properties/review/properties/added/items"
+          }
+        },
+        "changedTotal": {
+          "type": "integer"
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "concern": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "value",
+              "evidence"
+            ]
+          }
+        },
+        "embedded": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "machine": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "offset",
+              "size",
+              "sha256",
+              "machine"
+            ]
+          }
+        },
+        "signer": {
+          "type": "object",
+          "properties": {
+            "old": {
+              "type": "string"
+            },
+            "new": {
+              "type": "string"
+            },
+            "change": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "change"
+          ]
+        },
+        "version": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "old": {
+                "type": "string"
+              },
+              "new": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "field"
+            ]
+          }
+        }
+      },
+      "required": [
+        "oldImage",
+        "newImage",
+        "verdict",
+        "holds",
+        "sections",
+        "added",
+        "addedTotal",
+        "changed",
+        "changedTotal",
+        "imports",
+        "hosts",
+        "embedded",
+        "signer",
+        "version"
+      ]
+    },
     "limit": {
       "type": "integer"
     },

@@ -729,7 +729,7 @@ public sealed class EmbeddedScanValidityTests
     public void Every_source_file_that_scans_for_a_magic_has_a_scan_row()
     {
         var src = Path.Combine(DocsTests.RepoRoot(), "src", "Corvus");
-        var known = new[] { "Services/Analysis/InspectionService.cs", "Core/Archives/AppendedArchive.cs", "Core/Containers.cs", "Core/Blob.cs", "Services/Analysis/NativeEmbeddedContent.cs", "Core/AutoIt/AutoItScript.cs" };
+        var known = new[] { "Services/Analysis/InspectionService.cs", "Core/Archives/AppendedArchive.cs", "Core/Containers.cs", "Core/Blob.cs", "Services/Analysis/NativeEmbeddedContent.cs", "Core/AutoIt/AutoItScript.cs", "Services/Analysis/UpdateReview.cs" };
         var call = new Regex(@"Blob\.FindAll\(|Blob\.CarvePe\(", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
         var unknown = Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(src, f).Replace(Path.DirectorySeparatorChar, '/'))
